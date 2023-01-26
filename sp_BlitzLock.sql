@@ -2441,6 +2441,76 @@ BEGIN
                      )
                  ),
              wait_time_hms =
+             /*the more wait time you rack up the less accurate this gets, 
+             it's either that or erroring out*/
+            CASE 
+                WHEN 
+                    SUM
+                    (
+                        CONVERT
+                        (
+                            bigint, 
+                            dp.wait_time
+                        )
+                    )/1000 > 2147483647
+                THEN 
+                   CONVERT
+                   (
+                       nvarchar(30),
+                       DATEADD
+                       (
+                            MINUTE,
+                            (
+                                 (
+                                    SUM
+                                    (
+                                       CONVERT
+                                       (
+                                           bigint, 
+                                           dp.wait_time
+                                       )
+                                    )
+                                 )/
+                                 60000
+                            ),
+                            0
+                       ),
+                       14
+                   )
+                WHEN 
+                    SUM
+                    (
+                        CONVERT
+                        (
+                            bigint, 
+                            dp.wait_time
+                        )
+                    ) BETWEEN 2147483648 AND 2147483647000
+                THEN 
+                   CONVERT
+                   (
+                       nvarchar(30),
+                       DATEADD
+                       (
+                            SECOND,
+                            (
+                                 (
+                                    SUM
+                                    (
+                                       CONVERT
+                                       (
+                                           bigint, 
+                                           dp.wait_time
+                                       )
+                                    )
+                                 )/
+                                 1000
+                            ),
+                            0
+                       ),
+                       14
+                   )
+                ELSE
                  CONVERT
                  (
                      nvarchar(30),
@@ -2461,6 +2531,7 @@ BEGIN
                     ),
                     14
                  )
+				 END
             FROM #deadlock_owner_waiter AS dow
             JOIN #deadlock_process AS dp
               ON (dp.id = dow.owner_id
@@ -2577,6 +2648,76 @@ BEGIN
                 )
             ) +
             N' ' +
+        /*the more wait time you rack up the less accurate this gets, 
+        it's either that or erroring out*/
+            CASE 
+                WHEN 
+                    SUM
+                    (
+                        CONVERT
+                        (
+                            bigint, 
+                            wt.total_wait_time_ms
+                        )
+                    )/1000 > 2147483647
+                THEN 
+                   CONVERT
+                   (
+                       nvarchar(30),
+                       DATEADD
+                       (
+                            MINUTE,
+                            (
+                                 (
+                                    SUM
+                                    (
+                                       CONVERT
+                                       (
+                                           bigint, 
+                                           wt.total_wait_time_ms
+                                       )
+                                    )
+                                 )/
+                                 60000
+                            ),
+                            0
+                       ),
+                       14
+                   )
+                WHEN 
+                    SUM
+                    (
+                        CONVERT
+                        (
+                            bigint, 
+                            wt.total_wait_time_ms
+                        )
+                    ) BETWEEN 2147483648 AND 2147483647000
+                THEN 
+                   CONVERT
+                   (
+                       nvarchar(30),
+                       DATEADD
+                       (
+                            SECOND,
+                            (
+                                 (
+                                    SUM
+                                    (
+                                       CONVERT
+                                       (
+                                           bigint, 
+                                           wt.total_wait_time_ms
+                                       )
+                                    )
+                                 )/
+                                 1000
+                            ),
+                            0
+                       ),
+                       14
+                   )
+                ELSE
             CONVERT
               (
                   nvarchar(30),
@@ -2596,7 +2737,7 @@ BEGIN
                       0
                   ),
                   14
-              ) +
+              ) END +
             N' [dd hh:mm:ss:ms] of deadlock wait time.'
         FROM wait_time AS wt
         GROUP BY
