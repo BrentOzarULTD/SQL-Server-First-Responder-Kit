@@ -859,7 +859,7 @@ BEGIN
 				OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle, blocked.sql_handle)) AS dest
 			 OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS derp
 				OUTER APPLY (
-						SELECT CONVERT(DECIMAL(38,2), SUM( (((tsu.user_objects_alloc_page_count - user_objects_dealloc_page_count) * 8) / 1024.)) ) AS tempdb_allocations_mb
+						SELECT CONVERT(DECIMAL(38,2), SUM( ((((tsu.user_objects_alloc_page_count - user_objects_dealloc_page_count) + (tsu.internal_objects_alloc_page_count - internal_objects_dealloc_page_count)) * 8) / 1024.)) ) AS tempdb_allocations_mb
 						FROM sys.dm_db_task_space_usage tsu
 						WHERE tsu.request_id = r.request_id
 						AND tsu.session_id = r.session_id
@@ -1152,7 +1152,7 @@ IF @ProductVersionMajor >= 11
 	    OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle, blocked.sql_handle)) AS dest
 	    OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS derp
 	    OUTER APPLY (
-			    SELECT CONVERT(DECIMAL(38,2), SUM( (((tsu.user_objects_alloc_page_count - user_objects_dealloc_page_count) * 8) / 1024.)) ) AS tempdb_allocations_mb
+			    SELECT CONVERT(DECIMAL(38,2), SUM( ((((tsu.user_objects_alloc_page_count - user_objects_dealloc_page_count) + (tsu.internal_objects_alloc_page_count - internal_objects_dealloc_page_count)) * 8) / 1024.)) ) AS tempdb_allocations_mb
 			    FROM sys.dm_db_task_space_usage tsu
 			    WHERE tsu.request_id = r.request_id
 			    AND tsu.session_id = r.session_id
