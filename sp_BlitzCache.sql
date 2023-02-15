@@ -1159,18 +1159,18 @@ IF @SkipAnalysis = 1
 
 DECLARE @AllSortSql NVARCHAR(MAX) = N'';
 DECLARE @VersionShowsMemoryGrants BIT;
-IF EXISTS(SELECT * FROM sys.all_columns WHERE OBJECT_ID = OBJECT_ID('sys.dm_exec_query_stats') AND name = 'max_grant_kb')
+IF EXISTS(SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_stats') AND name = 'max_grant_kb')
     SET @VersionShowsMemoryGrants = 1;
 ELSE
     SET @VersionShowsMemoryGrants = 0;
 
 DECLARE @VersionShowsSpills BIT;
-IF EXISTS(SELECT * FROM sys.all_columns WHERE OBJECT_ID = OBJECT_ID('sys.dm_exec_query_stats') AND name = 'max_spills')
+IF EXISTS(SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_stats') AND name = 'max_spills')
     SET @VersionShowsSpills = 1;
 ELSE
     SET @VersionShowsSpills = 0;
 
-IF EXISTS(SELECT * FROM sys.all_columns WHERE OBJECT_ID = OBJECT_ID('sys.dm_exec_query_plan_stats') AND name = 'query_plan')
+IF EXISTS(SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_plan_stats') AND name = 'query_plan')
     SET @VersionShowsAirQuoteActualPlans = 1;
 ELSE
     SET @VersionShowsAirQuoteActualPlans = 0;
