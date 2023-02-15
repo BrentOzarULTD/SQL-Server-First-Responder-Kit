@@ -1169,7 +1169,7 @@ BEGIN
             waiter_mode = w.l.value('@mode', 'nvarchar(256)'),
             owner_id = o.l.value('@id', 'nvarchar(256)'),
             owner_mode = o.l.value('@mode', 'nvarchar(256)'),
-            lock_type = N'OBJECT'
+            lock_type = CAST(N'OBJECT' AS NVARCHAR(100))
         INTO #deadlock_owner_waiter
         FROM
         (
