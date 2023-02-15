@@ -281,7 +281,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.12', @VersionDate = '20221213';
+SELECT @Version = '8.13', @VersionDate = '20230215';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -305,7 +305,6 @@ IF @Help = 1
 	the findings, contribute your own code, and more.
 
 	Known limitations of this version:
-	 - This query will not run on SQL Server 2005.
 	 - SQL Server 2008 and 2008R2 have a bug in trigger stats, so that output is
 	   excluded by default.
 	 - @IgnoreQueryHashes and @OnlyQueryHashes require a CSV list of hashes
@@ -321,7 +320,7 @@ IF @Help = 1
 
 	MIT License
 
-	Copyright (c) 2021 Brent Ozar Unlimited
+	Copyright (c) Brent Ozar Unlimited
 
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
