@@ -2163,7 +2163,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                    FROM (
                          SELECT deqp.session_id,
                                 deqp.request_id,
-                                CASE WHEN deqp.row_count > ( deqp.estimate_row_count * 10000 )
+                                CASE WHEN (deqp.row_count/10000) > deqp.estimate_row_count
                                      THEN 1
                                      ELSE 0
                                 END AS estimate_inaccuracy
