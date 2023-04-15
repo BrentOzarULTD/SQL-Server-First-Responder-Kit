@@ -31,6 +31,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	@DatabaseOwner sysname = NULL,
 	@SetTrustworthyON BIT = 0,
     @Execute CHAR(1) = Y,
+	@FileExtensionDiff NVARCHAR(128) = NULL,
     @Debug INT = 0, 
     @Help BIT = 0,
     @Version     VARCHAR(30) = NULL OUTPUT,
@@ -157,6 +158,16 @@ BEGIN
 		@ContinueLogs = 1, 
 		@RunRecovery = 0,
 		@Debug = 0;
+
+	--Restore just through the latest DIFF, ignoring logs, and using a custom ".dif" file extension
+	EXEC dbo.sp_DatabaseRestore 
+		@Database = ''LogShipMe'', 
+		@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'', 
+		@BackupPathDiff = ''D:\Backup\SQL2016PROD1A\LogShipMe\DIFF\'',
+		@RestoreDiff = 1,
+		@FileExtensionDiff = ''dif'',
+		@ContinueLogs = 0, 
+		@RunRecovery = 1;
 
 	-- Restore from stripped backup set when multiple paths are used. This example will restore stripped full backup set along with stripped transactional logs set from multiple backup paths
 	EXEC dbo.sp_DatabaseRestore 
@@ -498,6 +509,13 @@ BEGIN
 	BEGIN
 		RAISERROR('Supported values for @BlockSize are 512, 1024, 2048, 4096, 8192, 16384, 32768, and 65536', 0, 1) WITH NOWAIT;
 	END
+END
+
+--File Extension cleanup
+IF @FileExtensionDiff LIKE '%.%'
+BEGIN
+	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Removing "." from @FileExtensionDiff', 0, 1) WITH NOWAIT;
+	SET @FileExtensionDiff = REPLACE(@FileExtensionDiff,'.','');
 END
 
 SET @RestoreDatabaseID = DB_ID(@RestoreDatabaseName);
@@ -1044,9 +1062,15 @@ BEGIN
 	END
     /*End folder sanity check*/
     -- Find latest diff backup 
+	IF @FileExtensionDiff IS NULL
+	BEGIN
+		IF @Execute = 'Y' OR @Debug = 1 RAISERROR('No @FileExtensionDiff given, assuming "bak".', 0, 1) WITH NOWAIT;
+		SET @FileExtensionDiff = 'bak';
+	END
+
 	SELECT TOP 1 @LastDiffBackup = BackupFile, @CurrentBackupPathDiff = BackupPath
     FROM @FileList
-    WHERE BackupFile LIKE N'%.bak'
+    WHERE BackupFile LIKE N'%.' + @FileExtensionDiff
         AND
         BackupFile LIKE N'%' + @Database + '%'
 	    AND
