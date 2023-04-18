@@ -2168,7 +2168,9 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                                      ELSE 0
                                 END AS estimate_inaccuracy
                          FROM   sys.dm_exec_query_profiles AS deqp
+                         INNER JOIN sys.dm_exec_requests r ON deqp.session_id = r.session_id AND deqp.request_id = r.request_id
 						 WHERE deqp.session_id <> @@SPID
+                           AND r.total_elapsed_time > 5000
                    ) AS x
                    WHERE x.estimate_inaccuracy = 1
                    GROUP BY x.session_id, 
