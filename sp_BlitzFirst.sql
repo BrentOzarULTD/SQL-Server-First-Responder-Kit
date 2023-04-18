@@ -1511,44 +1511,45 @@ BEGIN
 			RAISERROR('Running CheckID 1',10,1) WITH NOWAIT;
 		END
 
-		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
-		SELECT 1 AS CheckID,
-		    1 AS Priority,
-		    'Maintenance Tasks Running' AS FindingGroup,
-		    'Backup Running' AS Finding,
-		    'https://www.brentozar.com/askbrent/backups/' AS URL,
-		    'Backup of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) ' + @LineFeed
-		        + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' + @LineFeed
-			    + CASE WHEN COALESCE(s.nt_username, s.loginame) IS NOT NULL THEN (' Login: ' + COALESCE(s.nt_username, s.loginame) + ' ') ELSE '' END AS Details,
-		    'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
-		    pl.query_plan AS QueryPlan,
-		    r.start_time AS StartTime,
-		    s.loginame AS LoginName,
-		    s.nt_username AS NTUserName,
-		    s.[program_name] AS ProgramName,
-		    s.[hostname] AS HostName,
-		    db.[resource_database_id] AS DatabaseID,
-		    DB_NAME(db.resource_database_id) AS DatabaseName,
-		    0 AS OpenTransactionCount,
-		    r.query_hash
-		FROM sys.dm_exec_requests r
-		INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
-		INNER JOIN sys.sysprocesses AS s ON r.session_id = s.spid AND s.ecid = 0
-		INNER JOIN
-		(
-		    SELECT DISTINCT
-			    t.request_session_id,
-				t.resource_database_id
-		    FROM sys.dm_tran_locks AS t
-		    WHERE t.resource_type = N'DATABASE'
-		    AND   t.request_mode = N'S'
-		    AND   t.request_status = N'GRANT'
-		    AND   t.request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'
-		) AS db ON s.spid = db.request_session_id AND s.dbid = db.resource_database_id
-		CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
-		WHERE r.command LIKE 'BACKUP%'
-		AND r.start_time <= DATEADD(minute, -5, GETDATE())
-		AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
+        IF EXISTS(SELECT * FROM sys.dm_exec_requests WHERE total_elapsed_time > 300000 AND command LIKE 'BACKUP%')
+            INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
+            SELECT 1 AS CheckID,
+                1 AS Priority,
+                'Maintenance Tasks Running' AS FindingGroup,
+                'Backup Running' AS Finding,
+                'https://www.brentozar.com/askbrent/backups/' AS URL,
+                'Backup of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) ' + @LineFeed
+                    + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' + @LineFeed
+                    + CASE WHEN COALESCE(s.nt_username, s.loginame) IS NOT NULL THEN (' Login: ' + COALESCE(s.nt_username, s.loginame) + ' ') ELSE '' END AS Details,
+                'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
+                pl.query_plan AS QueryPlan,
+                r.start_time AS StartTime,
+                s.loginame AS LoginName,
+                s.nt_username AS NTUserName,
+                s.[program_name] AS ProgramName,
+                s.[hostname] AS HostName,
+                db.[resource_database_id] AS DatabaseID,
+                DB_NAME(db.resource_database_id) AS DatabaseName,
+                0 AS OpenTransactionCount,
+                r.query_hash
+            FROM sys.dm_exec_requests r
+            INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
+            INNER JOIN sys.sysprocesses AS s ON r.session_id = s.spid AND s.ecid = 0
+            INNER JOIN
+            (
+                SELECT DISTINCT
+                    t.request_session_id,
+                    t.resource_database_id
+                FROM sys.dm_tran_locks AS t
+                WHERE t.resource_type = N'DATABASE'
+                AND   t.request_mode = N'S'
+                AND   t.request_status = N'GRANT'
+                AND   t.request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'
+            ) AS db ON s.spid = db.request_session_id AND s.dbid = db.resource_database_id
+            CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
+            WHERE r.command LIKE 'BACKUP%'
+            AND r.start_time <= DATEADD(minute, -5, GETDATE())
+            AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
 	END
 
     /* If there's a backup running, add details explaining how long full backup has been taking in the last month. */
@@ -1560,48 +1561,49 @@ BEGIN
 
 
     /* Maintenance Tasks Running - DBCC CHECK* Running - CheckID 2 */
-    IF @Seconds > 0 AND EXISTS(SELECT * FROM sys.dm_exec_requests WHERE command LIKE 'DBCC%')
+    IF @Seconds > 0
 	BEGIN
 		IF (@Debug = 1)
 		BEGIN
 			RAISERROR('Running CheckID 2',10,1) WITH NOWAIT;
 		END
 
-		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
-		SELECT 2 AS CheckID,
-		    1 AS Priority,
-		    'Maintenance Tasks Running' AS FindingGroup,
-		    'DBCC CHECK* Running' AS Finding,
-		    'https://www.brentozar.com/askbrent/dbcc/' AS URL,
-		    'Corruption check of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
-		    'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
-		    pl.query_plan AS QueryPlan,
-		    r.start_time AS StartTime,
-		    s.login_name AS LoginName,
-		    s.nt_user_name AS NTUserName,
-		    s.[program_name] AS ProgramName,
-		    s.[host_name] AS HostName,
-		    db.[resource_database_id] AS DatabaseID,
-		    DB_NAME(db.resource_database_id) AS DatabaseName,
-		    0 AS OpenTransactionCount,
-		    r.query_hash
-		FROM sys.dm_exec_requests r
-		INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
-		INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
-		INNER JOIN (SELECT DISTINCT l.request_session_id, l.resource_database_id
-		FROM    sys.dm_tran_locks l
-		INNER JOIN sys.databases d ON l.resource_database_id = d.database_id
-		WHERE l.resource_type = N'DATABASE'
-		AND     l.request_mode = N'S'
-		AND    l.request_status = N'GRANT'
-		AND    l.request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
-		OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) pl
-		OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) AS t
-		WHERE r.command LIKE 'DBCC%'
-		AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%dm_db_index_physical_stats%'
-		AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%ALTER INDEX%'
-		AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%fileproperty%'
-		AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
+        IF EXISTS (SELECT * FROM sys.dm_exec_requests WHERE command LIKE 'DBCC%' AND total_elapsed_time > 5000)
+            INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
+            SELECT 2 AS CheckID,
+                1 AS Priority,
+                'Maintenance Tasks Running' AS FindingGroup,
+                'DBCC CHECK* Running' AS Finding,
+                'https://www.brentozar.com/askbrent/dbcc/' AS URL,
+                'Corruption check of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
+                'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
+                pl.query_plan AS QueryPlan,
+                r.start_time AS StartTime,
+                s.login_name AS LoginName,
+                s.nt_user_name AS NTUserName,
+                s.[program_name] AS ProgramName,
+                s.[host_name] AS HostName,
+                db.[resource_database_id] AS DatabaseID,
+                DB_NAME(db.resource_database_id) AS DatabaseName,
+                0 AS OpenTransactionCount,
+                r.query_hash
+            FROM sys.dm_exec_requests r
+            INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
+            INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
+            INNER JOIN (SELECT DISTINCT l.request_session_id, l.resource_database_id
+            FROM    sys.dm_tran_locks l
+            INNER JOIN sys.databases d ON l.resource_database_id = d.database_id
+            WHERE l.resource_type = N'DATABASE'
+            AND     l.request_mode = N'S'
+            AND    l.request_status = N'GRANT'
+            AND    l.request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
+            OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) pl
+            OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) AS t
+            WHERE r.command LIKE 'DBCC%'
+            AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%dm_db_index_physical_stats%'
+            AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%ALTER INDEX%'
+            AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%fileproperty%'
+            AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
 	END
 
     /* Maintenance Tasks Running - Restore Running - CheckID 3 */
@@ -1612,37 +1614,38 @@ BEGIN
 			RAISERROR('Running CheckID 3',10,1) WITH NOWAIT;
 		END
 
-		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
-		SELECT 3 AS CheckID,
-		    1 AS Priority,
-		    'Maintenance Tasks Running' AS FindingGroup,
-		    'Restore Running' AS Finding,
-		    'https://www.brentozar.com/askbrent/backups/' AS URL,
-		    'Restore of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
-		    'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
-		    pl.query_plan AS QueryPlan,
-		    r.start_time AS StartTime,
-		    s.login_name AS LoginName,
-		    s.nt_user_name AS NTUserName,
-		    s.[program_name] AS ProgramName,
-		    s.[host_name] AS HostName,
-		    db.[resource_database_id] AS DatabaseID,
-		    DB_NAME(db.resource_database_id) AS DatabaseName,
-		    0 AS OpenTransactionCount,
-		    r.query_hash
-		FROM sys.dm_exec_requests r
-		INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
-		INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
-		INNER JOIN (
-		SELECT DISTINCT request_session_id, resource_database_id
-		FROM    sys.dm_tran_locks
-		WHERE resource_type = N'DATABASE'
-		AND     request_mode = N'S'
-		AND     request_status = N'GRANT') AS db ON s.session_id = db.request_session_id
-		CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
-		WHERE r.command LIKE 'RESTORE%'
-		AND s.program_name <> 'SQL Server Log Shipping'
-		AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
+        IF EXISTS (SELECT * FROM sys.dm_exec_requests WHERE command LIKE 'RESTORE%' AND total_elapsed_time > 5000)
+            INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
+            SELECT 3 AS CheckID,
+                1 AS Priority,
+                'Maintenance Tasks Running' AS FindingGroup,
+                'Restore Running' AS Finding,
+                'https://www.brentozar.com/askbrent/backups/' AS URL,
+                'Restore of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
+                'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
+                pl.query_plan AS QueryPlan,
+                r.start_time AS StartTime,
+                s.login_name AS LoginName,
+                s.nt_user_name AS NTUserName,
+                s.[program_name] AS ProgramName,
+                s.[host_name] AS HostName,
+                db.[resource_database_id] AS DatabaseID,
+                DB_NAME(db.resource_database_id) AS DatabaseName,
+                0 AS OpenTransactionCount,
+                r.query_hash
+            FROM sys.dm_exec_requests r
+            INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
+            INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
+            INNER JOIN (
+            SELECT DISTINCT request_session_id, resource_database_id
+            FROM    sys.dm_tran_locks
+            WHERE resource_type = N'DATABASE'
+            AND     request_mode = N'S'
+            AND     request_status = N'GRANT') AS db ON s.session_id = db.request_session_id
+            CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
+            WHERE r.command LIKE 'RESTORE%'
+            AND s.program_name <> 'SQL Server Log Shipping'
+            AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
 	END
 
     /* SQL Server Internal Maintenance - Database File Growing - CheckID 4 */
@@ -1755,37 +1758,38 @@ BEGIN
 			RAISERROR('Running CheckID 8',10,1) WITH NOWAIT;
 		END
 
-		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
-		SELECT 8 AS CheckID,
-		    50 AS Priority,
-		    'Query Problems' AS FindingGroup,
-		    'Sleeping Query with Open Transactions' AS Finding,
-		    'https://www.brentozar.com/askbrent/sleeping-query-with-open-transactions/' AS URL,
-		    'Database: ' + DB_NAME(db.resource_database_id) + @LineFeed + 'Host: ' + s.hostname + @LineFeed + 'Program: ' + s.[program_name] + @LineFeed + 'Asleep with open transactions and locks since ' + CAST(s.last_batch AS NVARCHAR(100)) + '. ' AS Details,
-		    'KILL ' + CAST(s.spid AS NVARCHAR(100)) + ';' AS HowToStopIt,
-		    s.last_batch AS StartTime,
-		    s.loginame AS LoginName,
-		    s.nt_username AS NTUserName,
-		    s.[program_name] AS ProgramName,
-		    s.hostname AS HostName,
-		    db.[resource_database_id] AS DatabaseID,
-		    DB_NAME(db.resource_database_id) AS DatabaseName,
-		    (SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS QueryText,
-		    s.open_tran AS OpenTransactionCount
-		FROM sys.sysprocesses s
-		INNER JOIN sys.dm_exec_connections c ON s.spid = c.session_id
-		INNER JOIN (
-		SELECT DISTINCT request_session_id, resource_database_id
-		FROM    sys.dm_tran_locks
-		WHERE resource_type = N'DATABASE'
-		AND     request_mode = N'S'
-		AND     request_status = N'GRANT'
-		AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.spid = db.request_session_id
-		WHERE s.status = 'sleeping'
-		AND s.open_tran > 0
-		AND s.last_batch < DATEADD(ss, -10, SYSDATETIME())
-		AND EXISTS(SELECT * FROM sys.dm_tran_locks WHERE request_session_id = s.spid
-		AND NOT (resource_type = N'DATABASE' AND request_mode = N'S' AND request_status = N'GRANT' AND request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'));
+        IF EXISTS (SELECT * FROM sys.dm_exec_requests WHERE total_elapsed_time > 5000 AND request_id > 0)
+            INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
+            SELECT 8 AS CheckID,
+                50 AS Priority,
+                'Query Problems' AS FindingGroup,
+                'Sleeping Query with Open Transactions' AS Finding,
+                'https://www.brentozar.com/askbrent/sleeping-query-with-open-transactions/' AS URL,
+                'Database: ' + DB_NAME(db.resource_database_id) + @LineFeed + 'Host: ' + s.hostname + @LineFeed + 'Program: ' + s.[program_name] + @LineFeed + 'Asleep with open transactions and locks since ' + CAST(s.last_batch AS NVARCHAR(100)) + '. ' AS Details,
+                'KILL ' + CAST(s.spid AS NVARCHAR(100)) + ';' AS HowToStopIt,
+                s.last_batch AS StartTime,
+                s.loginame AS LoginName,
+                s.nt_username AS NTUserName,
+                s.[program_name] AS ProgramName,
+                s.hostname AS HostName,
+                db.[resource_database_id] AS DatabaseID,
+                DB_NAME(db.resource_database_id) AS DatabaseName,
+                (SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS QueryText,
+                s.open_tran AS OpenTransactionCount
+            FROM sys.sysprocesses s
+            INNER JOIN sys.dm_exec_connections c ON s.spid = c.session_id
+            INNER JOIN (
+            SELECT DISTINCT request_session_id, resource_database_id
+            FROM    sys.dm_tran_locks
+            WHERE resource_type = N'DATABASE'
+            AND     request_mode = N'S'
+            AND     request_status = N'GRANT'
+            AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.spid = db.request_session_id
+            WHERE s.status = 'sleeping'
+            AND s.open_tran > 0
+            AND s.last_batch < DATEADD(ss, -10, SYSDATETIME())
+            AND EXISTS(SELECT * FROM sys.dm_tran_locks WHERE request_session_id = s.spid
+            AND NOT (resource_type = N'DATABASE' AND request_mode = N'S' AND request_status = N'GRANT' AND request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'));
 	END
 
     /*Query Problems - Clients using implicit transactions - CheckID 37 */
@@ -1841,34 +1845,35 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			RAISERROR('Running CheckID 9',10,1) WITH NOWAIT;
 		END
 
-		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, QueryHash)
-		SELECT 9 AS CheckID,
-		    1 AS Priority,
-		    'Query Problems' AS FindingGroup,
-		    'Query Rolling Back' AS Finding,
-		    'https://www.brentozar.com/askbrent/rollback/' AS URL,
-		    'Rollback started at ' + CAST(r.start_time AS NVARCHAR(100)) + ', is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete.' AS Details,
-		    'Unfortunately, you can''t stop this. Whatever you do, don''t restart the server in an attempt to fix it - SQL Server will keep rolling back.' AS HowToStopIt,
-		    r.start_time AS StartTime,
-		    s.login_name AS LoginName,
-		    s.nt_user_name AS NTUserName,
-		    s.[program_name] AS ProgramName,
-		    s.[host_name] AS HostName,
-		    db.[resource_database_id] AS DatabaseID,
-		    DB_NAME(db.resource_database_id) AS DatabaseName,
-		    (SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS QueryText,
-		    r.query_hash
-		FROM sys.dm_exec_sessions s
-		INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
-		INNER JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
-		LEFT OUTER JOIN (
-		    SELECT DISTINCT request_session_id, resource_database_id
-		    FROM    sys.dm_tran_locks
-		    WHERE resource_type = N'DATABASE'
-		    AND     request_mode = N'S'
-		    AND     request_status = N'GRANT'
-		    AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
-		WHERE r.status = 'rollback';
+		IF EXISTS (SELECT * FROM sys.dm_exec_requests WHERE total_elapsed_time > 5000 AND request_id > 0)
+            INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, QueryHash)
+            SELECT 9 AS CheckID,
+                1 AS Priority,
+                'Query Problems' AS FindingGroup,
+                'Query Rolling Back' AS Finding,
+                'https://www.brentozar.com/askbrent/rollback/' AS URL,
+                'Rollback started at ' + CAST(r.start_time AS NVARCHAR(100)) + ', is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete.' AS Details,
+                'Unfortunately, you can''t stop this. Whatever you do, don''t restart the server in an attempt to fix it - SQL Server will keep rolling back.' AS HowToStopIt,
+                r.start_time AS StartTime,
+                s.login_name AS LoginName,
+                s.nt_user_name AS NTUserName,
+                s.[program_name] AS ProgramName,
+                s.[host_name] AS HostName,
+                db.[resource_database_id] AS DatabaseID,
+                DB_NAME(db.resource_database_id) AS DatabaseName,
+                (SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS QueryText,
+                r.query_hash
+            FROM sys.dm_exec_sessions s
+            INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
+            INNER JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
+            LEFT OUTER JOIN (
+                SELECT DISTINCT request_session_id, resource_database_id
+                FROM    sys.dm_tran_locks
+                WHERE resource_type = N'DATABASE'
+                AND     request_mode = N'S'
+                AND     request_status = N'GRANT'
+                AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
+            WHERE r.status = 'rollback';
 	END
 
 	IF @Seconds > 0
@@ -2146,7 +2151,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                    JOIN sys.dm_exec_sessions AS s
                        ON r.session_id = s.session_id
                    WHERE s.host_name IS NOT NULL
-                   AND r.total_elapsed_time > 5000 )
+                   AND r.total_elapsed_time > 5000
+                   AND r.request_id > 0 )
 			BEGIN
 
                    SET @StringToExecute = N'
