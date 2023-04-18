@@ -19,6 +19,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @OutputTableNameWaitStats NVARCHAR(256) = NULL ,
     @OutputTableNameBlitzCache NVARCHAR(256) = NULL ,
     @OutputTableNameBlitzWho NVARCHAR(256) = NULL ,
+    @OutputResultSets NVARCHAR(500) = N'BlitzWho_Start|Findings|FileStats|PerfmonStats|WaitStats|BlitzCache|BlitzWho_End' ,
     @OutputTableRetentionDays TINYINT = 7 ,
     @OutputXMLasNVARCHAR TINYINT = 0 ,
     @FilterPlansByDatabase VARCHAR(MAX) = NULL ,
@@ -262,7 +263,7 @@ END; /* IF @AsOf IS NOT NULL AND @OutputDatabaseName IS NOT NULL AND @OutputSche
 ELSE IF @LogMessage IS NULL /* IF @OutputType = 'SCHEMA' */
 BEGIN
     /* What's running right now? This is the first and last result set. */
-    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 AND @OutputType <> 'NONE'
+    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 AND @OutputType <> 'NONE' AND @OutputResultSets LIKE N'%BlitzWho_Start%'
     BEGIN
 		IF OBJECT_ID('master.dbo.sp_BlitzWho') IS NULL AND OBJECT_ID('dbo.sp_BlitzWho') IS NULL
 		BEGIN
@@ -4508,7 +4509,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         FROM    #BlitzFirstResults;
     END;
     ELSE
-        IF @OutputType = 'Opserver1' AND @SinceStartup = 0
+        IF @OutputType = 'Opserver1' AND @SinceStartup = 0 AND @OutputResultSets LIKE N'%Findings%'
         BEGIN
 
             SELECT  r.[Priority] ,
@@ -4565,7 +4566,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     r.Finding,
                     r.ID;
         END;
-        ELSE IF @OutputType IN ( 'CSV', 'RSV' ) AND @SinceStartup = 0
+        ELSE IF @OutputType IN ( 'CSV', 'RSV' ) AND @SinceStartup = 0 AND @OutputResultSets LIKE N'%Findings%'
         BEGIN
 
             SELECT  Result = CAST([Priority] AS NVARCHAR(100))
@@ -4586,7 +4587,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     Finding,
                     Details;
         END;
-        ELSE IF @OutputType = 'Top10'
+        ELSE IF @OutputType = 'Top10' AND @OutputResultSets LIKE N'%WaitStats%'
             BEGIN
                 /* Measure waits in hours */
                 ;WITH max_batch AS (
@@ -4623,7 +4624,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     AND wd2.wait_time_ms-wd1.wait_time_ms > 0
                 ORDER BY [Wait Time (Seconds)] DESC;
         END;
-        ELSE IF @ExpertMode = 0 AND @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 0 AND @SinceStartup = 0
+        ELSE IF @ExpertMode = 0 AND @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 0 AND @SinceStartup = 0 AND @OutputResultSets LIKE N'%Findings%'
         BEGIN
             SELECT  [Priority] ,
                     [FindingsGroup] ,
@@ -4645,7 +4646,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     ID,
 					CAST(Details AS NVARCHAR(4000));
         END;
-        ELSE IF @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 1 AND @SinceStartup = 0
+        ELSE IF @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 1 AND @SinceStartup = 0 AND @OutputResultSets LIKE N'%Findings%'
         BEGIN
             SELECT  [Priority] ,
                     [FindingsGroup] ,
@@ -4667,7 +4668,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     ID,
 					CAST(Details AS NVARCHAR(4000));
         END;
-        ELSE IF @ExpertMode = 1 AND @OutputType <> 'NONE'
+        ELSE IF @ExpertMode = 1 AND @OutputType <> 'NONE' AND @OutputResultSets LIKE N'%Findings%'
         BEGIN
             IF @SinceStartup = 0
                 SELECT  r.[Priority] ,
@@ -4729,7 +4730,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             -------------------------
             --What happened: #WaitStats
             -------------------------
-            IF @Seconds = 0
+            IF @Seconds = 0 AND @OutputResultSets LIKE N'%WaitStats%'
                 BEGIN
                 /* Measure waits in hours */
                 ;WITH max_batch AS (
@@ -4773,7 +4774,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     AND wd2.wait_time_ms-wd1.wait_time_ms > 0
                 ORDER BY [Wait Time (Seconds)] DESC;
                 END;
-            ELSE
+            ELSE IF @OutputResultSets LIKE N'%WaitStats%'
                 BEGIN
                 /* Measure waits in seconds */
                 ;WITH max_batch AS (
@@ -4821,6 +4822,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             -------------------------
             --What happened: #FileStats
             -------------------------
+            IF @OutputResultSets LIKE N'%FileStats%' 
             WITH readstats AS (
                 SELECT 'PHYSICAL READS' AS Pattern,
                 ROW_NUMBER() OVER (ORDER BY wd2.avg_stall_read_ms DESC) AS StallRank,
@@ -4879,7 +4881,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             --What happened: #PerfmonStats
             -------------------------
 
-            SELECT 'PERFMON' AS Pattern, pLast.[object_name], pLast.counter_name, pLast.instance_name,
+            IF @OutputResultSets LIKE N'%PerfmonStats%'
+                SELECT 'PERFMON' AS Pattern, pLast.[object_name], pLast.counter_name, pLast.instance_name,
                 pFirst.SampleTime AS FirstSampleTime, pFirst.cntr_value AS FirstSampleValue,
                 pLast.SampleTime AS LastSampleTime, pLast.cntr_value AS LastSampleValue,
                 pLast.cntr_value - pFirst.cntr_value AS ValueDelta,
@@ -4894,7 +4897,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             -------------------------
             --What happened: #QueryStats
             -------------------------
-            IF @CheckProcedureCache = 1
+            IF @CheckProcedureCache = 1 AND @OutputResultSets LIKE N'%BlitzCache%'
 			BEGIN
 			
 			SELECT qsNow.*, qsFirst.*
@@ -4911,7 +4914,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     DROP TABLE #BlitzFirstResults;
 
     /* What's running right now? This is the first and last result set. */
-    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 AND @OutputType <> 'NONE'
+    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 AND @OutputType <> 'NONE' AND @OutputResultSets LIKE N'%BlitzWho_End%'
     BEGIN
 		IF OBJECT_ID('master.dbo.sp_BlitzWho') IS NULL AND OBJECT_ID('dbo.sp_BlitzWho') IS NULL
 		BEGIN
