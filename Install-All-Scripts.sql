@@ -38,7 +38,7 @@ SET STATISTICS XML OFF;
 
 BEGIN;
 
-SELECT @Version = '8.13', @VersionDate = '20230215';
+SELECT @Version = '8.14', @VersionDate = '20230420';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -1375,7 +1375,7 @@ SET STATISTICS XML OFF;
 BEGIN;
 
 
-SELECT @Version = '8.13', @VersionDate = '20230215';
+SELECT @Version = '8.14', @VersionDate = '20230420';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -2900,7 +2900,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.13', @VersionDate = '20230215';
+	SELECT @Version = '8.14', @VersionDate = '20230420';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -9732,7 +9732,7 @@ IF @ProductVersionMajor >= 10
                                     Details = '[' + DBName + '].[' + SPSchema + '].[' + ProcName + '] has WITH RECOMPILE in the stored procedure code, which may cause increased CPU usage due to constant recompiles of the code.',
                                     CheckID = '78'
                                 FROM #Recompile AS TR 
-								WHERE ProcName NOT LIKE 'sp_AllNightLog%' AND ProcName NOT LIKE 'sp_AskBrent%' AND ProcName NOT LIKE 'sp_Blitz%'
+								WHERE ProcName NOT LIKE 'sp_AllNightLog%' AND ProcName NOT LIKE 'sp_AskBrent%' AND ProcName NOT LIKE 'sp_Blitz%' AND ProcName NOT LIKE 'sp_PressureDetector'
 								  AND DBName NOT IN ('master', 'model', 'msdb', 'tempdb');
                                 DROP TABLE #Recompile;
                             END;
@@ -12599,7 +12599,7 @@ AS
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
-SELECT @Version = '8.13', @VersionDate = '20230215';
+SELECT @Version = '8.14', @VersionDate = '20230420';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -13477,7 +13477,7 @@ AS
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.13', @VersionDate = '20230215';
+	SELECT @Version = '8.14', @VersionDate = '20230420';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -15259,7 +15259,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.13', @VersionDate = '20230215';
+SELECT @Version = '8.14', @VersionDate = '20230420';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -22577,7 +22577,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.13', @VersionDate = '20230215';
+SELECT @Version = '8.14', @VersionDate = '20230420';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -28754,7 +28754,7 @@ BEGIN
     SET NOCOUNT, XACT_ABORT ON;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-    SELECT @Version = '8.13', @VersionDate = '20230215';
+    SELECT @Version = '8.14', @VersionDate = '20230420';
 
     IF @VersionCheckMode = 1
     BEGIN
@@ -29624,12 +29624,13 @@ BEGIN
             SELECT
                 deadlock_xml =
                     TRY_CAST(fx.event_data AS xml)
-            FROM sys.fn_xe_file_target_read_file('system_health*.xel', NULL, NULL, NULL) AS fx
+            FROM sys.fn_xe_file_target_read_file(N'system_health*.xel', NULL, NULL, NULL) AS fx
             LEFT JOIN #t AS t
               ON 1 = 1
+			WHERE fx.object_name = N'xml_deadlock_report'
         ) AS xml
         CROSS APPLY xml.deadlock_xml.nodes('/event') AS e(x)
-        WHERE e.x.exist('@name[ . = "xml_deadlock_report"]') = 1
+        WHERE 1 = 1
         AND   e.x.exist('@timestamp[. >= sql:variable("@StartDate")]') = 1
         AND   e.x.exist('@timestamp[. <  sql:variable("@EndDate")]') = 1
         OPTION(RECOMPILE);
@@ -32402,7 +32403,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.13', @VersionDate = '20230215';
+SELECT @Version = '8.14', @VersionDate = '20230420';
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
@@ -38133,7 +38134,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.13', @VersionDate = '20230215';
+	SELECT @Version = '8.14', @VersionDate = '20230420';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -38776,7 +38777,7 @@ BEGIN
     /* Think of the StringToExecute as starting with this, but we'll set this up later depending on whether we're doing an insert or a select:
     SELECT @StringToExecute = N'SELECT  GETDATE() AS run_date ,
     */
-    SET @StringToExecute = N'COALESCE( RIGHT(''00'' + CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), RIGHT(''00'' + CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114) ) AS [elapsed_time] ,
+    SET @StringToExecute = N' CASE WHEN YEAR(s.last_request_start_time) = 1900 THEN NULL ELSE COALESCE( RIGHT(''00'' + CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), RIGHT(''00'' + CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114) ) END AS [elapsed_time] ,
 			       s.session_id ,
 					CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL 
 							THEN r.blocking_session_id
@@ -38994,7 +38995,7 @@ IF @ProductVersionMajor >= 11
     /* Think of the StringToExecute as starting with this, but we'll set this up later depending on whether we're doing an insert or a select:
     SELECT @StringToExecute = N'SELECT  GETDATE() AS run_date ,
     */
-    SELECT @StringToExecute = N'COALESCE( RIGHT(''00'' + CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), RIGHT(''00'' + CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114) ) AS [elapsed_time] ,
+    SELECT @StringToExecute = N' CASE WHEN YEAR(s.last_request_start_time) = 1900 THEN NULL ELSE COALESCE( RIGHT(''00'' + CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), RIGHT(''00'' + CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114) ) END AS [elapsed_time] ,
 			       s.session_id ,
 					CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL 
 					THEN r.blocking_session_id
@@ -39519,6 +39520,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	@DatabaseOwner sysname = NULL,
 	@SetTrustworthyON BIT = 0,
     @Execute CHAR(1) = Y,
+	@FileExtensionDiff NVARCHAR(128) = NULL,
     @Debug INT = 0, 
     @Help BIT = 0,
     @Version     VARCHAR(30) = NULL OUTPUT,
@@ -39530,7 +39532,7 @@ SET STATISTICS XML OFF;
 
 /*Versioning details*/
 
-SELECT @Version = '8.13', @VersionDate = '20230215';
+SELECT @Version = '8.14', @VersionDate = '20230420';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -39645,6 +39647,16 @@ BEGIN
 		@ContinueLogs = 1, 
 		@RunRecovery = 0,
 		@Debug = 0;
+
+	--Restore just through the latest DIFF, ignoring logs, and using a custom ".dif" file extension
+	EXEC dbo.sp_DatabaseRestore 
+		@Database = ''LogShipMe'', 
+		@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'', 
+		@BackupPathDiff = ''D:\Backup\SQL2016PROD1A\LogShipMe\DIFF\'',
+		@RestoreDiff = 1,
+		@FileExtensionDiff = ''dif'',
+		@ContinueLogs = 0, 
+		@RunRecovery = 1;
 
 	-- Restore from stripped backup set when multiple paths are used. This example will restore stripped full backup set along with stripped transactional logs set from multiple backup paths
 	EXEC dbo.sp_DatabaseRestore 
@@ -39986,6 +39998,13 @@ BEGIN
 	BEGIN
 		RAISERROR('Supported values for @BlockSize are 512, 1024, 2048, 4096, 8192, 16384, 32768, and 65536', 0, 1) WITH NOWAIT;
 	END
+END
+
+--File Extension cleanup
+IF @FileExtensionDiff LIKE '%.%'
+BEGIN
+	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Removing "." from @FileExtensionDiff', 0, 1) WITH NOWAIT;
+	SET @FileExtensionDiff = REPLACE(@FileExtensionDiff,'.','');
 END
 
 SET @RestoreDatabaseID = DB_ID(@RestoreDatabaseName);
@@ -40532,9 +40551,15 @@ BEGIN
 	END
     /*End folder sanity check*/
     -- Find latest diff backup 
+	IF @FileExtensionDiff IS NULL
+	BEGIN
+		IF @Execute = 'Y' OR @Debug = 1 RAISERROR('No @FileExtensionDiff given, assuming "bak".', 0, 1) WITH NOWAIT;
+		SET @FileExtensionDiff = 'bak';
+	END
+
 	SELECT TOP 1 @LastDiffBackup = BackupFile, @CurrentBackupPathDiff = BackupPath
     FROM @FileList
-    WHERE BackupFile LIKE N'%.bak'
+    WHERE BackupFile LIKE N'%.' + @FileExtensionDiff
         AND
         BackupFile LIKE N'%' + @Database + '%'
 	    AND
@@ -41106,7 +41131,7 @@ BEGIN
   SET NOCOUNT ON;
   SET STATISTICS XML OFF;
 
-  SELECT @Version = '8.13', @VersionDate = '20230215';
+  SELECT @Version = '8.14', @VersionDate = '20230420';
   
   IF(@VersionCheckMode = 1)
   BEGIN
@@ -41452,8 +41477,13 @@ DELETE FROM dbo.SqlServerVersions;
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
+    (16, 4025, 'CU3', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate3', '2023-04-13', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 3'),
+    (16, 4015, 'CU2', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate2', '2023-03-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 2'),
+    (16, 4003, 'CU1', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate1', '2023-02-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 1'),
     (16, 1050, 'RTM GDR', 'https://support.microsoft.com/kb/5021522', '2023-02-14', '2028-01-11', '2033-01-11', 'SQL Server 2022 GDR', 'RTM'),
     (16, 1000, 'RTM', '', '2022-11-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'RTM'),
+    (15, 4312, 'CU20', 'https://support.microsoft.com/kb/5024276', '2023-04-13', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 20'),
+    (15, 4298, 'CU19', 'https://support.microsoft.com/kb/5023049', '2023-02-16', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 19'),
     (15, 4280, 'CU18 GDR', 'https://support.microsoft.com/kb/5021124', '2023-02-14', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 18 GDR'),
     (15, 4261, 'CU18', 'https://support.microsoft.com/en-us/help/5017593', '2022-09-28', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 18'),
     (15, 4249, 'CU17', 'https://support.microsoft.com/en-us/help/5016394', '2022-08-11', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 17'),
@@ -41846,6 +41876,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @OutputTableNameWaitStats NVARCHAR(256) = NULL ,
     @OutputTableNameBlitzCache NVARCHAR(256) = NULL ,
     @OutputTableNameBlitzWho NVARCHAR(256) = NULL ,
+    @OutputResultSets NVARCHAR(500) = N'BlitzWho_Start|Findings|FileStats|PerfmonStats|WaitStats|BlitzCache|BlitzWho_End' ,
     @OutputTableRetentionDays TINYINT = 7 ,
     @OutputXMLasNVARCHAR TINYINT = 0 ,
     @FilterPlansByDatabase VARCHAR(MAX) = NULL ,
@@ -41873,7 +41904,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.13', @VersionDate = '20230215';
+SELECT @Version = '8.14', @VersionDate = '20230420';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -42089,7 +42120,7 @@ END; /* IF @AsOf IS NOT NULL AND @OutputDatabaseName IS NOT NULL AND @OutputSche
 ELSE IF @LogMessage IS NULL /* IF @OutputType = 'SCHEMA' */
 BEGIN
     /* What's running right now? This is the first and last result set. */
-    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 AND @OutputType <> 'NONE'
+    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 AND @OutputType <> 'NONE' AND @OutputResultSets LIKE N'%BlitzWho_Start%'
     BEGIN
 		IF OBJECT_ID('master.dbo.sp_BlitzWho') IS NULL AND OBJECT_ID('dbo.sp_BlitzWho') IS NULL
 		BEGIN
@@ -43337,44 +43368,45 @@ BEGIN
 			RAISERROR('Running CheckID 1',10,1) WITH NOWAIT;
 		END
 
-		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
-		SELECT 1 AS CheckID,
-		    1 AS Priority,
-		    'Maintenance Tasks Running' AS FindingGroup,
-		    'Backup Running' AS Finding,
-		    'https://www.brentozar.com/askbrent/backups/' AS URL,
-		    'Backup of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) ' + @LineFeed
-		        + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' + @LineFeed
-			    + CASE WHEN COALESCE(s.nt_username, s.loginame) IS NOT NULL THEN (' Login: ' + COALESCE(s.nt_username, s.loginame) + ' ') ELSE '' END AS Details,
-		    'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
-		    pl.query_plan AS QueryPlan,
-		    r.start_time AS StartTime,
-		    s.loginame AS LoginName,
-		    s.nt_username AS NTUserName,
-		    s.[program_name] AS ProgramName,
-		    s.[hostname] AS HostName,
-		    db.[resource_database_id] AS DatabaseID,
-		    DB_NAME(db.resource_database_id) AS DatabaseName,
-		    0 AS OpenTransactionCount,
-		    r.query_hash
-		FROM sys.dm_exec_requests r
-		INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
-		INNER JOIN sys.sysprocesses AS s ON r.session_id = s.spid AND s.ecid = 0
-		INNER JOIN
-		(
-		    SELECT DISTINCT
-			    t.request_session_id,
-				t.resource_database_id
-		    FROM sys.dm_tran_locks AS t
-		    WHERE t.resource_type = N'DATABASE'
-		    AND   t.request_mode = N'S'
-		    AND   t.request_status = N'GRANT'
-		    AND   t.request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'
-		) AS db ON s.spid = db.request_session_id AND s.dbid = db.resource_database_id
-		CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
-		WHERE r.command LIKE 'BACKUP%'
-		AND r.start_time <= DATEADD(minute, -5, GETDATE())
-		AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
+        IF EXISTS(SELECT * FROM sys.dm_exec_requests WHERE total_elapsed_time > 300000 AND command LIKE 'BACKUP%')
+            INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
+            SELECT 1 AS CheckID,
+                1 AS Priority,
+                'Maintenance Tasks Running' AS FindingGroup,
+                'Backup Running' AS Finding,
+                'https://www.brentozar.com/askbrent/backups/' AS URL,
+                'Backup of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) ' + @LineFeed
+                    + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' + @LineFeed
+                    + CASE WHEN COALESCE(s.nt_username, s.loginame) IS NOT NULL THEN (' Login: ' + COALESCE(s.nt_username, s.loginame) + ' ') ELSE '' END AS Details,
+                'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
+                pl.query_plan AS QueryPlan,
+                r.start_time AS StartTime,
+                s.loginame AS LoginName,
+                s.nt_username AS NTUserName,
+                s.[program_name] AS ProgramName,
+                s.[hostname] AS HostName,
+                db.[resource_database_id] AS DatabaseID,
+                DB_NAME(db.resource_database_id) AS DatabaseName,
+                0 AS OpenTransactionCount,
+                r.query_hash
+            FROM sys.dm_exec_requests r
+            INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
+            INNER JOIN sys.sysprocesses AS s ON r.session_id = s.spid AND s.ecid = 0
+            INNER JOIN
+            (
+                SELECT DISTINCT
+                    t.request_session_id,
+                    t.resource_database_id
+                FROM sys.dm_tran_locks AS t
+                WHERE t.resource_type = N'DATABASE'
+                AND   t.request_mode = N'S'
+                AND   t.request_status = N'GRANT'
+                AND   t.request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'
+            ) AS db ON s.spid = db.request_session_id AND s.dbid = db.resource_database_id
+            CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
+            WHERE r.command LIKE 'BACKUP%'
+            AND r.start_time <= DATEADD(minute, -5, GETDATE())
+            AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
 	END
 
     /* If there's a backup running, add details explaining how long full backup has been taking in the last month. */
@@ -43386,48 +43418,49 @@ BEGIN
 
 
     /* Maintenance Tasks Running - DBCC CHECK* Running - CheckID 2 */
-    IF @Seconds > 0 AND EXISTS(SELECT * FROM sys.dm_exec_requests WHERE command LIKE 'DBCC%')
+    IF @Seconds > 0
 	BEGIN
 		IF (@Debug = 1)
 		BEGIN
 			RAISERROR('Running CheckID 2',10,1) WITH NOWAIT;
 		END
 
-		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
-		SELECT 2 AS CheckID,
-		    1 AS Priority,
-		    'Maintenance Tasks Running' AS FindingGroup,
-		    'DBCC CHECK* Running' AS Finding,
-		    'https://www.brentozar.com/askbrent/dbcc/' AS URL,
-		    'Corruption check of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
-		    'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
-		    pl.query_plan AS QueryPlan,
-		    r.start_time AS StartTime,
-		    s.login_name AS LoginName,
-		    s.nt_user_name AS NTUserName,
-		    s.[program_name] AS ProgramName,
-		    s.[host_name] AS HostName,
-		    db.[resource_database_id] AS DatabaseID,
-		    DB_NAME(db.resource_database_id) AS DatabaseName,
-		    0 AS OpenTransactionCount,
-		    r.query_hash
-		FROM sys.dm_exec_requests r
-		INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
-		INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
-		INNER JOIN (SELECT DISTINCT l.request_session_id, l.resource_database_id
-		FROM    sys.dm_tran_locks l
-		INNER JOIN sys.databases d ON l.resource_database_id = d.database_id
-		WHERE l.resource_type = N'DATABASE'
-		AND     l.request_mode = N'S'
-		AND    l.request_status = N'GRANT'
-		AND    l.request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
-		OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) pl
-		OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) AS t
-		WHERE r.command LIKE 'DBCC%'
-		AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%dm_db_index_physical_stats%'
-		AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%ALTER INDEX%'
-		AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%fileproperty%'
-		AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
+        IF EXISTS (SELECT * FROM sys.dm_exec_requests WHERE command LIKE 'DBCC%' AND total_elapsed_time > 5000)
+            INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
+            SELECT 2 AS CheckID,
+                1 AS Priority,
+                'Maintenance Tasks Running' AS FindingGroup,
+                'DBCC CHECK* Running' AS Finding,
+                'https://www.brentozar.com/askbrent/dbcc/' AS URL,
+                'Corruption check of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
+                'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
+                pl.query_plan AS QueryPlan,
+                r.start_time AS StartTime,
+                s.login_name AS LoginName,
+                s.nt_user_name AS NTUserName,
+                s.[program_name] AS ProgramName,
+                s.[host_name] AS HostName,
+                db.[resource_database_id] AS DatabaseID,
+                DB_NAME(db.resource_database_id) AS DatabaseName,
+                0 AS OpenTransactionCount,
+                r.query_hash
+            FROM sys.dm_exec_requests r
+            INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
+            INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
+            INNER JOIN (SELECT DISTINCT l.request_session_id, l.resource_database_id
+            FROM    sys.dm_tran_locks l
+            INNER JOIN sys.databases d ON l.resource_database_id = d.database_id
+            WHERE l.resource_type = N'DATABASE'
+            AND     l.request_mode = N'S'
+            AND    l.request_status = N'GRANT'
+            AND    l.request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
+            OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) pl
+            OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) AS t
+            WHERE r.command LIKE 'DBCC%'
+            AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%dm_db_index_physical_stats%'
+            AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%ALTER INDEX%'
+            AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%fileproperty%'
+            AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
 	END
 
     /* Maintenance Tasks Running - Restore Running - CheckID 3 */
@@ -43438,37 +43471,38 @@ BEGIN
 			RAISERROR('Running CheckID 3',10,1) WITH NOWAIT;
 		END
 
-		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
-		SELECT 3 AS CheckID,
-		    1 AS Priority,
-		    'Maintenance Tasks Running' AS FindingGroup,
-		    'Restore Running' AS Finding,
-		    'https://www.brentozar.com/askbrent/backups/' AS URL,
-		    'Restore of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
-		    'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
-		    pl.query_plan AS QueryPlan,
-		    r.start_time AS StartTime,
-		    s.login_name AS LoginName,
-		    s.nt_user_name AS NTUserName,
-		    s.[program_name] AS ProgramName,
-		    s.[host_name] AS HostName,
-		    db.[resource_database_id] AS DatabaseID,
-		    DB_NAME(db.resource_database_id) AS DatabaseName,
-		    0 AS OpenTransactionCount,
-		    r.query_hash
-		FROM sys.dm_exec_requests r
-		INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
-		INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
-		INNER JOIN (
-		SELECT DISTINCT request_session_id, resource_database_id
-		FROM    sys.dm_tran_locks
-		WHERE resource_type = N'DATABASE'
-		AND     request_mode = N'S'
-		AND     request_status = N'GRANT') AS db ON s.session_id = db.request_session_id
-		CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
-		WHERE r.command LIKE 'RESTORE%'
-		AND s.program_name <> 'SQL Server Log Shipping'
-		AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
+        IF EXISTS (SELECT * FROM sys.dm_exec_requests WHERE command LIKE 'RESTORE%' AND total_elapsed_time > 5000)
+            INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
+            SELECT 3 AS CheckID,
+                1 AS Priority,
+                'Maintenance Tasks Running' AS FindingGroup,
+                'Restore Running' AS Finding,
+                'https://www.brentozar.com/askbrent/backups/' AS URL,
+                'Restore of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
+                'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
+                pl.query_plan AS QueryPlan,
+                r.start_time AS StartTime,
+                s.login_name AS LoginName,
+                s.nt_user_name AS NTUserName,
+                s.[program_name] AS ProgramName,
+                s.[host_name] AS HostName,
+                db.[resource_database_id] AS DatabaseID,
+                DB_NAME(db.resource_database_id) AS DatabaseName,
+                0 AS OpenTransactionCount,
+                r.query_hash
+            FROM sys.dm_exec_requests r
+            INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
+            INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
+            INNER JOIN (
+            SELECT DISTINCT request_session_id, resource_database_id
+            FROM    sys.dm_tran_locks
+            WHERE resource_type = N'DATABASE'
+            AND     request_mode = N'S'
+            AND     request_status = N'GRANT') AS db ON s.session_id = db.request_session_id
+            CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
+            WHERE r.command LIKE 'RESTORE%'
+            AND s.program_name <> 'SQL Server Log Shipping'
+            AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
 	END
 
     /* SQL Server Internal Maintenance - Database File Growing - CheckID 4 */
@@ -43581,37 +43615,38 @@ BEGIN
 			RAISERROR('Running CheckID 8',10,1) WITH NOWAIT;
 		END
 
-		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
-		SELECT 8 AS CheckID,
-		    50 AS Priority,
-		    'Query Problems' AS FindingGroup,
-		    'Sleeping Query with Open Transactions' AS Finding,
-		    'https://www.brentozar.com/askbrent/sleeping-query-with-open-transactions/' AS URL,
-		    'Database: ' + DB_NAME(db.resource_database_id) + @LineFeed + 'Host: ' + s.hostname + @LineFeed + 'Program: ' + s.[program_name] + @LineFeed + 'Asleep with open transactions and locks since ' + CAST(s.last_batch AS NVARCHAR(100)) + '. ' AS Details,
-		    'KILL ' + CAST(s.spid AS NVARCHAR(100)) + ';' AS HowToStopIt,
-		    s.last_batch AS StartTime,
-		    s.loginame AS LoginName,
-		    s.nt_username AS NTUserName,
-		    s.[program_name] AS ProgramName,
-		    s.hostname AS HostName,
-		    db.[resource_database_id] AS DatabaseID,
-		    DB_NAME(db.resource_database_id) AS DatabaseName,
-		    (SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS QueryText,
-		    s.open_tran AS OpenTransactionCount
-		FROM sys.sysprocesses s
-		INNER JOIN sys.dm_exec_connections c ON s.spid = c.session_id
-		INNER JOIN (
-		SELECT DISTINCT request_session_id, resource_database_id
-		FROM    sys.dm_tran_locks
-		WHERE resource_type = N'DATABASE'
-		AND     request_mode = N'S'
-		AND     request_status = N'GRANT'
-		AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.spid = db.request_session_id
-		WHERE s.status = 'sleeping'
-		AND s.open_tran > 0
-		AND s.last_batch < DATEADD(ss, -10, SYSDATETIME())
-		AND EXISTS(SELECT * FROM sys.dm_tran_locks WHERE request_session_id = s.spid
-		AND NOT (resource_type = N'DATABASE' AND request_mode = N'S' AND request_status = N'GRANT' AND request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'));
+        IF EXISTS (SELECT * FROM sys.dm_exec_requests WHERE total_elapsed_time > 5000 AND request_id > 0)
+            INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
+            SELECT 8 AS CheckID,
+                50 AS Priority,
+                'Query Problems' AS FindingGroup,
+                'Sleeping Query with Open Transactions' AS Finding,
+                'https://www.brentozar.com/askbrent/sleeping-query-with-open-transactions/' AS URL,
+                'Database: ' + DB_NAME(db.resource_database_id) + @LineFeed + 'Host: ' + s.hostname + @LineFeed + 'Program: ' + s.[program_name] + @LineFeed + 'Asleep with open transactions and locks since ' + CAST(s.last_batch AS NVARCHAR(100)) + '. ' AS Details,
+                'KILL ' + CAST(s.spid AS NVARCHAR(100)) + ';' AS HowToStopIt,
+                s.last_batch AS StartTime,
+                s.loginame AS LoginName,
+                s.nt_username AS NTUserName,
+                s.[program_name] AS ProgramName,
+                s.hostname AS HostName,
+                db.[resource_database_id] AS DatabaseID,
+                DB_NAME(db.resource_database_id) AS DatabaseName,
+                (SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS QueryText,
+                s.open_tran AS OpenTransactionCount
+            FROM sys.sysprocesses s
+            INNER JOIN sys.dm_exec_connections c ON s.spid = c.session_id
+            INNER JOIN (
+            SELECT DISTINCT request_session_id, resource_database_id
+            FROM    sys.dm_tran_locks
+            WHERE resource_type = N'DATABASE'
+            AND     request_mode = N'S'
+            AND     request_status = N'GRANT'
+            AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.spid = db.request_session_id
+            WHERE s.status = 'sleeping'
+            AND s.open_tran > 0
+            AND s.last_batch < DATEADD(ss, -10, SYSDATETIME())
+            AND EXISTS(SELECT * FROM sys.dm_tran_locks WHERE request_session_id = s.spid
+            AND NOT (resource_type = N'DATABASE' AND request_mode = N'S' AND request_status = N'GRANT' AND request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'));
 	END
 
     /*Query Problems - Clients using implicit transactions - CheckID 37 */
@@ -43667,34 +43702,35 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			RAISERROR('Running CheckID 9',10,1) WITH NOWAIT;
 		END
 
-		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, QueryHash)
-		SELECT 9 AS CheckID,
-		    1 AS Priority,
-		    'Query Problems' AS FindingGroup,
-		    'Query Rolling Back' AS Finding,
-		    'https://www.brentozar.com/askbrent/rollback/' AS URL,
-		    'Rollback started at ' + CAST(r.start_time AS NVARCHAR(100)) + ', is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete.' AS Details,
-		    'Unfortunately, you can''t stop this. Whatever you do, don''t restart the server in an attempt to fix it - SQL Server will keep rolling back.' AS HowToStopIt,
-		    r.start_time AS StartTime,
-		    s.login_name AS LoginName,
-		    s.nt_user_name AS NTUserName,
-		    s.[program_name] AS ProgramName,
-		    s.[host_name] AS HostName,
-		    db.[resource_database_id] AS DatabaseID,
-		    DB_NAME(db.resource_database_id) AS DatabaseName,
-		    (SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS QueryText,
-		    r.query_hash
-		FROM sys.dm_exec_sessions s
-		INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
-		INNER JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
-		LEFT OUTER JOIN (
-		    SELECT DISTINCT request_session_id, resource_database_id
-		    FROM    sys.dm_tran_locks
-		    WHERE resource_type = N'DATABASE'
-		    AND     request_mode = N'S'
-		    AND     request_status = N'GRANT'
-		    AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
-		WHERE r.status = 'rollback';
+		IF EXISTS (SELECT * FROM sys.dm_exec_requests WHERE total_elapsed_time > 5000 AND request_id > 0)
+            INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, QueryHash)
+            SELECT 9 AS CheckID,
+                1 AS Priority,
+                'Query Problems' AS FindingGroup,
+                'Query Rolling Back' AS Finding,
+                'https://www.brentozar.com/askbrent/rollback/' AS URL,
+                'Rollback started at ' + CAST(r.start_time AS NVARCHAR(100)) + ', is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete.' AS Details,
+                'Unfortunately, you can''t stop this. Whatever you do, don''t restart the server in an attempt to fix it - SQL Server will keep rolling back.' AS HowToStopIt,
+                r.start_time AS StartTime,
+                s.login_name AS LoginName,
+                s.nt_user_name AS NTUserName,
+                s.[program_name] AS ProgramName,
+                s.[host_name] AS HostName,
+                db.[resource_database_id] AS DatabaseID,
+                DB_NAME(db.resource_database_id) AS DatabaseName,
+                (SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS QueryText,
+                r.query_hash
+            FROM sys.dm_exec_sessions s
+            INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
+            INNER JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
+            LEFT OUTER JOIN (
+                SELECT DISTINCT request_session_id, resource_database_id
+                FROM    sys.dm_tran_locks
+                WHERE resource_type = N'DATABASE'
+                AND     request_mode = N'S'
+                AND     request_status = N'GRANT'
+                AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
+            WHERE r.status = 'rollback';
 	END
 
 	IF @Seconds > 0
@@ -43972,7 +44008,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                    JOIN sys.dm_exec_sessions AS s
                        ON r.session_id = s.session_id
                    WHERE s.host_name IS NOT NULL
-                   AND r.total_elapsed_time > 5000 )
+                   AND r.total_elapsed_time > 5000
+                   AND r.request_id > 0 )
 			BEGIN
 
                    SET @StringToExecute = N'
@@ -43990,12 +44027,14 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                    FROM (
                          SELECT deqp.session_id,
                                 deqp.request_id,
-                                CASE WHEN deqp.row_count > ( deqp.estimate_row_count * 10000 )
+                                CASE WHEN (deqp.row_count/10000) > deqp.estimate_row_count
                                      THEN 1
                                      ELSE 0
                                 END AS estimate_inaccuracy
                          FROM   sys.dm_exec_query_profiles AS deqp
+                         INNER JOIN sys.dm_exec_requests r ON deqp.session_id = r.session_id AND deqp.request_id = r.request_id
 						 WHERE deqp.session_id <> @@SPID
+                           AND r.total_elapsed_time > 5000
                    ) AS x
                    WHERE x.estimate_inaccuracy = 1
                    GROUP BY x.session_id, 
@@ -44973,7 +45012,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 	/* Check for temp objects with high forwarded fetches.
 		This has to be done as dynamic SQL because we have to execute OBJECT_NAME inside TempDB. */
-	IF @@ROWCOUNT > 0
+	IF EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 29)
 		BEGIN
 		SET @StringToExecute = N'
 		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
@@ -46333,7 +46372,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         FROM    #BlitzFirstResults;
     END;
     ELSE
-        IF @OutputType = 'Opserver1' AND @SinceStartup = 0
+        IF @OutputType = 'Opserver1' AND @SinceStartup = 0 AND @OutputResultSets LIKE N'%Findings%'
         BEGIN
 
             SELECT  r.[Priority] ,
@@ -46390,7 +46429,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     r.Finding,
                     r.ID;
         END;
-        ELSE IF @OutputType IN ( 'CSV', 'RSV' ) AND @SinceStartup = 0
+        ELSE IF @OutputType IN ( 'CSV', 'RSV' ) AND @SinceStartup = 0 AND @OutputResultSets LIKE N'%Findings%'
         BEGIN
 
             SELECT  Result = CAST([Priority] AS NVARCHAR(100))
@@ -46411,7 +46450,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     Finding,
                     Details;
         END;
-        ELSE IF @OutputType = 'Top10'
+        ELSE IF @OutputType = 'Top10' AND @OutputResultSets LIKE N'%WaitStats%'
             BEGIN
                 /* Measure waits in hours */
                 ;WITH max_batch AS (
@@ -46448,7 +46487,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     AND wd2.wait_time_ms-wd1.wait_time_ms > 0
                 ORDER BY [Wait Time (Seconds)] DESC;
         END;
-        ELSE IF @ExpertMode = 0 AND @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 0 AND @SinceStartup = 0
+        ELSE IF @ExpertMode = 0 AND @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 0 AND @SinceStartup = 0 AND @OutputResultSets LIKE N'%Findings%'
         BEGIN
             SELECT  [Priority] ,
                     [FindingsGroup] ,
@@ -46470,7 +46509,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     ID,
 					CAST(Details AS NVARCHAR(4000));
         END;
-        ELSE IF @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 1 AND @SinceStartup = 0
+        ELSE IF @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 1 AND @SinceStartup = 0 AND @OutputResultSets LIKE N'%Findings%'
         BEGIN
             SELECT  [Priority] ,
                     [FindingsGroup] ,
@@ -46492,7 +46531,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     ID,
 					CAST(Details AS NVARCHAR(4000));
         END;
-        ELSE IF @ExpertMode = 1 AND @OutputType <> 'NONE'
+        ELSE IF @ExpertMode = 1 AND @OutputType <> 'NONE' AND @OutputResultSets LIKE N'%Findings%'
         BEGIN
             IF @SinceStartup = 0
                 SELECT  r.[Priority] ,
@@ -46554,7 +46593,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             -------------------------
             --What happened: #WaitStats
             -------------------------
-            IF @Seconds = 0
+            IF @Seconds = 0 AND @OutputResultSets LIKE N'%WaitStats%'
                 BEGIN
                 /* Measure waits in hours */
                 ;WITH max_batch AS (
@@ -46598,7 +46637,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     AND wd2.wait_time_ms-wd1.wait_time_ms > 0
                 ORDER BY [Wait Time (Seconds)] DESC;
                 END;
-            ELSE
+            ELSE IF @OutputResultSets LIKE N'%WaitStats%'
                 BEGIN
                 /* Measure waits in seconds */
                 ;WITH max_batch AS (
@@ -46646,6 +46685,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             -------------------------
             --What happened: #FileStats
             -------------------------
+            IF @OutputResultSets LIKE N'%FileStats%' 
             WITH readstats AS (
                 SELECT 'PHYSICAL READS' AS Pattern,
                 ROW_NUMBER() OVER (ORDER BY wd2.avg_stall_read_ms DESC) AS StallRank,
@@ -46704,7 +46744,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             --What happened: #PerfmonStats
             -------------------------
 
-            SELECT 'PERFMON' AS Pattern, pLast.[object_name], pLast.counter_name, pLast.instance_name,
+            IF @OutputResultSets LIKE N'%PerfmonStats%'
+                SELECT 'PERFMON' AS Pattern, pLast.[object_name], pLast.counter_name, pLast.instance_name,
                 pFirst.SampleTime AS FirstSampleTime, pFirst.cntr_value AS FirstSampleValue,
                 pLast.SampleTime AS LastSampleTime, pLast.cntr_value AS LastSampleValue,
                 pLast.cntr_value - pFirst.cntr_value AS ValueDelta,
@@ -46719,7 +46760,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             -------------------------
             --What happened: #QueryStats
             -------------------------
-            IF @CheckProcedureCache = 1
+            IF @CheckProcedureCache = 1 AND @OutputResultSets LIKE N'%BlitzCache%'
 			BEGIN
 			
 			SELECT qsNow.*, qsFirst.*
@@ -46736,7 +46777,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     DROP TABLE #BlitzFirstResults;
 
     /* What's running right now? This is the first and last result set. */
-    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 AND @OutputType <> 'NONE'
+    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 AND @OutputType <> 'NONE' AND @OutputResultSets LIKE N'%BlitzWho_End%'
     BEGIN
 		IF OBJECT_ID('master.dbo.sp_BlitzWho') IS NULL AND OBJECT_ID('dbo.sp_BlitzWho') IS NULL
 		BEGIN
