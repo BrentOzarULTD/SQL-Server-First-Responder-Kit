@@ -11,10 +11,10 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @MoveDataDrive NVARCHAR(260) = NULL, 
     @MoveLogDrive NVARCHAR(260) = NULL, 
     @MoveFilestreamDrive NVARCHAR(260) = NULL,
-	@MoveFullTextCatalogDrive NVARCHAR(260) = NULL, 
-	@BufferCount INT = NULL,
-	@MaxTransferSize INT = NULL,
-	@BlockSize INT = NULL,
+    @MoveFullTextCatalogDrive NVARCHAR(260) = NULL, 
+    @BufferCount INT = NULL,
+    @MaxTransferSize INT = NULL,
+    @BlockSize INT = NULL,
     @TestRestore BIT = 0, 
     @RunCheckDB BIT = 0, 
     @RestoreDiff BIT = 0,
@@ -27,15 +27,16 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @StopAt NVARCHAR(14) = NULL,
     @OnlyLogsAfter NVARCHAR(14) = NULL,
     @SimpleFolderEnumeration BIT = 0,
-	@SkipBackupsAlreadyInMsdb BIT = 0,
-	@DatabaseOwner sysname = NULL,
-	@SetTrustworthyON BIT = 0,
+    @SkipBackupsAlreadyInMsdb BIT = 0,
+    @DatabaseOwner sysname = NULL,
+    @SetTrustworthyON BIT = 0,
+    @FixOrphanUsers BIT = 0,
     @Execute CHAR(1) = Y,
-	@FileExtensionDiff NVARCHAR(128) = NULL,
+    @FileExtensionDiff NVARCHAR(128) = NULL,
     @Debug INT = 0, 
     @Help BIT = 0,
     @Version     VARCHAR(30) = NULL OUTPUT,
-	@VersionDate DATETIME = NULL OUTPUT,
+    @VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0
 AS
 SET NOCOUNT ON;
@@ -1374,7 +1375,6 @@ BEGIN
 		AND REPLACE( RIGHT( REPLACE( fl.BackupFile, RIGHT( fl.BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( fl.BackupFile ) ) ), '' ), 16 ), '_', '' ) > @StopAt
 		ORDER BY BackupFile;
 	END
-	
 	IF @ExtraLogFile IS NULL
 	BEGIN
 		DELETE fl
@@ -1584,7 +1584,45 @@ IF @DatabaseOwner IS NOT NULL
 			END
 		END;
 
- -- If test restore then blow the database away (be careful)
+-- Link a user entry in the sys.database_principals system catalog view in the restored database to a SQL Server login of the same name
+IF @FixOrphanUsers = 1 
+	BEGIN
+		SET @sql = N'
+-- Fixup Orphan Users by setting database user sid to match login sid
+DECLARE @FixOrphansSql NVARCHAR(MAX);
+DECLARE @OrphanUsers TABLE (SqlToExecute NVARCHAR(MAX));
+USE ' + @RestoreDatabaseName + ';
+
+INSERT @OrphanUsers
+SELECT ''ALTER USER ['' + d.name + ''] WITH LOGIN = ['' + d.name + '']; ''
+	FROM  sys.database_principals d
+	INNER JOIN master.sys.server_principals s ON d.name COLLATE DATABASE_DEFAULT = s.name COLLATE DATABASE_DEFAULT
+	WHERE d.type_desc = ''SQL_USER''
+		AND d.name NOT IN (''guest'',''dbo'')
+		AND d.sid <> s.sid
+	ORDER BY d.name;
+
+SELECT @FixOrphansSql = (SELECT SqlToExecute AS [text()] FROM @OrphanUsers FOR XML PATH (''''), TYPE).value(''text()[1]'',''NVARCHAR(MAX)'');
+
+IF @FixOrphansSql IS NULL 
+	PRINT ''No orphan users require a sid fixup.'';
+ELSE
+BEGIN
+	PRINT ''Fix Orphan Users: '' + @FixOrphansSql;
+	EXECUTE(@FixOrphansSql);
+END;'
+
+		IF @Debug = 1 OR @Execute = 'N'
+		BEGIN
+			IF @sql IS NULL PRINT '@sql is NULL for Fix Orphan Users';
+			PRINT @sql;
+		END;
+
+		IF @Debug IN (0, 1) AND @Execute = 'Y'
+			EXECUTE [dbo].[CommandExecute] @DatabaseContext = 'master', @Command = @sql, @CommandType = 'UPDATE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
+	END; 
+
+-- If test restore then blow the database away (be careful)
 IF @TestRestore = 1
 	BEGIN
 		SET @sql = N'DROP DATABASE ' + @RestoreDatabaseName + NCHAR(13);
