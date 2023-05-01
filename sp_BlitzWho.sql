@@ -219,7 +219,7 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	[last_used_threads] [bigint] NULL,
 	[min_used_threads] [bigint] NULL,
 	[max_used_threads] [bigint] NULL,
-	[grant_time] [varchar](20) NULL,
+	[grant_time] [varchar](23) NULL,
 	[requested_memory_kb] [bigint] NULL,
 	[grant_memory_kb] [bigint] NULL,
 	[is_request_granted] [varchar](39) NOT NULL,
@@ -768,7 +768,7 @@ BEGIN
 			     ELSE ''WHAT HAVE YOU DONE?''
 			   END AS transaction_isolation_level ,				
 						qmg.dop AS degree_of_parallelism ,
-			   COALESCE(CAST(qmg.grant_time AS VARCHAR(20)), ''N/A'') AS grant_time ,
+			   COALESCE(CONVERT(VARCHAR(23),qmg.grant_time, 21), ''N/A'') AS grant_time ,
 			   qmg.requested_memory_kb ,
 			   qmg.granted_memory_kb AS grant_memory_kb,
 			   CASE WHEN qmg.grant_time IS NULL THEN ''N/A''
@@ -1052,7 +1052,7 @@ IF @ProductVersionMajor >= 11
 
         SET @StringToExecute += 						
 		        N'
-        COALESCE(CAST(qmg.grant_time AS VARCHAR(20)), ''Memory Not Granted'') AS grant_time ,
+        COALESCE(CONVERT(VARCHAR(23),qmg.grant_time, 21), ''Memory Not Granted'') AS grant_time ,
         qmg.requested_memory_kb ,
         qmg.granted_memory_kb AS grant_memory_kb,
         CASE WHEN qmg.grant_time IS NULL THEN ''N/A''
