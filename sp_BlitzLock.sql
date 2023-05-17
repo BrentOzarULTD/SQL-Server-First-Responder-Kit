@@ -150,8 +150,12 @@ BEGIN
                 WHEN
                 (
                     SELECT
-                        SERVERPROPERTY('EDITION')
-                ) = 'SQL Azure'
+                        CONVERT
+                        (
+                            integer,
+                            SERVERPROPERTY('EngineEdition')
+                        )
+                ) = 5
                 THEN 1
                 ELSE 0
             END,
@@ -845,7 +849,12 @@ BEGIN
         LEFT JOIN #t AS t
           ON 1 = 1
         CROSS APPLY x.x.nodes('/RingBufferTarget/event') AS e(x)
-        WHERE e.x.exist('@name[ .= "xml_deadlock_report"]') = 1
+        WHERE
+          (
+              e.x.exist('@name[ .= "xml_deadlock_report"]') = 1
+           OR e.x.exist('@name[ .= "database_xml_deadlock_report"]') = 1
+           OR e.x.exist('@name[ .= "xml_deadlock_report_filtered"]') = 1
+          )
         AND   e.x.exist('@timestamp[. >= sql:variable("@StartDate")]') = 1
         AND   e.x.exist('@timestamp[. <  sql:variable("@EndDate")]') = 1
         OPTION(RECOMPILE);
@@ -864,7 +873,9 @@ BEGIN
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
         RAISERROR('Inserting to #deadlock_data for event file data', 0, 1) WITH NOWAIT;
 
-        INSERT
+		IF @Debug = 1 BEGIN SET STATISTICS XML ON; END;
+
+		INSERT
             #deadlock_data WITH(TABLOCKX)
         (
             deadlock_xml
@@ -876,12 +887,19 @@ BEGIN
         LEFT JOIN #t AS t
           ON 1 = 1
         CROSS APPLY x.x.nodes('/event') AS e(x)
-        WHERE e.x.exist('/event/@name[ .= "xml_deadlock_report"]') = 1
-        AND   e.x.exist('/event/@timestamp[. >= sql:variable("@StartDate")]') = 1
-        AND   e.x.exist('/event/@timestamp[. <  sql:variable("@EndDate")]') = 1
+        WHERE
+          (
+              e.x.exist('@name[ .= "xml_deadlock_report"]') = 1
+           OR e.x.exist('@name[ .= "database_xml_deadlock_report"]') = 1
+           OR e.x.exist('@name[ .= "xml_deadlock_report_filtered"]') = 1
+          )
+        AND   e.x.exist('@timestamp[. >= sql:variable("@StartDate")]') = 1
+        AND   e.x.exist('@timestamp[. <  sql:variable("@EndDate")]') = 1
         OPTION(RECOMPILE);
 
-        SET @d = CONVERT(varchar(40), GETDATE(), 109);
+		IF @Debug = 1 BEGIN SET STATISTICS XML OFF; END;
+
+		SET @d = CONVERT(varchar(40), GETDATE(), 109);
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
     END;
 
@@ -908,7 +926,7 @@ BEGIN
             FROM sys.fn_xe_file_target_read_file(N'system_health*.xel', NULL, NULL, NULL) AS fx
             LEFT JOIN #t AS t
               ON 1 = 1
-			WHERE fx.object_name = N'xml_deadlock_report'
+            WHERE fx.object_name = N'xml_deadlock_report'
         ) AS xml
         CROSS APPLY xml.deadlock_xml.nodes('/event') AS e(x)
         WHERE 1 = 1
@@ -2532,7 +2550,7 @@ BEGIN
                     ),
                     14
                  )
-				 END
+                 END
             FROM #deadlock_owner_waiter AS dow
             JOIN #deadlock_process AS dp
               ON (dp.id = dow.owner_id
