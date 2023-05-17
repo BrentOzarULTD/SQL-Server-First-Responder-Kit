@@ -35,7 +35,7 @@ BEGIN
     SET NOCOUNT, XACT_ABORT ON;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-    SELECT @Version = '8.12', @VersionDate = '20221213';
+    SELECT @Version = '8.14', @VersionDate = '20230420';
 
     IF @VersionCheckMode = 1
     BEGIN
@@ -96,7 +96,7 @@ BEGIN
 
     MIT License
 
-    Copyright (c) 2022 Brent Ozar Unlimited
+    Copyright (c) Brent Ozar Unlimited
 
     Permission is hereby granted, free of charge, to any person obtaining a copy
     of this software and associated documentation files (the "Software"), to deal
@@ -905,12 +905,13 @@ BEGIN
             SELECT
                 deadlock_xml =
                     TRY_CAST(fx.event_data AS xml)
-            FROM sys.fn_xe_file_target_read_file('system_health*.xel', NULL, NULL, NULL) AS fx
+            FROM sys.fn_xe_file_target_read_file(N'system_health*.xel', NULL, NULL, NULL) AS fx
             LEFT JOIN #t AS t
               ON 1 = 1
+			WHERE fx.object_name = N'xml_deadlock_report'
         ) AS xml
         CROSS APPLY xml.deadlock_xml.nodes('/event') AS e(x)
-        WHERE e.x.exist('@name[ . = "xml_deadlock_report"]') = 1
+        WHERE 1 = 1
         AND   e.x.exist('@timestamp[. >= sql:variable("@StartDate")]') = 1
         AND   e.x.exist('@timestamp[. <  sql:variable("@EndDate")]') = 1
         OPTION(RECOMPILE);
@@ -1169,7 +1170,7 @@ BEGIN
             waiter_mode = w.l.value('@mode', 'nvarchar(256)'),
             owner_id = o.l.value('@id', 'nvarchar(256)'),
             owner_mode = o.l.value('@mode', 'nvarchar(256)'),
-            lock_type = N'OBJECT'
+            lock_type = CAST(N'OBJECT' AS NVARCHAR(100))
         INTO #deadlock_owner_waiter
         FROM
         (
@@ -1794,7 +1795,7 @@ BEGIN
                 N'S',
                 N'IS'
             )
-        AND (dow.database_id = @DatabaseName OR @DatabaseName IS NULL)
+        AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
         AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
         AND (dow.event_date < @EndDate OR @EndDate IS NULL)
         AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
@@ -1837,7 +1838,7 @@ BEGIN
                 N' deadlock(s).'
         FROM #deadlock_owner_waiter AS dow
         WHERE 1 = 1
-        AND (dow.database_id = @DatabaseName OR @DatabaseName IS NULL)
+        AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
         AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
         AND (dow.event_date < @EndDate OR @EndDate IS NULL)
         AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
@@ -1876,7 +1877,7 @@ BEGIN
                 N' deadlock(s).'
         FROM #deadlock_owner_waiter AS dow
         WHERE 1 = 1
-        AND (dow.database_id = @DatabaseName OR @DatabaseName IS NULL)
+        AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
         AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
         AND (dow.event_date < @EndDate OR @EndDate IS NULL)
         AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
@@ -1921,7 +1922,7 @@ BEGIN
                 N' deadlock(s).'
         FROM #deadlock_owner_waiter AS dow
         WHERE 1 = 1
-        AND (dow.database_id = @DatabaseName OR @DatabaseName IS NULL)
+        AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
         AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
         AND (dow.event_date < @EndDate OR @EndDate IS NULL)
         AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
@@ -2247,7 +2248,7 @@ BEGIN
           ON dow.owner_id = ds.id
           AND dow.event_date = ds.event_date
         WHERE 1 = 1
-        AND (dow.database_id = @DatabaseName OR @DatabaseName IS NULL)
+        AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
         AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
         AND (dow.event_date < @EndDate OR @EndDate IS NULL)
         AND (dow.object_name = @StoredProcName OR @StoredProcName IS NULL)
@@ -2303,7 +2304,7 @@ BEGIN
               ON dow.owner_id = ds.id
               AND dow.event_date = ds.event_date
             WHERE ds.proc_name <> N'adhoc'
-            AND (dow.database_id = @DatabaseName OR @DatabaseName IS NULL)
+            AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
             AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
             AND (dow.event_date < @EndDate OR @EndDate IS NULL)
             AND (dow.object_name = @StoredProcName OR @StoredProcName IS NULL)
@@ -2379,7 +2380,7 @@ BEGIN
                   ON  s.database_id = dow.database_id
                   AND s.partition_id = dow.associatedObjectId
                 WHERE 1 = 1
-                AND (dow.database_id = @DatabaseName OR @DatabaseName IS NULL)
+                AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
                 AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
                 AND (dow.event_date < @EndDate OR @EndDate IS NULL)
                 AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
@@ -2441,6 +2442,76 @@ BEGIN
                      )
                  ),
              wait_time_hms =
+             /*the more wait time you rack up the less accurate this gets, 
+             it's either that or erroring out*/
+            CASE 
+                WHEN 
+                    SUM
+                    (
+                        CONVERT
+                        (
+                            bigint, 
+                            dp.wait_time
+                        )
+                    )/1000 > 2147483647
+                THEN 
+                   CONVERT
+                   (
+                       nvarchar(30),
+                       DATEADD
+                       (
+                            MINUTE,
+                            (
+                                 (
+                                    SUM
+                                    (
+                                       CONVERT
+                                       (
+                                           bigint, 
+                                           dp.wait_time
+                                       )
+                                    )
+                                 )/
+                                 60000
+                            ),
+                            0
+                       ),
+                       14
+                   )
+                WHEN 
+                    SUM
+                    (
+                        CONVERT
+                        (
+                            bigint, 
+                            dp.wait_time
+                        )
+                    ) BETWEEN 2147483648 AND 2147483647000
+                THEN 
+                   CONVERT
+                   (
+                       nvarchar(30),
+                       DATEADD
+                       (
+                            SECOND,
+                            (
+                                 (
+                                    SUM
+                                    (
+                                       CONVERT
+                                       (
+                                           bigint, 
+                                           dp.wait_time
+                                       )
+                                    )
+                                 )/
+                                 1000
+                            ),
+                            0
+                       ),
+                       14
+                   )
+                ELSE
                  CONVERT
                  (
                      nvarchar(30),
@@ -2461,6 +2532,7 @@ BEGIN
                     ),
                     14
                  )
+				 END
             FROM #deadlock_owner_waiter AS dow
             JOIN #deadlock_process AS dp
               ON (dp.id = dow.owner_id
@@ -2577,6 +2649,76 @@ BEGIN
                 )
             ) +
             N' ' +
+        /*the more wait time you rack up the less accurate this gets, 
+        it's either that or erroring out*/
+            CASE 
+                WHEN 
+                    SUM
+                    (
+                        CONVERT
+                        (
+                            bigint, 
+                            wt.total_wait_time_ms
+                        )
+                    )/1000 > 2147483647
+                THEN 
+                   CONVERT
+                   (
+                       nvarchar(30),
+                       DATEADD
+                       (
+                            MINUTE,
+                            (
+                                 (
+                                    SUM
+                                    (
+                                       CONVERT
+                                       (
+                                           bigint, 
+                                           wt.total_wait_time_ms
+                                       )
+                                    )
+                                 )/
+                                 60000
+                            ),
+                            0
+                       ),
+                       14
+                   )
+                WHEN 
+                    SUM
+                    (
+                        CONVERT
+                        (
+                            bigint, 
+                            wt.total_wait_time_ms
+                        )
+                    ) BETWEEN 2147483648 AND 2147483647000
+                THEN 
+                   CONVERT
+                   (
+                       nvarchar(30),
+                       DATEADD
+                       (
+                            SECOND,
+                            (
+                                 (
+                                    SUM
+                                    (
+                                       CONVERT
+                                       (
+                                           bigint, 
+                                           wt.total_wait_time_ms
+                                       )
+                                    )
+                                 )/
+                                 1000
+                            ),
+                            0
+                       ),
+                       14
+                   )
+                ELSE
             CONVERT
               (
                   nvarchar(30),
@@ -2596,7 +2738,7 @@ BEGIN
                       0
                   ),
                   14
-              ) +
+              ) END +
             N' [dd hh:mm:ss:ms] of deadlock wait time.'
         FROM wait_time AS wt
         GROUP BY

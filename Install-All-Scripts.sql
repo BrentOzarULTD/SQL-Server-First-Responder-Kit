@@ -8,6 +8,1350 @@ SET STATISTICS IO OFF;
 SET STATISTICS TIME OFF;
 GO
 
+IF OBJECT_ID('dbo.sp_AllNightLog_Setup') IS NULL
+  EXEC ('CREATE PROCEDURE dbo.sp_AllNightLog_Setup AS RETURN 0;');
+GO
+
+
+ALTER PROCEDURE dbo.sp_AllNightLog_Setup
+				@RPOSeconds BIGINT = 30,
+				@RTOSeconds BIGINT = 30,
+				@BackupPath NVARCHAR(MAX) = NULL,
+				@RestorePath NVARCHAR(MAX) = NULL,
+				@Jobs TINYINT = 10,
+				@RunSetup BIT = 0,
+				@UpdateSetup BIT = 0,
+                @EnableBackupJobs INT = NULL,
+                @EnableRestoreJobs INT = NULL,
+				@Debug BIT = 0,
+				@FirstFullBackup BIT = 0,
+				@FirstDiffBackup BIT = 0,
+				@MoveFiles BIT = 1,
+				@Help BIT = 0,
+				@Version     VARCHAR(30) = NULL OUTPUT,
+				@VersionDate DATETIME = NULL OUTPUT,
+				@VersionCheckMode BIT = 0
+WITH RECOMPILE
+AS
+SET NOCOUNT ON;
+SET STATISTICS XML OFF;
+
+BEGIN;
+
+SELECT @Version = '8.14', @VersionDate = '20230420';
+
+IF(@VersionCheckMode = 1)
+BEGIN
+	RETURN;
+END;
+
+IF @Help = 1
+
+BEGIN
+
+	PRINT '		
+		/*
+
+
+		sp_AllNightLog_Setup from http://FirstResponderKit.org
+		
+		This script sets up a database, tables, rows, and jobs for sp_AllNightLog, including:
+
+		* Creates a database
+			* Right now it''s hard-coded to use msdbCentral, that might change later
+	
+		* Creates tables in that database!
+			* dbo.backup_configuration
+				* Hold variables used by stored proc to make runtime decisions
+					* RPO: Seconds, how often we look for databases that need log backups
+					* Backup Path: The path we feed to Ola H''s backup proc
+			* dbo.backup_worker
+				* Holds list of databases and some information that helps our Agent jobs figure out if they need to take another log backup
+		
+		* Creates tables in msdb
+			* dbo.restore_configuration
+				* Holds variables used by stored proc to make runtime decisions
+					* RTO: Seconds, how often to look for log backups to restore
+					* Restore Path: The path we feed to sp_DatabaseRestore 
+					* Move Files: Whether to move files to default data/log directories.
+			* dbo.restore_worker
+				* Holds list of databases and some information that helps our Agent jobs figure out if they need to look for files to restore
+	
+		 * Creates agent jobs
+			* 1 job that polls sys.databases for new entries
+			* 10 jobs that run to take log backups
+			 * Based on a queue table
+			 * Requires Ola Hallengren''s Database Backup stored proc
+	
+		To learn more, visit http://FirstResponderKit.org where you can download new
+		versions for free, watch training videos on how it works, get more info on
+		the findings, contribute your own code, and more.
+	
+		Known limitations of this version:
+		 - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000! And really, maybe not even anything less than 2016. Heh.
+		 - The repository database name is hard-coded to msdbCentral.
+	
+		Unknown limitations of this version:
+		 - None.  (If we knew them, they would be known. Duh.)
+	
+	     Changes - for the full list of improvements and fixes in this version, see:
+	     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
+	
+	
+		Parameter explanations:
+	
+		  @RunSetup	BIT, defaults to 0. When this is set to 1, it will run the setup portion to create database, tables, and worker jobs.
+		  @UpdateSetup BIT, defaults to 0. When set to 1, will update existing configs for RPO/RTO and database backup/restore paths.
+		  @RPOSeconds BIGINT, defaults to 30. Value in seconds you want to use to determine if a new log backup needs to be taken.
+		  @BackupPath NVARCHAR(MAX), This is REQUIRED if @Runsetup=1. This tells Ola''s job where to put backups.
+		  @MoveFiles BIT, defaults to 1. When this is set to 1, it will move files to default data/log directories
+		  @Debug BIT, defaults to 0. Whent this is set to 1, it prints out dynamic SQL commands
+	
+	    Sample call:
+		EXEC dbo.sp_AllNightLog_Setup
+			@RunSetup = 1,
+			@RPOSeconds = 30,
+			@BackupPath = N''M:\MSSQL\Backup'',
+			@Debug = 1
+
+
+		For more documentation: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
+	
+	    MIT License
+		
+		Copyright (c) Brent Ozar Unlimited
+	
+		Permission is hereby granted, free of charge, to any person obtaining a copy
+		of this software and associated documentation files (the "Software"), to deal
+		in the Software without restriction, including without limitation the rights
+		to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+		copies of the Software, and to permit persons to whom the Software is
+		furnished to do so, subject to the following conditions:
+	
+		The above copyright notice and this permission notice shall be included in all
+		copies or substantial portions of the Software.
+	
+		THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+		IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+		FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+		AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+		LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+		OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+		SOFTWARE.
+
+
+		*/';
+
+RETURN;
+END; /* IF @Help = 1 */
+
+DECLARE	@database NVARCHAR(128) = NULL; --Holds the database that's currently being processed
+DECLARE @error_number INT = NULL; --Used for TRY/CATCH
+DECLARE @error_severity INT; --Used for TRY/CATCH
+DECLARE @error_state INT; --Used for TRY/CATCH
+DECLARE @msg NVARCHAR(4000) = N''; --Used for RAISERROR
+DECLARE @rpo INT; --Used to hold the RPO value in our configuration table
+DECLARE @backup_path NVARCHAR(MAX); --Used to hold the backup path in our configuration table
+DECLARE @db_sql NVARCHAR(MAX) = N''; --Used to hold the dynamic SQL to create msdbCentral
+DECLARE @tbl_sql NVARCHAR(MAX) = N''; --Used to hold the dynamic SQL that creates tables in msdbCentral
+DECLARE @database_name NVARCHAR(256) = N'msdbCentral'; --Used to hold the name of the database we create to centralize data
+													   --Right now it's hardcoded to msdbCentral, but I made it dynamic in case that changes down the line
+
+
+/*These variables control the loop to create/modify jobs*/
+DECLARE @job_sql NVARCHAR(MAX) = N''; --Used to hold the dynamic SQL that creates Agent jobs
+DECLARE @counter INT = 0; --For looping to create 10 Agent jobs
+DECLARE @job_category NVARCHAR(MAX) = N'''Database Maintenance'''; --Job category
+DECLARE @job_owner NVARCHAR(128) = QUOTENAME(SUSER_SNAME(0x01), ''''); -- Admin user/owner
+DECLARE @jobs_to_change TABLE(name SYSNAME); -- list of jobs we need to enable or disable
+DECLARE @current_job_name SYSNAME; -- While looping through Agent jobs to enable or disable
+DECLARE @active_start_date INT = (CONVERT(INT, CONVERT(VARCHAR(10), GETDATE(), 112)));
+DECLARE @started_waiting_for_jobs DATETIME; --We need to wait for a while when disabling jobs
+
+/*Specifically for Backups*/
+DECLARE @job_name_backups NVARCHAR(MAX) = N'''sp_AllNightLog_Backup_Job_'''; --Name of log backup job
+DECLARE @job_description_backups NVARCHAR(MAX) = N'''This is a worker for the purposes of taking log backups from msdbCentral.dbo.backup_worker queue table.'''; --Job description
+DECLARE @job_command_backups NVARCHAR(MAX) = N'''EXEC sp_AllNightLog @Backup = 1'''; --Command the Agent job will run
+
+/*Specifically for Restores*/
+DECLARE @job_name_restores NVARCHAR(MAX) = N'''sp_AllNightLog_Restore_Job_'''; --Name of log backup job
+DECLARE @job_description_restores NVARCHAR(MAX) = N'''This is a worker for the purposes of restoring log backups from msdb.dbo.restore_worker queue table.'''; --Job description
+DECLARE @job_command_restores NVARCHAR(MAX) = N'''EXEC sp_AllNightLog @Restore = 1'''; --Command the Agent job will run
+
+
+/*
+
+Sanity check some variables
+
+*/
+
+
+
+IF ((@RunSetup = 0 OR @RunSetup IS NULL) AND (@UpdateSetup = 0 OR @UpdateSetup IS NULL))
+
+	BEGIN
+
+		RAISERROR('You have to either run setup or update setup. You can''t not do neither nor, if you follow. Or not.', 0, 1) WITH NOWAIT;
+
+		RETURN;
+
+	END;
+
+
+/*
+
+Should be a positive number
+
+*/
+
+IF (@RPOSeconds < 0)
+
+		BEGIN
+			RAISERROR('Please choose a positive number for @RPOSeconds', 0, 1) WITH NOWAIT;
+
+			RETURN;
+		END;
+
+
+/*
+
+Probably shouldn't be more than 20
+
+*/
+
+IF (@Jobs > 20) OR (@Jobs < 1)
+
+		BEGIN
+			RAISERROR('We advise sticking with 1-20 jobs.', 0, 1) WITH NOWAIT;
+
+			RETURN;
+		END;
+
+/*
+
+Probably shouldn't be more than 4 hours
+
+*/
+
+IF (@RPOSeconds >= 14400)
+		BEGIN
+
+			RAISERROR('If your RPO is really 4 hours, perhaps you''d be interested in a more modest recovery model, like SIMPLE?', 0, 1) WITH NOWAIT;
+
+			RETURN;
+		END;
+
+
+/*
+
+Can't enable both the backup and restore jobs at the same time
+
+*/
+
+IF @EnableBackupJobs = 1 AND @EnableRestoreJobs = 1
+		BEGIN
+
+			RAISERROR('You are not allowed to enable both the backup and restore jobs at the same time. Pick one, bucko.', 0, 1) WITH NOWAIT;
+
+			RETURN;
+		END;
+
+/*
+Make sure xp_cmdshell is enabled
+*/
+IF NOT EXISTS (SELECT * FROM sys.configurations WHERE name = 'xp_cmdshell' AND value_in_use = 1)
+		BEGIN 		
+			RAISERROR('xp_cmdshell must be enabled so we can get directory contents to check for new databases to restore.', 0, 1) WITH NOWAIT
+			
+			RETURN;
+		END 
+
+/*
+Make sure Ola Hallengren's scripts are installed in same database
+*/
+DECLARE @CurrentDatabaseContext nvarchar(128) = DB_NAME();
+IF NOT EXISTS (SELECT * FROM sys.procedures WHERE name = 'CommandExecute')
+		BEGIN 		
+			RAISERROR('Ola Hallengren''s CommandExecute must be installed in the same database (%s) as SQL Server First Responder Kit. More info: http://ola.hallengren.com', 0, 1, @CurrentDatabaseContext) WITH NOWAIT;
+			
+			RETURN;
+		END 
+IF NOT EXISTS (SELECT * FROM sys.procedures WHERE name = 'DatabaseBackup')
+		BEGIN 		
+			RAISERROR('Ola Hallengren''s DatabaseBackup must be installed in the same database (%s) as SQL Server First Responder Kit. More info: http://ola.hallengren.com', 0, 1, @CurrentDatabaseContext) WITH NOWAIT;
+			
+			RETURN;
+		END 
+
+/*
+Make sure sp_DatabaseRestore is installed in same database
+*/
+IF NOT EXISTS (SELECT * FROM sys.procedures WHERE name = 'sp_DatabaseRestore')
+		BEGIN 		
+			RAISERROR('sp_DatabaseRestore must be installed in the same database (%s) as SQL Server First Responder Kit. To get it: http://FirstResponderKit.org', 0, 1, @CurrentDatabaseContext) WITH NOWAIT;
+			
+			RETURN;
+		END 
+
+/*
+
+Basic path sanity checks
+
+*/
+
+IF @RunSetup = 1 and @BackupPath is NULL
+		BEGIN
+	
+				RAISERROR('@BackupPath is required during setup', 0, 1) WITH NOWAIT;
+				
+				RETURN;
+		END
+
+IF  (@BackupPath NOT LIKE '[c-zC-Z]:\%') --Local path, don't think anyone has A or B drives
+AND (@BackupPath NOT LIKE '\\[a-zA-Z0-9]%\%') --UNC path
+	
+		BEGIN 		
+				RAISERROR('Are you sure that''s a real path?', 0, 1) WITH NOWAIT;
+				
+				RETURN;
+		END; 
+
+/*
+
+If you want to update the table, one of these has to not be NULL
+
+*/
+
+IF @UpdateSetup = 1
+	AND (	 @RPOSeconds IS NULL 
+		 AND @BackupPath IS NULL 
+		 AND @RPOSeconds IS NULL 
+		 AND @RestorePath IS NULL
+         AND @EnableBackupJobs IS NULL
+         AND @EnableRestoreJobs IS NULL
+		)
+
+		BEGIN
+
+			RAISERROR('If you want to update configuration settings, they can''t be NULL. Please Make sure @RPOSeconds / @RTOSeconds or @BackupPath / @RestorePath has a value', 0, 1) WITH NOWAIT;
+
+			RETURN;
+
+		END;
+
+
+IF @UpdateSetup = 1
+	GOTO UpdateConfigs;
+
+IF @RunSetup = 1
+BEGIN
+		BEGIN TRY
+
+			BEGIN 
+			
+
+				/*
+				
+				First check to see if Agent is running -- we'll get errors if it's not
+				
+				*/
+				
+				
+				IF ( SELECT 1
+						FROM sys.all_objects
+						WHERE name = 'dm_server_services' ) IS NOT NULL 
+
+				BEGIN
+
+				IF EXISTS (
+							SELECT 1
+							FROM sys.dm_server_services
+							WHERE servicename LIKE 'SQL Server Agent%'
+							AND status_desc = 'Stopped'		
+						  )
+					
+					BEGIN
+		
+						RAISERROR('SQL Server Agent is not currently running -- it needs to be enabled to add backup worker jobs and the new database polling job', 0, 1) WITH NOWAIT;
+						
+						RETURN;
+		
+					END;
+				
+				END 
+				
+
+				BEGIN
+
+
+						/*
+						
+						Check to see if the database exists
+
+						*/
+ 
+						RAISERROR('Checking for msdbCentral', 0, 1) WITH NOWAIT;
+
+						SET @db_sql += N'
+
+							IF DATABASEPROPERTYEX(' + QUOTENAME(@database_name, '''') + ', ''Status'') IS NULL
+
+								BEGIN
+
+									RAISERROR(''Creating msdbCentral'', 0, 1) WITH NOWAIT;
+
+									CREATE DATABASE ' + QUOTENAME(@database_name) + ';
+									
+									ALTER DATABASE ' + QUOTENAME(@database_name) + ' SET RECOVERY FULL;
+								
+								END
+
+							';
+
+
+							IF @Debug = 1
+								BEGIN 
+									RAISERROR(@db_sql, 0, 1) WITH NOWAIT;
+								END; 
+
+
+							IF @db_sql IS NULL
+								BEGIN
+									RAISERROR('@db_sql is NULL for some reason', 0, 1) WITH NOWAIT;
+								END; 
+
+
+							EXEC sp_executesql @db_sql; 
+
+
+						/*
+						
+						Check for tables and stuff
+
+						*/
+
+						
+						RAISERROR('Checking for tables in msdbCentral', 0, 1) WITH NOWAIT;
+
+							SET @tbl_sql += N'
+							
+									USE ' + QUOTENAME(@database_name) + '
+									
+									
+									IF OBJECT_ID(''' + QUOTENAME(@database_name) + '.dbo.backup_configuration'') IS NULL
+									
+										BEGIN
+										
+										RAISERROR(''Creating table dbo.backup_configuration'', 0, 1) WITH NOWAIT;
+											
+											CREATE TABLE dbo.backup_configuration (
+																			database_name NVARCHAR(256), 
+																			configuration_name NVARCHAR(512), 
+																			configuration_description NVARCHAR(512), 
+																			configuration_setting NVARCHAR(MAX)
+																			);
+											
+										END
+										
+									ELSE 
+										
+										BEGIN
+											
+											
+											RAISERROR(''Backup configuration table exists, truncating'', 0, 1) WITH NOWAIT;
+										
+											
+											TRUNCATE TABLE dbo.backup_configuration
+
+										
+										END
+
+
+											RAISERROR(''Inserting configuration values'', 0, 1) WITH NOWAIT;
+
+											
+											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
+															  VALUES (''all'', ''log backup frequency'', ''The length of time in second between Log Backups.'', ''' + CONVERT(NVARCHAR(10), @RPOSeconds) + ''');
+											
+											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
+															  VALUES (''all'', ''log backup path'', ''The path to which Log Backups should go.'', ''' + @BackupPath + ''');									
+									
+											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
+															  VALUES (''all'', ''change backup type'', ''For Ola Hallengren DatabaseBackup @ChangeBackupType param: Y = escalate to fulls, MSDB = escalate by checking msdb backup history.'', ''MSDB'');									
+									
+											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
+															  VALUES (''all'', ''encrypt'', ''For Ola Hallengren DatabaseBackup: Y = encrypt the backup. N (default) = do not encrypt.'', NULL);									
+									
+											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
+															  VALUES (''all'', ''encryptionalgorithm'', ''For Ola Hallengren DatabaseBackup: native 2014 choices include TRIPLE_DES_3KEY, AES_128, AES_192, AES_256.'', NULL);									
+									
+											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
+															  VALUES (''all'', ''servercertificate'', ''For Ola Hallengren DatabaseBackup: server certificate that is used to encrypt the backup.'', NULL);									
+									
+																		
+									IF OBJECT_ID(''' + QUOTENAME(@database_name) + '.dbo.backup_worker'') IS NULL
+										
+										BEGIN
+										
+										
+											RAISERROR(''Creating table dbo.backup_worker'', 0, 1) WITH NOWAIT;
+											
+												CREATE TABLE dbo.backup_worker (
+																				id INT IDENTITY(1, 1) PRIMARY KEY CLUSTERED, 
+																				database_name NVARCHAR(256), 
+																				last_log_backup_start_time DATETIME DEFAULT ''19000101'', 
+																				last_log_backup_finish_time DATETIME DEFAULT ''99991231'', 
+																				is_started BIT DEFAULT 0, 
+																				is_completed BIT DEFAULT 0, 
+																				error_number INT DEFAULT NULL, 
+																				last_error_date DATETIME DEFAULT NULL,
+																				ignore_database BIT DEFAULT 0,
+																				full_backup_required BIT DEFAULT ' + CASE WHEN @FirstFullBackup = 0 THEN N'0,' ELSE N'1,' END + CHAR(10) +
+																			  N'diff_backup_required BIT DEFAULT ' + CASE WHEN @FirstDiffBackup = 0 THEN N'0' ELSE N'1' END + CHAR(10) +
+																			  N');
+											
+										END;
+									
+									ELSE
+
+										BEGIN
+
+
+											RAISERROR(''Backup worker table exists, truncating'', 0, 1) WITH NOWAIT;
+										
+											
+											TRUNCATE TABLE dbo.backup_worker
+
+
+										END
+
+											
+											RAISERROR(''Inserting databases for backups'', 0, 1) WITH NOWAIT;
+									
+											INSERT ' + QUOTENAME(@database_name) + '.dbo.backup_worker (database_name) 
+											SELECT d.name
+											FROM sys.databases d
+											WHERE NOT EXISTS (
+												SELECT * 
+												FROM msdbCentral.dbo.backup_worker bw
+												WHERE bw.database_name = d.name
+															)
+											AND d.database_id > 4;
+									
+									';
+
+							
+							IF @Debug = 1
+								BEGIN 
+									SET @msg = SUBSTRING(@tbl_sql, 0, 2044)
+									RAISERROR(@msg, 0, 1) WITH NOWAIT;
+									SET @msg = SUBSTRING(@tbl_sql, 2044, 4088)
+									RAISERROR(@msg, 0, 1) WITH NOWAIT;
+									SET @msg = SUBSTRING(@tbl_sql, 4088, 6132)
+									RAISERROR(@msg, 0, 1) WITH NOWAIT;
+									SET @msg = SUBSTRING(@tbl_sql, 6132, 8176)
+									RAISERROR(@msg, 0, 1) WITH NOWAIT;
+								END; 
+
+							
+							IF @tbl_sql IS NULL
+								BEGIN
+									RAISERROR('@tbl_sql is NULL for some reason', 0, 1) WITH NOWAIT;
+								END; 
+
+
+							EXEC sp_executesql @tbl_sql;
+
+						
+						/*
+						
+						This section creates tables for restore workers to work off of
+						
+						*/
+
+						
+						/* 
+						
+						In search of msdb 
+						
+						*/
+						
+						RAISERROR('Checking for msdb. Yeah, I know...', 0, 1) WITH NOWAIT;
+						
+						IF DATABASEPROPERTYEX('msdb', 'Status') IS NULL
+
+							BEGIN
+
+									RAISERROR('YOU HAVE NO MSDB WHY?!', 0, 1) WITH NOWAIT;
+
+							RETURN;
+
+							END;
+
+						
+						/* In search of restore_configuration */
+
+						RAISERROR('Checking for Restore Worker tables in msdb', 0, 1) WITH NOWAIT;
+
+						IF OBJECT_ID('msdb.dbo.restore_configuration') IS NULL
+
+							BEGIN
+
+								RAISERROR('Creating restore_configuration table in msdb', 0, 1) WITH NOWAIT;
+
+								CREATE TABLE msdb.dbo.restore_configuration (
+																			database_name NVARCHAR(256), 
+																			configuration_name NVARCHAR(512), 
+																			configuration_description NVARCHAR(512), 
+																			configuration_setting NVARCHAR(MAX)
+																			);
+
+							END;
+
+
+						ELSE
+
+
+							BEGIN
+
+								RAISERROR('Restore configuration table exists, truncating', 0, 1) WITH NOWAIT;
+
+								TRUNCATE TABLE msdb.dbo.restore_configuration;
+						
+							END;
+
+
+								RAISERROR('Inserting configuration values to msdb.dbo.restore_configuration', 0, 1) WITH NOWAIT;
+								
+								INSERT msdb.dbo.restore_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
+												  VALUES ('all', 'log restore frequency', 'The length of time in second between Log Restores.', @RTOSeconds);
+								
+								INSERT msdb.dbo.restore_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
+												  VALUES ('all', 'log restore path', 'The path to which Log Restores come from.', @RestorePath);	
+
+								INSERT msdb.dbo.restore_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
+												  VALUES ('all', 'move files', 'Determines if we move database files to default data/log directories.', @MoveFiles);	
+
+						IF OBJECT_ID('msdb.dbo.restore_worker') IS NULL
+							
+							BEGIN
+							
+							
+								RAISERROR('Creating table msdb.dbo.restore_worker', 0, 1) WITH NOWAIT;
+								
+								CREATE TABLE msdb.dbo.restore_worker (
+																		 id INT IDENTITY(1, 1) PRIMARY KEY CLUSTERED, 
+																		 database_name NVARCHAR(256), 
+																		 last_log_restore_start_time DATETIME DEFAULT '19000101', 
+																		 last_log_restore_finish_time DATETIME DEFAULT '99991231', 
+																		 is_started BIT DEFAULT 0, 
+																		 is_completed BIT DEFAULT 0, 
+																		 error_number INT DEFAULT NULL, 
+																		 last_error_date DATETIME DEFAULT NULL,
+																		 ignore_database BIT DEFAULT 0,
+																		 full_backup_required BIT DEFAULT 0,
+																	     diff_backup_required BIT DEFAULT 0
+																	     );
+
+								
+								RAISERROR('Inserting databases for restores', 0, 1) WITH NOWAIT;
+						
+								INSERT msdb.dbo.restore_worker (database_name) 
+								SELECT d.name
+								FROM sys.databases d
+								WHERE NOT EXISTS (
+									SELECT * 
+									FROM msdb.dbo.restore_worker bw
+									WHERE bw.database_name = d.name
+												)
+								AND d.database_id > 4;
+							
+							
+							END;
+
+
+		
+		/*
+		
+		Add Jobs
+		
+		*/
+		
+
+		
+		/*
+		
+		Look for our ten second schedule -- all jobs use this to restart themselves if they fail
+
+		Fun fact: you can add the same schedule name multiple times, so we don't want to just stick it in there
+		
+		*/
+
+
+		RAISERROR('Checking for ten second schedule', 0, 1) WITH NOWAIT;
+
+			IF NOT EXISTS (
+							SELECT 1 
+							FROM msdb.dbo.sysschedules 
+							WHERE name = 'ten_seconds'
+						  )
+			
+				BEGIN
+					
+					
+					RAISERROR('Creating ten second schedule', 0, 1) WITH NOWAIT;
+
+					
+					EXEC msdb.dbo.sp_add_schedule    @schedule_name= ten_seconds, 
+													 @enabled = 1, 
+													 @freq_type = 4, 
+													 @freq_interval = 1, 
+													 @freq_subday_type = 2,  
+													 @freq_subday_interval = 10, 
+													 @freq_relative_interval = 0, 
+													 @freq_recurrence_factor = 0, 
+													 @active_start_date = @active_start_date, 
+													 @active_end_date = 99991231, 
+													 @active_start_time = 0, 
+													 @active_end_time = 235959;
+				
+				END;
+		
+			
+			/*
+			
+			Look for Backup Pollster job -- this job sets up our watcher for new databases to back up
+			
+			*/
+
+			
+			RAISERROR('Checking for pollster job', 0, 1) WITH NOWAIT;
+
+			
+			IF NOT EXISTS (
+							SELECT 1 
+							FROM msdb.dbo.sysjobs 
+							WHERE name = 'sp_AllNightLog_PollForNewDatabases'
+						  )
+		
+				
+				BEGIN
+					
+					
+					RAISERROR('Creating pollster job', 0, 1) WITH NOWAIT;
+
+						IF @EnableBackupJobs = 1
+                            BEGIN
+						    EXEC msdb.dbo.sp_add_job @job_name = sp_AllNightLog_PollForNewDatabases, 
+												     @description = 'This is a worker for the purposes of polling sys.databases for new entries to insert to the worker queue table.', 
+												     @category_name = 'Database Maintenance', 
+												     @owner_login_name = 'sa',
+												     @enabled = 1;
+                            END		
+                        ELSE			
+                            BEGIN
+						    EXEC msdb.dbo.sp_add_job @job_name = sp_AllNightLog_PollForNewDatabases, 
+												     @description = 'This is a worker for the purposes of polling sys.databases for new entries to insert to the worker queue table.', 
+												     @category_name = 'Database Maintenance', 
+												     @owner_login_name = 'sa',
+												     @enabled = 0;
+                            END		
+					
+					
+					RAISERROR('Adding job step', 0, 1) WITH NOWAIT;
+
+						
+						EXEC msdb.dbo.sp_add_jobstep @job_name = sp_AllNightLog_PollForNewDatabases, 
+													 @step_name = sp_AllNightLog_PollForNewDatabases, 
+													 @subsystem = 'TSQL', 
+													 @command = 'EXEC sp_AllNightLog @PollForNewDatabases = 1';
+					
+					
+					
+					RAISERROR('Adding job server', 0, 1) WITH NOWAIT;
+
+						
+						EXEC msdb.dbo.sp_add_jobserver @job_name = sp_AllNightLog_PollForNewDatabases;
+
+					
+									
+					RAISERROR('Attaching schedule', 0, 1) WITH NOWAIT;
+		
+						
+						EXEC msdb.dbo.sp_attach_schedule @job_name = sp_AllNightLog_PollForNewDatabases, 
+														 @schedule_name = ten_seconds;
+		
+				
+				END;	
+				
+
+
+			/*
+			
+			Look for Restore Pollster job -- this job sets up our watcher for new databases to back up
+			
+			*/
+
+			
+			RAISERROR('Checking for restore pollster job', 0, 1) WITH NOWAIT;
+
+			
+			IF NOT EXISTS (
+							SELECT 1 
+							FROM msdb.dbo.sysjobs 
+							WHERE name = 'sp_AllNightLog_PollDiskForNewDatabases'
+						  )
+		
+				
+				BEGIN
+					
+					
+					RAISERROR('Creating restore pollster job', 0, 1) WITH NOWAIT;
+
+						
+						IF @EnableRestoreJobs = 1
+                            BEGIN
+						    EXEC msdb.dbo.sp_add_job @job_name = sp_AllNightLog_PollDiskForNewDatabases, 
+												     @description = 'This is a worker for the purposes of polling your restore path for new entries to insert to the worker queue table.', 
+												     @category_name = 'Database Maintenance', 
+												     @owner_login_name = 'sa',
+												     @enabled = 1;
+                            END
+                        ELSE
+                            BEGIN
+						    EXEC msdb.dbo.sp_add_job @job_name = sp_AllNightLog_PollDiskForNewDatabases, 
+												     @description = 'This is a worker for the purposes of polling your restore path for new entries to insert to the worker queue table.', 
+												     @category_name = 'Database Maintenance', 
+												     @owner_login_name = 'sa',
+												     @enabled = 0;
+                            END
+					
+					
+					
+					RAISERROR('Adding restore job step', 0, 1) WITH NOWAIT;
+
+						
+						EXEC msdb.dbo.sp_add_jobstep @job_name = sp_AllNightLog_PollDiskForNewDatabases, 
+													 @step_name = sp_AllNightLog_PollDiskForNewDatabases, 
+													 @subsystem = 'TSQL', 
+													 @command = 'EXEC sp_AllNightLog @PollDiskForNewDatabases = 1';
+					
+					
+					
+					RAISERROR('Adding restore job server', 0, 1) WITH NOWAIT;
+
+						
+						EXEC msdb.dbo.sp_add_jobserver @job_name = sp_AllNightLog_PollDiskForNewDatabases;
+
+					
+									
+					RAISERROR('Attaching schedule', 0, 1) WITH NOWAIT;
+		
+						
+						EXEC msdb.dbo.sp_attach_schedule @job_name = sp_AllNightLog_PollDiskForNewDatabases, 
+														 @schedule_name = ten_seconds;
+		
+				
+				END;	
+
+
+
+				/*
+				
+				This section creates @Jobs (quantity) of worker jobs to take log backups with
+
+				They work in a queue
+
+				It's queuete
+				
+				*/
+
+
+				RAISERROR('Checking for sp_AllNightLog backup jobs', 0, 1) WITH NOWAIT;
+				
+					
+					SELECT @counter = COUNT(*) + 1 
+					FROM msdb.dbo.sysjobs 
+					WHERE name LIKE 'sp[_]AllNightLog[_]Backup[_]%';
+
+					SET @msg = 'Found ' + CONVERT(NVARCHAR(10), (@counter - 1)) + ' backup jobs -- ' +  CASE WHEN @counter < @Jobs THEN + 'starting loop!'
+																											 WHEN @counter >= @Jobs THEN 'skipping loop!'
+																											 ELSE 'Oh woah something weird happened!'
+																										END;	
+
+					RAISERROR(@msg, 0, 1) WITH NOWAIT;
+
+					
+							WHILE @counter <= @Jobs
+
+							
+								BEGIN
+
+									
+										RAISERROR('Setting job name', 0, 1) WITH NOWAIT;
+
+											SET @job_name_backups = N'sp_AllNightLog_Backup_' + CASE WHEN @counter < 10 THEN N'0' + CONVERT(NVARCHAR(10), @counter)
+																									 WHEN @counter >= 10 THEN CONVERT(NVARCHAR(10), @counter)
+																								END; 
+							
+										
+										RAISERROR('Setting @job_sql', 0, 1) WITH NOWAIT;
+
+										
+											SET @job_sql = N'
+							
+											EXEC msdb.dbo.sp_add_job @job_name = ' + @job_name_backups + ', 
+																	 @description = ' + @job_description_backups + ', 
+																	 @category_name = ' + @job_category + ', 
+																	 @owner_login_name = ' + @job_owner + ',';
+                                            IF @EnableBackupJobs = 1
+                                                BEGIN
+                                                SET @job_sql = @job_sql + ' @enabled = 1; ';
+                                                END
+                                            ELSE
+                                                BEGIN
+                                                SET @job_sql = @job_sql + ' @enabled = 0; ';
+                                                END
+								  
+											
+                                            SET @job_sql = @job_sql + '
+											EXEC msdb.dbo.sp_add_jobstep @job_name = ' + @job_name_backups + ', 
+																		 @step_name = ' + @job_name_backups + ', 
+																		 @subsystem = ''TSQL'', 
+																		 @command = ' + @job_command_backups + ';
+								  
+											
+											EXEC msdb.dbo.sp_add_jobserver @job_name = ' + @job_name_backups + ';
+											
+											
+											EXEC msdb.dbo.sp_attach_schedule  @job_name = ' + @job_name_backups + ', 
+																			  @schedule_name = ten_seconds;
+											
+											';
+							
+										
+										SET @counter += 1;
+
+										
+											IF @Debug = 1
+												BEGIN 
+													RAISERROR(@job_sql, 0, 1) WITH NOWAIT;
+												END; 		
+
+		
+											IF @job_sql IS NULL
+											BEGIN
+												RAISERROR('@job_sql is NULL for some reason', 0, 1) WITH NOWAIT;
+											END; 
+
+
+										EXEC sp_executesql @job_sql;
+
+							
+								END;		
+
+
+
+				/*
+				
+				This section creates @Jobs (quantity) of worker jobs to restore logs with
+
+				They too work in a queue
+
+				Like a queue-t 3.14
+				
+				*/
+
+
+				RAISERROR('Checking for sp_AllNightLog Restore jobs', 0, 1) WITH NOWAIT;
+				
+					
+					SELECT @counter = COUNT(*) + 1 
+					FROM msdb.dbo.sysjobs 
+					WHERE name LIKE 'sp[_]AllNightLog[_]Restore[_]%';
+
+					SET @msg = 'Found ' + CONVERT(NVARCHAR(10), (@counter - 1)) + ' restore jobs -- ' +  CASE WHEN @counter < @Jobs THEN + 'starting loop!'
+																											  WHEN @counter >= @Jobs THEN 'skipping loop!'
+																											  ELSE 'Oh woah something weird happened!'
+																										 END;	
+
+					RAISERROR(@msg, 0, 1) WITH NOWAIT;
+
+					
+							WHILE @counter <= @Jobs
+
+							
+								BEGIN
+
+									
+										RAISERROR('Setting job name', 0, 1) WITH NOWAIT;
+
+											SET @job_name_restores = N'sp_AllNightLog_Restore_' + CASE WHEN @counter < 10 THEN N'0' + CONVERT(NVARCHAR(10), @counter)
+																									   WHEN @counter >= 10 THEN CONVERT(NVARCHAR(10), @counter)
+																								  END; 
+							
+										
+										RAISERROR('Setting @job_sql', 0, 1) WITH NOWAIT;
+
+										
+											SET @job_sql = N'
+							
+											EXEC msdb.dbo.sp_add_job @job_name = ' + @job_name_restores + ', 
+																	 @description = ' + @job_description_restores + ', 
+																	 @category_name = ' + @job_category + ', 
+																	 @owner_login_name = ' + @job_owner + ',';
+                                            IF @EnableRestoreJobs = 1
+                                                BEGIN
+                                                SET @job_sql = @job_sql + ' @enabled = 1; ';
+                                                END
+                                            ELSE
+                                                BEGIN
+                                                SET @job_sql = @job_sql + ' @enabled = 0; ';
+                                                END
+								  
+											
+                                            SET @job_sql = @job_sql + '
+											
+											EXEC msdb.dbo.sp_add_jobstep @job_name = ' + @job_name_restores + ', 
+																		 @step_name = ' + @job_name_restores + ', 
+																		 @subsystem = ''TSQL'', 
+																		 @command = ' + @job_command_restores + ';
+								  
+											
+											EXEC msdb.dbo.sp_add_jobserver @job_name = ' + @job_name_restores + ';
+											
+											
+											EXEC msdb.dbo.sp_attach_schedule  @job_name = ' + @job_name_restores + ', 
+																			  @schedule_name = ten_seconds;
+											
+											';
+							
+										
+										SET @counter += 1;
+
+										
+											IF @Debug = 1
+												BEGIN 
+													RAISERROR(@job_sql, 0, 1) WITH NOWAIT;
+												END; 		
+
+		
+											IF @job_sql IS NULL
+											BEGIN
+												RAISERROR('@job_sql is NULL for some reason', 0, 1) WITH NOWAIT;
+											END; 
+
+
+										EXEC sp_executesql @job_sql;
+
+							
+								END;		
+
+
+		RAISERROR('Setup complete!', 0, 1) WITH NOWAIT;
+		
+			END; --End for the Agent job creation
+
+		END;--End for Database and Table creation
+
+	END TRY
+
+	BEGIN CATCH
+
+
+		SELECT @msg = N'Error occurred during setup: ' + CONVERT(NVARCHAR(10), ERROR_NUMBER()) + ', error message is ' + ERROR_MESSAGE(), 
+			   @error_severity = ERROR_SEVERITY(), 
+			   @error_state = ERROR_STATE();
+		
+		RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
+
+
+		WHILE @@TRANCOUNT > 0
+			ROLLBACK;
+
+	END CATCH;
+
+END;  /* IF @RunSetup = 1 */
+
+RETURN;
+
+
+UpdateConfigs:
+
+IF @UpdateSetup = 1
+	
+	BEGIN
+
+        /* If we're enabling backup jobs, we may need to run restore with recovery on msdbCentral to bring it online: */
+        IF @EnableBackupJobs = 1 AND EXISTS (SELECT * FROM sys.databases WHERE name = 'msdbCentral' AND state = 1)
+            BEGIN 
+				RAISERROR('msdbCentral exists, but is in restoring state. Running restore with recovery...', 0, 1) WITH NOWAIT;
+
+                BEGIN TRY
+                    RESTORE DATABASE [msdbCentral] WITH RECOVERY;
+                END TRY
+
+				BEGIN CATCH
+
+					SELECT @error_number = ERROR_NUMBER(), 
+							@error_severity = ERROR_SEVERITY(), 
+							@error_state = ERROR_STATE();
+
+					SELECT @msg = N'Error running restore with recovery on msdbCentral, error number is ' + CONVERT(NVARCHAR(10), ERROR_NUMBER()) + ', error message is ' + ERROR_MESSAGE(), 
+							@error_severity = ERROR_SEVERITY(), 
+							@error_state = ERROR_STATE();
+						
+					RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
+
+				END CATCH;
+
+            END
+
+            /* Only check for this after trying to restore msdbCentral: */
+            IF @EnableBackupJobs = 1 AND NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'msdbCentral' AND state = 0)
+                    BEGIN
+        				RAISERROR('msdbCentral is not online. Repair that first, then try to enable backup jobs.', 0, 1) WITH NOWAIT;
+                        RETURN
+                    END
+
+
+			IF OBJECT_ID('msdbCentral.dbo.backup_configuration') IS NOT NULL
+
+				RAISERROR('Found backup config, checking variables...', 0, 1) WITH NOWAIT;
+	
+				BEGIN
+
+					BEGIN TRY
+
+						
+						IF @RPOSeconds IS NOT NULL
+
+
+							BEGIN
+
+								RAISERROR('Attempting to update RPO setting', 0, 1) WITH NOWAIT;
+
+								UPDATE c
+										SET c.configuration_setting = CONVERT(NVARCHAR(10), @RPOSeconds)
+								FROM msdbCentral.dbo.backup_configuration AS c
+								WHERE c.configuration_name = N'log backup frequency';
+
+							END;
+
+						
+						IF @BackupPath IS NOT NULL
+
+							BEGIN
+								
+								RAISERROR('Attempting to update Backup Path setting', 0, 1) WITH NOWAIT;
+
+								UPDATE c
+										SET c.configuration_setting = @BackupPath
+								FROM msdbCentral.dbo.backup_configuration AS c
+								WHERE c.configuration_name = N'log backup path';
+
+
+							END;
+
+					END TRY
+
+
+					BEGIN CATCH
+
+
+						SELECT @error_number = ERROR_NUMBER(), 
+							   @error_severity = ERROR_SEVERITY(), 
+							   @error_state = ERROR_STATE();
+
+						SELECT @msg = N'Error updating backup configuration setting, error number is ' + CONVERT(NVARCHAR(10), ERROR_NUMBER()) + ', error message is ' + ERROR_MESSAGE(), 
+							   @error_severity = ERROR_SEVERITY(), 
+							   @error_state = ERROR_STATE();
+						
+						RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
+
+
+					END CATCH;
+
+			END;
+
+
+			IF OBJECT_ID('msdb.dbo.restore_configuration') IS NOT NULL
+
+				RAISERROR('Found restore config, checking variables...', 0, 1) WITH NOWAIT;
+
+				BEGIN
+
+					BEGIN TRY
+
+                        EXEC msdb.dbo.sp_update_schedule @name = ten_seconds, @active_start_date = @active_start_date, @active_start_time = 000000;
+
+                        IF @EnableRestoreJobs IS NOT NULL
+                            BEGIN
+            				RAISERROR('Changing restore job status based on @EnableBackupJobs parameter...', 0, 1) WITH NOWAIT;
+                            INSERT INTO @jobs_to_change(name)
+                                SELECT name 
+                                FROM msdb.dbo.sysjobs 
+                                WHERE name LIKE 'sp_AllNightLog_Restore%' OR name = 'sp_AllNightLog_PollDiskForNewDatabases';
+                            DECLARE jobs_cursor CURSOR FOR  
+                                SELECT name 
+                                FROM @jobs_to_change
+
+                            OPEN jobs_cursor   
+                            FETCH NEXT FROM jobs_cursor INTO @current_job_name   
+
+                            WHILE @@FETCH_STATUS = 0   
+                            BEGIN   
+            				       RAISERROR(@current_job_name, 0, 1) WITH NOWAIT;
+                                   EXEC msdb.dbo.sp_update_job @job_name=@current_job_name,@enabled = @EnableRestoreJobs;
+                                   FETCH NEXT FROM jobs_cursor INTO @current_job_name   
+                            END   
+
+                            CLOSE jobs_cursor   
+                            DEALLOCATE jobs_cursor
+                            DELETE @jobs_to_change;
+                            END;
+
+                        /* If they wanted to turn off restore jobs, wait to make sure that finishes before we start enabling the backup jobs */
+                        IF @EnableRestoreJobs = 0
+                            BEGIN
+                            SET @started_waiting_for_jobs = GETDATE();
+                            SELECT  @counter = COUNT(*)
+		                            FROM    [msdb].[dbo].[sysjobactivity] [ja]
+		                            INNER JOIN [msdb].[dbo].[sysjobs] [j]
+			                            ON [ja].[job_id] = [j].[job_id]
+		                            WHERE    [ja].[session_id] = (
+										                            SELECT    TOP 1 [session_id]
+										                            FROM    [msdb].[dbo].[syssessions]
+										                            ORDER BY [agent_start_date] DESC
+									                            )
+				                            AND [start_execution_date] IS NOT NULL
+				                            AND [stop_execution_date] IS NULL
+				                            AND [j].[name] LIKE 'sp_AllNightLog_Restore%';
+
+                            WHILE @counter > 0
+                                BEGIN
+                                    IF DATEADD(SS, 120, @started_waiting_for_jobs) < GETDATE()
+                                        BEGIN
+                                        RAISERROR('OH NOES! We waited 2 minutes and restore jobs are still running. We are stopping here - get a meatbag involved to figure out if restore jobs need to be killed, and the backup jobs will need to be enabled manually.', 16, 1) WITH NOWAIT;
+                                        RETURN
+                                        END
+                                    SET @msg = N'Waiting for ' + CAST(@counter AS NVARCHAR(100)) + N' sp_AllNightLog_Restore job(s) to finish.'
+                                    RAISERROR(@msg, 0, 1) WITH NOWAIT;
+                                    WAITFOR DELAY '0:00:01'; -- Wait until the restore jobs are fully stopped
+	
+	                                SELECT  @counter = COUNT(*)
+		                                FROM    [msdb].[dbo].[sysjobactivity] [ja]
+		                                INNER JOIN [msdb].[dbo].[sysjobs] [j]
+			                                ON [ja].[job_id] = [j].[job_id]
+		                                WHERE    [ja].[session_id] = (
+										                                SELECT    TOP 1 [session_id]
+										                                FROM    [msdb].[dbo].[syssessions]
+										                                ORDER BY [agent_start_date] DESC
+									                                )
+				                                AND [start_execution_date] IS NOT NULL
+				                                AND [stop_execution_date] IS NULL
+				                                AND [j].[name] LIKE 'sp_AllNightLog_Restore%';
+                                END
+                            END /* IF @EnableRestoreJobs = 0 */
+
+
+                        IF @EnableBackupJobs IS NOT NULL
+                            BEGIN
+            				RAISERROR('Changing backup job status based on @EnableBackupJobs parameter...', 0, 1) WITH NOWAIT;
+                            INSERT INTO @jobs_to_change(name)
+                                SELECT name 
+                                FROM msdb.dbo.sysjobs 
+                                WHERE name LIKE 'sp_AllNightLog_Backup%' OR name = 'sp_AllNightLog_PollForNewDatabases';
+                            DECLARE jobs_cursor CURSOR FOR  
+                                SELECT name 
+                                FROM @jobs_to_change
+
+                            OPEN jobs_cursor   
+                            FETCH NEXT FROM jobs_cursor INTO @current_job_name   
+
+                            WHILE @@FETCH_STATUS = 0   
+                            BEGIN   
+            				       RAISERROR(@current_job_name, 0, 1) WITH NOWAIT;
+                                   EXEC msdb.dbo.sp_update_job @job_name=@current_job_name,@enabled = @EnableBackupJobs;
+                                   FETCH NEXT FROM jobs_cursor INTO @current_job_name   
+                            END   
+
+                            CLOSE jobs_cursor   
+                            DEALLOCATE jobs_cursor
+                            DELETE @jobs_to_change;
+                            END;
+
+
+						
+						IF @RTOSeconds IS NOT NULL
+
+							BEGIN
+
+								RAISERROR('Attempting to update RTO setting', 0, 1) WITH NOWAIT;
+
+								UPDATE c
+										SET c.configuration_setting = CONVERT(NVARCHAR(10), @RTOSeconds)
+								FROM msdb.dbo.restore_configuration AS c
+								WHERE c.configuration_name = N'log restore frequency';
+
+							END;
+
+						
+						IF @RestorePath IS NOT NULL
+
+							BEGIN
+								
+								RAISERROR('Attempting to update Restore Path setting', 0, 1) WITH NOWAIT;
+
+								UPDATE c
+										SET c.configuration_setting = @RestorePath
+								FROM msdb.dbo.restore_configuration AS c
+								WHERE c.configuration_name = N'log restore path';
+
+
+							END;
+
+					END TRY
+
+
+					BEGIN CATCH
+
+
+						SELECT @error_number = ERROR_NUMBER(), 
+							   @error_severity = ERROR_SEVERITY(), 
+							   @error_state = ERROR_STATE();
+
+						SELECT @msg = N'Error updating restore configuration setting, error number is ' + CONVERT(NVARCHAR(10), ERROR_NUMBER()) + ', error message is ' + ERROR_MESSAGE(), 
+							   @error_severity = ERROR_SEVERITY(), 
+							   @error_state = ERROR_STATE();
+						
+						RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
+
+
+					END CATCH;
+
+				END;
+
+				RAISERROR('Update complete!', 0, 1) WITH NOWAIT;
+
+			RETURN;
+
+	END; --End updates to configuration table
+
+
+END; -- Final END for stored proc
+GO
+
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET QUOTED_IDENTIFIER ON;
+SET STATISTICS IO OFF;
+SET STATISTICS TIME OFF;
+GO
+
 IF OBJECT_ID('dbo.sp_AllNightLog') IS NULL
   EXEC ('CREATE PROCEDURE dbo.sp_AllNightLog AS RETURN 0;')
 GO
@@ -31,7 +1375,7 @@ SET STATISTICS XML OFF;
 BEGIN;
 
 
-SELECT @Version = '8.12', @VersionDate = '20221213';
+SELECT @Version = '8.14', @VersionDate = '20230420';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -83,7 +1427,7 @@ BEGIN
 	
 	    MIT License
 		
-		Copyright (c) 2021 Brent Ozar Unlimited
+		Copyright (c) Brent Ozar Unlimited
 	
 		Permission is hereby granted, free of charge, to any person obtaining a copy
 		of this software and associated documentation files (the "Software"), to deal
@@ -1516,1350 +2860,6 @@ RETURN;
 END; -- Final END for stored proc
 
 GO 
-SET ANSI_NULLS ON;
-SET ANSI_PADDING ON;
-SET ANSI_WARNINGS ON;
-SET ARITHABORT ON;
-SET CONCAT_NULL_YIELDS_NULL ON;
-SET QUOTED_IDENTIFIER ON;
-SET STATISTICS IO OFF;
-SET STATISTICS TIME OFF;
-GO
-
-IF OBJECT_ID('dbo.sp_AllNightLog_Setup') IS NULL
-  EXEC ('CREATE PROCEDURE dbo.sp_AllNightLog_Setup AS RETURN 0;');
-GO
-
-
-ALTER PROCEDURE dbo.sp_AllNightLog_Setup
-				@RPOSeconds BIGINT = 30,
-				@RTOSeconds BIGINT = 30,
-				@BackupPath NVARCHAR(MAX) = NULL,
-				@RestorePath NVARCHAR(MAX) = NULL,
-				@Jobs TINYINT = 10,
-				@RunSetup BIT = 0,
-				@UpdateSetup BIT = 0,
-                @EnableBackupJobs INT = NULL,
-                @EnableRestoreJobs INT = NULL,
-				@Debug BIT = 0,
-				@FirstFullBackup BIT = 0,
-				@FirstDiffBackup BIT = 0,
-				@MoveFiles BIT = 1,
-				@Help BIT = 0,
-				@Version     VARCHAR(30) = NULL OUTPUT,
-				@VersionDate DATETIME = NULL OUTPUT,
-				@VersionCheckMode BIT = 0
-WITH RECOMPILE
-AS
-SET NOCOUNT ON;
-SET STATISTICS XML OFF;
-
-BEGIN;
-
-SELECT @Version = '8.12', @VersionDate = '20221213';
-
-IF(@VersionCheckMode = 1)
-BEGIN
-	RETURN;
-END;
-
-IF @Help = 1
-
-BEGIN
-
-	PRINT '		
-		/*
-
-
-		sp_AllNightLog_Setup from http://FirstResponderKit.org
-		
-		This script sets up a database, tables, rows, and jobs for sp_AllNightLog, including:
-
-		* Creates a database
-			* Right now it''s hard-coded to use msdbCentral, that might change later
-	
-		* Creates tables in that database!
-			* dbo.backup_configuration
-				* Hold variables used by stored proc to make runtime decisions
-					* RPO: Seconds, how often we look for databases that need log backups
-					* Backup Path: The path we feed to Ola H''s backup proc
-			* dbo.backup_worker
-				* Holds list of databases and some information that helps our Agent jobs figure out if they need to take another log backup
-		
-		* Creates tables in msdb
-			* dbo.restore_configuration
-				* Holds variables used by stored proc to make runtime decisions
-					* RTO: Seconds, how often to look for log backups to restore
-					* Restore Path: The path we feed to sp_DatabaseRestore 
-					* Move Files: Whether to move files to default data/log directories.
-			* dbo.restore_worker
-				* Holds list of databases and some information that helps our Agent jobs figure out if they need to look for files to restore
-	
-		 * Creates agent jobs
-			* 1 job that polls sys.databases for new entries
-			* 10 jobs that run to take log backups
-			 * Based on a queue table
-			 * Requires Ola Hallengren''s Database Backup stored proc
-	
-		To learn more, visit http://FirstResponderKit.org where you can download new
-		versions for free, watch training videos on how it works, get more info on
-		the findings, contribute your own code, and more.
-	
-		Known limitations of this version:
-		 - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000! And really, maybe not even anything less than 2016. Heh.
-		 - The repository database name is hard-coded to msdbCentral.
-	
-		Unknown limitations of this version:
-		 - None.  (If we knew them, they would be known. Duh.)
-	
-	     Changes - for the full list of improvements and fixes in this version, see:
-	     https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
-	
-	
-		Parameter explanations:
-	
-		  @RunSetup	BIT, defaults to 0. When this is set to 1, it will run the setup portion to create database, tables, and worker jobs.
-		  @UpdateSetup BIT, defaults to 0. When set to 1, will update existing configs for RPO/RTO and database backup/restore paths.
-		  @RPOSeconds BIGINT, defaults to 30. Value in seconds you want to use to determine if a new log backup needs to be taken.
-		  @BackupPath NVARCHAR(MAX), This is REQUIRED if @Runsetup=1. This tells Ola''s job where to put backups.
-		  @MoveFiles BIT, defaults to 1. When this is set to 1, it will move files to default data/log directories
-		  @Debug BIT, defaults to 0. Whent this is set to 1, it prints out dynamic SQL commands
-	
-	    Sample call:
-		EXEC dbo.sp_AllNightLog_Setup
-			@RunSetup = 1,
-			@RPOSeconds = 30,
-			@BackupPath = N''M:\MSSQL\Backup'',
-			@Debug = 1
-
-
-		For more documentation: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
-	
-	    MIT License
-		
-		Copyright (c) 2021 Brent Ozar Unlimited
-	
-		Permission is hereby granted, free of charge, to any person obtaining a copy
-		of this software and associated documentation files (the "Software"), to deal
-		in the Software without restriction, including without limitation the rights
-		to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-		copies of the Software, and to permit persons to whom the Software is
-		furnished to do so, subject to the following conditions:
-	
-		The above copyright notice and this permission notice shall be included in all
-		copies or substantial portions of the Software.
-	
-		THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-		IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-		FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-		AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-		LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-		OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-		SOFTWARE.
-
-
-		*/';
-
-RETURN;
-END; /* IF @Help = 1 */
-
-DECLARE	@database NVARCHAR(128) = NULL; --Holds the database that's currently being processed
-DECLARE @error_number INT = NULL; --Used for TRY/CATCH
-DECLARE @error_severity INT; --Used for TRY/CATCH
-DECLARE @error_state INT; --Used for TRY/CATCH
-DECLARE @msg NVARCHAR(4000) = N''; --Used for RAISERROR
-DECLARE @rpo INT; --Used to hold the RPO value in our configuration table
-DECLARE @backup_path NVARCHAR(MAX); --Used to hold the backup path in our configuration table
-DECLARE @db_sql NVARCHAR(MAX) = N''; --Used to hold the dynamic SQL to create msdbCentral
-DECLARE @tbl_sql NVARCHAR(MAX) = N''; --Used to hold the dynamic SQL that creates tables in msdbCentral
-DECLARE @database_name NVARCHAR(256) = N'msdbCentral'; --Used to hold the name of the database we create to centralize data
-													   --Right now it's hardcoded to msdbCentral, but I made it dynamic in case that changes down the line
-
-
-/*These variables control the loop to create/modify jobs*/
-DECLARE @job_sql NVARCHAR(MAX) = N''; --Used to hold the dynamic SQL that creates Agent jobs
-DECLARE @counter INT = 0; --For looping to create 10 Agent jobs
-DECLARE @job_category NVARCHAR(MAX) = N'''Database Maintenance'''; --Job category
-DECLARE @job_owner NVARCHAR(128) = QUOTENAME(SUSER_SNAME(0x01), ''''); -- Admin user/owner
-DECLARE @jobs_to_change TABLE(name SYSNAME); -- list of jobs we need to enable or disable
-DECLARE @current_job_name SYSNAME; -- While looping through Agent jobs to enable or disable
-DECLARE @active_start_date INT = (CONVERT(INT, CONVERT(VARCHAR(10), GETDATE(), 112)));
-DECLARE @started_waiting_for_jobs DATETIME; --We need to wait for a while when disabling jobs
-
-/*Specifically for Backups*/
-DECLARE @job_name_backups NVARCHAR(MAX) = N'''sp_AllNightLog_Backup_Job_'''; --Name of log backup job
-DECLARE @job_description_backups NVARCHAR(MAX) = N'''This is a worker for the purposes of taking log backups from msdbCentral.dbo.backup_worker queue table.'''; --Job description
-DECLARE @job_command_backups NVARCHAR(MAX) = N'''EXEC sp_AllNightLog @Backup = 1'''; --Command the Agent job will run
-
-/*Specifically for Restores*/
-DECLARE @job_name_restores NVARCHAR(MAX) = N'''sp_AllNightLog_Restore_Job_'''; --Name of log backup job
-DECLARE @job_description_restores NVARCHAR(MAX) = N'''This is a worker for the purposes of restoring log backups from msdb.dbo.restore_worker queue table.'''; --Job description
-DECLARE @job_command_restores NVARCHAR(MAX) = N'''EXEC sp_AllNightLog @Restore = 1'''; --Command the Agent job will run
-
-
-/*
-
-Sanity check some variables
-
-*/
-
-
-
-IF ((@RunSetup = 0 OR @RunSetup IS NULL) AND (@UpdateSetup = 0 OR @UpdateSetup IS NULL))
-
-	BEGIN
-
-		RAISERROR('You have to either run setup or update setup. You can''t not do neither nor, if you follow. Or not.', 0, 1) WITH NOWAIT;
-
-		RETURN;
-
-	END;
-
-
-/*
-
-Should be a positive number
-
-*/
-
-IF (@RPOSeconds < 0)
-
-		BEGIN
-			RAISERROR('Please choose a positive number for @RPOSeconds', 0, 1) WITH NOWAIT;
-
-			RETURN;
-		END;
-
-
-/*
-
-Probably shouldn't be more than 20
-
-*/
-
-IF (@Jobs > 20) OR (@Jobs < 1)
-
-		BEGIN
-			RAISERROR('We advise sticking with 1-20 jobs.', 0, 1) WITH NOWAIT;
-
-			RETURN;
-		END;
-
-/*
-
-Probably shouldn't be more than 4 hours
-
-*/
-
-IF (@RPOSeconds >= 14400)
-		BEGIN
-
-			RAISERROR('If your RPO is really 4 hours, perhaps you''d be interested in a more modest recovery model, like SIMPLE?', 0, 1) WITH NOWAIT;
-
-			RETURN;
-		END;
-
-
-/*
-
-Can't enable both the backup and restore jobs at the same time
-
-*/
-
-IF @EnableBackupJobs = 1 AND @EnableRestoreJobs = 1
-		BEGIN
-
-			RAISERROR('You are not allowed to enable both the backup and restore jobs at the same time. Pick one, bucko.', 0, 1) WITH NOWAIT;
-
-			RETURN;
-		END;
-
-/*
-Make sure xp_cmdshell is enabled
-*/
-IF NOT EXISTS (SELECT * FROM sys.configurations WHERE name = 'xp_cmdshell' AND value_in_use = 1)
-		BEGIN 		
-			RAISERROR('xp_cmdshell must be enabled so we can get directory contents to check for new databases to restore.', 0, 1) WITH NOWAIT
-			
-			RETURN;
-		END 
-
-/*
-Make sure Ola Hallengren's scripts are installed in same database
-*/
-DECLARE @CurrentDatabaseContext nvarchar(128) = DB_NAME();
-IF NOT EXISTS (SELECT * FROM sys.procedures WHERE name = 'CommandExecute')
-		BEGIN 		
-			RAISERROR('Ola Hallengren''s CommandExecute must be installed in the same database (%s) as SQL Server First Responder Kit. More info: http://ola.hallengren.com', 0, 1, @CurrentDatabaseContext) WITH NOWAIT;
-			
-			RETURN;
-		END 
-IF NOT EXISTS (SELECT * FROM sys.procedures WHERE name = 'DatabaseBackup')
-		BEGIN 		
-			RAISERROR('Ola Hallengren''s DatabaseBackup must be installed in the same database (%s) as SQL Server First Responder Kit. More info: http://ola.hallengren.com', 0, 1, @CurrentDatabaseContext) WITH NOWAIT;
-			
-			RETURN;
-		END 
-
-/*
-Make sure sp_DatabaseRestore is installed in same database
-*/
-IF NOT EXISTS (SELECT * FROM sys.procedures WHERE name = 'sp_DatabaseRestore')
-		BEGIN 		
-			RAISERROR('sp_DatabaseRestore must be installed in the same database (%s) as SQL Server First Responder Kit. To get it: http://FirstResponderKit.org', 0, 1, @CurrentDatabaseContext) WITH NOWAIT;
-			
-			RETURN;
-		END 
-
-/*
-
-Basic path sanity checks
-
-*/
-
-IF @RunSetup = 1 and @BackupPath is NULL
-		BEGIN
-	
-				RAISERROR('@BackupPath is required during setup', 0, 1) WITH NOWAIT;
-				
-				RETURN;
-		END
-
-IF  (@BackupPath NOT LIKE '[c-zC-Z]:\%') --Local path, don't think anyone has A or B drives
-AND (@BackupPath NOT LIKE '\\[a-zA-Z0-9]%\%') --UNC path
-	
-		BEGIN 		
-				RAISERROR('Are you sure that''s a real path?', 0, 1) WITH NOWAIT;
-				
-				RETURN;
-		END; 
-
-/*
-
-If you want to update the table, one of these has to not be NULL
-
-*/
-
-IF @UpdateSetup = 1
-	AND (	 @RPOSeconds IS NULL 
-		 AND @BackupPath IS NULL 
-		 AND @RPOSeconds IS NULL 
-		 AND @RestorePath IS NULL
-         AND @EnableBackupJobs IS NULL
-         AND @EnableRestoreJobs IS NULL
-		)
-
-		BEGIN
-
-			RAISERROR('If you want to update configuration settings, they can''t be NULL. Please Make sure @RPOSeconds / @RTOSeconds or @BackupPath / @RestorePath has a value', 0, 1) WITH NOWAIT;
-
-			RETURN;
-
-		END;
-
-
-IF @UpdateSetup = 1
-	GOTO UpdateConfigs;
-
-IF @RunSetup = 1
-BEGIN
-		BEGIN TRY
-
-			BEGIN 
-			
-
-				/*
-				
-				First check to see if Agent is running -- we'll get errors if it's not
-				
-				*/
-				
-				
-				IF ( SELECT 1
-						FROM sys.all_objects
-						WHERE name = 'dm_server_services' ) IS NOT NULL 
-
-				BEGIN
-
-				IF EXISTS (
-							SELECT 1
-							FROM sys.dm_server_services
-							WHERE servicename LIKE 'SQL Server Agent%'
-							AND status_desc = 'Stopped'		
-						  )
-					
-					BEGIN
-		
-						RAISERROR('SQL Server Agent is not currently running -- it needs to be enabled to add backup worker jobs and the new database polling job', 0, 1) WITH NOWAIT;
-						
-						RETURN;
-		
-					END;
-				
-				END 
-				
-
-				BEGIN
-
-
-						/*
-						
-						Check to see if the database exists
-
-						*/
- 
-						RAISERROR('Checking for msdbCentral', 0, 1) WITH NOWAIT;
-
-						SET @db_sql += N'
-
-							IF DATABASEPROPERTYEX(' + QUOTENAME(@database_name, '''') + ', ''Status'') IS NULL
-
-								BEGIN
-
-									RAISERROR(''Creating msdbCentral'', 0, 1) WITH NOWAIT;
-
-									CREATE DATABASE ' + QUOTENAME(@database_name) + ';
-									
-									ALTER DATABASE ' + QUOTENAME(@database_name) + ' SET RECOVERY FULL;
-								
-								END
-
-							';
-
-
-							IF @Debug = 1
-								BEGIN 
-									RAISERROR(@db_sql, 0, 1) WITH NOWAIT;
-								END; 
-
-
-							IF @db_sql IS NULL
-								BEGIN
-									RAISERROR('@db_sql is NULL for some reason', 0, 1) WITH NOWAIT;
-								END; 
-
-
-							EXEC sp_executesql @db_sql; 
-
-
-						/*
-						
-						Check for tables and stuff
-
-						*/
-
-						
-						RAISERROR('Checking for tables in msdbCentral', 0, 1) WITH NOWAIT;
-
-							SET @tbl_sql += N'
-							
-									USE ' + QUOTENAME(@database_name) + '
-									
-									
-									IF OBJECT_ID(''' + QUOTENAME(@database_name) + '.dbo.backup_configuration'') IS NULL
-									
-										BEGIN
-										
-										RAISERROR(''Creating table dbo.backup_configuration'', 0, 1) WITH NOWAIT;
-											
-											CREATE TABLE dbo.backup_configuration (
-																			database_name NVARCHAR(256), 
-																			configuration_name NVARCHAR(512), 
-																			configuration_description NVARCHAR(512), 
-																			configuration_setting NVARCHAR(MAX)
-																			);
-											
-										END
-										
-									ELSE 
-										
-										BEGIN
-											
-											
-											RAISERROR(''Backup configuration table exists, truncating'', 0, 1) WITH NOWAIT;
-										
-											
-											TRUNCATE TABLE dbo.backup_configuration
-
-										
-										END
-
-
-											RAISERROR(''Inserting configuration values'', 0, 1) WITH NOWAIT;
-
-											
-											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
-															  VALUES (''all'', ''log backup frequency'', ''The length of time in second between Log Backups.'', ''' + CONVERT(NVARCHAR(10), @RPOSeconds) + ''');
-											
-											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
-															  VALUES (''all'', ''log backup path'', ''The path to which Log Backups should go.'', ''' + @BackupPath + ''');									
-									
-											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
-															  VALUES (''all'', ''change backup type'', ''For Ola Hallengren DatabaseBackup @ChangeBackupType param: Y = escalate to fulls, MSDB = escalate by checking msdb backup history.'', ''MSDB'');									
-									
-											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
-															  VALUES (''all'', ''encrypt'', ''For Ola Hallengren DatabaseBackup: Y = encrypt the backup. N (default) = do not encrypt.'', NULL);									
-									
-											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
-															  VALUES (''all'', ''encryptionalgorithm'', ''For Ola Hallengren DatabaseBackup: native 2014 choices include TRIPLE_DES_3KEY, AES_128, AES_192, AES_256.'', NULL);									
-									
-											INSERT dbo.backup_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
-															  VALUES (''all'', ''servercertificate'', ''For Ola Hallengren DatabaseBackup: server certificate that is used to encrypt the backup.'', NULL);									
-									
-																		
-									IF OBJECT_ID(''' + QUOTENAME(@database_name) + '.dbo.backup_worker'') IS NULL
-										
-										BEGIN
-										
-										
-											RAISERROR(''Creating table dbo.backup_worker'', 0, 1) WITH NOWAIT;
-											
-												CREATE TABLE dbo.backup_worker (
-																				id INT IDENTITY(1, 1) PRIMARY KEY CLUSTERED, 
-																				database_name NVARCHAR(256), 
-																				last_log_backup_start_time DATETIME DEFAULT ''19000101'', 
-																				last_log_backup_finish_time DATETIME DEFAULT ''99991231'', 
-																				is_started BIT DEFAULT 0, 
-																				is_completed BIT DEFAULT 0, 
-																				error_number INT DEFAULT NULL, 
-																				last_error_date DATETIME DEFAULT NULL,
-																				ignore_database BIT DEFAULT 0,
-																				full_backup_required BIT DEFAULT ' + CASE WHEN @FirstFullBackup = 0 THEN N'0,' ELSE N'1,' END + CHAR(10) +
-																			  N'diff_backup_required BIT DEFAULT ' + CASE WHEN @FirstDiffBackup = 0 THEN N'0' ELSE N'1' END + CHAR(10) +
-																			  N');
-											
-										END;
-									
-									ELSE
-
-										BEGIN
-
-
-											RAISERROR(''Backup worker table exists, truncating'', 0, 1) WITH NOWAIT;
-										
-											
-											TRUNCATE TABLE dbo.backup_worker
-
-
-										END
-
-											
-											RAISERROR(''Inserting databases for backups'', 0, 1) WITH NOWAIT;
-									
-											INSERT ' + QUOTENAME(@database_name) + '.dbo.backup_worker (database_name) 
-											SELECT d.name
-											FROM sys.databases d
-											WHERE NOT EXISTS (
-												SELECT * 
-												FROM msdbCentral.dbo.backup_worker bw
-												WHERE bw.database_name = d.name
-															)
-											AND d.database_id > 4;
-									
-									';
-
-							
-							IF @Debug = 1
-								BEGIN 
-									SET @msg = SUBSTRING(@tbl_sql, 0, 2044)
-									RAISERROR(@msg, 0, 1) WITH NOWAIT;
-									SET @msg = SUBSTRING(@tbl_sql, 2044, 4088)
-									RAISERROR(@msg, 0, 1) WITH NOWAIT;
-									SET @msg = SUBSTRING(@tbl_sql, 4088, 6132)
-									RAISERROR(@msg, 0, 1) WITH NOWAIT;
-									SET @msg = SUBSTRING(@tbl_sql, 6132, 8176)
-									RAISERROR(@msg, 0, 1) WITH NOWAIT;
-								END; 
-
-							
-							IF @tbl_sql IS NULL
-								BEGIN
-									RAISERROR('@tbl_sql is NULL for some reason', 0, 1) WITH NOWAIT;
-								END; 
-
-
-							EXEC sp_executesql @tbl_sql;
-
-						
-						/*
-						
-						This section creates tables for restore workers to work off of
-						
-						*/
-
-						
-						/* 
-						
-						In search of msdb 
-						
-						*/
-						
-						RAISERROR('Checking for msdb. Yeah, I know...', 0, 1) WITH NOWAIT;
-						
-						IF DATABASEPROPERTYEX('msdb', 'Status') IS NULL
-
-							BEGIN
-
-									RAISERROR('YOU HAVE NO MSDB WHY?!', 0, 1) WITH NOWAIT;
-
-							RETURN;
-
-							END;
-
-						
-						/* In search of restore_configuration */
-
-						RAISERROR('Checking for Restore Worker tables in msdb', 0, 1) WITH NOWAIT;
-
-						IF OBJECT_ID('msdb.dbo.restore_configuration') IS NULL
-
-							BEGIN
-
-								RAISERROR('Creating restore_configuration table in msdb', 0, 1) WITH NOWAIT;
-
-								CREATE TABLE msdb.dbo.restore_configuration (
-																			database_name NVARCHAR(256), 
-																			configuration_name NVARCHAR(512), 
-																			configuration_description NVARCHAR(512), 
-																			configuration_setting NVARCHAR(MAX)
-																			);
-
-							END;
-
-
-						ELSE
-
-
-							BEGIN
-
-								RAISERROR('Restore configuration table exists, truncating', 0, 1) WITH NOWAIT;
-
-								TRUNCATE TABLE msdb.dbo.restore_configuration;
-						
-							END;
-
-
-								RAISERROR('Inserting configuration values to msdb.dbo.restore_configuration', 0, 1) WITH NOWAIT;
-								
-								INSERT msdb.dbo.restore_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
-												  VALUES ('all', 'log restore frequency', 'The length of time in second between Log Restores.', @RTOSeconds);
-								
-								INSERT msdb.dbo.restore_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
-												  VALUES ('all', 'log restore path', 'The path to which Log Restores come from.', @RestorePath);	
-
-								INSERT msdb.dbo.restore_configuration (database_name, configuration_name, configuration_description, configuration_setting) 
-												  VALUES ('all', 'move files', 'Determines if we move database files to default data/log directories.', @MoveFiles);	
-
-						IF OBJECT_ID('msdb.dbo.restore_worker') IS NULL
-							
-							BEGIN
-							
-							
-								RAISERROR('Creating table msdb.dbo.restore_worker', 0, 1) WITH NOWAIT;
-								
-								CREATE TABLE msdb.dbo.restore_worker (
-																		 id INT IDENTITY(1, 1) PRIMARY KEY CLUSTERED, 
-																		 database_name NVARCHAR(256), 
-																		 last_log_restore_start_time DATETIME DEFAULT '19000101', 
-																		 last_log_restore_finish_time DATETIME DEFAULT '99991231', 
-																		 is_started BIT DEFAULT 0, 
-																		 is_completed BIT DEFAULT 0, 
-																		 error_number INT DEFAULT NULL, 
-																		 last_error_date DATETIME DEFAULT NULL,
-																		 ignore_database BIT DEFAULT 0,
-																		 full_backup_required BIT DEFAULT 0,
-																	     diff_backup_required BIT DEFAULT 0
-																	     );
-
-								
-								RAISERROR('Inserting databases for restores', 0, 1) WITH NOWAIT;
-						
-								INSERT msdb.dbo.restore_worker (database_name) 
-								SELECT d.name
-								FROM sys.databases d
-								WHERE NOT EXISTS (
-									SELECT * 
-									FROM msdb.dbo.restore_worker bw
-									WHERE bw.database_name = d.name
-												)
-								AND d.database_id > 4;
-							
-							
-							END;
-
-
-		
-		/*
-		
-		Add Jobs
-		
-		*/
-		
-
-		
-		/*
-		
-		Look for our ten second schedule -- all jobs use this to restart themselves if they fail
-
-		Fun fact: you can add the same schedule name multiple times, so we don't want to just stick it in there
-		
-		*/
-
-
-		RAISERROR('Checking for ten second schedule', 0, 1) WITH NOWAIT;
-
-			IF NOT EXISTS (
-							SELECT 1 
-							FROM msdb.dbo.sysschedules 
-							WHERE name = 'ten_seconds'
-						  )
-			
-				BEGIN
-					
-					
-					RAISERROR('Creating ten second schedule', 0, 1) WITH NOWAIT;
-
-					
-					EXEC msdb.dbo.sp_add_schedule    @schedule_name= ten_seconds, 
-													 @enabled = 1, 
-													 @freq_type = 4, 
-													 @freq_interval = 1, 
-													 @freq_subday_type = 2,  
-													 @freq_subday_interval = 10, 
-													 @freq_relative_interval = 0, 
-													 @freq_recurrence_factor = 0, 
-													 @active_start_date = @active_start_date, 
-													 @active_end_date = 99991231, 
-													 @active_start_time = 0, 
-													 @active_end_time = 235959;
-				
-				END;
-		
-			
-			/*
-			
-			Look for Backup Pollster job -- this job sets up our watcher for new databases to back up
-			
-			*/
-
-			
-			RAISERROR('Checking for pollster job', 0, 1) WITH NOWAIT;
-
-			
-			IF NOT EXISTS (
-							SELECT 1 
-							FROM msdb.dbo.sysjobs 
-							WHERE name = 'sp_AllNightLog_PollForNewDatabases'
-						  )
-		
-				
-				BEGIN
-					
-					
-					RAISERROR('Creating pollster job', 0, 1) WITH NOWAIT;
-
-						IF @EnableBackupJobs = 1
-                            BEGIN
-						    EXEC msdb.dbo.sp_add_job @job_name = sp_AllNightLog_PollForNewDatabases, 
-												     @description = 'This is a worker for the purposes of polling sys.databases for new entries to insert to the worker queue table.', 
-												     @category_name = 'Database Maintenance', 
-												     @owner_login_name = 'sa',
-												     @enabled = 1;
-                            END		
-                        ELSE			
-                            BEGIN
-						    EXEC msdb.dbo.sp_add_job @job_name = sp_AllNightLog_PollForNewDatabases, 
-												     @description = 'This is a worker for the purposes of polling sys.databases for new entries to insert to the worker queue table.', 
-												     @category_name = 'Database Maintenance', 
-												     @owner_login_name = 'sa',
-												     @enabled = 0;
-                            END		
-					
-					
-					RAISERROR('Adding job step', 0, 1) WITH NOWAIT;
-
-						
-						EXEC msdb.dbo.sp_add_jobstep @job_name = sp_AllNightLog_PollForNewDatabases, 
-													 @step_name = sp_AllNightLog_PollForNewDatabases, 
-													 @subsystem = 'TSQL', 
-													 @command = 'EXEC sp_AllNightLog @PollForNewDatabases = 1';
-					
-					
-					
-					RAISERROR('Adding job server', 0, 1) WITH NOWAIT;
-
-						
-						EXEC msdb.dbo.sp_add_jobserver @job_name = sp_AllNightLog_PollForNewDatabases;
-
-					
-									
-					RAISERROR('Attaching schedule', 0, 1) WITH NOWAIT;
-		
-						
-						EXEC msdb.dbo.sp_attach_schedule @job_name = sp_AllNightLog_PollForNewDatabases, 
-														 @schedule_name = ten_seconds;
-		
-				
-				END;	
-				
-
-
-			/*
-			
-			Look for Restore Pollster job -- this job sets up our watcher for new databases to back up
-			
-			*/
-
-			
-			RAISERROR('Checking for restore pollster job', 0, 1) WITH NOWAIT;
-
-			
-			IF NOT EXISTS (
-							SELECT 1 
-							FROM msdb.dbo.sysjobs 
-							WHERE name = 'sp_AllNightLog_PollDiskForNewDatabases'
-						  )
-		
-				
-				BEGIN
-					
-					
-					RAISERROR('Creating restore pollster job', 0, 1) WITH NOWAIT;
-
-						
-						IF @EnableRestoreJobs = 1
-                            BEGIN
-						    EXEC msdb.dbo.sp_add_job @job_name = sp_AllNightLog_PollDiskForNewDatabases, 
-												     @description = 'This is a worker for the purposes of polling your restore path for new entries to insert to the worker queue table.', 
-												     @category_name = 'Database Maintenance', 
-												     @owner_login_name = 'sa',
-												     @enabled = 1;
-                            END
-                        ELSE
-                            BEGIN
-						    EXEC msdb.dbo.sp_add_job @job_name = sp_AllNightLog_PollDiskForNewDatabases, 
-												     @description = 'This is a worker for the purposes of polling your restore path for new entries to insert to the worker queue table.', 
-												     @category_name = 'Database Maintenance', 
-												     @owner_login_name = 'sa',
-												     @enabled = 0;
-                            END
-					
-					
-					
-					RAISERROR('Adding restore job step', 0, 1) WITH NOWAIT;
-
-						
-						EXEC msdb.dbo.sp_add_jobstep @job_name = sp_AllNightLog_PollDiskForNewDatabases, 
-													 @step_name = sp_AllNightLog_PollDiskForNewDatabases, 
-													 @subsystem = 'TSQL', 
-													 @command = 'EXEC sp_AllNightLog @PollDiskForNewDatabases = 1';
-					
-					
-					
-					RAISERROR('Adding restore job server', 0, 1) WITH NOWAIT;
-
-						
-						EXEC msdb.dbo.sp_add_jobserver @job_name = sp_AllNightLog_PollDiskForNewDatabases;
-
-					
-									
-					RAISERROR('Attaching schedule', 0, 1) WITH NOWAIT;
-		
-						
-						EXEC msdb.dbo.sp_attach_schedule @job_name = sp_AllNightLog_PollDiskForNewDatabases, 
-														 @schedule_name = ten_seconds;
-		
-				
-				END;	
-
-
-
-				/*
-				
-				This section creates @Jobs (quantity) of worker jobs to take log backups with
-
-				They work in a queue
-
-				It's queuete
-				
-				*/
-
-
-				RAISERROR('Checking for sp_AllNightLog backup jobs', 0, 1) WITH NOWAIT;
-				
-					
-					SELECT @counter = COUNT(*) + 1 
-					FROM msdb.dbo.sysjobs 
-					WHERE name LIKE 'sp[_]AllNightLog[_]Backup[_]%';
-
-					SET @msg = 'Found ' + CONVERT(NVARCHAR(10), (@counter - 1)) + ' backup jobs -- ' +  CASE WHEN @counter < @Jobs THEN + 'starting loop!'
-																											 WHEN @counter >= @Jobs THEN 'skipping loop!'
-																											 ELSE 'Oh woah something weird happened!'
-																										END;	
-
-					RAISERROR(@msg, 0, 1) WITH NOWAIT;
-
-					
-							WHILE @counter <= @Jobs
-
-							
-								BEGIN
-
-									
-										RAISERROR('Setting job name', 0, 1) WITH NOWAIT;
-
-											SET @job_name_backups = N'sp_AllNightLog_Backup_' + CASE WHEN @counter < 10 THEN N'0' + CONVERT(NVARCHAR(10), @counter)
-																									 WHEN @counter >= 10 THEN CONVERT(NVARCHAR(10), @counter)
-																								END; 
-							
-										
-										RAISERROR('Setting @job_sql', 0, 1) WITH NOWAIT;
-
-										
-											SET @job_sql = N'
-							
-											EXEC msdb.dbo.sp_add_job @job_name = ' + @job_name_backups + ', 
-																	 @description = ' + @job_description_backups + ', 
-																	 @category_name = ' + @job_category + ', 
-																	 @owner_login_name = ' + @job_owner + ',';
-                                            IF @EnableBackupJobs = 1
-                                                BEGIN
-                                                SET @job_sql = @job_sql + ' @enabled = 1; ';
-                                                END
-                                            ELSE
-                                                BEGIN
-                                                SET @job_sql = @job_sql + ' @enabled = 0; ';
-                                                END
-								  
-											
-                                            SET @job_sql = @job_sql + '
-											EXEC msdb.dbo.sp_add_jobstep @job_name = ' + @job_name_backups + ', 
-																		 @step_name = ' + @job_name_backups + ', 
-																		 @subsystem = ''TSQL'', 
-																		 @command = ' + @job_command_backups + ';
-								  
-											
-											EXEC msdb.dbo.sp_add_jobserver @job_name = ' + @job_name_backups + ';
-											
-											
-											EXEC msdb.dbo.sp_attach_schedule  @job_name = ' + @job_name_backups + ', 
-																			  @schedule_name = ten_seconds;
-											
-											';
-							
-										
-										SET @counter += 1;
-
-										
-											IF @Debug = 1
-												BEGIN 
-													RAISERROR(@job_sql, 0, 1) WITH NOWAIT;
-												END; 		
-
-		
-											IF @job_sql IS NULL
-											BEGIN
-												RAISERROR('@job_sql is NULL for some reason', 0, 1) WITH NOWAIT;
-											END; 
-
-
-										EXEC sp_executesql @job_sql;
-
-							
-								END;		
-
-
-
-				/*
-				
-				This section creates @Jobs (quantity) of worker jobs to restore logs with
-
-				They too work in a queue
-
-				Like a queue-t 3.14
-				
-				*/
-
-
-				RAISERROR('Checking for sp_AllNightLog Restore jobs', 0, 1) WITH NOWAIT;
-				
-					
-					SELECT @counter = COUNT(*) + 1 
-					FROM msdb.dbo.sysjobs 
-					WHERE name LIKE 'sp[_]AllNightLog[_]Restore[_]%';
-
-					SET @msg = 'Found ' + CONVERT(NVARCHAR(10), (@counter - 1)) + ' restore jobs -- ' +  CASE WHEN @counter < @Jobs THEN + 'starting loop!'
-																											  WHEN @counter >= @Jobs THEN 'skipping loop!'
-																											  ELSE 'Oh woah something weird happened!'
-																										 END;	
-
-					RAISERROR(@msg, 0, 1) WITH NOWAIT;
-
-					
-							WHILE @counter <= @Jobs
-
-							
-								BEGIN
-
-									
-										RAISERROR('Setting job name', 0, 1) WITH NOWAIT;
-
-											SET @job_name_restores = N'sp_AllNightLog_Restore_' + CASE WHEN @counter < 10 THEN N'0' + CONVERT(NVARCHAR(10), @counter)
-																									   WHEN @counter >= 10 THEN CONVERT(NVARCHAR(10), @counter)
-																								  END; 
-							
-										
-										RAISERROR('Setting @job_sql', 0, 1) WITH NOWAIT;
-
-										
-											SET @job_sql = N'
-							
-											EXEC msdb.dbo.sp_add_job @job_name = ' + @job_name_restores + ', 
-																	 @description = ' + @job_description_restores + ', 
-																	 @category_name = ' + @job_category + ', 
-																	 @owner_login_name = ' + @job_owner + ',';
-                                            IF @EnableRestoreJobs = 1
-                                                BEGIN
-                                                SET @job_sql = @job_sql + ' @enabled = 1; ';
-                                                END
-                                            ELSE
-                                                BEGIN
-                                                SET @job_sql = @job_sql + ' @enabled = 0; ';
-                                                END
-								  
-											
-                                            SET @job_sql = @job_sql + '
-											
-											EXEC msdb.dbo.sp_add_jobstep @job_name = ' + @job_name_restores + ', 
-																		 @step_name = ' + @job_name_restores + ', 
-																		 @subsystem = ''TSQL'', 
-																		 @command = ' + @job_command_restores + ';
-								  
-											
-											EXEC msdb.dbo.sp_add_jobserver @job_name = ' + @job_name_restores + ';
-											
-											
-											EXEC msdb.dbo.sp_attach_schedule  @job_name = ' + @job_name_restores + ', 
-																			  @schedule_name = ten_seconds;
-											
-											';
-							
-										
-										SET @counter += 1;
-
-										
-											IF @Debug = 1
-												BEGIN 
-													RAISERROR(@job_sql, 0, 1) WITH NOWAIT;
-												END; 		
-
-		
-											IF @job_sql IS NULL
-											BEGIN
-												RAISERROR('@job_sql is NULL for some reason', 0, 1) WITH NOWAIT;
-											END; 
-
-
-										EXEC sp_executesql @job_sql;
-
-							
-								END;		
-
-
-		RAISERROR('Setup complete!', 0, 1) WITH NOWAIT;
-		
-			END; --End for the Agent job creation
-
-		END;--End for Database and Table creation
-
-	END TRY
-
-	BEGIN CATCH
-
-
-		SELECT @msg = N'Error occurred during setup: ' + CONVERT(NVARCHAR(10), ERROR_NUMBER()) + ', error message is ' + ERROR_MESSAGE(), 
-			   @error_severity = ERROR_SEVERITY(), 
-			   @error_state = ERROR_STATE();
-		
-		RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
-
-
-		WHILE @@TRANCOUNT > 0
-			ROLLBACK;
-
-	END CATCH;
-
-END;  /* IF @RunSetup = 1 */
-
-RETURN;
-
-
-UpdateConfigs:
-
-IF @UpdateSetup = 1
-	
-	BEGIN
-
-        /* If we're enabling backup jobs, we may need to run restore with recovery on msdbCentral to bring it online: */
-        IF @EnableBackupJobs = 1 AND EXISTS (SELECT * FROM sys.databases WHERE name = 'msdbCentral' AND state = 1)
-            BEGIN 
-				RAISERROR('msdbCentral exists, but is in restoring state. Running restore with recovery...', 0, 1) WITH NOWAIT;
-
-                BEGIN TRY
-                    RESTORE DATABASE [msdbCentral] WITH RECOVERY;
-                END TRY
-
-				BEGIN CATCH
-
-					SELECT @error_number = ERROR_NUMBER(), 
-							@error_severity = ERROR_SEVERITY(), 
-							@error_state = ERROR_STATE();
-
-					SELECT @msg = N'Error running restore with recovery on msdbCentral, error number is ' + CONVERT(NVARCHAR(10), ERROR_NUMBER()) + ', error message is ' + ERROR_MESSAGE(), 
-							@error_severity = ERROR_SEVERITY(), 
-							@error_state = ERROR_STATE();
-						
-					RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
-
-				END CATCH;
-
-            END
-
-            /* Only check for this after trying to restore msdbCentral: */
-            IF @EnableBackupJobs = 1 AND NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'msdbCentral' AND state = 0)
-                    BEGIN
-        				RAISERROR('msdbCentral is not online. Repair that first, then try to enable backup jobs.', 0, 1) WITH NOWAIT;
-                        RETURN
-                    END
-
-
-			IF OBJECT_ID('msdbCentral.dbo.backup_configuration') IS NOT NULL
-
-				RAISERROR('Found backup config, checking variables...', 0, 1) WITH NOWAIT;
-	
-				BEGIN
-
-					BEGIN TRY
-
-						
-						IF @RPOSeconds IS NOT NULL
-
-
-							BEGIN
-
-								RAISERROR('Attempting to update RPO setting', 0, 1) WITH NOWAIT;
-
-								UPDATE c
-										SET c.configuration_setting = CONVERT(NVARCHAR(10), @RPOSeconds)
-								FROM msdbCentral.dbo.backup_configuration AS c
-								WHERE c.configuration_name = N'log backup frequency';
-
-							END;
-
-						
-						IF @BackupPath IS NOT NULL
-
-							BEGIN
-								
-								RAISERROR('Attempting to update Backup Path setting', 0, 1) WITH NOWAIT;
-
-								UPDATE c
-										SET c.configuration_setting = @BackupPath
-								FROM msdbCentral.dbo.backup_configuration AS c
-								WHERE c.configuration_name = N'log backup path';
-
-
-							END;
-
-					END TRY
-
-
-					BEGIN CATCH
-
-
-						SELECT @error_number = ERROR_NUMBER(), 
-							   @error_severity = ERROR_SEVERITY(), 
-							   @error_state = ERROR_STATE();
-
-						SELECT @msg = N'Error updating backup configuration setting, error number is ' + CONVERT(NVARCHAR(10), ERROR_NUMBER()) + ', error message is ' + ERROR_MESSAGE(), 
-							   @error_severity = ERROR_SEVERITY(), 
-							   @error_state = ERROR_STATE();
-						
-						RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
-
-
-					END CATCH;
-
-			END;
-
-
-			IF OBJECT_ID('msdb.dbo.restore_configuration') IS NOT NULL
-
-				RAISERROR('Found restore config, checking variables...', 0, 1) WITH NOWAIT;
-
-				BEGIN
-
-					BEGIN TRY
-
-                        EXEC msdb.dbo.sp_update_schedule @name = ten_seconds, @active_start_date = @active_start_date, @active_start_time = 000000;
-
-                        IF @EnableRestoreJobs IS NOT NULL
-                            BEGIN
-            				RAISERROR('Changing restore job status based on @EnableBackupJobs parameter...', 0, 1) WITH NOWAIT;
-                            INSERT INTO @jobs_to_change(name)
-                                SELECT name 
-                                FROM msdb.dbo.sysjobs 
-                                WHERE name LIKE 'sp_AllNightLog_Restore%' OR name = 'sp_AllNightLog_PollDiskForNewDatabases';
-                            DECLARE jobs_cursor CURSOR FOR  
-                                SELECT name 
-                                FROM @jobs_to_change
-
-                            OPEN jobs_cursor   
-                            FETCH NEXT FROM jobs_cursor INTO @current_job_name   
-
-                            WHILE @@FETCH_STATUS = 0   
-                            BEGIN   
-            				       RAISERROR(@current_job_name, 0, 1) WITH NOWAIT;
-                                   EXEC msdb.dbo.sp_update_job @job_name=@current_job_name,@enabled = @EnableRestoreJobs;
-                                   FETCH NEXT FROM jobs_cursor INTO @current_job_name   
-                            END   
-
-                            CLOSE jobs_cursor   
-                            DEALLOCATE jobs_cursor
-                            DELETE @jobs_to_change;
-                            END;
-
-                        /* If they wanted to turn off restore jobs, wait to make sure that finishes before we start enabling the backup jobs */
-                        IF @EnableRestoreJobs = 0
-                            BEGIN
-                            SET @started_waiting_for_jobs = GETDATE();
-                            SELECT  @counter = COUNT(*)
-		                            FROM    [msdb].[dbo].[sysjobactivity] [ja]
-		                            INNER JOIN [msdb].[dbo].[sysjobs] [j]
-			                            ON [ja].[job_id] = [j].[job_id]
-		                            WHERE    [ja].[session_id] = (
-										                            SELECT    TOP 1 [session_id]
-										                            FROM    [msdb].[dbo].[syssessions]
-										                            ORDER BY [agent_start_date] DESC
-									                            )
-				                            AND [start_execution_date] IS NOT NULL
-				                            AND [stop_execution_date] IS NULL
-				                            AND [j].[name] LIKE 'sp_AllNightLog_Restore%';
-
-                            WHILE @counter > 0
-                                BEGIN
-                                    IF DATEADD(SS, 120, @started_waiting_for_jobs) < GETDATE()
-                                        BEGIN
-                                        RAISERROR('OH NOES! We waited 2 minutes and restore jobs are still running. We are stopping here - get a meatbag involved to figure out if restore jobs need to be killed, and the backup jobs will need to be enabled manually.', 16, 1) WITH NOWAIT;
-                                        RETURN
-                                        END
-                                    SET @msg = N'Waiting for ' + CAST(@counter AS NVARCHAR(100)) + N' sp_AllNightLog_Restore job(s) to finish.'
-                                    RAISERROR(@msg, 0, 1) WITH NOWAIT;
-                                    WAITFOR DELAY '0:00:01'; -- Wait until the restore jobs are fully stopped
-	
-	                                SELECT  @counter = COUNT(*)
-		                                FROM    [msdb].[dbo].[sysjobactivity] [ja]
-		                                INNER JOIN [msdb].[dbo].[sysjobs] [j]
-			                                ON [ja].[job_id] = [j].[job_id]
-		                                WHERE    [ja].[session_id] = (
-										                                SELECT    TOP 1 [session_id]
-										                                FROM    [msdb].[dbo].[syssessions]
-										                                ORDER BY [agent_start_date] DESC
-									                                )
-				                                AND [start_execution_date] IS NOT NULL
-				                                AND [stop_execution_date] IS NULL
-				                                AND [j].[name] LIKE 'sp_AllNightLog_Restore%';
-                                END
-                            END /* IF @EnableRestoreJobs = 0 */
-
-
-                        IF @EnableBackupJobs IS NOT NULL
-                            BEGIN
-            				RAISERROR('Changing backup job status based on @EnableBackupJobs parameter...', 0, 1) WITH NOWAIT;
-                            INSERT INTO @jobs_to_change(name)
-                                SELECT name 
-                                FROM msdb.dbo.sysjobs 
-                                WHERE name LIKE 'sp_AllNightLog_Backup%' OR name = 'sp_AllNightLog_PollForNewDatabases';
-                            DECLARE jobs_cursor CURSOR FOR  
-                                SELECT name 
-                                FROM @jobs_to_change
-
-                            OPEN jobs_cursor   
-                            FETCH NEXT FROM jobs_cursor INTO @current_job_name   
-
-                            WHILE @@FETCH_STATUS = 0   
-                            BEGIN   
-            				       RAISERROR(@current_job_name, 0, 1) WITH NOWAIT;
-                                   EXEC msdb.dbo.sp_update_job @job_name=@current_job_name,@enabled = @EnableBackupJobs;
-                                   FETCH NEXT FROM jobs_cursor INTO @current_job_name   
-                            END   
-
-                            CLOSE jobs_cursor   
-                            DEALLOCATE jobs_cursor
-                            DELETE @jobs_to_change;
-                            END;
-
-
-						
-						IF @RTOSeconds IS NOT NULL
-
-							BEGIN
-
-								RAISERROR('Attempting to update RTO setting', 0, 1) WITH NOWAIT;
-
-								UPDATE c
-										SET c.configuration_setting = CONVERT(NVARCHAR(10), @RTOSeconds)
-								FROM msdb.dbo.restore_configuration AS c
-								WHERE c.configuration_name = N'log restore frequency';
-
-							END;
-
-						
-						IF @RestorePath IS NOT NULL
-
-							BEGIN
-								
-								RAISERROR('Attempting to update Restore Path setting', 0, 1) WITH NOWAIT;
-
-								UPDATE c
-										SET c.configuration_setting = @RestorePath
-								FROM msdb.dbo.restore_configuration AS c
-								WHERE c.configuration_name = N'log restore path';
-
-
-							END;
-
-					END TRY
-
-
-					BEGIN CATCH
-
-
-						SELECT @error_number = ERROR_NUMBER(), 
-							   @error_severity = ERROR_SEVERITY(), 
-							   @error_state = ERROR_STATE();
-
-						SELECT @msg = N'Error updating restore configuration setting, error number is ' + CONVERT(NVARCHAR(10), ERROR_NUMBER()) + ', error message is ' + ERROR_MESSAGE(), 
-							   @error_severity = ERROR_SEVERITY(), 
-							   @error_state = ERROR_STATE();
-						
-						RAISERROR(@msg, @error_severity, @error_state) WITH NOWAIT;
-
-
-					END CATCH;
-
-				END;
-
-				RAISERROR('Update complete!', 0, 1) WITH NOWAIT;
-
-			RETURN;
-
-	END; --End updates to configuration table
-
-
-END; -- Final END for stored proc
-GO
-
 IF OBJECT_ID('dbo.sp_Blitz') IS NULL
   EXEC ('CREATE PROCEDURE dbo.sp_Blitz AS RETURN 0;');
 GO
@@ -2900,7 +2900,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.12', @VersionDate = '20221213';
+	SELECT @Version = '8.14', @VersionDate = '20230420';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -2955,9 +2955,9 @@ AS
 	tigertoolbox and are provided under the MIT license:
 	https://github.com/Microsoft/tigertoolbox
 	
-	All other copyrights for sp_Blitz are held by Brent Ozar Unlimited, 2021.
+	All other copyrights for sp_Blitz are held by Brent Ozar Unlimited.
 
-	Copyright (c) 2021 Brent Ozar Unlimited
+	Copyright (c) Brent Ozar Unlimited
 
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
@@ -9732,7 +9732,7 @@ IF @ProductVersionMajor >= 10
                                     Details = '[' + DBName + '].[' + SPSchema + '].[' + ProcName + '] has WITH RECOMPILE in the stored procedure code, which may cause increased CPU usage due to constant recompiles of the code.',
                                     CheckID = '78'
                                 FROM #Recompile AS TR 
-								WHERE ProcName NOT LIKE 'sp_AllNightLog%' AND ProcName NOT LIKE 'sp_AskBrent%' AND ProcName NOT LIKE 'sp_Blitz%'
+								WHERE ProcName NOT LIKE 'sp_AllNightLog%' AND ProcName NOT LIKE 'sp_AskBrent%' AND ProcName NOT LIKE 'sp_Blitz%' AND ProcName NOT LIKE 'sp_PressureDetector'
 								  AND DBName NOT IN ('master', 'model', 'msdb', 'tempdb');
                                 DROP TABLE #Recompile;
                             END;
@@ -12599,7 +12599,7 @@ AS
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
-SELECT @Version = '8.12', @VersionDate = '20221213';
+SELECT @Version = '8.14', @VersionDate = '20230420';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -13477,7 +13477,7 @@ AS
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.12', @VersionDate = '20221213';
+	SELECT @Version = '8.14', @VersionDate = '20230420';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -13524,7 +13524,7 @@ AS
 
     MIT License
 	
-	Copyright (c) 2021 Brent Ozar Unlimited
+	Copyright (c) Brent Ozar Unlimited
 
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
@@ -15211,7 +15211,8 @@ CREATE TABLE ##BlitzCacheProcs (
 		cached_execution_parameters XML,
 		missing_indexes XML,
         SetOptions VARCHAR(MAX),
-        Warnings VARCHAR(MAX)
+        Warnings VARCHAR(MAX),
+    	Pattern NVARCHAR(20)
     );
 GO 
 
@@ -15258,7 +15259,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.12', @VersionDate = '20221213';
+SELECT @Version = '8.14', @VersionDate = '20230420';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -15282,7 +15283,6 @@ IF @Help = 1
 	the findings, contribute your own code, and more.
 
 	Known limitations of this version:
-	 - This query will not run on SQL Server 2005.
 	 - SQL Server 2008 and 2008R2 have a bug in trigger stats, so that output is
 	   excluded by default.
 	 - @IgnoreQueryHashes and @OnlyQueryHashes require a CSV list of hashes
@@ -15298,7 +15298,7 @@ IF @Help = 1
 
 	MIT License
 
-	Copyright (c) 2021 Brent Ozar Unlimited
+	Copyright (c) Brent Ozar Unlimited
 
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
@@ -16034,7 +16034,8 @@ BEGIN
 		cached_execution_parameters XML,
 		missing_indexes XML,
         SetOptions VARCHAR(MAX),
-        Warnings VARCHAR(MAX)
+        Warnings VARCHAR(MAX),
+		Pattern NVARCHAR(20)
     );
 END;
 
@@ -16135,18 +16136,18 @@ IF @SkipAnalysis = 1
 
 DECLARE @AllSortSql NVARCHAR(MAX) = N'';
 DECLARE @VersionShowsMemoryGrants BIT;
-IF EXISTS(SELECT * FROM sys.all_columns WHERE OBJECT_ID = OBJECT_ID('sys.dm_exec_query_stats') AND name = 'max_grant_kb')
+IF EXISTS(SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_stats') AND name = 'max_grant_kb')
     SET @VersionShowsMemoryGrants = 1;
 ELSE
     SET @VersionShowsMemoryGrants = 0;
 
 DECLARE @VersionShowsSpills BIT;
-IF EXISTS(SELECT * FROM sys.all_columns WHERE OBJECT_ID = OBJECT_ID('sys.dm_exec_query_stats') AND name = 'max_spills')
+IF EXISTS(SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_stats') AND name = 'max_spills')
     SET @VersionShowsSpills = 1;
 ELSE
     SET @VersionShowsSpills = 0;
 
-IF EXISTS(SELECT * FROM sys.all_columns WHERE OBJECT_ID = OBJECT_ID('sys.dm_exec_query_plan_stats') AND name = 'query_plan')
+IF EXISTS(SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_plan_stats') AND name = 'query_plan')
     SET @VersionShowsAirQuoteActualPlans = 1;
 ELSE
     SET @VersionShowsAirQuoteActualPlans = 0;
@@ -16953,7 +16954,7 @@ INSERT INTO ##BlitzCacheProcs (SPID, QueryType, DatabaseName, AverageCPU, TotalC
                     LastReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, 
 					QueryText, QueryPlan, TotalWorkerTimeForType, TotalElapsedTimeForType, TotalReadsForType,
                     TotalExecutionCountForType, TotalWritesForType, SqlHandle, PlanHandle, QueryHash, QueryPlanHash,
-                    min_worker_time, max_worker_time, is_parallel, min_elapsed_time, max_elapsed_time, age_minutes, age_minutes_lifetime) ' ;
+                    min_worker_time, max_worker_time, is_parallel, min_elapsed_time, max_elapsed_time, age_minutes, age_minutes_lifetime, Pattern) ' ;
 
 SET @body += N'
 FROM   (SELECT TOP (@Top) x.*, xpa.*,
@@ -17217,7 +17218,8 @@ SELECT TOP (@Top)
        qs.min_elapsed_time / 1000.0,
        qs.max_elapsed_time / 1000.0,
        age_minutes, 
-       age_minutes_lifetime ';
+       age_minutes_lifetime,
+       @SortOrder ';
 
 
 IF LEFT(@QueryFilter, 3) IN ('all', 'sta')
@@ -17365,7 +17367,8 @@ BEGIN
            qs.min_elapsed_time / 1000.0,
            qs.max_worker_time  / 1000.0,
            age_minutes,
-           age_minutes_lifetime ';
+           age_minutes_lifetime,
+    	   @SortOrder ';
     
     SET @sql += REPLACE(REPLACE(@body, '#view#', 'dm_exec_query_stats'), 'cached_time', 'creation_time') ;
 
@@ -17600,7 +17603,7 @@ IF @Reanalyze = 0
 BEGIN
     RAISERROR('Collecting execution plan information.', 0, 1) WITH NOWAIT;
 
-    EXEC sp_executesql @sql, N'@Top INT, @min_duration INT, @min_back INT', @Top, @DurationFilter_i, @MinutesBack;
+    EXEC sp_executesql @sql, N'@Top INT, @min_duration INT, @min_back INT, @SortOrder NVARCHAR(20)', @Top, @DurationFilter_i, @MinutesBack, @SortOrder;
 END;
 
 IF @SkipAnalysis = 1
@@ -22093,6 +22096,7 @@ ELSE
 					TotalSpills BIGINT,
 					AvgSpills MONEY,
 					QueryPlanCost FLOAT,
+					Pattern NVARCHAR(20),
 					JoinKey AS ServerName + Cast(CheckDate AS NVARCHAR(50)),
 					CONSTRAINT [PK_' + REPLACE(REPLACE(@OutputTableName,N'[',N''),N']',N'') + N'] PRIMARY KEY CLUSTERED(ID ASC));'
 				  );
@@ -22194,6 +22198,22 @@ END ';
                     EXEC(@StringToExecute);
                 END;
             
+			/* If the table doesn't have the new Pattern column, add it */
+            SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+            SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''Pattern'')
+                ALTER TABLE ' + @ObjectFullName + N' ADD Pattern NVARCHAR(20) NULL;';
+			IF @ValidOutputServer = 1
+				BEGIN
+					SET @StringToExecute = REPLACE(@StringToExecute,'''Pattern''','''''Pattern''''');
+					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
+                    EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+                END;
+            ELSE
+                BEGIN
+                    EXEC(@StringToExecute);
+                END            
+            
             IF @CheckDateOverride IS NULL
                 BEGIN
                     SET @CheckDateOverride = SYSDATETIMEOFFSET();
@@ -22213,14 +22233,14 @@ END ';
 					+ ' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
                     + ' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
                     + ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost ) '
+                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern ) '
                     + 'SELECT TOP (@Top) '
                     + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), '''') + ', @CheckDateOverride, '
                     + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), '''') + ', '
                     + ' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
                     + ' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
                     + ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, CAST(QueryPlan AS NVARCHAR(MAX)), NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost '
+                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern '
                     + ' FROM ##BlitzCacheProcs '
                     + ' WHERE 1=1 ';
 
@@ -22281,14 +22301,14 @@ END ';
 					+ ' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
                     + ' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
                     + ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost ) '
+                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern ) '
                     + 'SELECT TOP (@Top) '
                     + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), '''') + ', @CheckDateOverride, '
                     + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), '''') + ', '
                     + ' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
                     + ' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
                     + ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost '
+                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern '
                     + ' FROM ##BlitzCacheProcs '
                     + ' WHERE 1=1 ';
 
@@ -22430,6 +22450,7 @@ END ';
 						TotalSpills BIGINT,
 						AvgSpills MONEY,
 						QueryPlanCost FLOAT,
+						Pattern NVARCHAR(20),                    
 						JoinKey AS ServerName + Cast(CheckDate AS NVARCHAR(50)),
 						CONSTRAINT [PK_' + REPLACE(REPLACE(@OutputTableName,'[',''),']','') + '] PRIMARY KEY CLUSTERED(ID ASC));';
 					SET @StringToExecute +=	N' INSERT '
@@ -22437,14 +22458,14 @@ END ';
 						+ ' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
 						+ ' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
 						+ ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-						+ ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost ) '
+						+ ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern ) '
 						+ 'SELECT TOP (@Top) '
 						+ QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), '''') + ', @CheckDateOverride, '
 						+ QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), '''') + ', '
 						+ ' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
 						+ ' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
 						+ ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-						+ ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost '
+						+ ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern '
 						+ ' FROM ##BlitzCacheProcs '
 						+ ' WHERE 1=1 ';
                         
@@ -22556,7 +22577,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.12', @VersionDate = '20221213';
+SELECT @Version = '8.14', @VersionDate = '20230420';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -22593,7 +22614,7 @@ Unknown limitations of this version:
 
 MIT License
 
-Copyright (c) 2021 Brent Ozar Unlimited
+Copyright (c) Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -28733,7 +28754,7 @@ BEGIN
     SET NOCOUNT, XACT_ABORT ON;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-    SELECT @Version = '8.12', @VersionDate = '20221213';
+    SELECT @Version = '8.14', @VersionDate = '20230420';
 
     IF @VersionCheckMode = 1
     BEGIN
@@ -28794,7 +28815,7 @@ BEGIN
 
     MIT License
 
-    Copyright (c) 2022 Brent Ozar Unlimited
+    Copyright (c) Brent Ozar Unlimited
 
     Permission is hereby granted, free of charge, to any person obtaining a copy
     of this software and associated documentation files (the "Software"), to deal
@@ -29603,12 +29624,13 @@ BEGIN
             SELECT
                 deadlock_xml =
                     TRY_CAST(fx.event_data AS xml)
-            FROM sys.fn_xe_file_target_read_file('system_health*.xel', NULL, NULL, NULL) AS fx
+            FROM sys.fn_xe_file_target_read_file(N'system_health*.xel', NULL, NULL, NULL) AS fx
             LEFT JOIN #t AS t
               ON 1 = 1
+			WHERE fx.object_name = N'xml_deadlock_report'
         ) AS xml
         CROSS APPLY xml.deadlock_xml.nodes('/event') AS e(x)
-        WHERE e.x.exist('@name[ . = "xml_deadlock_report"]') = 1
+        WHERE 1 = 1
         AND   e.x.exist('@timestamp[. >= sql:variable("@StartDate")]') = 1
         AND   e.x.exist('@timestamp[. <  sql:variable("@EndDate")]') = 1
         OPTION(RECOMPILE);
@@ -29867,7 +29889,7 @@ BEGIN
             waiter_mode = w.l.value('@mode', 'nvarchar(256)'),
             owner_id = o.l.value('@id', 'nvarchar(256)'),
             owner_mode = o.l.value('@mode', 'nvarchar(256)'),
-            lock_type = N'OBJECT'
+            lock_type = CAST(N'OBJECT' AS NVARCHAR(100))
         INTO #deadlock_owner_waiter
         FROM
         (
@@ -30492,7 +30514,7 @@ BEGIN
                 N'S',
                 N'IS'
             )
-        AND (dow.database_id = @DatabaseName OR @DatabaseName IS NULL)
+        AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
         AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
         AND (dow.event_date < @EndDate OR @EndDate IS NULL)
         AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
@@ -30535,7 +30557,7 @@ BEGIN
                 N' deadlock(s).'
         FROM #deadlock_owner_waiter AS dow
         WHERE 1 = 1
-        AND (dow.database_id = @DatabaseName OR @DatabaseName IS NULL)
+        AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
         AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
         AND (dow.event_date < @EndDate OR @EndDate IS NULL)
         AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
@@ -30574,7 +30596,7 @@ BEGIN
                 N' deadlock(s).'
         FROM #deadlock_owner_waiter AS dow
         WHERE 1 = 1
-        AND (dow.database_id = @DatabaseName OR @DatabaseName IS NULL)
+        AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
         AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
         AND (dow.event_date < @EndDate OR @EndDate IS NULL)
         AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
@@ -30619,7 +30641,7 @@ BEGIN
                 N' deadlock(s).'
         FROM #deadlock_owner_waiter AS dow
         WHERE 1 = 1
-        AND (dow.database_id = @DatabaseName OR @DatabaseName IS NULL)
+        AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
         AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
         AND (dow.event_date < @EndDate OR @EndDate IS NULL)
         AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
@@ -30945,7 +30967,7 @@ BEGIN
           ON dow.owner_id = ds.id
           AND dow.event_date = ds.event_date
         WHERE 1 = 1
-        AND (dow.database_id = @DatabaseName OR @DatabaseName IS NULL)
+        AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
         AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
         AND (dow.event_date < @EndDate OR @EndDate IS NULL)
         AND (dow.object_name = @StoredProcName OR @StoredProcName IS NULL)
@@ -31001,7 +31023,7 @@ BEGIN
               ON dow.owner_id = ds.id
               AND dow.event_date = ds.event_date
             WHERE ds.proc_name <> N'adhoc'
-            AND (dow.database_id = @DatabaseName OR @DatabaseName IS NULL)
+            AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
             AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
             AND (dow.event_date < @EndDate OR @EndDate IS NULL)
             AND (dow.object_name = @StoredProcName OR @StoredProcName IS NULL)
@@ -31077,7 +31099,7 @@ BEGIN
                   ON  s.database_id = dow.database_id
                   AND s.partition_id = dow.associatedObjectId
                 WHERE 1 = 1
-                AND (dow.database_id = @DatabaseName OR @DatabaseName IS NULL)
+                AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
                 AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
                 AND (dow.event_date < @EndDate OR @EndDate IS NULL)
                 AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
@@ -31139,6 +31161,76 @@ BEGIN
                      )
                  ),
              wait_time_hms =
+             /*the more wait time you rack up the less accurate this gets, 
+             it's either that or erroring out*/
+            CASE 
+                WHEN 
+                    SUM
+                    (
+                        CONVERT
+                        (
+                            bigint, 
+                            dp.wait_time
+                        )
+                    )/1000 > 2147483647
+                THEN 
+                   CONVERT
+                   (
+                       nvarchar(30),
+                       DATEADD
+                       (
+                            MINUTE,
+                            (
+                                 (
+                                    SUM
+                                    (
+                                       CONVERT
+                                       (
+                                           bigint, 
+                                           dp.wait_time
+                                       )
+                                    )
+                                 )/
+                                 60000
+                            ),
+                            0
+                       ),
+                       14
+                   )
+                WHEN 
+                    SUM
+                    (
+                        CONVERT
+                        (
+                            bigint, 
+                            dp.wait_time
+                        )
+                    ) BETWEEN 2147483648 AND 2147483647000
+                THEN 
+                   CONVERT
+                   (
+                       nvarchar(30),
+                       DATEADD
+                       (
+                            SECOND,
+                            (
+                                 (
+                                    SUM
+                                    (
+                                       CONVERT
+                                       (
+                                           bigint, 
+                                           dp.wait_time
+                                       )
+                                    )
+                                 )/
+                                 1000
+                            ),
+                            0
+                       ),
+                       14
+                   )
+                ELSE
                  CONVERT
                  (
                      nvarchar(30),
@@ -31159,6 +31251,7 @@ BEGIN
                     ),
                     14
                  )
+				 END
             FROM #deadlock_owner_waiter AS dow
             JOIN #deadlock_process AS dp
               ON (dp.id = dow.owner_id
@@ -31275,6 +31368,76 @@ BEGIN
                 )
             ) +
             N' ' +
+        /*the more wait time you rack up the less accurate this gets, 
+        it's either that or erroring out*/
+            CASE 
+                WHEN 
+                    SUM
+                    (
+                        CONVERT
+                        (
+                            bigint, 
+                            wt.total_wait_time_ms
+                        )
+                    )/1000 > 2147483647
+                THEN 
+                   CONVERT
+                   (
+                       nvarchar(30),
+                       DATEADD
+                       (
+                            MINUTE,
+                            (
+                                 (
+                                    SUM
+                                    (
+                                       CONVERT
+                                       (
+                                           bigint, 
+                                           wt.total_wait_time_ms
+                                       )
+                                    )
+                                 )/
+                                 60000
+                            ),
+                            0
+                       ),
+                       14
+                   )
+                WHEN 
+                    SUM
+                    (
+                        CONVERT
+                        (
+                            bigint, 
+                            wt.total_wait_time_ms
+                        )
+                    ) BETWEEN 2147483648 AND 2147483647000
+                THEN 
+                   CONVERT
+                   (
+                       nvarchar(30),
+                       DATEADD
+                       (
+                            SECOND,
+                            (
+                                 (
+                                    SUM
+                                    (
+                                       CONVERT
+                                       (
+                                           bigint, 
+                                           wt.total_wait_time_ms
+                                       )
+                                    )
+                                 )/
+                                 1000
+                            ),
+                            0
+                       ),
+                       14
+                   )
+                ELSE
             CONVERT
               (
                   nvarchar(30),
@@ -31294,7 +31457,7 @@ BEGIN
                       0
                   ),
                   14
-              ) +
+              ) END +
             N' [dd hh:mm:ss:ms] of deadlock wait time.'
         FROM wait_time AS wt
         GROUP BY
@@ -32240,7 +32403,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.12', @VersionDate = '20221213';
+SELECT @Version = '8.14', @VersionDate = '20230420';
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
@@ -32326,7 +32489,7 @@ IF @Help = 1
 	
 	MIT License
 	
-	Copyright (c) 2021 Brent Ozar Unlimited
+	Copyright (c) Brent Ozar Unlimited
 	
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
@@ -37971,7 +38134,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.12', @VersionDate = '20221213';
+	SELECT @Version = '8.14', @VersionDate = '20230420';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -37999,7 +38162,7 @@ Known limitations of this version:
    
 MIT License
 
-Copyright (c) 2021 Brent Ozar Unlimited
+Copyright (c) Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -38614,7 +38777,7 @@ BEGIN
     /* Think of the StringToExecute as starting with this, but we'll set this up later depending on whether we're doing an insert or a select:
     SELECT @StringToExecute = N'SELECT  GETDATE() AS run_date ,
     */
-    SET @StringToExecute = N'COALESCE( RIGHT(''00'' + CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), RIGHT(''00'' + CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114) ) AS [elapsed_time] ,
+    SET @StringToExecute = N' CASE WHEN YEAR(s.last_request_start_time) = 1900 THEN NULL ELSE COALESCE( RIGHT(''00'' + CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), RIGHT(''00'' + CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114) ) END AS [elapsed_time] ,
 			       s.session_id ,
 					CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL 
 							THEN r.blocking_session_id
@@ -38628,11 +38791,11 @@ BEGIN
 						END AS blocking_session_id,
 						    COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid), ''N/A'') AS database_name,
 			       ISNULL(SUBSTRING(dest.text,
-			            ( query_stats.statement_start_offset / 2 ) + 1,
-			            ( ( CASE query_stats.statement_end_offset
+			            ( r.statement_start_offset / 2 ) + 1,
+			            ( ( CASE r.statement_end_offset
 			               WHEN -1 THEN DATALENGTH(dest.text)
-			               ELSE query_stats.statement_end_offset
-			             END - query_stats.statement_start_offset )
+			               ELSE r.statement_end_offset
+			             END - r.statement_start_offset )
 			              / 2 ) + 1), dest.text) AS query_text ,
 						  '+CASE
 								WHEN @GetOuterCommand = 1 THEN N'CAST(event_info AS NVARCHAR(4000)) AS outer_command,'
@@ -38797,7 +38960,7 @@ BEGIN
 				OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle, blocked.sql_handle)) AS dest
 			 OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS derp
 				OUTER APPLY (
-						SELECT CONVERT(DECIMAL(38,2), SUM( (((tsu.user_objects_alloc_page_count - user_objects_dealloc_page_count) * 8) / 1024.)) ) AS tempdb_allocations_mb
+						SELECT CONVERT(DECIMAL(38,2), SUM( ((((tsu.user_objects_alloc_page_count - user_objects_dealloc_page_count) + (tsu.internal_objects_alloc_page_count - internal_objects_dealloc_page_count)) * 8) / 1024.)) ) AS tempdb_allocations_mb
 						FROM sys.dm_db_task_space_usage tsu
 						WHERE tsu.request_id = r.request_id
 						AND tsu.session_id = r.session_id
@@ -38832,7 +38995,7 @@ IF @ProductVersionMajor >= 11
     /* Think of the StringToExecute as starting with this, but we'll set this up later depending on whether we're doing an insert or a select:
     SELECT @StringToExecute = N'SELECT  GETDATE() AS run_date ,
     */
-    SELECT @StringToExecute = N'COALESCE( RIGHT(''00'' + CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), RIGHT(''00'' + CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114) ) AS [elapsed_time] ,
+    SELECT @StringToExecute = N' CASE WHEN YEAR(s.last_request_start_time) = 1900 THEN NULL ELSE COALESCE( RIGHT(''00'' + CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), RIGHT(''00'' + CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114) ) END AS [elapsed_time] ,
 			       s.session_id ,
 					CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL 
 					THEN r.blocking_session_id
@@ -38846,11 +39009,11 @@ IF @ProductVersionMajor >= 11
 					END AS blocking_session_id,
 					COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid), ''N/A'') AS database_name,
 					ISNULL(SUBSTRING(dest.text,
-			            ( query_stats.statement_start_offset / 2 ) + 1,
-			            ( ( CASE query_stats.statement_end_offset
+			            ( r.statement_start_offset / 2 ) + 1,
+			            ( ( CASE r.statement_end_offset
 			               WHEN -1 THEN DATALENGTH(dest.text)
-			               ELSE query_stats.statement_end_offset
-			             END - query_stats.statement_start_offset )
+			               ELSE r.statement_end_offset
+			             END - r.statement_start_offset )
 			              / 2 ) + 1), dest.text) AS query_text ,
 						  '+CASE
 								WHEN @GetOuterCommand = 1 THEN N'CAST(event_info AS NVARCHAR(4000)) AS outer_command,'
@@ -39090,7 +39253,7 @@ IF @ProductVersionMajor >= 11
 	    OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle, blocked.sql_handle)) AS dest
 	    OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS derp
 	    OUTER APPLY (
-			    SELECT CONVERT(DECIMAL(38,2), SUM( (((tsu.user_objects_alloc_page_count - user_objects_dealloc_page_count) * 8) / 1024.)) ) AS tempdb_allocations_mb
+			    SELECT CONVERT(DECIMAL(38,2), SUM( ((((tsu.user_objects_alloc_page_count - user_objects_dealloc_page_count) + (tsu.internal_objects_alloc_page_count - internal_objects_dealloc_page_count)) * 8) / 1024.)) ) AS tempdb_allocations_mb
 			    FROM sys.dm_db_task_space_usage tsu
 			    WHERE tsu.request_id = r.request_id
 			    AND tsu.session_id = r.session_id
@@ -39357,6 +39520,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
 	@DatabaseOwner sysname = NULL,
 	@SetTrustworthyON BIT = 0,
     @Execute CHAR(1) = Y,
+	@FileExtensionDiff NVARCHAR(128) = NULL,
     @Debug INT = 0, 
     @Help BIT = 0,
     @Version     VARCHAR(30) = NULL OUTPUT,
@@ -39368,7 +39532,7 @@ SET STATISTICS XML OFF;
 
 /*Versioning details*/
 
-SELECT @Version = '8.12', @VersionDate = '20221213';
+SELECT @Version = '8.14', @VersionDate = '20230420';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -39400,7 +39564,7 @@ BEGIN
 		
 		MIT License
 			
-		Copyright (c) 2021 Brent Ozar Unlimited
+		Copyright (c) Brent Ozar Unlimited
 		
 		Permission is hereby granted, free of charge, to any person obtaining a copy
 		of this software and associated documentation files (the "Software"), to deal
@@ -39483,6 +39647,16 @@ BEGIN
 		@ContinueLogs = 1, 
 		@RunRecovery = 0,
 		@Debug = 0;
+
+	--Restore just through the latest DIFF, ignoring logs, and using a custom ".dif" file extension
+	EXEC dbo.sp_DatabaseRestore 
+		@Database = ''LogShipMe'', 
+		@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'', 
+		@BackupPathDiff = ''D:\Backup\SQL2016PROD1A\LogShipMe\DIFF\'',
+		@RestoreDiff = 1,
+		@FileExtensionDiff = ''dif'',
+		@ContinueLogs = 0, 
+		@RunRecovery = 1;
 
 	-- Restore from stripped backup set when multiple paths are used. This example will restore stripped full backup set along with stripped transactional logs set from multiple backup paths
 	EXEC dbo.sp_DatabaseRestore 
@@ -39824,6 +39998,13 @@ BEGIN
 	BEGIN
 		RAISERROR('Supported values for @BlockSize are 512, 1024, 2048, 4096, 8192, 16384, 32768, and 65536', 0, 1) WITH NOWAIT;
 	END
+END
+
+--File Extension cleanup
+IF @FileExtensionDiff LIKE '%.%'
+BEGIN
+	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Removing "." from @FileExtensionDiff', 0, 1) WITH NOWAIT;
+	SET @FileExtensionDiff = REPLACE(@FileExtensionDiff,'.','');
 END
 
 SET @RestoreDatabaseID = DB_ID(@RestoreDatabaseName);
@@ -40370,9 +40551,15 @@ BEGIN
 	END
     /*End folder sanity check*/
     -- Find latest diff backup 
+	IF @FileExtensionDiff IS NULL
+	BEGIN
+		IF @Execute = 'Y' OR @Debug = 1 RAISERROR('No @FileExtensionDiff given, assuming "bak".', 0, 1) WITH NOWAIT;
+		SET @FileExtensionDiff = 'bak';
+	END
+
 	SELECT TOP 1 @LastDiffBackup = BackupFile, @CurrentBackupPathDiff = BackupPath
     FROM @FileList
-    WHERE BackupFile LIKE N'%.bak'
+    WHERE BackupFile LIKE N'%.' + @FileExtensionDiff
         AND
         BackupFile LIKE N'%' + @Database + '%'
 	    AND
@@ -40944,7 +41131,7 @@ BEGIN
   SET NOCOUNT ON;
   SET STATISTICS XML OFF;
 
-  SELECT @Version = '8.12', @VersionDate = '20221213';
+  SELECT @Version = '8.14', @VersionDate = '20230420';
   
   IF(@VersionCheckMode = 1)
   BEGIN
@@ -40977,7 +41164,7 @@ BEGIN
 		
 		    MIT License
 			
-			Copyright (c) 2021 Brent Ozar Unlimited
+			Copyright (c) Brent Ozar Unlimited
 		
 			Permission is hereby granted, free of charge, to any person obtaining a copy
 			of this software and associated documentation files (the "Software"), to deal
@@ -41290,7 +41477,14 @@ DELETE FROM dbo.SqlServerVersions;
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
+    (16, 4025, 'CU3', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate3', '2023-04-13', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 3'),
+    (16, 4015, 'CU2', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate2', '2023-03-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 2'),
+    (16, 4003, 'CU1', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate1', '2023-02-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 1'),
+    (16, 1050, 'RTM GDR', 'https://support.microsoft.com/kb/5021522', '2023-02-14', '2028-01-11', '2033-01-11', 'SQL Server 2022 GDR', 'RTM'),
     (16, 1000, 'RTM', '', '2022-11-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'RTM'),
+    (15, 4312, 'CU20', 'https://support.microsoft.com/kb/5024276', '2023-04-13', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 20'),
+    (15, 4298, 'CU19', 'https://support.microsoft.com/kb/5023049', '2023-02-16', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 19'),
+    (15, 4280, 'CU18 GDR', 'https://support.microsoft.com/kb/5021124', '2023-02-14', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 18 GDR'),
     (15, 4261, 'CU18', 'https://support.microsoft.com/en-us/help/5017593', '2022-09-28', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 18'),
     (15, 4249, 'CU17', 'https://support.microsoft.com/en-us/help/5016394', '2022-08-11', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 17'),
     (15, 4236, 'CU16 GDR', 'https://support.microsoft.com/en-us/help/5014353', '2022-06-14', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 16 GDR'),
@@ -41313,6 +41507,7 @@ VALUES
     (15, 4003, 'CU1', 'https://support.microsoft.com/en-us/help/4527376', '2020-01-07', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 1 '),
     (15, 2070, 'GDR', 'https://support.microsoft.com/en-us/help/4517790', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM GDR '),
     (15, 2000, 'RTM ', '', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM '),
+    (14, 3460, 'RTM CU31 GDR', 'https://support.microsoft.com/kb/5021126', '2023-02-14', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
     (14, 3456, 'RTM CU31', 'https://support.microsoft.com/en-us/help/5016884', '2022-09-20', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31'),
     (14, 3451, 'RTM CU30', 'https://support.microsoft.com/en-us/help/5013756', '2022-07-13', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 30'),
     (14, 3445, 'RTM CU29 GDR', 'https://support.microsoft.com/en-us/help/5014553', '2022-06-14', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 29 GDR'),
@@ -41349,6 +41544,7 @@ VALUES
     (14, 1000, 'RTM ', '', '2017-10-02', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM '),
     (13, 7016, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/en-us/help/5015371', '2022-06-14', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
     (13, 7000, 'SP3 Azure Feature Pack', 'https://support.microsoft.com/en-us/help/5014242', '2022-05-19', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack'),
+    (13, 6430, 'SP3 GDR', 'https://support.microsoft.com/kb/5021129', '2023-02-14', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
     (13, 6419, 'SP3 GDR', 'https://support.microsoft.com/en-us/help/5014355', '2022-06-14', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
     (13, 6404, 'SP3 GDR', 'https://support.microsoft.com/en-us/help/5006943', '2021-10-27', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
     (13, 6300, 'SP3 ', 'https://support.microsoft.com/en-us/help/5003279', '2021-09-15', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3'),
@@ -41400,6 +41596,7 @@ VALUES
     (13, 2164, 'RTM CU2', 'https://support.microsoft.com/en-us/help/3182270 ', '2016-09-22', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 2'),
     (13, 2149, 'RTM CU1', 'https://support.microsoft.com/en-us/help/3164674 ', '2016-07-25', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 1'),
     (13, 1601, 'RTM ', '', '2016-06-01', '2019-01-09', '2019-01-09', 'SQL Server 2016', 'RTM '),
+    (12, 6444, 'SP3 CU4 GDR', 'https://support.microsoft.com/kb/5021045', '2023-02-14', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 4 GDR'),
     (12, 6439, 'SP3 CU4 GDR', 'https://support.microsoft.com/en-us/help/5014164', '2022-06-14', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 4 GDR'),
     (12, 6433, 'SP3 CU4 GDR', 'https://support.microsoft.com/en-us/help/4583462', '2021-01-12', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 4 GDR'),
     (12, 6372, 'SP3 CU4 GDR', 'https://support.microsoft.com/en-us/help/4535288', '2020-02-11', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 4 GDR'),
@@ -41679,6 +41876,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @OutputTableNameWaitStats NVARCHAR(256) = NULL ,
     @OutputTableNameBlitzCache NVARCHAR(256) = NULL ,
     @OutputTableNameBlitzWho NVARCHAR(256) = NULL ,
+    @OutputResultSets NVARCHAR(500) = N'BlitzWho_Start|Findings|FileStats|PerfmonStats|WaitStats|BlitzCache|BlitzWho_End' ,
     @OutputTableRetentionDays TINYINT = 7 ,
     @OutputXMLasNVARCHAR TINYINT = 0 ,
     @FilterPlansByDatabase VARCHAR(MAX) = NULL ,
@@ -41706,7 +41904,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.12', @VersionDate = '20221213';
+SELECT @Version = '8.14', @VersionDate = '20230420';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -41746,7 +41944,7 @@ https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
 
 MIT License
 
-Copyright (c) 2021 Brent Ozar Unlimited
+Copyright (c) Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -41922,7 +42120,7 @@ END; /* IF @AsOf IS NOT NULL AND @OutputDatabaseName IS NOT NULL AND @OutputSche
 ELSE IF @LogMessage IS NULL /* IF @OutputType = 'SCHEMA' */
 BEGIN
     /* What's running right now? This is the first and last result set. */
-    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 AND @OutputType <> 'NONE'
+    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 AND @OutputType <> 'NONE' AND @OutputResultSets LIKE N'%BlitzWho_Start%'
     BEGIN
 		IF OBJECT_ID('master.dbo.sp_BlitzWho') IS NULL AND OBJECT_ID('dbo.sp_BlitzWho') IS NULL
 		BEGIN
@@ -43170,44 +43368,45 @@ BEGIN
 			RAISERROR('Running CheckID 1',10,1) WITH NOWAIT;
 		END
 
-		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
-		SELECT 1 AS CheckID,
-		    1 AS Priority,
-		    'Maintenance Tasks Running' AS FindingGroup,
-		    'Backup Running' AS Finding,
-		    'https://www.brentozar.com/askbrent/backups/' AS URL,
-		    'Backup of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) ' + @LineFeed
-		        + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' + @LineFeed
-			    + CASE WHEN COALESCE(s.nt_username, s.loginame) IS NOT NULL THEN (' Login: ' + COALESCE(s.nt_username, s.loginame) + ' ') ELSE '' END AS Details,
-		    'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
-		    pl.query_plan AS QueryPlan,
-		    r.start_time AS StartTime,
-		    s.loginame AS LoginName,
-		    s.nt_username AS NTUserName,
-		    s.[program_name] AS ProgramName,
-		    s.[hostname] AS HostName,
-		    db.[resource_database_id] AS DatabaseID,
-		    DB_NAME(db.resource_database_id) AS DatabaseName,
-		    0 AS OpenTransactionCount,
-		    r.query_hash
-		FROM sys.dm_exec_requests r
-		INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
-		INNER JOIN sys.sysprocesses AS s ON r.session_id = s.spid AND s.ecid = 0
-		INNER JOIN
-		(
-		    SELECT DISTINCT
-			    t.request_session_id,
-				t.resource_database_id
-		    FROM sys.dm_tran_locks AS t
-		    WHERE t.resource_type = N'DATABASE'
-		    AND   t.request_mode = N'S'
-		    AND   t.request_status = N'GRANT'
-		    AND   t.request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'
-		) AS db ON s.spid = db.request_session_id AND s.dbid = db.resource_database_id
-		CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
-		WHERE r.command LIKE 'BACKUP%'
-		AND r.start_time <= DATEADD(minute, -5, GETDATE())
-		AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
+        IF EXISTS(SELECT * FROM sys.dm_exec_requests WHERE total_elapsed_time > 300000 AND command LIKE 'BACKUP%')
+            INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
+            SELECT 1 AS CheckID,
+                1 AS Priority,
+                'Maintenance Tasks Running' AS FindingGroup,
+                'Backup Running' AS Finding,
+                'https://www.brentozar.com/askbrent/backups/' AS URL,
+                'Backup of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) ' + @LineFeed
+                    + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' + @LineFeed
+                    + CASE WHEN COALESCE(s.nt_username, s.loginame) IS NOT NULL THEN (' Login: ' + COALESCE(s.nt_username, s.loginame) + ' ') ELSE '' END AS Details,
+                'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
+                pl.query_plan AS QueryPlan,
+                r.start_time AS StartTime,
+                s.loginame AS LoginName,
+                s.nt_username AS NTUserName,
+                s.[program_name] AS ProgramName,
+                s.[hostname] AS HostName,
+                db.[resource_database_id] AS DatabaseID,
+                DB_NAME(db.resource_database_id) AS DatabaseName,
+                0 AS OpenTransactionCount,
+                r.query_hash
+            FROM sys.dm_exec_requests r
+            INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
+            INNER JOIN sys.sysprocesses AS s ON r.session_id = s.spid AND s.ecid = 0
+            INNER JOIN
+            (
+                SELECT DISTINCT
+                    t.request_session_id,
+                    t.resource_database_id
+                FROM sys.dm_tran_locks AS t
+                WHERE t.resource_type = N'DATABASE'
+                AND   t.request_mode = N'S'
+                AND   t.request_status = N'GRANT'
+                AND   t.request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'
+            ) AS db ON s.spid = db.request_session_id AND s.dbid = db.resource_database_id
+            CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
+            WHERE r.command LIKE 'BACKUP%'
+            AND r.start_time <= DATEADD(minute, -5, GETDATE())
+            AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
 	END
 
     /* If there's a backup running, add details explaining how long full backup has been taking in the last month. */
@@ -43219,48 +43418,49 @@ BEGIN
 
 
     /* Maintenance Tasks Running - DBCC CHECK* Running - CheckID 2 */
-    IF @Seconds > 0 AND EXISTS(SELECT * FROM sys.dm_exec_requests WHERE command LIKE 'DBCC%')
+    IF @Seconds > 0
 	BEGIN
 		IF (@Debug = 1)
 		BEGIN
 			RAISERROR('Running CheckID 2',10,1) WITH NOWAIT;
 		END
 
-		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
-		SELECT 2 AS CheckID,
-		    1 AS Priority,
-		    'Maintenance Tasks Running' AS FindingGroup,
-		    'DBCC CHECK* Running' AS Finding,
-		    'https://www.brentozar.com/askbrent/dbcc/' AS URL,
-		    'Corruption check of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
-		    'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
-		    pl.query_plan AS QueryPlan,
-		    r.start_time AS StartTime,
-		    s.login_name AS LoginName,
-		    s.nt_user_name AS NTUserName,
-		    s.[program_name] AS ProgramName,
-		    s.[host_name] AS HostName,
-		    db.[resource_database_id] AS DatabaseID,
-		    DB_NAME(db.resource_database_id) AS DatabaseName,
-		    0 AS OpenTransactionCount,
-		    r.query_hash
-		FROM sys.dm_exec_requests r
-		INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
-		INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
-		INNER JOIN (SELECT DISTINCT l.request_session_id, l.resource_database_id
-		FROM    sys.dm_tran_locks l
-		INNER JOIN sys.databases d ON l.resource_database_id = d.database_id
-		WHERE l.resource_type = N'DATABASE'
-		AND     l.request_mode = N'S'
-		AND    l.request_status = N'GRANT'
-		AND    l.request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
-		OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) pl
-		OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) AS t
-		WHERE r.command LIKE 'DBCC%'
-		AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%dm_db_index_physical_stats%'
-		AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%ALTER INDEX%'
-		AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%fileproperty%'
-		AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
+        IF EXISTS (SELECT * FROM sys.dm_exec_requests WHERE command LIKE 'DBCC%' AND total_elapsed_time > 5000)
+            INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
+            SELECT 2 AS CheckID,
+                1 AS Priority,
+                'Maintenance Tasks Running' AS FindingGroup,
+                'DBCC CHECK* Running' AS Finding,
+                'https://www.brentozar.com/askbrent/dbcc/' AS URL,
+                'Corruption check of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
+                'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
+                pl.query_plan AS QueryPlan,
+                r.start_time AS StartTime,
+                s.login_name AS LoginName,
+                s.nt_user_name AS NTUserName,
+                s.[program_name] AS ProgramName,
+                s.[host_name] AS HostName,
+                db.[resource_database_id] AS DatabaseID,
+                DB_NAME(db.resource_database_id) AS DatabaseName,
+                0 AS OpenTransactionCount,
+                r.query_hash
+            FROM sys.dm_exec_requests r
+            INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
+            INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
+            INNER JOIN (SELECT DISTINCT l.request_session_id, l.resource_database_id
+            FROM    sys.dm_tran_locks l
+            INNER JOIN sys.databases d ON l.resource_database_id = d.database_id
+            WHERE l.resource_type = N'DATABASE'
+            AND     l.request_mode = N'S'
+            AND    l.request_status = N'GRANT'
+            AND    l.request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
+            OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) pl
+            OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) AS t
+            WHERE r.command LIKE 'DBCC%'
+            AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%dm_db_index_physical_stats%'
+            AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%ALTER INDEX%'
+            AND CAST(t.text AS NVARCHAR(4000)) NOT LIKE '%fileproperty%'
+            AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
 	END
 
     /* Maintenance Tasks Running - Restore Running - CheckID 3 */
@@ -43271,37 +43471,38 @@ BEGIN
 			RAISERROR('Running CheckID 3',10,1) WITH NOWAIT;
 		END
 
-		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
-		SELECT 3 AS CheckID,
-		    1 AS Priority,
-		    'Maintenance Tasks Running' AS FindingGroup,
-		    'Restore Running' AS Finding,
-		    'https://www.brentozar.com/askbrent/backups/' AS URL,
-		    'Restore of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
-		    'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
-		    pl.query_plan AS QueryPlan,
-		    r.start_time AS StartTime,
-		    s.login_name AS LoginName,
-		    s.nt_user_name AS NTUserName,
-		    s.[program_name] AS ProgramName,
-		    s.[host_name] AS HostName,
-		    db.[resource_database_id] AS DatabaseID,
-		    DB_NAME(db.resource_database_id) AS DatabaseName,
-		    0 AS OpenTransactionCount,
-		    r.query_hash
-		FROM sys.dm_exec_requests r
-		INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
-		INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
-		INNER JOIN (
-		SELECT DISTINCT request_session_id, resource_database_id
-		FROM    sys.dm_tran_locks
-		WHERE resource_type = N'DATABASE'
-		AND     request_mode = N'S'
-		AND     request_status = N'GRANT') AS db ON s.session_id = db.request_session_id
-		CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
-		WHERE r.command LIKE 'RESTORE%'
-		AND s.program_name <> 'SQL Server Log Shipping'
-		AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
+        IF EXISTS (SELECT * FROM sys.dm_exec_requests WHERE command LIKE 'RESTORE%' AND total_elapsed_time > 5000)
+            INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
+            SELECT 3 AS CheckID,
+                1 AS Priority,
+                'Maintenance Tasks Running' AS FindingGroup,
+                'Restore Running' AS Finding,
+                'https://www.brentozar.com/askbrent/backups/' AS URL,
+                'Restore of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
+                'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
+                pl.query_plan AS QueryPlan,
+                r.start_time AS StartTime,
+                s.login_name AS LoginName,
+                s.nt_user_name AS NTUserName,
+                s.[program_name] AS ProgramName,
+                s.[host_name] AS HostName,
+                db.[resource_database_id] AS DatabaseID,
+                DB_NAME(db.resource_database_id) AS DatabaseName,
+                0 AS OpenTransactionCount,
+                r.query_hash
+            FROM sys.dm_exec_requests r
+            INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
+            INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
+            INNER JOIN (
+            SELECT DISTINCT request_session_id, resource_database_id
+            FROM    sys.dm_tran_locks
+            WHERE resource_type = N'DATABASE'
+            AND     request_mode = N'S'
+            AND     request_status = N'GRANT') AS db ON s.session_id = db.request_session_id
+            CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) pl
+            WHERE r.command LIKE 'RESTORE%'
+            AND s.program_name <> 'SQL Server Log Shipping'
+            AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
 	END
 
     /* SQL Server Internal Maintenance - Database File Growing - CheckID 4 */
@@ -43414,37 +43615,38 @@ BEGIN
 			RAISERROR('Running CheckID 8',10,1) WITH NOWAIT;
 		END
 
-		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
-		SELECT 8 AS CheckID,
-		    50 AS Priority,
-		    'Query Problems' AS FindingGroup,
-		    'Sleeping Query with Open Transactions' AS Finding,
-		    'https://www.brentozar.com/askbrent/sleeping-query-with-open-transactions/' AS URL,
-		    'Database: ' + DB_NAME(db.resource_database_id) + @LineFeed + 'Host: ' + s.hostname + @LineFeed + 'Program: ' + s.[program_name] + @LineFeed + 'Asleep with open transactions and locks since ' + CAST(s.last_batch AS NVARCHAR(100)) + '. ' AS Details,
-		    'KILL ' + CAST(s.spid AS NVARCHAR(100)) + ';' AS HowToStopIt,
-		    s.last_batch AS StartTime,
-		    s.loginame AS LoginName,
-		    s.nt_username AS NTUserName,
-		    s.[program_name] AS ProgramName,
-		    s.hostname AS HostName,
-		    db.[resource_database_id] AS DatabaseID,
-		    DB_NAME(db.resource_database_id) AS DatabaseName,
-		    (SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS QueryText,
-		    s.open_tran AS OpenTransactionCount
-		FROM sys.sysprocesses s
-		INNER JOIN sys.dm_exec_connections c ON s.spid = c.session_id
-		INNER JOIN (
-		SELECT DISTINCT request_session_id, resource_database_id
-		FROM    sys.dm_tran_locks
-		WHERE resource_type = N'DATABASE'
-		AND     request_mode = N'S'
-		AND     request_status = N'GRANT'
-		AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.spid = db.request_session_id
-		WHERE s.status = 'sleeping'
-		AND s.open_tran > 0
-		AND s.last_batch < DATEADD(ss, -10, SYSDATETIME())
-		AND EXISTS(SELECT * FROM sys.dm_tran_locks WHERE request_session_id = s.spid
-		AND NOT (resource_type = N'DATABASE' AND request_mode = N'S' AND request_status = N'GRANT' AND request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'));
+        IF EXISTS (SELECT * FROM sys.dm_exec_requests WHERE total_elapsed_time > 5000 AND request_id > 0)
+            INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
+            SELECT 8 AS CheckID,
+                50 AS Priority,
+                'Query Problems' AS FindingGroup,
+                'Sleeping Query with Open Transactions' AS Finding,
+                'https://www.brentozar.com/askbrent/sleeping-query-with-open-transactions/' AS URL,
+                'Database: ' + DB_NAME(db.resource_database_id) + @LineFeed + 'Host: ' + s.hostname + @LineFeed + 'Program: ' + s.[program_name] + @LineFeed + 'Asleep with open transactions and locks since ' + CAST(s.last_batch AS NVARCHAR(100)) + '. ' AS Details,
+                'KILL ' + CAST(s.spid AS NVARCHAR(100)) + ';' AS HowToStopIt,
+                s.last_batch AS StartTime,
+                s.loginame AS LoginName,
+                s.nt_username AS NTUserName,
+                s.[program_name] AS ProgramName,
+                s.hostname AS HostName,
+                db.[resource_database_id] AS DatabaseID,
+                DB_NAME(db.resource_database_id) AS DatabaseName,
+                (SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS QueryText,
+                s.open_tran AS OpenTransactionCount
+            FROM sys.sysprocesses s
+            INNER JOIN sys.dm_exec_connections c ON s.spid = c.session_id
+            INNER JOIN (
+            SELECT DISTINCT request_session_id, resource_database_id
+            FROM    sys.dm_tran_locks
+            WHERE resource_type = N'DATABASE'
+            AND     request_mode = N'S'
+            AND     request_status = N'GRANT'
+            AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.spid = db.request_session_id
+            WHERE s.status = 'sleeping'
+            AND s.open_tran > 0
+            AND s.last_batch < DATEADD(ss, -10, SYSDATETIME())
+            AND EXISTS(SELECT * FROM sys.dm_tran_locks WHERE request_session_id = s.spid
+            AND NOT (resource_type = N'DATABASE' AND request_mode = N'S' AND request_status = N'GRANT' AND request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'));
 	END
 
     /*Query Problems - Clients using implicit transactions - CheckID 37 */
@@ -43500,34 +43702,35 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			RAISERROR('Running CheckID 9',10,1) WITH NOWAIT;
 		END
 
-		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, QueryHash)
-		SELECT 9 AS CheckID,
-		    1 AS Priority,
-		    'Query Problems' AS FindingGroup,
-		    'Query Rolling Back' AS Finding,
-		    'https://www.brentozar.com/askbrent/rollback/' AS URL,
-		    'Rollback started at ' + CAST(r.start_time AS NVARCHAR(100)) + ', is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete.' AS Details,
-		    'Unfortunately, you can''t stop this. Whatever you do, don''t restart the server in an attempt to fix it - SQL Server will keep rolling back.' AS HowToStopIt,
-		    r.start_time AS StartTime,
-		    s.login_name AS LoginName,
-		    s.nt_user_name AS NTUserName,
-		    s.[program_name] AS ProgramName,
-		    s.[host_name] AS HostName,
-		    db.[resource_database_id] AS DatabaseID,
-		    DB_NAME(db.resource_database_id) AS DatabaseName,
-		    (SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS QueryText,
-		    r.query_hash
-		FROM sys.dm_exec_sessions s
-		INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
-		INNER JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
-		LEFT OUTER JOIN (
-		    SELECT DISTINCT request_session_id, resource_database_id
-		    FROM    sys.dm_tran_locks
-		    WHERE resource_type = N'DATABASE'
-		    AND     request_mode = N'S'
-		    AND     request_status = N'GRANT'
-		    AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
-		WHERE r.status = 'rollback';
+		IF EXISTS (SELECT * FROM sys.dm_exec_requests WHERE total_elapsed_time > 5000 AND request_id > 0)
+            INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, QueryHash)
+            SELECT 9 AS CheckID,
+                1 AS Priority,
+                'Query Problems' AS FindingGroup,
+                'Query Rolling Back' AS Finding,
+                'https://www.brentozar.com/askbrent/rollback/' AS URL,
+                'Rollback started at ' + CAST(r.start_time AS NVARCHAR(100)) + ', is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete.' AS Details,
+                'Unfortunately, you can''t stop this. Whatever you do, don''t restart the server in an attempt to fix it - SQL Server will keep rolling back.' AS HowToStopIt,
+                r.start_time AS StartTime,
+                s.login_name AS LoginName,
+                s.nt_user_name AS NTUserName,
+                s.[program_name] AS ProgramName,
+                s.[host_name] AS HostName,
+                db.[resource_database_id] AS DatabaseID,
+                DB_NAME(db.resource_database_id) AS DatabaseName,
+                (SELECT TOP 1 [text] FROM sys.dm_exec_sql_text(c.most_recent_sql_handle)) AS QueryText,
+                r.query_hash
+            FROM sys.dm_exec_sessions s
+            INNER JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
+            INNER JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
+            LEFT OUTER JOIN (
+                SELECT DISTINCT request_session_id, resource_database_id
+                FROM    sys.dm_tran_locks
+                WHERE resource_type = N'DATABASE'
+                AND     request_mode = N'S'
+                AND     request_status = N'GRANT'
+                AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.session_id = db.request_session_id
+            WHERE r.status = 'rollback';
 	END
 
 	IF @Seconds > 0
@@ -43805,7 +44008,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                    JOIN sys.dm_exec_sessions AS s
                        ON r.session_id = s.session_id
                    WHERE s.host_name IS NOT NULL
-                   AND r.total_elapsed_time > 5000 )
+                   AND r.total_elapsed_time > 5000
+                   AND r.request_id > 0 )
 			BEGIN
 
                    SET @StringToExecute = N'
@@ -43823,12 +44027,14 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                    FROM (
                          SELECT deqp.session_id,
                                 deqp.request_id,
-                                CASE WHEN deqp.row_count > ( deqp.estimate_row_count * 10000 )
+                                CASE WHEN (deqp.row_count/10000) > deqp.estimate_row_count
                                      THEN 1
                                      ELSE 0
                                 END AS estimate_inaccuracy
                          FROM   sys.dm_exec_query_profiles AS deqp
+                         INNER JOIN sys.dm_exec_requests r ON deqp.session_id = r.session_id AND deqp.request_id = r.request_id
 						 WHERE deqp.session_id <> @@SPID
+                           AND r.total_elapsed_time > 5000
                    ) AS x
                    WHERE x.estimate_inaccuracy = 1
                    GROUP BY x.session_id, 
@@ -43953,8 +44159,9 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 				  CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) AS qp ';
 
 				IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_exec_query_statistics_xml')
-					SET @StringToExecute = @StringToExecute + N' OUTER APPLY sys.dm_exec_query_statistics_xml(s.session_id) qs_live ';
-				  
+				/* GitHub #3210 */
+					SET @StringToExecute = N'
+                   SET LOCK_TIMEOUT 1000 ' + @StringToExecute + N' OUTER APPLY sys.dm_exec_query_statistics_xml(s.session_id) qs_live ';
 				  
 				SET @StringToExecute = @StringToExecute + N';
 
@@ -44805,7 +45012,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 	/* Check for temp objects with high forwarded fetches.
 		This has to be done as dynamic SQL because we have to execute OBJECT_NAME inside TempDB. */
-	IF @@ROWCOUNT > 0
+	IF EXISTS (SELECT * FROM #BlitzFirstResults WHERE CheckID = 29)
 		BEGIN
 		SET @StringToExecute = N'
 		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
@@ -46165,7 +46372,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         FROM    #BlitzFirstResults;
     END;
     ELSE
-        IF @OutputType = 'Opserver1' AND @SinceStartup = 0
+        IF @OutputType = 'Opserver1' AND @SinceStartup = 0 AND @OutputResultSets LIKE N'%Findings%'
         BEGIN
 
             SELECT  r.[Priority] ,
@@ -46222,7 +46429,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     r.Finding,
                     r.ID;
         END;
-        ELSE IF @OutputType IN ( 'CSV', 'RSV' ) AND @SinceStartup = 0
+        ELSE IF @OutputType IN ( 'CSV', 'RSV' ) AND @SinceStartup = 0 AND @OutputResultSets LIKE N'%Findings%'
         BEGIN
 
             SELECT  Result = CAST([Priority] AS NVARCHAR(100))
@@ -46243,7 +46450,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     Finding,
                     Details;
         END;
-        ELSE IF @OutputType = 'Top10'
+        ELSE IF @OutputType = 'Top10' AND @OutputResultSets LIKE N'%WaitStats%'
             BEGIN
                 /* Measure waits in hours */
                 ;WITH max_batch AS (
@@ -46280,7 +46487,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     AND wd2.wait_time_ms-wd1.wait_time_ms > 0
                 ORDER BY [Wait Time (Seconds)] DESC;
         END;
-        ELSE IF @ExpertMode = 0 AND @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 0 AND @SinceStartup = 0
+        ELSE IF @ExpertMode = 0 AND @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 0 AND @SinceStartup = 0 AND @OutputResultSets LIKE N'%Findings%'
         BEGIN
             SELECT  [Priority] ,
                     [FindingsGroup] ,
@@ -46302,7 +46509,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     ID,
 					CAST(Details AS NVARCHAR(4000));
         END;
-        ELSE IF @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 1 AND @SinceStartup = 0
+        ELSE IF @OutputType <> 'NONE' AND @OutputXMLasNVARCHAR = 1 AND @SinceStartup = 0 AND @OutputResultSets LIKE N'%Findings%'
         BEGIN
             SELECT  [Priority] ,
                     [FindingsGroup] ,
@@ -46324,7 +46531,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     ID,
 					CAST(Details AS NVARCHAR(4000));
         END;
-        ELSE IF @ExpertMode = 1 AND @OutputType <> 'NONE'
+        ELSE IF @ExpertMode = 1 AND @OutputType <> 'NONE' AND @OutputResultSets LIKE N'%Findings%'
         BEGIN
             IF @SinceStartup = 0
                 SELECT  r.[Priority] ,
@@ -46386,7 +46593,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             -------------------------
             --What happened: #WaitStats
             -------------------------
-            IF @Seconds = 0
+            IF @Seconds = 0 AND @OutputResultSets LIKE N'%WaitStats%'
                 BEGIN
                 /* Measure waits in hours */
                 ;WITH max_batch AS (
@@ -46430,7 +46637,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     AND wd2.wait_time_ms-wd1.wait_time_ms > 0
                 ORDER BY [Wait Time (Seconds)] DESC;
                 END;
-            ELSE
+            ELSE IF @OutputResultSets LIKE N'%WaitStats%'
                 BEGIN
                 /* Measure waits in seconds */
                 ;WITH max_batch AS (
@@ -46478,6 +46685,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             -------------------------
             --What happened: #FileStats
             -------------------------
+            IF @OutputResultSets LIKE N'%FileStats%' 
             WITH readstats AS (
                 SELECT 'PHYSICAL READS' AS Pattern,
                 ROW_NUMBER() OVER (ORDER BY wd2.avg_stall_read_ms DESC) AS StallRank,
@@ -46536,7 +46744,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             --What happened: #PerfmonStats
             -------------------------
 
-            SELECT 'PERFMON' AS Pattern, pLast.[object_name], pLast.counter_name, pLast.instance_name,
+            IF @OutputResultSets LIKE N'%PerfmonStats%'
+                SELECT 'PERFMON' AS Pattern, pLast.[object_name], pLast.counter_name, pLast.instance_name,
                 pFirst.SampleTime AS FirstSampleTime, pFirst.cntr_value AS FirstSampleValue,
                 pLast.SampleTime AS LastSampleTime, pLast.cntr_value AS LastSampleValue,
                 pLast.cntr_value - pFirst.cntr_value AS ValueDelta,
@@ -46551,7 +46760,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             -------------------------
             --What happened: #QueryStats
             -------------------------
-            IF @CheckProcedureCache = 1
+            IF @CheckProcedureCache = 1 AND @OutputResultSets LIKE N'%BlitzCache%'
 			BEGIN
 			
 			SELECT qsNow.*, qsFirst.*
@@ -46568,7 +46777,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     DROP TABLE #BlitzFirstResults;
 
     /* What's running right now? This is the first and last result set. */
-    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 AND @OutputType <> 'NONE'
+    IF @SinceStartup = 0 AND @Seconds > 0 AND @ExpertMode = 1 AND @OutputType <> 'NONE' AND @OutputResultSets LIKE N'%BlitzWho_End%'
     BEGIN
 		IF OBJECT_ID('master.dbo.sp_BlitzWho') IS NULL AND OBJECT_ID('dbo.sp_BlitzWho') IS NULL
 		BEGIN

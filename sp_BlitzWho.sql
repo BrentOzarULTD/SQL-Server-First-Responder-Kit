@@ -33,7 +33,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.12', @VersionDate = '20221213';
+	SELECT @Version = '8.14', @VersionDate = '20230420';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -61,7 +61,7 @@ Known limitations of this version:
    
 MIT License
 
-Copyright (c) 2021 Brent Ozar Unlimited
+Copyright (c) Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -676,7 +676,7 @@ BEGIN
     /* Think of the StringToExecute as starting with this, but we'll set this up later depending on whether we're doing an insert or a select:
     SELECT @StringToExecute = N'SELECT  GETDATE() AS run_date ,
     */
-    SET @StringToExecute = N'COALESCE( RIGHT(''00'' + CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), RIGHT(''00'' + CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114) ) AS [elapsed_time] ,
+    SET @StringToExecute = N' CASE WHEN YEAR(s.last_request_start_time) = 1900 THEN NULL ELSE COALESCE( RIGHT(''00'' + CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), RIGHT(''00'' + CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114) ) END AS [elapsed_time] ,
 			       s.session_id ,
 					CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL 
 							THEN r.blocking_session_id
@@ -690,11 +690,11 @@ BEGIN
 						END AS blocking_session_id,
 						    COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid), ''N/A'') AS database_name,
 			       ISNULL(SUBSTRING(dest.text,
-			            ( query_stats.statement_start_offset / 2 ) + 1,
-			            ( ( CASE query_stats.statement_end_offset
+			            ( r.statement_start_offset / 2 ) + 1,
+			            ( ( CASE r.statement_end_offset
 			               WHEN -1 THEN DATALENGTH(dest.text)
-			               ELSE query_stats.statement_end_offset
-			             END - query_stats.statement_start_offset )
+			               ELSE r.statement_end_offset
+			             END - r.statement_start_offset )
 			              / 2 ) + 1), dest.text) AS query_text ,
 						  '+CASE
 								WHEN @GetOuterCommand = 1 THEN N'CAST(event_info AS NVARCHAR(4000)) AS outer_command,'
@@ -859,7 +859,7 @@ BEGIN
 				OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle, blocked.sql_handle)) AS dest
 			 OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS derp
 				OUTER APPLY (
-						SELECT CONVERT(DECIMAL(38,2), SUM( (((tsu.user_objects_alloc_page_count - user_objects_dealloc_page_count) * 8) / 1024.)) ) AS tempdb_allocations_mb
+						SELECT CONVERT(DECIMAL(38,2), SUM( ((((tsu.user_objects_alloc_page_count - user_objects_dealloc_page_count) + (tsu.internal_objects_alloc_page_count - internal_objects_dealloc_page_count)) * 8) / 1024.)) ) AS tempdb_allocations_mb
 						FROM sys.dm_db_task_space_usage tsu
 						WHERE tsu.request_id = r.request_id
 						AND tsu.session_id = r.session_id
@@ -894,7 +894,7 @@ IF @ProductVersionMajor >= 11
     /* Think of the StringToExecute as starting with this, but we'll set this up later depending on whether we're doing an insert or a select:
     SELECT @StringToExecute = N'SELECT  GETDATE() AS run_date ,
     */
-    SELECT @StringToExecute = N'COALESCE( RIGHT(''00'' + CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), RIGHT(''00'' + CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114) ) AS [elapsed_time] ,
+    SELECT @StringToExecute = N' CASE WHEN YEAR(s.last_request_start_time) = 1900 THEN NULL ELSE COALESCE( RIGHT(''00'' + CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), RIGHT(''00'' + CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114) ) END AS [elapsed_time] ,
 			       s.session_id ,
 					CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL 
 					THEN r.blocking_session_id
@@ -908,11 +908,11 @@ IF @ProductVersionMajor >= 11
 					END AS blocking_session_id,
 					COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid), ''N/A'') AS database_name,
 					ISNULL(SUBSTRING(dest.text,
-			            ( query_stats.statement_start_offset / 2 ) + 1,
-			            ( ( CASE query_stats.statement_end_offset
+			            ( r.statement_start_offset / 2 ) + 1,
+			            ( ( CASE r.statement_end_offset
 			               WHEN -1 THEN DATALENGTH(dest.text)
-			               ELSE query_stats.statement_end_offset
-			             END - query_stats.statement_start_offset )
+			               ELSE r.statement_end_offset
+			             END - r.statement_start_offset )
 			              / 2 ) + 1), dest.text) AS query_text ,
 						  '+CASE
 								WHEN @GetOuterCommand = 1 THEN N'CAST(event_info AS NVARCHAR(4000)) AS outer_command,'
@@ -1152,7 +1152,7 @@ IF @ProductVersionMajor >= 11
 	    OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle, blocked.sql_handle)) AS dest
 	    OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS derp
 	    OUTER APPLY (
-			    SELECT CONVERT(DECIMAL(38,2), SUM( (((tsu.user_objects_alloc_page_count - user_objects_dealloc_page_count) * 8) / 1024.)) ) AS tempdb_allocations_mb
+			    SELECT CONVERT(DECIMAL(38,2), SUM( ((((tsu.user_objects_alloc_page_count - user_objects_dealloc_page_count) + (tsu.internal_objects_alloc_page_count - internal_objects_dealloc_page_count)) * 8) / 1024.)) ) AS tempdb_allocations_mb
 			    FROM sys.dm_db_task_space_usage tsu
 			    WHERE tsu.request_id = r.request_id
 			    AND tsu.session_id = r.session_id

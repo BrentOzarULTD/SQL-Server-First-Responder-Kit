@@ -233,7 +233,8 @@ CREATE TABLE ##BlitzCacheProcs (
 		cached_execution_parameters XML,
 		missing_indexes XML,
         SetOptions VARCHAR(MAX),
-        Warnings VARCHAR(MAX)
+        Warnings VARCHAR(MAX),
+    	Pattern NVARCHAR(20)
     );
 GO 
 
@@ -280,7 +281,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.12', @VersionDate = '20221213';
+SELECT @Version = '8.14', @VersionDate = '20230420';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -304,7 +305,6 @@ IF @Help = 1
 	the findings, contribute your own code, and more.
 
 	Known limitations of this version:
-	 - This query will not run on SQL Server 2005.
 	 - SQL Server 2008 and 2008R2 have a bug in trigger stats, so that output is
 	   excluded by default.
 	 - @IgnoreQueryHashes and @OnlyQueryHashes require a CSV list of hashes
@@ -320,7 +320,7 @@ IF @Help = 1
 
 	MIT License
 
-	Copyright (c) 2021 Brent Ozar Unlimited
+	Copyright (c) Brent Ozar Unlimited
 
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
@@ -1056,7 +1056,8 @@ BEGIN
 		cached_execution_parameters XML,
 		missing_indexes XML,
         SetOptions VARCHAR(MAX),
-        Warnings VARCHAR(MAX)
+        Warnings VARCHAR(MAX),
+		Pattern NVARCHAR(20)
     );
 END;
 
@@ -1157,18 +1158,18 @@ IF @SkipAnalysis = 1
 
 DECLARE @AllSortSql NVARCHAR(MAX) = N'';
 DECLARE @VersionShowsMemoryGrants BIT;
-IF EXISTS(SELECT * FROM sys.all_columns WHERE OBJECT_ID = OBJECT_ID('sys.dm_exec_query_stats') AND name = 'max_grant_kb')
+IF EXISTS(SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_stats') AND name = 'max_grant_kb')
     SET @VersionShowsMemoryGrants = 1;
 ELSE
     SET @VersionShowsMemoryGrants = 0;
 
 DECLARE @VersionShowsSpills BIT;
-IF EXISTS(SELECT * FROM sys.all_columns WHERE OBJECT_ID = OBJECT_ID('sys.dm_exec_query_stats') AND name = 'max_spills')
+IF EXISTS(SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_stats') AND name = 'max_spills')
     SET @VersionShowsSpills = 1;
 ELSE
     SET @VersionShowsSpills = 0;
 
-IF EXISTS(SELECT * FROM sys.all_columns WHERE OBJECT_ID = OBJECT_ID('sys.dm_exec_query_plan_stats') AND name = 'query_plan')
+IF EXISTS(SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_plan_stats') AND name = 'query_plan')
     SET @VersionShowsAirQuoteActualPlans = 1;
 ELSE
     SET @VersionShowsAirQuoteActualPlans = 0;
@@ -1975,7 +1976,7 @@ INSERT INTO ##BlitzCacheProcs (SPID, QueryType, DatabaseName, AverageCPU, TotalC
                     LastReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, 
 					QueryText, QueryPlan, TotalWorkerTimeForType, TotalElapsedTimeForType, TotalReadsForType,
                     TotalExecutionCountForType, TotalWritesForType, SqlHandle, PlanHandle, QueryHash, QueryPlanHash,
-                    min_worker_time, max_worker_time, is_parallel, min_elapsed_time, max_elapsed_time, age_minutes, age_minutes_lifetime) ' ;
+                    min_worker_time, max_worker_time, is_parallel, min_elapsed_time, max_elapsed_time, age_minutes, age_minutes_lifetime, Pattern) ' ;
 
 SET @body += N'
 FROM   (SELECT TOP (@Top) x.*, xpa.*,
@@ -2239,7 +2240,8 @@ SELECT TOP (@Top)
        qs.min_elapsed_time / 1000.0,
        qs.max_elapsed_time / 1000.0,
        age_minutes, 
-       age_minutes_lifetime ';
+       age_minutes_lifetime,
+       @SortOrder ';
 
 
 IF LEFT(@QueryFilter, 3) IN ('all', 'sta')
@@ -2387,7 +2389,8 @@ BEGIN
            qs.min_elapsed_time / 1000.0,
            qs.max_worker_time  / 1000.0,
            age_minutes,
-           age_minutes_lifetime ';
+           age_minutes_lifetime,
+    	   @SortOrder ';
     
     SET @sql += REPLACE(REPLACE(@body, '#view#', 'dm_exec_query_stats'), 'cached_time', 'creation_time') ;
 
@@ -2622,7 +2625,7 @@ IF @Reanalyze = 0
 BEGIN
     RAISERROR('Collecting execution plan information.', 0, 1) WITH NOWAIT;
 
-    EXEC sp_executesql @sql, N'@Top INT, @min_duration INT, @min_back INT', @Top, @DurationFilter_i, @MinutesBack;
+    EXEC sp_executesql @sql, N'@Top INT, @min_duration INT, @min_back INT, @SortOrder NVARCHAR(20)', @Top, @DurationFilter_i, @MinutesBack, @SortOrder;
 END;
 
 IF @SkipAnalysis = 1
@@ -7115,6 +7118,7 @@ ELSE
 					TotalSpills BIGINT,
 					AvgSpills MONEY,
 					QueryPlanCost FLOAT,
+					Pattern NVARCHAR(20),
 					JoinKey AS ServerName + Cast(CheckDate AS NVARCHAR(50)),
 					CONSTRAINT [PK_' + REPLACE(REPLACE(@OutputTableName,N'[',N''),N']',N'') + N'] PRIMARY KEY CLUSTERED(ID ASC));'
 				  );
@@ -7216,6 +7220,22 @@ END ';
                     EXEC(@StringToExecute);
                 END;
             
+			/* If the table doesn't have the new Pattern column, add it */
+            SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+            SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''Pattern'')
+                ALTER TABLE ' + @ObjectFullName + N' ADD Pattern NVARCHAR(20) NULL;';
+			IF @ValidOutputServer = 1
+				BEGIN
+					SET @StringToExecute = REPLACE(@StringToExecute,'''Pattern''','''''Pattern''''');
+					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
+                    EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+                END;
+            ELSE
+                BEGIN
+                    EXEC(@StringToExecute);
+                END            
+            
             IF @CheckDateOverride IS NULL
                 BEGIN
                     SET @CheckDateOverride = SYSDATETIMEOFFSET();
@@ -7235,14 +7255,14 @@ END ';
 					+ ' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
                     + ' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
                     + ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost ) '
+                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern ) '
                     + 'SELECT TOP (@Top) '
                     + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), '''') + ', @CheckDateOverride, '
                     + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), '''') + ', '
                     + ' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
                     + ' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
                     + ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, CAST(QueryPlan AS NVARCHAR(MAX)), NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost '
+                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern '
                     + ' FROM ##BlitzCacheProcs '
                     + ' WHERE 1=1 ';
 
@@ -7303,14 +7323,14 @@ END ';
 					+ ' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
                     + ' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
                     + ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost ) '
+                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern ) '
                     + 'SELECT TOP (@Top) '
                     + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), '''') + ', @CheckDateOverride, '
                     + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), '''') + ', '
                     + ' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
                     + ' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
                     + ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost '
+                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern '
                     + ' FROM ##BlitzCacheProcs '
                     + ' WHERE 1=1 ';
 
@@ -7452,6 +7472,7 @@ END ';
 						TotalSpills BIGINT,
 						AvgSpills MONEY,
 						QueryPlanCost FLOAT,
+						Pattern NVARCHAR(20),                    
 						JoinKey AS ServerName + Cast(CheckDate AS NVARCHAR(50)),
 						CONSTRAINT [PK_' + REPLACE(REPLACE(@OutputTableName,'[',''),']','') + '] PRIMARY KEY CLUSTERED(ID ASC));';
 					SET @StringToExecute +=	N' INSERT '
@@ -7459,14 +7480,14 @@ END ';
 						+ ' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
 						+ ' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
 						+ ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-						+ ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost ) '
+						+ ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern ) '
 						+ 'SELECT TOP (@Top) '
 						+ QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), '''') + ', @CheckDateOverride, '
 						+ QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), '''') + ', '
 						+ ' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
 						+ ' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
 						+ ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-						+ ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost '
+						+ ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern '
 						+ ' FROM ##BlitzCacheProcs '
 						+ ' WHERE 1=1 ';
                         

@@ -48,7 +48,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.12', @VersionDate = '20221213';
+SELECT @Version = '8.14', @VersionDate = '20230420';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -85,7 +85,7 @@ Unknown limitations of this version:
 
 MIT License
 
-Copyright (c) 2021 Brent Ozar Unlimited
+Copyright (c) Brent Ozar Unlimited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

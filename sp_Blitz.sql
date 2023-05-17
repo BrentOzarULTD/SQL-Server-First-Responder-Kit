@@ -38,7 +38,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.12', @VersionDate = '20221213';
+	SELECT @Version = '8.14', @VersionDate = '20230420';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -93,9 +93,9 @@ AS
 	tigertoolbox and are provided under the MIT license:
 	https://github.com/Microsoft/tigertoolbox
 	
-	All other copyrights for sp_Blitz are held by Brent Ozar Unlimited, 2021.
+	All other copyrights for sp_Blitz are held by Brent Ozar Unlimited.
 
-	Copyright (c) 2021 Brent Ozar Unlimited
+	Copyright (c) Brent Ozar Unlimited
 
 	Permission is hereby granted, free of charge, to any person obtaining a copy
 	of this software and associated documentation files (the "Software"), to deal
@@ -6870,7 +6870,7 @@ IF @ProductVersionMajor >= 10
                                     Details = '[' + DBName + '].[' + SPSchema + '].[' + ProcName + '] has WITH RECOMPILE in the stored procedure code, which may cause increased CPU usage due to constant recompiles of the code.',
                                     CheckID = '78'
                                 FROM #Recompile AS TR 
-								WHERE ProcName NOT LIKE 'sp_AllNightLog%' AND ProcName NOT LIKE 'sp_AskBrent%' AND ProcName NOT LIKE 'sp_Blitz%'
+								WHERE ProcName NOT LIKE 'sp_AllNightLog%' AND ProcName NOT LIKE 'sp_AskBrent%' AND ProcName NOT LIKE 'sp_Blitz%' AND ProcName NOT LIKE 'sp_PressureDetector'
 								  AND DBName NOT IN ('master', 'model', 'msdb', 'tempdb');
                                 DROP TABLE #Recompile;
                             END;
