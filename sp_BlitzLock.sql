@@ -3538,38 +3538,40 @@ BEGIN
             DROP SYNONYM DeadlockFindings; /*done with inserting.*/
         END;
         ELSE /*Output to database is not set output to client app*/
-            SET @d = CONVERT(varchar(40), GETDATE(), 109);
-            RAISERROR('Results to client %s', 0, 1, @d) WITH NOWAIT;
-
-            IF @Debug = 1 BEGIN SET STATISTICS XML ON; END;
-
-            EXEC sys.sp_executesql
-                @deadlock_result;
-
-            IF @Debug = 1
-            BEGIN
-                SET STATISTICS XML OFF;
-                PRINT @deadlock_result;
-            END;
-
-            RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
-
-            SET @d = CONVERT(varchar(40), GETDATE(), 109);
-            RAISERROR('Returning findings %s', 0, 1, @d) WITH NOWAIT;
-
-            SELECT
-                df.check_id,
-                df.database_name,
-                df.object_name,
-                df.finding_group,
-                df.finding
-            FROM #deadlock_findings AS df
-            ORDER BY df.check_id
-            OPTION(RECOMPILE);
-
-            SET @d = CONVERT(varchar(40), GETDATE(), 109);
-            RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
-        END; /*done with output to client app.*/
+		BEGIN
+		    SET @d = CONVERT(varchar(40), GETDATE(), 109);
+                RAISERROR('Results to client %s', 0, 1, @d) WITH NOWAIT;
+		    
+                IF @Debug = 1 BEGIN SET STATISTICS XML ON; END;
+		    
+                EXEC sys.sp_executesql
+                    @deadlock_result;
+		    
+                IF @Debug = 1
+                BEGIN
+                    SET STATISTICS XML OFF;
+                    PRINT @deadlock_result;
+                END;
+		    
+                RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
+		    
+                SET @d = CONVERT(varchar(40), GETDATE(), 109);
+                RAISERROR('Returning findings %s', 0, 1, @d) WITH NOWAIT;
+		    
+                SELECT
+                    df.check_id,
+                    df.database_name,
+                    df.object_name,
+                    df.finding_group,
+                    df.finding
+                FROM #deadlock_findings AS df
+                ORDER BY df.check_id
+                OPTION(RECOMPILE);
+		    
+                SET @d = CONVERT(varchar(40), GETDATE(), 109);
+                RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
+            END; /*done with output to client app.*/
+		END;
 
         IF @Debug = 1
         BEGIN
