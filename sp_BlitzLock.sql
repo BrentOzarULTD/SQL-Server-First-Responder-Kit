@@ -383,7 +383,7 @@ BEGIN
                         /*Add wait_resource column*/
                         ALTER TABLE ' +
                         @ObjectFullName +
-                        N' ADD client_option_1 nvarchar(8000) NULL;';
+                        N' ADD client_option_1 varchar(500) NULL;';
 
                 IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
                 EXEC sys.sp_executesql
@@ -399,7 +399,7 @@ BEGIN
                         /*Add wait_resource column*/
                         ALTER TABLE ' +
                         @ObjectFullName +
-                        N' ADD client_option_2 nvarchar(8000) NULL;';
+                        N' ADD client_option_2 varchar(500) NULL;';
 
                 IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
                 EXEC sys.sp_executesql
@@ -462,8 +462,8 @@ BEGIN
                                 waiter_mode nvarchar(256),
                                 lock_mode nvarchar(256),
                                 transaction_count bigint,
-                                client_option_1 varchar(2000),
-                                client_option_2 varchar(2000),
+                                client_option_1 varchar(500),
+                                client_option_2 varchar(500),
                                 login_name nvarchar(256),
                                 host_name nvarchar(256),
                                 client_app nvarchar(1024),
@@ -1024,7 +1024,7 @@ BEGIN
                     CASE WHEN q.clientoption1 & 8192 = 8192 THEN ', NUMERIC_ROUNDABORT' ELSE '' END +
                     CASE WHEN q.clientoption1 & 16384 = 16384 THEN ', XACT_ABORT' ELSE '' END,
                     3,
-                    8000
+                    500
                 ),
             client_option_2 =
                 SUBSTRING
@@ -1046,7 +1046,7 @@ BEGIN
                     CASE WHEN q.clientoption2 & 1073741824 = 1073741824 THEN ', AUTO UPDATE STATISTICS' ELSE '' END +
                     CASE WHEN q.clientoption2 & 1469283328 = 1469283328 THEN ', ALL SETTABLE OPTIONS' ELSE '' END,
                     3,
-                    8000
+                    500
                 ),
             q.process_xml
         INTO #deadlock_process
