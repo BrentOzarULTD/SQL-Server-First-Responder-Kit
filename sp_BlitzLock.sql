@@ -1813,6 +1813,16 @@ BEGIN
                 N'S',
                 N'IS'
             )
+        OR  dow.owner_mode IN
+            (
+                N'S',
+                N'IS'
+            )
+        OR  dow.waiter_mode IN
+            (
+                N'S',
+                N'IS'
+            )
         AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
         AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
         AND (dow.event_date < @EndDate OR @EndDate IS NULL)
