@@ -900,7 +900,7 @@ BEGIN
 	    /* now take split backups into account */
 	    IF (SELECT COUNT(*) FROM #SplitFullBackups) > 0
         BEGIN
-            RAISERROR('Split backups found', 0, 1) WITH NOWAIT;
+            IF @Debug = 1 RAISERROR('Split backups found', 0, 1) WITH NOWAIT;
 
 			SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM '
                        + STUFF(
@@ -1093,7 +1093,7 @@ BEGIN
 
 	    IF (SELECT COUNT(*) FROM #SplitDiffBackups) > 0
 		BEGIN
-			RAISERROR ('Split backups found', 0, 1) WITH NOWAIT;
+			IF @Debug = 1 RAISERROR ('Split backups found', 0, 1) WITH NOWAIT;
 			SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM '
 									   + STUFF(
 											 (SELECT CHAR( 10 ) + ',DISK=''' + BackupPath + BackupFile + ''''
@@ -1375,6 +1375,7 @@ BEGIN
 		AND REPLACE( RIGHT( REPLACE( fl.BackupFile, RIGHT( fl.BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( fl.BackupFile ) ) ), '' ), 16 ), '_', '' ) > @StopAt
 		ORDER BY BackupFile;
 	END
+
 	IF @ExtraLogFile IS NULL
 	BEGIN
 		DELETE fl
@@ -1385,6 +1386,10 @@ BEGIN
 	END
 	ELSE
 	BEGIN
+		-- If this is a split backup, @ExtraLogFile contains only the first split backup file, either _1.trn or _01.trn
+		-- Change @ExtraLogFile to the max split backup file, then delete all log files greater than this
+		SET @ExtraLogFile = REPLACE(REPLACE(@ExtraLogFile, '_1.trn', '_9.trn'), '_01.trn', '_64.trn')
+		
 		DELETE fl
 		FROM @FileList AS fl
 		WHERE BackupFile LIKE N'%.trn'
@@ -1447,7 +1452,7 @@ WHERE BackupFile IS NOT NULL;
 
 				IF (SELECT COUNT( * ) FROM #SplitLogBackups WHERE DenseRank = @LogRestoreRanking) > 1
 				BEGIN
-					RAISERROR ('Split backups found', 0, 1) WITH NOWAIT;
+					IF @Debug = 1 RAISERROR ('Split backups found', 0, 1) WITH NOWAIT;
 					SET @sql = N'RESTORE LOG ' + @RestoreDatabaseName + N' FROM '
 							   + STUFF(
 									(SELECT CHAR( 10 ) + ',DISK=''' + BackupPath + BackupFile + ''''
