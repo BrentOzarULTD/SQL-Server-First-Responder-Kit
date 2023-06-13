@@ -38,7 +38,7 @@ SET STATISTICS XML OFF;
 
 BEGIN;
 
-SELECT @Version = '8.14', @VersionDate = '20230420';
+SELECT @Version = '8.15', @VersionDate = '20230613';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -1375,7 +1375,7 @@ SET STATISTICS XML OFF;
 BEGIN;
 
 
-SELECT @Version = '8.14', @VersionDate = '20230420';
+SELECT @Version = '8.15', @VersionDate = '20230613';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -2900,7 +2900,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.14', @VersionDate = '20230420';
+	SELECT @Version = '8.15', @VersionDate = '20230613';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -4127,7 +4127,7 @@ AS
 								db_name(dek.database_id) AS DatabaseName,
 								''https://www.brentozar.com/go/tde'' AS URL,
 								''The certificate '' + c.name + '' is used to encrypt database '' + db_name(dek.database_id) + ''. Last backup date: '' + COALESCE(CAST(c.pvt_key_last_backup_date AS VARCHAR(100)), ''Never'') AS Details
-								FROM sys.certificates c INNER JOIN sys.dm_database_encryption_keys dek ON c.thumbprint = dek.encryptor_thumbprint
+								FROM master.sys.certificates c INNER JOIN sys.dm_database_encryption_keys dek ON c.thumbprint = dek.encryptor_thumbprint
 								WHERE pvt_key_last_backup_date IS NULL OR pvt_key_last_backup_date <= DATEADD(dd, -30, GETDATE())  OPTION (RECOMPILE);';
 							
 							IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
@@ -6741,9 +6741,9 @@ AS
 
 							IF (@ProductVersionMajor = 15 AND @ProductVersionMinor < 2000) OR
 							   (@ProductVersionMajor = 14 AND @ProductVersionMinor < 1000) OR
-							   (@ProductVersionMajor = 13 AND @ProductVersionMinor < 5026) OR
+							   (@ProductVersionMajor = 13 AND @ProductVersionMinor < 6300) OR
 							   (@ProductVersionMajor = 12 AND @ProductVersionMinor < 6024) OR
-							   (@ProductVersionMajor = 11 AND @ProductVersionMinor < 7001) OR
+							   (@ProductVersionMajor = 11 /*AND @ProductVersionMinor < 7001)*/) OR
 							   (@ProductVersionMajor = 10.5 /*AND @ProductVersionMinor < 6000*/) OR
 							   (@ProductVersionMajor = 10 /*AND @ProductVersionMinor < 6000*/) OR
 							   (@ProductVersionMajor = 9 /*AND @ProductVersionMinor <= 5000*/)
@@ -6754,7 +6754,7 @@ AS
 								INSERT INTO #BlitzResults(CheckID, Priority, FindingsGroup, Finding, URL, Details)
 									VALUES(128, 20, 'Reliability', 'Unsupported Build of SQL Server', 'https://www.brentozar.com/go/unsupported',
 										'Version ' + CAST(@ProductVersionMajor AS VARCHAR(100)) + 
-										CASE WHEN @ProductVersionMajor >= 11 THEN
+										CASE WHEN @ProductVersionMajor >= 12 THEN
 										'.' + CAST(@ProductVersionMinor AS VARCHAR(100)) + ' is no longer supported by Microsoft. You need to apply a service pack.'
 										ELSE ' is no longer supported by Microsoft. You should be making plans to upgrade to a modern version of SQL Server.' END);
 								END;
@@ -12599,7 +12599,7 @@ AS
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
-SELECT @Version = '8.14', @VersionDate = '20230420';
+SELECT @Version = '8.15', @VersionDate = '20230613';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -13477,7 +13477,7 @@ AS
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.14', @VersionDate = '20230420';
+	SELECT @Version = '8.15', @VersionDate = '20230613';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -15259,7 +15259,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.14', @VersionDate = '20230420';
+SELECT @Version = '8.15', @VersionDate = '20230613';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -22577,7 +22577,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.14', @VersionDate = '20230420';
+SELECT @Version = '8.15', @VersionDate = '20230613';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -28754,7 +28754,7 @@ BEGIN
     SET NOCOUNT, XACT_ABORT ON;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-    SELECT @Version = '8.14', @VersionDate = '20230420';
+    SELECT @Version = '8.15', @VersionDate = '20230613';
 
     IF @VersionCheckMode = 1
     BEGIN
@@ -28869,8 +28869,12 @@ BEGIN
                 WHEN
                 (
                     SELECT
-                        SERVERPROPERTY('EDITION')
-                ) = 'SQL Azure'
+                        CONVERT
+                        (
+                            integer,
+                            SERVERPROPERTY('EngineEdition')
+                        )
+                ) = 5
                 THEN 1
                 ELSE 0
             END,
@@ -29098,7 +29102,7 @@ BEGIN
                         /*Add wait_resource column*/
                         ALTER TABLE ' +
                         @ObjectFullName +
-                        N' ADD client_option_1 nvarchar(8000) NULL;';
+                        N' ADD client_option_1 varchar(500) NULL;';
 
                 IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
                 EXEC sys.sp_executesql
@@ -29114,7 +29118,7 @@ BEGIN
                         /*Add wait_resource column*/
                         ALTER TABLE ' +
                         @ObjectFullName +
-                        N' ADD client_option_2 nvarchar(8000) NULL;';
+                        N' ADD client_option_2 varchar(500) NULL;';
 
                 IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
                 EXEC sys.sp_executesql
@@ -29177,8 +29181,8 @@ BEGIN
                                 waiter_mode nvarchar(256),
                                 lock_mode nvarchar(256),
                                 transaction_count bigint,
-                                client_option_1 varchar(2000),
-                                client_option_2 varchar(2000),
+                                client_option_1 varchar(500),
+                                client_option_2 varchar(500),
                                 login_name nvarchar(256),
                                 host_name nvarchar(256),
                                 client_app nvarchar(1024),
@@ -29564,7 +29568,12 @@ BEGIN
         LEFT JOIN #t AS t
           ON 1 = 1
         CROSS APPLY x.x.nodes('/RingBufferTarget/event') AS e(x)
-        WHERE e.x.exist('@name[ .= "xml_deadlock_report"]') = 1
+        WHERE
+          (
+              e.x.exist('@name[ .= "xml_deadlock_report"]') = 1
+           OR e.x.exist('@name[ .= "database_xml_deadlock_report"]') = 1
+           OR e.x.exist('@name[ .= "xml_deadlock_report_filtered"]') = 1
+          )
         AND   e.x.exist('@timestamp[. >= sql:variable("@StartDate")]') = 1
         AND   e.x.exist('@timestamp[. <  sql:variable("@EndDate")]') = 1
         OPTION(RECOMPILE);
@@ -29583,7 +29592,9 @@ BEGIN
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
         RAISERROR('Inserting to #deadlock_data for event file data', 0, 1) WITH NOWAIT;
 
-        INSERT
+		IF @Debug = 1 BEGIN SET STATISTICS XML ON; END;
+
+		INSERT
             #deadlock_data WITH(TABLOCKX)
         (
             deadlock_xml
@@ -29595,12 +29606,19 @@ BEGIN
         LEFT JOIN #t AS t
           ON 1 = 1
         CROSS APPLY x.x.nodes('/event') AS e(x)
-        WHERE e.x.exist('/event/@name[ .= "xml_deadlock_report"]') = 1
-        AND   e.x.exist('/event/@timestamp[. >= sql:variable("@StartDate")]') = 1
-        AND   e.x.exist('/event/@timestamp[. <  sql:variable("@EndDate")]') = 1
+        WHERE
+          (
+              e.x.exist('@name[ .= "xml_deadlock_report"]') = 1
+           OR e.x.exist('@name[ .= "database_xml_deadlock_report"]') = 1
+           OR e.x.exist('@name[ .= "xml_deadlock_report_filtered"]') = 1
+          )
+        AND   e.x.exist('@timestamp[. >= sql:variable("@StartDate")]') = 1
+        AND   e.x.exist('@timestamp[. <  sql:variable("@EndDate")]') = 1
         OPTION(RECOMPILE);
 
-        SET @d = CONVERT(varchar(40), GETDATE(), 109);
+		IF @Debug = 1 BEGIN SET STATISTICS XML OFF; END;
+
+		SET @d = CONVERT(varchar(40), GETDATE(), 109);
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
     END;
 
@@ -29627,7 +29645,7 @@ BEGIN
             FROM sys.fn_xe_file_target_read_file(N'system_health*.xel', NULL, NULL, NULL) AS fx
             LEFT JOIN #t AS t
               ON 1 = 1
-			WHERE fx.object_name = N'xml_deadlock_report'
+            WHERE fx.object_name = N'xml_deadlock_report'
         ) AS xml
         CROSS APPLY xml.deadlock_xml.nodes('/event') AS e(x)
         WHERE 1 = 1
@@ -29725,7 +29743,7 @@ BEGIN
                     CASE WHEN q.clientoption1 & 8192 = 8192 THEN ', NUMERIC_ROUNDABORT' ELSE '' END +
                     CASE WHEN q.clientoption1 & 16384 = 16384 THEN ', XACT_ABORT' ELSE '' END,
                     3,
-                    8000
+                    500
                 ),
             client_option_2 =
                 SUBSTRING
@@ -29747,7 +29765,7 @@ BEGIN
                     CASE WHEN q.clientoption2 & 1073741824 = 1073741824 THEN ', AUTO UPDATE STATISTICS' ELSE '' END +
                     CASE WHEN q.clientoption2 & 1469283328 = 1469283328 THEN ', ALL SETTABLE OPTIONS' ELSE '' END,
                     3,
-                    8000
+                    500
                 ),
             q.process_xml
         INTO #deadlock_process
@@ -30514,6 +30532,16 @@ BEGIN
                 N'S',
                 N'IS'
             )
+        OR  dow.owner_mode IN
+            (
+                N'S',
+                N'IS'
+            )
+        OR  dow.waiter_mode IN
+            (
+                N'S',
+                N'IS'
+            )
         AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
         AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
         AND (dow.event_date < @EndDate OR @EndDate IS NULL)
@@ -31251,7 +31279,7 @@ BEGIN
                     ),
                     14
                  )
-				 END
+                 END
             FROM #deadlock_owner_waiter AS dow
             JOIN #deadlock_process AS dp
               ON (dp.id = dow.owner_id
@@ -32239,38 +32267,40 @@ BEGIN
             DROP SYNONYM DeadlockFindings; /*done with inserting.*/
         END;
         ELSE /*Output to database is not set output to client app*/
-            SET @d = CONVERT(varchar(40), GETDATE(), 109);
-            RAISERROR('Results to client %s', 0, 1, @d) WITH NOWAIT;
-
-            IF @Debug = 1 BEGIN SET STATISTICS XML ON; END;
-
-            EXEC sys.sp_executesql
-                @deadlock_result;
-
-            IF @Debug = 1
-            BEGIN
-                SET STATISTICS XML OFF;
-                PRINT @deadlock_result;
-            END;
-
-            RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
-
-            SET @d = CONVERT(varchar(40), GETDATE(), 109);
-            RAISERROR('Returning findings %s', 0, 1, @d) WITH NOWAIT;
-
-            SELECT
-                df.check_id,
-                df.database_name,
-                df.object_name,
-                df.finding_group,
-                df.finding
-            FROM #deadlock_findings AS df
-            ORDER BY df.check_id
-            OPTION(RECOMPILE);
-
-            SET @d = CONVERT(varchar(40), GETDATE(), 109);
-            RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
-        END; /*done with output to client app.*/
+		BEGIN
+		    SET @d = CONVERT(varchar(40), GETDATE(), 109);
+                RAISERROR('Results to client %s', 0, 1, @d) WITH NOWAIT;
+		    
+                IF @Debug = 1 BEGIN SET STATISTICS XML ON; END;
+		    
+                EXEC sys.sp_executesql
+                    @deadlock_result;
+		    
+                IF @Debug = 1
+                BEGIN
+                    SET STATISTICS XML OFF;
+                    PRINT @deadlock_result;
+                END;
+		    
+                RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
+		    
+                SET @d = CONVERT(varchar(40), GETDATE(), 109);
+                RAISERROR('Returning findings %s', 0, 1, @d) WITH NOWAIT;
+		    
+                SELECT
+                    df.check_id,
+                    df.database_name,
+                    df.object_name,
+                    df.finding_group,
+                    df.finding
+                FROM #deadlock_findings AS df
+                ORDER BY df.check_id
+                OPTION(RECOMPILE);
+		    
+                SET @d = CONVERT(varchar(40), GETDATE(), 109);
+                RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
+            END; /*done with output to client app.*/
+		END;
 
         IF @Debug = 1
         BEGIN
@@ -32403,7 +32433,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.14', @VersionDate = '20230420';
+SELECT @Version = '8.15', @VersionDate = '20230613';
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
@@ -38134,7 +38164,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.14', @VersionDate = '20230420';
+	SELECT @Version = '8.15', @VersionDate = '20230613';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -39500,10 +39530,10 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @MoveDataDrive NVARCHAR(260) = NULL, 
     @MoveLogDrive NVARCHAR(260) = NULL, 
     @MoveFilestreamDrive NVARCHAR(260) = NULL,
-	@MoveFullTextCatalogDrive NVARCHAR(260) = NULL, 
-	@BufferCount INT = NULL,
-	@MaxTransferSize INT = NULL,
-	@BlockSize INT = NULL,
+    @MoveFullTextCatalogDrive NVARCHAR(260) = NULL, 
+    @BufferCount INT = NULL,
+    @MaxTransferSize INT = NULL,
+    @BlockSize INT = NULL,
     @TestRestore BIT = 0, 
     @RunCheckDB BIT = 0, 
     @RestoreDiff BIT = 0,
@@ -39516,15 +39546,16 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @StopAt NVARCHAR(14) = NULL,
     @OnlyLogsAfter NVARCHAR(14) = NULL,
     @SimpleFolderEnumeration BIT = 0,
-	@SkipBackupsAlreadyInMsdb BIT = 0,
-	@DatabaseOwner sysname = NULL,
-	@SetTrustworthyON BIT = 0,
+    @SkipBackupsAlreadyInMsdb BIT = 0,
+    @DatabaseOwner sysname = NULL,
+    @SetTrustworthyON BIT = 0,
+    @FixOrphanUsers BIT = 0,
     @Execute CHAR(1) = Y,
-	@FileExtensionDiff NVARCHAR(128) = NULL,
+    @FileExtensionDiff NVARCHAR(128) = NULL,
     @Debug INT = 0, 
     @Help BIT = 0,
     @Version     VARCHAR(30) = NULL OUTPUT,
-	@VersionDate DATETIME = NULL OUTPUT,
+    @VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0
 AS
 SET NOCOUNT ON;
@@ -39532,7 +39563,7 @@ SET STATISTICS XML OFF;
 
 /*Versioning details*/
 
-SELECT @Version = '8.14', @VersionDate = '20230420';
+SELECT @Version = '8.15', @VersionDate = '20230613';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -40388,7 +40419,7 @@ BEGIN
 	    /* now take split backups into account */
 	    IF (SELECT COUNT(*) FROM #SplitFullBackups) > 0
         BEGIN
-            RAISERROR('Split backups found', 0, 1) WITH NOWAIT;
+            IF @Debug = 1 RAISERROR('Split backups found', 0, 1) WITH NOWAIT;
 
 			SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM '
                        + STUFF(
@@ -40581,7 +40612,7 @@ BEGIN
 
 	    IF (SELECT COUNT(*) FROM #SplitDiffBackups) > 0
 		BEGIN
-			RAISERROR ('Split backups found', 0, 1) WITH NOWAIT;
+			IF @Debug = 1 RAISERROR ('Split backups found', 0, 1) WITH NOWAIT;
 			SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM '
 									   + STUFF(
 											 (SELECT CHAR( 10 ) + ',DISK=''' + BackupPath + BackupFile + ''''
@@ -40863,7 +40894,7 @@ BEGIN
 		AND REPLACE( RIGHT( REPLACE( fl.BackupFile, RIGHT( fl.BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( fl.BackupFile ) ) ), '' ), 16 ), '_', '' ) > @StopAt
 		ORDER BY BackupFile;
 	END
-	
+
 	IF @ExtraLogFile IS NULL
 	BEGIN
 		DELETE fl
@@ -40874,6 +40905,10 @@ BEGIN
 	END
 	ELSE
 	BEGIN
+		-- If this is a split backup, @ExtraLogFile contains only the first split backup file, either _1.trn or _01.trn
+		-- Change @ExtraLogFile to the max split backup file, then delete all log files greater than this
+		SET @ExtraLogFile = REPLACE(REPLACE(@ExtraLogFile, '_1.trn', '_9.trn'), '_01.trn', '_64.trn')
+		
 		DELETE fl
 		FROM @FileList AS fl
 		WHERE BackupFile LIKE N'%.trn'
@@ -40936,7 +40971,7 @@ WHERE BackupFile IS NOT NULL;
 
 				IF (SELECT COUNT( * ) FROM #SplitLogBackups WHERE DenseRank = @LogRestoreRanking) > 1
 				BEGIN
-					RAISERROR ('Split backups found', 0, 1) WITH NOWAIT;
+					IF @Debug = 1 RAISERROR ('Split backups found', 0, 1) WITH NOWAIT;
 					SET @sql = N'RESTORE LOG ' + @RestoreDatabaseName + N' FROM '
 							   + STUFF(
 									(SELECT CHAR( 10 ) + ',DISK=''' + BackupPath + BackupFile + ''''
@@ -41073,7 +41108,45 @@ IF @DatabaseOwner IS NOT NULL
 			END
 		END;
 
- -- If test restore then blow the database away (be careful)
+-- Link a user entry in the sys.database_principals system catalog view in the restored database to a SQL Server login of the same name
+IF @FixOrphanUsers = 1 
+	BEGIN
+		SET @sql = N'
+-- Fixup Orphan Users by setting database user sid to match login sid
+DECLARE @FixOrphansSql NVARCHAR(MAX);
+DECLARE @OrphanUsers TABLE (SqlToExecute NVARCHAR(MAX));
+USE ' + @RestoreDatabaseName + ';
+
+INSERT @OrphanUsers
+SELECT ''ALTER USER ['' + d.name + ''] WITH LOGIN = ['' + d.name + '']; ''
+	FROM  sys.database_principals d
+	INNER JOIN master.sys.server_principals s ON d.name COLLATE DATABASE_DEFAULT = s.name COLLATE DATABASE_DEFAULT
+	WHERE d.type_desc = ''SQL_USER''
+		AND d.name NOT IN (''guest'',''dbo'')
+		AND d.sid <> s.sid
+	ORDER BY d.name;
+
+SELECT @FixOrphansSql = (SELECT SqlToExecute AS [text()] FROM @OrphanUsers FOR XML PATH (''''), TYPE).value(''text()[1]'',''NVARCHAR(MAX)'');
+
+IF @FixOrphansSql IS NULL 
+	PRINT ''No orphan users require a sid fixup.'';
+ELSE
+BEGIN
+	PRINT ''Fix Orphan Users: '' + @FixOrphansSql;
+	EXECUTE(@FixOrphansSql);
+END;'
+
+		IF @Debug = 1 OR @Execute = 'N'
+		BEGIN
+			IF @sql IS NULL PRINT '@sql is NULL for Fix Orphan Users';
+			PRINT @sql;
+		END;
+
+		IF @Debug IN (0, 1) AND @Execute = 'Y'
+			EXECUTE [dbo].[CommandExecute] @DatabaseContext = 'master', @Command = @sql, @CommandType = 'UPDATE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
+	END; 
+
+-- If test restore then blow the database away (be careful)
 IF @TestRestore = 1
 	BEGIN
 		SET @sql = N'DROP DATABASE ' + @RestoreDatabaseName + NCHAR(13);
@@ -41131,7 +41204,7 @@ BEGIN
   SET NOCOUNT ON;
   SET STATISTICS XML OFF;
 
-  SELECT @Version = '8.14', @VersionDate = '20230420';
+  SELECT @Version = '8.15', @VersionDate = '20230613';
   
   IF(@VersionCheckMode = 1)
   BEGIN
@@ -41477,9 +41550,10 @@ DELETE FROM dbo.SqlServerVersions;
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
-    (16, 4025, 'CU3', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate3', '2023-04-13', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 3'),
-    (16, 4015, 'CU2', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate2', '2023-03-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 2'),
-    (16, 4003, 'CU1', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate1', '2023-02-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 1'),
+    (16, 4035, 'CU4', 'https://support.microsoft.com/en-us/help/5026717', '2023-05-11', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 4'),
+    (16, 4025, 'CU3', 'https://support.microsoft.com/en-us/help/5024396', '2023-04-13', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 3'),
+    (16, 4015, 'CU2', 'https://support.microsoft.com/en-us/help/5023127', '2023-03-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 2'),
+    (16, 4003, 'CU1', 'https://support.microsoft.com/en-us/help/5022375', '2023-02-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 1'),
     (16, 1050, 'RTM GDR', 'https://support.microsoft.com/kb/5021522', '2023-02-14', '2028-01-11', '2033-01-11', 'SQL Server 2022 GDR', 'RTM'),
     (16, 1000, 'RTM', '', '2022-11-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'RTM'),
     (15, 4312, 'CU20', 'https://support.microsoft.com/kb/5024276', '2023-04-13', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 20'),
@@ -41904,7 +41978,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.14', @VersionDate = '20230420';
+SELECT @Version = '8.15', @VersionDate = '20230613';
 
 IF(@VersionCheckMode = 1)
 BEGIN
