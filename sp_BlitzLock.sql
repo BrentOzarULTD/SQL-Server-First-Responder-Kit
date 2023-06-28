@@ -35,7 +35,7 @@ BEGIN
     SET NOCOUNT, XACT_ABORT ON;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-    SELECT @Version = '8.14', @VersionDate = '20230420';
+    SELECT @Version = '8.15', @VersionDate = '20230613';
 
     IF @VersionCheckMode = 1
     BEGIN
@@ -150,8 +150,12 @@ BEGIN
                 WHEN
                 (
                     SELECT
-                        SERVERPROPERTY('EDITION')
-                ) = 'SQL Azure'
+                        CONVERT
+                        (
+                            integer,
+                            SERVERPROPERTY('EngineEdition')
+                        )
+                ) = 5
                 THEN 1
                 ELSE 0
             END,
@@ -379,7 +383,7 @@ BEGIN
                         /*Add wait_resource column*/
                         ALTER TABLE ' +
                         @ObjectFullName +
-                        N' ADD client_option_1 nvarchar(8000) NULL;';
+                        N' ADD client_option_1 varchar(500) NULL;';
 
                 IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
                 EXEC sys.sp_executesql
@@ -395,7 +399,7 @@ BEGIN
                         /*Add wait_resource column*/
                         ALTER TABLE ' +
                         @ObjectFullName +
-                        N' ADD client_option_2 nvarchar(8000) NULL;';
+                        N' ADD client_option_2 varchar(500) NULL;';
 
                 IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
                 EXEC sys.sp_executesql
@@ -458,8 +462,8 @@ BEGIN
                                 waiter_mode nvarchar(256),
                                 lock_mode nvarchar(256),
                                 transaction_count bigint,
-                                client_option_1 varchar(2000),
-                                client_option_2 varchar(2000),
+                                client_option_1 varchar(500),
+                                client_option_2 varchar(500),
                                 login_name nvarchar(256),
                                 host_name nvarchar(256),
                                 client_app nvarchar(1024),
@@ -845,7 +849,12 @@ BEGIN
         LEFT JOIN #t AS t
           ON 1 = 1
         CROSS APPLY x.x.nodes('/RingBufferTarget/event') AS e(x)
-        WHERE e.x.exist('@name[ .= "xml_deadlock_report"]') = 1
+        WHERE
+          (
+              e.x.exist('@name[ .= "xml_deadlock_report"]') = 1
+           OR e.x.exist('@name[ .= "database_xml_deadlock_report"]') = 1
+           OR e.x.exist('@name[ .= "xml_deadlock_report_filtered"]') = 1
+          )
         AND   e.x.exist('@timestamp[. >= sql:variable("@StartDate")]') = 1
         AND   e.x.exist('@timestamp[. <  sql:variable("@EndDate")]') = 1
         OPTION(RECOMPILE);
@@ -864,7 +873,9 @@ BEGIN
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
         RAISERROR('Inserting to #deadlock_data for event file data', 0, 1) WITH NOWAIT;
 
-        INSERT
+		IF @Debug = 1 BEGIN SET STATISTICS XML ON; END;
+
+		INSERT
             #deadlock_data WITH(TABLOCKX)
         (
             deadlock_xml
@@ -876,12 +887,19 @@ BEGIN
         LEFT JOIN #t AS t
           ON 1 = 1
         CROSS APPLY x.x.nodes('/event') AS e(x)
-        WHERE e.x.exist('/event/@name[ .= "xml_deadlock_report"]') = 1
-        AND   e.x.exist('/event/@timestamp[. >= sql:variable("@StartDate")]') = 1
-        AND   e.x.exist('/event/@timestamp[. <  sql:variable("@EndDate")]') = 1
+        WHERE
+          (
+              e.x.exist('@name[ .= "xml_deadlock_report"]') = 1
+           OR e.x.exist('@name[ .= "database_xml_deadlock_report"]') = 1
+           OR e.x.exist('@name[ .= "xml_deadlock_report_filtered"]') = 1
+          )
+        AND   e.x.exist('@timestamp[. >= sql:variable("@StartDate")]') = 1
+        AND   e.x.exist('@timestamp[. <  sql:variable("@EndDate")]') = 1
         OPTION(RECOMPILE);
 
-        SET @d = CONVERT(varchar(40), GETDATE(), 109);
+		IF @Debug = 1 BEGIN SET STATISTICS XML OFF; END;
+
+		SET @d = CONVERT(varchar(40), GETDATE(), 109);
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
     END;
 
@@ -908,7 +926,7 @@ BEGIN
             FROM sys.fn_xe_file_target_read_file(N'system_health*.xel', NULL, NULL, NULL) AS fx
             LEFT JOIN #t AS t
               ON 1 = 1
-			WHERE fx.object_name = N'xml_deadlock_report'
+            WHERE fx.object_name = N'xml_deadlock_report'
         ) AS xml
         CROSS APPLY xml.deadlock_xml.nodes('/event') AS e(x)
         WHERE 1 = 1
@@ -1006,7 +1024,7 @@ BEGIN
                     CASE WHEN q.clientoption1 & 8192 = 8192 THEN ', NUMERIC_ROUNDABORT' ELSE '' END +
                     CASE WHEN q.clientoption1 & 16384 = 16384 THEN ', XACT_ABORT' ELSE '' END,
                     3,
-                    8000
+                    500
                 ),
             client_option_2 =
                 SUBSTRING
@@ -1028,7 +1046,7 @@ BEGIN
                     CASE WHEN q.clientoption2 & 1073741824 = 1073741824 THEN ', AUTO UPDATE STATISTICS' ELSE '' END +
                     CASE WHEN q.clientoption2 & 1469283328 = 1469283328 THEN ', ALL SETTABLE OPTIONS' ELSE '' END,
                     3,
-                    8000
+                    500
                 ),
             q.process_xml
         INTO #deadlock_process
@@ -1795,6 +1813,16 @@ BEGIN
                 N'S',
                 N'IS'
             )
+        OR  dow.owner_mode IN
+            (
+                N'S',
+                N'IS'
+            )
+        OR  dow.waiter_mode IN
+            (
+                N'S',
+                N'IS'
+            )
         AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
         AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
         AND (dow.event_date < @EndDate OR @EndDate IS NULL)
@@ -2532,7 +2560,7 @@ BEGIN
                     ),
                     14
                  )
-				 END
+                 END
             FROM #deadlock_owner_waiter AS dow
             JOIN #deadlock_process AS dp
               ON (dp.id = dow.owner_id
@@ -3520,38 +3548,40 @@ BEGIN
             DROP SYNONYM DeadlockFindings; /*done with inserting.*/
         END;
         ELSE /*Output to database is not set output to client app*/
-            SET @d = CONVERT(varchar(40), GETDATE(), 109);
-            RAISERROR('Results to client %s', 0, 1, @d) WITH NOWAIT;
-
-            IF @Debug = 1 BEGIN SET STATISTICS XML ON; END;
-
-            EXEC sys.sp_executesql
-                @deadlock_result;
-
-            IF @Debug = 1
-            BEGIN
-                SET STATISTICS XML OFF;
-                PRINT @deadlock_result;
-            END;
-
-            RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
-
-            SET @d = CONVERT(varchar(40), GETDATE(), 109);
-            RAISERROR('Returning findings %s', 0, 1, @d) WITH NOWAIT;
-
-            SELECT
-                df.check_id,
-                df.database_name,
-                df.object_name,
-                df.finding_group,
-                df.finding
-            FROM #deadlock_findings AS df
-            ORDER BY df.check_id
-            OPTION(RECOMPILE);
-
-            SET @d = CONVERT(varchar(40), GETDATE(), 109);
-            RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
-        END; /*done with output to client app.*/
+		BEGIN
+		    SET @d = CONVERT(varchar(40), GETDATE(), 109);
+                RAISERROR('Results to client %s', 0, 1, @d) WITH NOWAIT;
+		    
+                IF @Debug = 1 BEGIN SET STATISTICS XML ON; END;
+		    
+                EXEC sys.sp_executesql
+                    @deadlock_result;
+		    
+                IF @Debug = 1
+                BEGIN
+                    SET STATISTICS XML OFF;
+                    PRINT @deadlock_result;
+                END;
+		    
+                RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
+		    
+                SET @d = CONVERT(varchar(40), GETDATE(), 109);
+                RAISERROR('Returning findings %s', 0, 1, @d) WITH NOWAIT;
+		    
+                SELECT
+                    df.check_id,
+                    df.database_name,
+                    df.object_name,
+                    df.finding_group,
+                    df.finding
+                FROM #deadlock_findings AS df
+                ORDER BY df.check_id
+                OPTION(RECOMPILE);
+		    
+                SET @d = CONVERT(varchar(40), GETDATE(), 109);
+                RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
+            END; /*done with output to client app.*/
+		END;
 
         IF @Debug = 1
         BEGIN
