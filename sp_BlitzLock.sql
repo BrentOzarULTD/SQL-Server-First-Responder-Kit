@@ -2024,7 +2024,7 @@ BEGIN
                 N' instances of Serializable deadlocks.',
             sort_order =     
                 ROW_NUMBER()
-				OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
+				OVER (ORDER BY COUNT_BIG(DISTINCT dp.event_date) DESC)
         FROM #deadlock_process AS dp
         WHERE dp.isolation_level LIKE N'serializable%'
         AND (dp.database_name = @DatabaseName OR @DatabaseName IS NULL)
@@ -2067,7 +2067,7 @@ BEGIN
                 N' instances of Repeatable Read deadlocks.',
             sort_order =     
                 ROW_NUMBER()
-				OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
+				OVER (ORDER BY COUNT_BIG(DISTINCT dp.event_date) DESC)
         FROM #deadlock_process AS dp
         WHERE dp.isolation_level LIKE N'repeatable%'
         AND (dp.database_name = @DatabaseName OR @DatabaseName IS NULL)
@@ -2241,7 +2241,7 @@ BEGIN
                 ) + N' locks.',
             sort_order =     
                 ROW_NUMBER()
-				OVER (ORDER BY CONVERT(bigint, lt2.lock_count) DESC)
+				OVER (ORDER BY CONVERT(bigint, lt.lock_count) DESC)
         FROM lock_types AS lt
         OPTION(RECOMPILE);
 
@@ -2826,7 +2826,7 @@ BEGIN
             N' [dd hh:mm:ss:ms] of deadlock wait time.',
             sort_order =     
                 ROW_NUMBER()
-				OVER (ORDER BY wt.total_wait_time_ms DESC)
+				OVER (ORDER BY SUM(CONVERT(bigint, wt.total_wait_time_ms)) DESC)
         FROM wait_time AS wt
         GROUP BY
             wt.database_name
@@ -2980,8 +2980,7 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding,
-			sort_order
+            finding
         )
         VALUES
         (
