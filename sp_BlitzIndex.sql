@@ -2974,7 +2974,7 @@ BEGIN
 					FROM (
 						SELECT c.name AS column_name, p.partition_number, rg.row_group_id, rg.total_rows, rg.deleted_rows,
                             phys.state_desc, phys.trim_reason_desc, phys.transition_to_compressed_state_desc, phys.has_vertipaq_optimization,
-							details = CAST(seg.min_data_id AS VARCHAR(20)) + '' to '' + CAST(seg.max_data_id AS VARCHAR(20)) + '', '' + CAST(CAST((seg.on_disk_size / 1024.0 / 1024) AS DECIMAL(18,0)) AS VARCHAR(20)) + '' MB''' 
+							details = CAST(seg.min_data_id AS VARCHAR(20)) + '' to '' + CAST(seg.max_data_id AS VARCHAR(20)) + '', '' + CAST(CAST(((COALESCE(d.on_disk_size,0) + COALESCE(seg.on_disk_size,0)) / 1024.0 / 1024) AS DECIMAL(18,0)) AS VARCHAR(20)) + '' MB''' 
 							+ CASE WHEN @ShowPartitionRanges = 1 THEN N',
 							CASE
 								WHEN pp.system_type_id IN (40, 41, 42, 43, 58, 61) THEN 126
@@ -2997,6 +2997,7 @@ BEGIN
 						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partition_range_values prvs ON prvs.function_id = pf.function_id AND prvs.boundary_id = p.partition_number - 1
 						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partition_range_values prve ON prve.function_id = pf.function_id AND prve.boundary_id = p.partition_number ' ELSE N' ' END 
 						+ N' LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_segments seg ON p.partition_id = seg.partition_id AND ic.index_column_id = seg.column_id AND rg.row_group_id = seg.segment_id
+                        LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_dictionaries d ON p.hobt_id = d.hobt_id AND c.column_id = d.column_id AND seg.secondary_dictionary_id = d.dictionary_id
 						WHERE rg.object_id = @ObjectID
 						AND rg.state IN (1, 2, 3)
 						AND c.name IN ( ' + @ColumnListWithApostrophes + N')' 
@@ -3033,6 +3034,9 @@ BEGIN
 		END
         RAISERROR(N'Done visualizing columnstore index contents.', 0,1) WITH NOWAIT;
     END
+
+    IF @ShowColumnstoreOnly = 1
+        RETURN;
 
 END; /* IF @TableName IS NOT NULL */
 
