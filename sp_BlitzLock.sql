@@ -219,7 +219,8 @@ BEGIN
         database_name nvarchar(256),
         object_name nvarchar(1000),
         finding_group nvarchar(100),
-        finding nvarchar(4000)
+        finding nvarchar(4000),
+		sort_order bigint
     );
 
     /*Set these to some sane defaults if NULLs are passed in*/
@@ -1758,7 +1759,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 1,
@@ -1772,7 +1774,10 @@ BEGIN
                     nvarchar(20),
                     COUNT_BIG(DISTINCT dp.event_date)
                 ) +
-                N' deadlocks.'
+                N' deadlocks.',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY COUNT_BIG(DISTINCT dp.event_date) DESC)
         FROM #deadlock_process AS dp
         WHERE 1 = 1
         AND (dp.database_name = @DatabaseName OR @DatabaseName IS NULL)
@@ -1797,7 +1802,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 2,
@@ -1812,7 +1818,10 @@ BEGIN
                     nvarchar(20),
                     COUNT_BIG(DISTINCT dow.event_date)
                 ) +
-                N' deadlock(s) between read queries and modification queries.'
+                N' deadlock(s) between read queries and modification queries.',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
         FROM #deadlock_owner_waiter AS dow
         WHERE 1 = 1
         AND dow.lock_mode IN
@@ -1851,7 +1860,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 3,
@@ -1870,7 +1880,10 @@ BEGIN
                     nvarchar(20),
                     COUNT_BIG(DISTINCT dow.event_date)
                 ) +
-                N' deadlock(s).'
+                N' deadlock(s).',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
         FROM #deadlock_owner_waiter AS dow
         WHERE 1 = 1
         AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
@@ -1895,7 +1908,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 3,
@@ -1909,7 +1923,10 @@ BEGIN
                     nvarchar(20),
                     COUNT_BIG(DISTINCT dow.event_date)
                 ) +
-                N' deadlock(s).'
+                N' deadlock(s).',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
         FROM #deadlock_owner_waiter AS dow
         WHERE 1 = 1
         AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
@@ -1940,7 +1957,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 3,
@@ -1954,7 +1972,10 @@ BEGIN
                     nvarchar(20),
                     COUNT_BIG(DISTINCT dow.event_date)
                 ) +
-                N' deadlock(s).'
+                N' deadlock(s).',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
         FROM #deadlock_owner_waiter AS dow
         WHERE 1 = 1
         AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
@@ -1984,7 +2005,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 4,
@@ -1999,7 +2021,10 @@ BEGIN
                     nvarchar(20),
                     COUNT_BIG(DISTINCT dp.event_date)
                 ) +
-                N' instances of Serializable deadlocks.'
+                N' instances of Serializable deadlocks.',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
         FROM #deadlock_process AS dp
         WHERE dp.isolation_level LIKE N'serializable%'
         AND (dp.database_name = @DatabaseName OR @DatabaseName IS NULL)
@@ -2024,7 +2049,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 5,
@@ -2038,7 +2064,10 @@ BEGIN
                     nvarchar(20),
                     COUNT_BIG(DISTINCT dp.event_date)
                 ) +
-                N' instances of Repeatable Read deadlocks.'
+                N' instances of Repeatable Read deadlocks.',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
         FROM #deadlock_process AS dp
         WHERE dp.isolation_level LIKE N'repeatable%'
         AND (dp.database_name = @DatabaseName OR @DatabaseName IS NULL)
@@ -2063,7 +2092,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 6,
@@ -2096,7 +2126,10 @@ BEGIN
                     dp.host_name,
                     N'UNKNOWN'
                 ) +
-                N'.'
+                N'.',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY COUNT_BIG(DISTINCT dp.event_date) DESC)
         FROM #deadlock_process AS dp
         WHERE 1 = 1
         AND (dp.database_name = @DatabaseName OR @DatabaseName IS NULL)
@@ -2177,7 +2210,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 7,
@@ -2204,7 +2238,10 @@ BEGIN
                     1,
                     1,
                     N''
-                ) + N' locks.'
+                ) + N' locks.',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY CONVERT(bigint, lt2.lock_count) DESC)
         FROM lock_types AS lt
         OPTION(RECOMPILE);
 
@@ -2360,7 +2397,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 9,
@@ -2379,7 +2417,10 @@ BEGIN
                     nvarchar(10),
                     COUNT_BIG(DISTINCT ds.id)
                 ) +
-                N' deadlocks.'
+                N' deadlocks.',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY COUNT_BIG(DISTINCT ds.id) DESC)
         FROM #deadlock_stack AS ds
         JOIN #deadlock_process AS dp
           ON dp.id = ds.id
@@ -2568,7 +2609,9 @@ BEGIN
                     ),
                     14
                  )
-                 END
+                 END,
+				 total_waits =
+				     SUM(CONVERT(bigint, dp.wait_time))
             FROM #deadlock_owner_waiter AS dow
             JOIN #deadlock_process AS dp
               ON (dp.id = dow.owner_id
@@ -2593,7 +2636,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 11,
@@ -2614,7 +2658,10 @@ BEGIN
                     cs.wait_time_hms,
                     14
                 ) +
-                N' [dd hh:mm:ss:ms] of deadlock wait time.'
+                N' [dd hh:mm:ss:ms] of deadlock wait time.',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY cs.total_waits DESC)
         FROM chopsuey AS cs
         WHERE cs.object_name IS NOT NULL
         OPTION(RECOMPILE);
@@ -2662,7 +2709,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 12,
@@ -2775,7 +2823,10 @@ BEGIN
                   ),
                   14
               ) END +
-            N' [dd hh:mm:ss:ms] of deadlock wait time.'
+            N' [dd hh:mm:ss:ms] of deadlock wait time.',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY wt.total_wait_time_ms DESC)
         FROM wait_time AS wt
         GROUP BY
             wt.database_name
@@ -2794,7 +2845,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 13,
@@ -2809,7 +2861,10 @@ BEGIN
             finding =
                 N'There have been ' +
                 RTRIM(COUNT_BIG(DISTINCT aj.event_date)) +
-                N' deadlocks from this Agent Job and Step.'
+                N' deadlocks from this Agent Job and Step.',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY COUNT_BIG(DISTINCT aj.event_date) DESC)
         FROM #agent_job AS aj
         GROUP BY
             DB_NAME(aj.database_id),
@@ -2925,7 +2980,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         VALUES
         (
@@ -3731,7 +3787,9 @@ BEGIN
                     df.finding_group,
                     df.finding
                 FROM #deadlock_findings AS df
-                ORDER BY df.check_id
+                ORDER BY
+				    df.check_id,
+					df.sort_order
                 OPTION(RECOMPILE);
                
                 SET @d = CONVERT(varchar(40), GETDATE(), 109);
