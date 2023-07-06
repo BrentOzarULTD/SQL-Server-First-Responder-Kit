@@ -1579,6 +1579,7 @@ BEGIN
 	RAISERROR('Checking for Read intent databases to exclude',0,0) WITH NOWAIT;
 
     EXEC('INSERT INTO #ReadableDBs (database_id) SELECT DBs.database_id FROM sys.databases DBs INNER JOIN sys.availability_replicas Replicas ON DBs.replica_id = Replicas.replica_id WHERE replica_server_name NOT IN (SELECT DISTINCT primary_replica FROM sys.dm_hadr_availability_group_states States) AND Replicas.secondary_role_allow_connections_desc = ''READ_ONLY'' AND replica_server_name = @@SERVERNAME OPTION (RECOMPILE);');
+    EXEC('INSERT INTO #ReadableDBs VALUES (32767) ;');		-- Exclude internal resource database as well
 END
 
 RAISERROR(N'Checking plan cache age', 0, 1) WITH NOWAIT;
