@@ -31,6 +31,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @DatabaseOwner sysname = NULL,
     @SetTrustworthyON BIT = 0,
     @FixOrphanUsers BIT = 0,
+    @KeepCdc BIT = 0,
     @Execute CHAR(1) = Y,
     @FileExtensionDiff NVARCHAR(128) = NULL,
     @Debug INT = 0, 
@@ -1490,13 +1491,18 @@ END
 -- Put database in a useable state 
 IF @RunRecovery = 1
 	BEGIN
-		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' WITH RECOVERY' + NCHAR(13);
+		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' WITH RECOVERY';
+		
+		IF @KeepCdc = 1
+			SET @sql = @sql + N', KEEP_CDC';
 
-			IF @Debug = 1 OR @Execute = 'N'
-			BEGIN
-				IF @sql IS NULL PRINT '@sql is NULL for RESTORE DATABASE: @RestoreDatabaseName';
-				PRINT @sql;
-			END; 
+		SET @sql = @sql + NCHAR(13);
+
+		IF @Debug = 1 OR @Execute = 'N'
+		BEGIN
+			IF @sql IS NULL PRINT '@sql is NULL for RESTORE DATABASE: @RestoreDatabaseName';
+			PRINT @sql;
+		END; 
 
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
 			EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'RECOVER DATABASE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
