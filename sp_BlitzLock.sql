@@ -219,7 +219,8 @@ BEGIN
         database_name nvarchar(256),
         object_name nvarchar(1000),
         finding_group nvarchar(100),
-        finding nvarchar(4000)
+        finding nvarchar(4000),
+		sort_order bigint
     );
 
     /*Set these to some sane defaults if NULLs are passed in*/
@@ -873,9 +874,9 @@ BEGIN
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
         RAISERROR('Inserting to #deadlock_data for event file data', 0, 1) WITH NOWAIT;
 
-		IF @Debug = 1 BEGIN SET STATISTICS XML ON; END;
+        IF @Debug = 1 BEGIN SET STATISTICS XML ON; END;
 
-		INSERT
+        INSERT
             #deadlock_data WITH(TABLOCKX)
         (
             deadlock_xml
@@ -897,9 +898,9 @@ BEGIN
         AND   e.x.exist('@timestamp[. <  sql:variable("@EndDate")]') = 1
         OPTION(RECOMPILE);
 
-		IF @Debug = 1 BEGIN SET STATISTICS XML OFF; END;
+        IF @Debug = 1 BEGIN SET STATISTICS XML OFF; END;
 
-		SET @d = CONVERT(varchar(40), GETDATE(), 109);
+        SET @d = CONVERT(varchar(40), GETDATE(), 109);
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
     END;
 
@@ -1116,6 +1117,7 @@ BEGIN
         FROM #deadlock_process AS dp
         CROSS APPLY dp.process_xml.nodes('//executionStack/frame') AS ca(dp)
         WHERE (ca.dp.exist('@procname[. = sql:variable("@StoredProcName")]') = 1 OR @StoredProcName IS NULL)
+        AND    ca.dp.exist('@sqlhandle[ .= "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"]') = 0
         OPTION(RECOMPILE);
 
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
@@ -1584,13 +1586,19 @@ BEGIN
                         32
                     ),
                 step_id =
-                    SUBSTRING
-                    (
-                        dp.client_app,
-                        CHARINDEX(N': Step ', dp.client_app) + LEN(N': Step '),
-                        CHARINDEX(N')', dp.client_app, CHARINDEX(N': Step ', dp.client_app)) -
-                          (CHARINDEX(N': Step ', dp.client_app) + LEN(N': Step '))
-                    )
+                    CASE
+                        WHEN CHARINDEX(N': Step ', dp.client_app) > 0
+                        AND  CHARINDEX(N')', dp.client_app, CHARINDEX(N': Step ', dp.client_app)) > 0
+                        THEN
+                            SUBSTRING
+                            (
+                                dp.client_app,
+                                CHARINDEX(N': Step ', dp.client_app) + LEN(N': Step '),
+                                CHARINDEX(N')', dp.client_app, CHARINDEX(N': Step ', dp.client_app)) -
+                                  (CHARINDEX(N': Step ', dp.client_app) + LEN(N': Step '))
+                            )
+                        ELSE dp.client_app
+                    END
             FROM #deadlock_process AS dp
             WHERE dp.client_app LIKE N'SQLAgent - %'
             AND   dp.client_app <> N'SQLAgent - Initial Boot Probe'
@@ -1751,7 +1759,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 1,
@@ -1765,7 +1774,10 @@ BEGIN
                     nvarchar(20),
                     COUNT_BIG(DISTINCT dp.event_date)
                 ) +
-                N' deadlocks.'
+                N' deadlocks.',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY COUNT_BIG(DISTINCT dp.event_date) DESC)
         FROM #deadlock_process AS dp
         WHERE 1 = 1
         AND (dp.database_name = @DatabaseName OR @DatabaseName IS NULL)
@@ -1790,7 +1802,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 2,
@@ -1805,7 +1818,10 @@ BEGIN
                     nvarchar(20),
                     COUNT_BIG(DISTINCT dow.event_date)
                 ) +
-                N' deadlock(s) between read queries and modification queries.'
+                N' deadlock(s) between read queries and modification queries.',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
         FROM #deadlock_owner_waiter AS dow
         WHERE 1 = 1
         AND dow.lock_mode IN
@@ -1844,7 +1860,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 3,
@@ -1863,7 +1880,10 @@ BEGIN
                     nvarchar(20),
                     COUNT_BIG(DISTINCT dow.event_date)
                 ) +
-                N' deadlock(s).'
+                N' deadlock(s).',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
         FROM #deadlock_owner_waiter AS dow
         WHERE 1 = 1
         AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
@@ -1888,7 +1908,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 3,
@@ -1902,7 +1923,10 @@ BEGIN
                     nvarchar(20),
                     COUNT_BIG(DISTINCT dow.event_date)
                 ) +
-                N' deadlock(s).'
+                N' deadlock(s).',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
         FROM #deadlock_owner_waiter AS dow
         WHERE 1 = 1
         AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
@@ -1933,7 +1957,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 3,
@@ -1947,7 +1972,10 @@ BEGIN
                     nvarchar(20),
                     COUNT_BIG(DISTINCT dow.event_date)
                 ) +
-                N' deadlock(s).'
+                N' deadlock(s).',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
         FROM #deadlock_owner_waiter AS dow
         WHERE 1 = 1
         AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
@@ -1977,7 +2005,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 4,
@@ -1992,7 +2021,10 @@ BEGIN
                     nvarchar(20),
                     COUNT_BIG(DISTINCT dp.event_date)
                 ) +
-                N' instances of Serializable deadlocks.'
+                N' instances of Serializable deadlocks.',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY COUNT_BIG(DISTINCT dp.event_date) DESC)
         FROM #deadlock_process AS dp
         WHERE dp.isolation_level LIKE N'serializable%'
         AND (dp.database_name = @DatabaseName OR @DatabaseName IS NULL)
@@ -2017,7 +2049,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 5,
@@ -2031,7 +2064,10 @@ BEGIN
                     nvarchar(20),
                     COUNT_BIG(DISTINCT dp.event_date)
                 ) +
-                N' instances of Repeatable Read deadlocks.'
+                N' instances of Repeatable Read deadlocks.',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY COUNT_BIG(DISTINCT dp.event_date) DESC)
         FROM #deadlock_process AS dp
         WHERE dp.isolation_level LIKE N'repeatable%'
         AND (dp.database_name = @DatabaseName OR @DatabaseName IS NULL)
@@ -2056,7 +2092,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 6,
@@ -2089,7 +2126,10 @@ BEGIN
                     dp.host_name,
                     N'UNKNOWN'
                 ) +
-                N'.'
+                N'.',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY COUNT_BIG(DISTINCT dp.event_date) DESC)
         FROM #deadlock_process AS dp
         WHERE 1 = 1
         AND (dp.database_name = @DatabaseName OR @DatabaseName IS NULL)
@@ -2170,7 +2210,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 7,
@@ -2197,7 +2238,10 @@ BEGIN
                     1,
                     1,
                     N''
-                ) + N' locks.'
+                ) + N' locks.',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY CONVERT(bigint, lt.lock_count) DESC)
         FROM lock_types AS lt
         OPTION(RECOMPILE);
 
@@ -2211,9 +2255,9 @@ BEGIN
             deadlock_stack AS
             (
                 SELECT DISTINCT
-                    ds.id,
-                    ds.proc_name,
-                    ds.event_date,
+                ds.id,
+                ds.event_date,
+                ds.proc_name,
                     database_name =
                         PARSENAME(ds.proc_name, 3),
                     schema_name =
@@ -2247,8 +2291,8 @@ BEGIN
                     PARSENAME(ds.proc_name, 3),
                     PARSENAME(ds.proc_name, 2),
                     PARSENAME(ds.proc_name, 1),
-                    ds.id,
                     ds.proc_name,
+                    ds.id,
                     ds.event_date
             )
         INSERT
@@ -2280,6 +2324,7 @@ BEGIN
         AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
         AND (dow.event_date < @EndDate OR @EndDate IS NULL)
         AND (dow.object_name = @StoredProcName OR @StoredProcName IS NULL)
+        AND ds.proc_name NOT LIKE 'Unknown%'
         OPTION(RECOMPILE);
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
@@ -2352,7 +2397,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 9,
@@ -2371,7 +2417,10 @@ BEGIN
                     nvarchar(10),
                     COUNT_BIG(DISTINCT ds.id)
                 ) +
-                N' deadlocks.'
+                N' deadlocks.',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY COUNT_BIG(DISTINCT ds.id) DESC)
         FROM #deadlock_stack AS ds
         JOIN #deadlock_process AS dp
           ON dp.id = ds.id
@@ -2470,19 +2519,19 @@ BEGIN
                      )
                  ),
              wait_time_hms =
-             /*the more wait time you rack up the less accurate this gets, 
+             /*the more wait time you rack up the less accurate this gets,    
              it's either that or erroring out*/
-            CASE 
-                WHEN 
+            CASE    
+                WHEN    
                     SUM
                     (
                         CONVERT
                         (
-                            bigint, 
+                            bigint,    
                             dp.wait_time
                         )
                     )/1000 > 2147483647
-                THEN 
+                THEN    
                    CONVERT
                    (
                        nvarchar(30),
@@ -2495,7 +2544,7 @@ BEGIN
                                     (
                                        CONVERT
                                        (
-                                           bigint, 
+                                           bigint,    
                                            dp.wait_time
                                        )
                                     )
@@ -2506,16 +2555,16 @@ BEGIN
                        ),
                        14
                    )
-                WHEN 
+                WHEN    
                     SUM
                     (
                         CONVERT
                         (
-                            bigint, 
+                            bigint,    
                             dp.wait_time
                         )
                     ) BETWEEN 2147483648 AND 2147483647000
-                THEN 
+                THEN    
                    CONVERT
                    (
                        nvarchar(30),
@@ -2528,7 +2577,7 @@ BEGIN
                                     (
                                        CONVERT
                                        (
-                                           bigint, 
+                                           bigint,    
                                            dp.wait_time
                                        )
                                     )
@@ -2560,7 +2609,9 @@ BEGIN
                     ),
                     14
                  )
-                 END
+                 END,
+				 total_waits =
+				     SUM(CONVERT(bigint, dp.wait_time))
             FROM #deadlock_owner_waiter AS dow
             JOIN #deadlock_process AS dp
               ON (dp.id = dow.owner_id
@@ -2585,7 +2636,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 11,
@@ -2606,7 +2658,10 @@ BEGIN
                     cs.wait_time_hms,
                     14
                 ) +
-                N' [dd hh:mm:ss:ms] of deadlock wait time.'
+                N' [dd hh:mm:ss:ms] of deadlock wait time.',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY cs.total_waits DESC)
         FROM chopsuey AS cs
         WHERE cs.object_name IS NOT NULL
         OPTION(RECOMPILE);
@@ -2654,7 +2709,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 12,
@@ -2677,19 +2733,19 @@ BEGIN
                 )
             ) +
             N' ' +
-        /*the more wait time you rack up the less accurate this gets, 
+        /*the more wait time you rack up the less accurate this gets,    
         it's either that or erroring out*/
-            CASE 
-                WHEN 
+            CASE    
+                WHEN    
                     SUM
                     (
                         CONVERT
                         (
-                            bigint, 
+                            bigint,    
                             wt.total_wait_time_ms
                         )
                     )/1000 > 2147483647
-                THEN 
+                THEN    
                    CONVERT
                    (
                        nvarchar(30),
@@ -2702,7 +2758,7 @@ BEGIN
                                     (
                                        CONVERT
                                        (
-                                           bigint, 
+                                           bigint,    
                                            wt.total_wait_time_ms
                                        )
                                     )
@@ -2713,16 +2769,16 @@ BEGIN
                        ),
                        14
                    )
-                WHEN 
+                WHEN    
                     SUM
                     (
                         CONVERT
                         (
-                            bigint, 
+                            bigint,    
                             wt.total_wait_time_ms
                         )
                     ) BETWEEN 2147483648 AND 2147483647000
-                THEN 
+                THEN    
                    CONVERT
                    (
                        nvarchar(30),
@@ -2735,7 +2791,7 @@ BEGIN
                                     (
                                        CONVERT
                                        (
-                                           bigint, 
+                                           bigint,    
                                            wt.total_wait_time_ms
                                        )
                                     )
@@ -2767,7 +2823,10 @@ BEGIN
                   ),
                   14
               ) END +
-            N' [dd hh:mm:ss:ms] of deadlock wait time.'
+            N' [dd hh:mm:ss:ms] of deadlock wait time.',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY SUM(CONVERT(bigint, wt.total_wait_time_ms)) DESC)
         FROM wait_time AS wt
         GROUP BY
             wt.database_name
@@ -2786,7 +2845,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+			sort_order
         )
         SELECT
             check_id = 13,
@@ -2801,7 +2861,10 @@ BEGIN
             finding =
                 N'There have been ' +
                 RTRIM(COUNT_BIG(DISTINCT aj.event_date)) +
-                N' deadlocks from this Agent Job and Step.'
+                N' deadlocks from this Agent Job and Step.',
+            sort_order =     
+                ROW_NUMBER()
+				OVER (ORDER BY COUNT_BIG(DISTINCT aj.event_date) DESC)
         FROM #agent_job AS aj
         GROUP BY
             DB_NAME(aj.database_id),
@@ -3345,7 +3408,8 @@ BEGIN
                 d.waiter_waiting_to_close,
                 /*end parallel deadlock columns*/
                 d.deadlock_graph,
-                d.is_victim
+                d.is_victim,
+                d.id
             INTO #deadlock_results
             FROM #deadlocks AS d;
 
@@ -3548,26 +3612,173 @@ BEGIN
             DROP SYNONYM DeadlockFindings; /*done with inserting.*/
         END;
         ELSE /*Output to database is not set output to client app*/
-		BEGIN
-		    SET @d = CONVERT(varchar(40), GETDATE(), 109);
+        BEGIN
+                SET @d = CONVERT(varchar(40), GETDATE(), 109);
                 RAISERROR('Results to client %s', 0, 1, @d) WITH NOWAIT;
-		    
+               
                 IF @Debug = 1 BEGIN SET STATISTICS XML ON; END;
-		    
+               
                 EXEC sys.sp_executesql
                     @deadlock_result;
-		    
+               
                 IF @Debug = 1
                 BEGIN
                     SET STATISTICS XML OFF;
                     PRINT @deadlock_result;
                 END;
-		    
+               
                 RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
-		    
+
+                SET @d = CONVERT(varchar(40), GETDATE(), 109);
+                RAISERROR('Getting available execution plans for deadlocks %s', 0, 1, @d) WITH NOWAIT;
+
+                SELECT DISTINCT
+                    ds.proc_name,
+                    sql_handle =
+                        CONVERT(varbinary(64), ds.sql_handle, 1),
+                    dow.database_name,
+                    dow.object_name,
+                    query_xml =
+                     CONVERT(nvarchar(MAX), dr.query_xml)
+                INTO #available_plans
+                FROM #deadlock_stack AS ds
+                JOIN #deadlock_owner_waiter AS dow
+                  ON dow.owner_id = ds.id
+                  AND dow.event_date = ds.event_date
+                JOIN #deadlock_results AS dr
+                  ON dr.id = ds.id
+                  AND   dr.event_date = ds.event_date
+                OPTION(RECOMPILE);
+
+                SELECT
+                    ap.database_name,
+                    query_text =
+                        TRY_CAST(ap.query_xml AS xml),
+                    ap.query_plan,
+                    ap.creation_time,
+                    ap.last_execution_time,
+                    ap.execution_count,
+                    ap.executions_per_second,
+                    ap.total_worker_time_ms,
+                    ap.avg_worker_time_ms,
+                    ap.total_elapsed_time_ms,
+                    ap.avg_elapsed_time,
+                    ap.total_logical_reads_mb,
+                    ap.total_physical_reads_mb,
+                    ap.min_num_physical_reads_mb,
+                    ap.max_num_physical_reads_mb,
+                    ap.total_logical_writes_mb,
+                    ap.min_grant_mb,
+                    ap.max_grant_mb,
+                    ap.min_used_grant_mb,
+                    ap.max_used_grant_mb,
+                    ap.min_spills_mb,
+                    ap.max_spills_mb,
+                    ap.min_reserved_threads,
+                    ap.max_reserved_threads,
+                    ap.min_used_threads,
+                    ap.max_used_threads,
+                    ap.total_rows,
+                    ap.sql_handle,
+                    ap.statement_start_offset,
+                    ap.statement_end_offset
+                FROM
+                (
+                    SELECT
+                        *,
+                        n =
+                            ROW_NUMBER() OVER
+                            (
+                                PARTITION BY
+                                    ap.sql_handle
+                                ORDER BY
+                                    ap.sql_handle
+                            )
+                    FROM #available_plans AS ap
+                    OUTER APPLY
+                    (
+                        SELECT TOP (1)
+                            deqs.statement_start_offset,
+                            deqs.statement_end_offset,
+                            deqs.creation_time,
+                            deqs.last_execution_time,
+                            deqs.execution_count,
+                            total_worker_time_ms =
+                                deqs.total_worker_time / 1000.,
+                            avg_worker_time_ms =
+                                CONVERT(decimal(38, 6), deqs.total_worker_time / 1000. / deqs.execution_count),
+                            total_elapsed_time_ms =
+                                deqs.total_elapsed_time / 1000.,
+                            avg_elapsed_time =
+                                CONVERT(decimal(38, 6), deqs.total_elapsed_time / 1000. / deqs.execution_count),
+                            executions_per_second =
+                                ISNULL
+                                (
+                                    execution_count /
+                                        NULLIF
+                                        (
+                                            DATEDIFF
+                                            (
+                                                SECOND,
+                                                deqs.creation_time,
+                                                deqs.last_execution_time
+                                            ),
+                                            0
+                                        ),
+                                        0
+                                ),
+                            total_physical_reads_mb =
+                                deqs.total_physical_reads * 8. / 1024.,
+                            total_logical_writes_mb =
+                                deqs.total_logical_writes * 8. / 1024.,
+                            total_logical_reads_mb =
+                                deqs.total_logical_reads * 8. / 1024.,
+                            min_num_physical_reads_mb =
+                                deqs.min_num_physical_reads * 8. / 1024.,
+                            max_num_physical_reads_mb =
+                                deqs.max_num_physical_reads * 8. / 1024.,
+                            min_grant_mb =
+                                deqs.min_grant_kb * 8. / 1024.,
+                            max_grant_mb =
+                                deqs.max_grant_kb * 8. / 1024.,
+                            min_used_grant_mb =
+                                deqs.min_used_grant_kb * 8. / 1024.,
+                            max_used_grant_mb =
+                                deqs.max_used_grant_kb * 8. / 1024.,
+                            min_spills_mb =
+                                deqs.min_spills * 8. / 1024.,
+                            max_spills_mb =
+                                deqs.max_spills * 8. / 1024.,      
+                            deqs.min_reserved_threads,
+                            deqs.max_reserved_threads,
+                            deqs.min_used_threads,
+                            deqs.max_used_threads,
+                            deqs.total_rows,
+                            query_plan =
+                                TRY_CAST(deps.query_plan AS xml)
+                        FROM sys.dm_exec_query_stats AS deqs
+                        OUTER APPLY sys.dm_exec_text_query_plan
+                        (
+                            deqs.plan_handle,
+                            deqs.statement_start_offset,
+                            deqs.statement_end_offset
+                        ) AS deps
+                        WHERE deqs.sql_handle = ap.sql_handle
+                        ORDER BY
+                            deqs.last_execution_time DESC
+                    ) AS c
+                ) AS ap
+                WHERE ap.query_plan IS NOT NULL
+                AND   ap.n = 1
+                ORDER BY
+                    ap.last_execution_time DESC
+                OPTION(RECOMPILE);
+
+                RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
+               
                 SET @d = CONVERT(varchar(40), GETDATE(), 109);
                 RAISERROR('Returning findings %s', 0, 1, @d) WITH NOWAIT;
-		    
+               
                 SELECT
                     df.check_id,
                     df.database_name,
@@ -3575,13 +3786,15 @@ BEGIN
                     df.finding_group,
                     df.finding
                 FROM #deadlock_findings AS df
-                ORDER BY df.check_id
+                ORDER BY
+				    df.check_id,
+					df.sort_order
                 OPTION(RECOMPILE);
-		    
+               
                 SET @d = CONVERT(varchar(40), GETDATE(), 109);
                 RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
             END; /*done with output to client app.*/
-		END;
+        END;
 
         IF @Debug = 1
         BEGIN
