@@ -366,8 +366,8 @@ CREATE TABLE #Headers
     EncryptorThumbprint VARBINARY(20),
     EncryptorType NVARCHAR(32),
 	LastValidRestoreTime DATETIME, 
-	TimeZone NVARCHAR(256), 
-	CompressionAlgorithm NVARCHAR(256),
+	TimeZone NVARCHAR(32), 
+	CompressionAlgorithm NVARCHAR(32),
     --
     -- Seq added to retain order by
     --
