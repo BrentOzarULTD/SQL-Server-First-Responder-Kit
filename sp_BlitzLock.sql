@@ -856,8 +856,7 @@ BEGIN
            OR e.x.exist('@name[ .= "database_xml_deadlock_report"]') = 1
            OR e.x.exist('@name[ .= "xml_deadlock_report_filtered"]') = 1
           )
-        AND   e.x.exist('@timestamp[. >= sql:variable("@StartDate")]') = 1
-        AND   e.x.exist('@timestamp[. <  sql:variable("@EndDate")]') = 1
+        AND   e.x.exist('@timestamp[. >= sql:variable("@StartDate") and .< sql:variable("@EndDate")]') = 1
         OPTION(RECOMPILE);
 
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
@@ -894,8 +893,7 @@ BEGIN
            OR e.x.exist('@name[ .= "database_xml_deadlock_report"]') = 1
            OR e.x.exist('@name[ .= "xml_deadlock_report_filtered"]') = 1
           )
-        AND   e.x.exist('@timestamp[. >= sql:variable("@StartDate")]') = 1
-        AND   e.x.exist('@timestamp[. <  sql:variable("@EndDate")]') = 1
+        AND   e.x.exist('@timestamp[. >= sql:variable("@StartDate") and .< sql:variable("@EndDate")]') = 1
         OPTION(RECOMPILE);
 
         IF @Debug = 1 BEGIN SET STATISTICS XML OFF; END;
@@ -931,8 +929,7 @@ BEGIN
         ) AS xml
         CROSS APPLY xml.deadlock_xml.nodes('/event') AS e(x)
         WHERE 1 = 1
-        AND   e.x.exist('@timestamp[. >= sql:variable("@StartDate")]') = 1
-        AND   e.x.exist('@timestamp[. <  sql:variable("@EndDate")]') = 1
+        AND   e.x.exist('@timestamp[. >= sql:variable("@StartDate") and .< sql:variable("@EndDate")]') = 1
         OPTION(RECOMPILE);
 
         INSERT
