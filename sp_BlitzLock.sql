@@ -227,8 +227,8 @@ BEGIN
     /*Normally I'd hate this, but we RECOMPILE everything*/
     SELECT
         @StartDate =
-        CASE
-            WHEN @StartDate IS NULL
+            CASE
+                WHEN @StartDate IS NULL
                 THEN
                     DATEADD
                     (
@@ -273,6 +273,42 @@ BEGIN
                     )
                 ELSE @EndDate
             END;
+
+    IF @Azure = 0
+    BEGIN
+        IF NOT EXISTS
+        (
+            SELECT
+                1/0
+            FROM sys.server_event_sessions AS ses
+            JOIN sys.dm_xe_sessions AS dxs
+              ON dxs.name = ses.name
+            WHERE ses.name = @EventSessionName
+            AND   dxs.create_time IS NOT NULL
+        )
+        BEGIN
+            RAISERROR('A session with the name %s does not exist or is not currently active.', 11, 1, @session_name) WITH NOWAIT;
+            RETURN;
+        END;
+    END;
+    
+    IF @Azure = 1
+    BEGIN
+        IF NOT EXISTS
+        (
+            SELECT
+                1/0
+            FROM sys.database_event_sessions AS ses
+            JOIN sys.dm_xe_database_sessions AS dxs
+              ON dxs.name = ses.name
+            WHERE ses.name = @EventSessionName
+            AND   dxs.create_time IS NOT NULL
+        )
+        BEGIN
+            RAISERROR('A session with the name %s does not exist or is not currently active.', 11, 1, @session_name) WITH NOWAIT;
+            RETURN;
+        END;
+    END;
 
     IF @OutputDatabaseName IS NOT NULL
     BEGIN /*IF databaseName is set, do some sanity checks and put [] around def.*/
