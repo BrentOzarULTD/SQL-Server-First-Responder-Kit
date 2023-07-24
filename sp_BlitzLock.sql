@@ -181,7 +181,9 @@ BEGIN
         @inputbuf_bom nvarchar(1) = CONVERT(nvarchar(1), 0x0a00, 0),
         @deadlock_result nvarchar(MAX) = N'',
         @StartDateOriginal datetime = @StartDate,
-        @EndDateOriginal datetime = @EndDate;
+        @EndDateOriginal datetime = @EndDate,
+        @StartDateUTC datetime,
+        @EndDateUTC datetime;
 
     /*Temporary objects used in the procedure*/
     DECLARE
@@ -242,15 +244,11 @@ BEGIN
                             SYSDATETIME(),
                             GETUTCDATE()
                         ),
-                        ISNULL
+                        DATEADD
                         (
-                            @StartDate,
-                            DATEADD
-                            (
-                                DAY,
-                                -7,
-                                SYSDATETIME()
-                            )
+                            DAY,
+                            -7,
+                            SYSDATETIME()
                         )
                     )
                 ELSE
@@ -279,11 +277,7 @@ BEGIN
                             SYSDATETIME(),
                             GETUTCDATE()
                         ),
-                        ISNULL
-                        (
-                            @EndDate,
-                            SYSDATETIME()
-                        )
+                        SYSDATETIME()
                     )
                 ELSE
                     DATEADD
@@ -298,6 +292,10 @@ BEGIN
                         @EndDate
                     )
             END;
+
+	SELECT
+	    @StartDateUTC = @StartDate,
+		@EndDateUTC = @EndDate;
 
     IF @Azure = 0
     BEGIN
@@ -1812,9 +1810,9 @@ BEGIN
         /*Begin checks based on parsed values*/
 
         /*
-		First, revert these back since we already converted the event data to local time,
-		and searches will break if we use the times converted over to UTC for the event data
-		*/
+        First, revert these back since we already converted the event data to local time,
+        and searches will break if we use the times converted over to UTC for the event data
+        */
         SELECT
             @StartDate = @StartDateOriginal,
             @EndDate = @EndDateOriginal;
@@ -3702,26 +3700,104 @@ BEGIN
 
                 SET @d = CONVERT(varchar(40), GETDATE(), 109);
                 RAISERROR('Getting available execution plans for deadlocks %s', 0, 1, @d) WITH NOWAIT;
-
+				
                 SELECT DISTINCT
-                    ds.proc_name,
+				    available_plans =
+					    'available_plans',
+				    ds.proc_name,
                     sql_handle =
                         CONVERT(varbinary(64), ds.sql_handle, 1),
                     dow.database_name,
-                    dow.object_name,
+					dow.database_id,
+					dow.object_name,
                     query_xml =
-                     CONVERT(nvarchar(MAX), dr.query_xml)
+                        TRY_CAST(dr.query_xml AS nvarchar(MAX))
                 INTO #available_plans
                 FROM #deadlock_stack AS ds
                 JOIN #deadlock_owner_waiter AS dow
                   ON dow.owner_id = ds.id
                   AND dow.event_date = ds.event_date
                 JOIN #deadlock_results AS dr
-                  ON dr.id = ds.id
-                  AND   dr.event_date = ds.event_date
+                  ON  dr.id = ds.id
+                  AND dr.event_date = ds.event_date
                 OPTION(RECOMPILE);
 
                 SELECT
+                    deqs.sql_handle,
+                    deqs.plan_handle,
+                    deqs.statement_start_offset,
+                    deqs.statement_end_offset,
+                    deqs.creation_time,
+                    deqs.last_execution_time,
+                    deqs.execution_count,
+                    total_worker_time_ms =
+                        deqs.total_worker_time / 1000.,
+                    avg_worker_time_ms =
+                        CONVERT(decimal(38, 6), deqs.total_worker_time / 1000. / deqs.execution_count),
+                    total_elapsed_time_ms =
+                        deqs.total_elapsed_time / 1000.,
+                    avg_elapsed_time =
+                        CONVERT(decimal(38, 6), deqs.total_elapsed_time / 1000. / deqs.execution_count),
+                    executions_per_second =
+                        ISNULL
+                        (
+                            deqs.execution_count /
+                                NULLIF
+                                (
+                                    DATEDIFF
+                                    (
+                                        SECOND,
+                                        deqs.creation_time,
+                                        deqs.last_execution_time
+                                    ),
+                                    0
+                                ),
+                                0
+                        ),
+                    total_physical_reads_mb =
+                        deqs.total_physical_reads * 8. / 1024.,
+                    total_logical_writes_mb =
+                        deqs.total_logical_writes * 8. / 1024.,
+                    total_logical_reads_mb =
+                        deqs.total_logical_reads * 8. / 1024.,
+                    min_grant_mb =
+                        deqs.min_grant_kb * 8. / 1024.,
+                    max_grant_mb =
+                        deqs.max_grant_kb * 8. / 1024.,
+                    min_used_grant_mb =
+                        deqs.min_used_grant_kb * 8. / 1024.,
+                    max_used_grant_mb =
+                        deqs.max_used_grant_kb * 8. / 1024.,
+                    min_spills_mb =
+                        deqs.min_spills * 8. / 1024.,
+                    max_spills_mb =
+                        deqs.max_spills * 8. / 1024.,      
+                    deqs.min_reserved_threads,
+                    deqs.max_reserved_threads,
+                    deqs.min_used_threads,
+                    deqs.max_used_threads,
+                    deqs.total_rows
+                INTO #dm_exec_query_stats
+                FROM sys.dm_exec_query_stats AS deqs
+                WHERE EXISTS
+                (
+                   SELECT
+                       1/0
+                   FROM #available_plans AS ap
+                   WHERE ap.sql_handle = deqs.sql_handle
+                )
+                AND deqs.query_hash IS NOT NULL;
+                
+                CREATE CLUSTERED INDEX 
+                    deqs 
+                ON #dm_exec_query_stats
+                (
+                    sql_handle, 
+                    plan_handle
+                );
+                
+                SELECT
+                    ap.available_plans,
                     ap.database_name,
                     query_text =
                         TRY_CAST(ap.query_xml AS xml),
@@ -3736,8 +3812,6 @@ BEGIN
                     ap.avg_elapsed_time,
                     ap.total_logical_reads_mb,
                     ap.total_physical_reads_mb,
-                    ap.min_physical_reads_mb,
-                    ap.max_physical_reads_mb,
                     ap.total_logical_writes_mb,
                     ap.min_grant_mb,
                     ap.max_grant_mb,
@@ -3755,79 +3829,42 @@ BEGIN
                     ap.statement_end_offset
                 FROM
                 (
+                
                     SELECT
-                        *,
-                        n =
-                            ROW_NUMBER() OVER
-                            (
-                                PARTITION BY
-                                    ap.sql_handle
-                                ORDER BY
-                                    ap.sql_handle
-                            )
+                        ap.*,
+                        c.statement_start_offset,
+                        c.statement_end_offset,
+                        c.creation_time,
+                        c.last_execution_time,
+                        c.execution_count,
+                        c.total_worker_time_ms,
+                        c.avg_worker_time_ms,
+                        c.total_elapsed_time_ms,
+                        c.avg_elapsed_time,
+                        c.executions_per_second,
+                        c.total_physical_reads_mb,
+                        c.total_logical_writes_mb,
+                        c.total_logical_reads_mb,
+                        c.min_grant_mb,
+                        c.max_grant_mb,
+                        c.min_used_grant_mb,
+                        c.max_used_grant_mb,
+                        c.min_spills_mb,
+                        c.max_spills_mb,
+                        c.min_reserved_threads,
+                        c.max_reserved_threads,
+                        c.min_used_threads,
+                        c.max_used_threads,
+                        c.total_rows,
+                        c.query_plan
                     FROM #available_plans AS ap
                     OUTER APPLY
                     (
-                        SELECT TOP (1)
-                            deqs.statement_start_offset,
-                            deqs.statement_end_offset,
-                            deqs.creation_time,
-                            deqs.last_execution_time,
-                            deqs.execution_count,
-                            total_worker_time_ms =
-                                deqs.total_worker_time / 1000.,
-                            avg_worker_time_ms =
-                                CONVERT(decimal(38, 6), deqs.total_worker_time / 1000. / deqs.execution_count),
-                            total_elapsed_time_ms =
-                                deqs.total_elapsed_time / 1000.,
-                            avg_elapsed_time =
-                                CONVERT(decimal(38, 6), deqs.total_elapsed_time / 1000. / deqs.execution_count),
-                            executions_per_second =
-                                ISNULL
-                                (
-                                    deqs.execution_count /
-                                        NULLIF
-                                        (
-                                            DATEDIFF
-                                            (
-                                                SECOND,
-                                                deqs.creation_time,
-                                                deqs.last_execution_time
-                                            ),
-                                            0
-                                        ),
-                                        0
-                                ),
-                            total_physical_reads_mb =
-                                deqs.total_physical_reads * 8. / 1024.,
-                            total_logical_writes_mb =
-                                deqs.total_logical_writes * 8. / 1024.,
-                            total_logical_reads_mb =
-                                deqs.total_logical_reads * 8. / 1024.,
-                            min_physical_reads_mb =
-                                deqs.min_physical_reads * 8. / 1024.,
-                            max_physical_reads_mb =
-                                deqs.max_physical_reads * 8. / 1024.,
-                            min_grant_mb =
-                                deqs.min_grant_kb * 8. / 1024.,
-                            max_grant_mb =
-                                deqs.max_grant_kb * 8. / 1024.,
-                            min_used_grant_mb =
-                                deqs.min_used_grant_kb * 8. / 1024.,
-                            max_used_grant_mb =
-                                deqs.max_used_grant_kb * 8. / 1024.,
-                            min_spills_mb =
-                                deqs.min_spills * 8. / 1024.,
-                            max_spills_mb =
-                                deqs.max_spills * 8. / 1024.,     
-                            deqs.min_reserved_threads,
-                            deqs.max_reserved_threads,
-                            deqs.min_used_threads,
-                            deqs.max_used_threads,
-                            deqs.total_rows,
+                        SELECT
+                            deqs.*,
                             query_plan =
                                 TRY_CAST(deps.query_plan AS xml)
-                        FROM sys.dm_exec_query_stats AS deqs
+                        FROM #dm_exec_query_stats deqs
                         OUTER APPLY sys.dm_exec_text_query_plan
                         (
                             deqs.plan_handle,
@@ -3835,15 +3872,13 @@ BEGIN
                             deqs.statement_end_offset
                         ) AS deps
                         WHERE deqs.sql_handle = ap.sql_handle
-                        ORDER BY
-                            deqs.last_execution_time DESC
+                        AND   deps.dbid = ap.database_id
                     ) AS c
                 ) AS ap
                 WHERE ap.query_plan IS NOT NULL
-                AND   ap.n = 1
                 ORDER BY
-                    ap.last_execution_time DESC
-                OPTION(RECOMPILE);
+                    ap.avg_worker_time_ms DESC
+                OPTION(RECOMPILE, LOOP JOIN, HASH JOIN);
 
                 RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
               
@@ -3984,6 +4019,10 @@ BEGIN
                 'declared_variables',
             DatabaseId =
                 @DatabaseId,
+            StartDateUTC =
+                @StartDateUTC,
+            EndDateUTC =
+                @EndDateUTC,
             ProductVersion =
                 @ProductVersion,
             ProductVersionMajor =
@@ -4024,5 +4063,4 @@ BEGIN
                 @deadlock_result;
         END; /*End debug*/
     END; /*Final End*/
-
 GO
