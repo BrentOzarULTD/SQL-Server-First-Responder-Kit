@@ -293,9 +293,9 @@ BEGIN
                     )
             END;
 
-	SELECT
-	    @StartDateUTC = @StartDate,
-		@EndDateUTC = @EndDate;
+    SELECT
+        @StartDateUTC = @StartDate,
+        @EndDateUTC = @EndDate;
 
     IF @Azure = 0
     BEGIN
@@ -3700,16 +3700,16 @@ BEGIN
 
                 SET @d = CONVERT(varchar(40), GETDATE(), 109);
                 RAISERROR('Getting available execution plans for deadlocks %s', 0, 1, @d) WITH NOWAIT;
-				
+               
                 SELECT DISTINCT
-				    available_plans =
-					    'available_plans',
-				    ds.proc_name,
+                    available_plans =
+                        'available_plans',
+                    ds.proc_name,
                     sql_handle =
                         CONVERT(varbinary(64), ds.sql_handle, 1),
                     dow.database_name,
-					dow.database_id,
-					dow.object_name,
+                    dow.database_id,
+                    dow.object_name,
                     query_xml =
                         TRY_CAST(dr.query_xml AS nvarchar(MAX))
                 INTO #available_plans
@@ -3823,7 +3823,7 @@ BEGIN
                     ap.statement_end_offset
                 FROM
                 (
-                
+               
                     SELECT
                         ap.*,
                         c.statement_start_offset,
@@ -3961,6 +3961,18 @@ BEGIN
                 *
             FROM @sysAssObjId AS s
             OPTION(RECOMPILE);
+
+            SELECT
+                table_name = N'#available_plans',
+                *
+            FROM #available_plans AS ap
+            OPTION(RECOMPILE);
+
+            SELECT
+                table_name = N'ava#dm_exec_query_statsilable_plans',
+                *
+            FROM #dm_exec_query_stats
+			OPTION(RECOMPILE);
 
             SELECT
                 procedure_parameters =
