@@ -3969,7 +3969,7 @@ BEGIN
             OPTION(RECOMPILE);
 
             SELECT
-                table_name = N'ava#dm_exec_query_statsilable_plans',
+                table_name = N'#dm_exec_query_stats',
                 *
             FROM #dm_exec_query_stats
 			OPTION(RECOMPILE);
