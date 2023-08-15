@@ -207,6 +207,19 @@ AS
 				permission_name sysname
 			);
 
+			INSERT
+			    @db_perms
+			(
+			    database_name,
+			    permission_name
+			)
+            SELECT
+                database_name =
+				    DB_NAME(d.database_id),
+                fmp.permission_name
+            FROM sys.databases AS d
+            CROSS APPLY fn_my_permissions(d.name, 'DATABASE') AS fmp
+            WHERE fmp.permission_name = N'SELECT' /*Databases where we don't have read permissions*/
             
             /* End of declarations for First Responder Kit consistency check:*/
         ;
@@ -223,7 +236,9 @@ AS
                     )
         ) = 0
         BEGIN
-		    SET @sa = 0; /*Setting this to 0 to skip DBCC COMMANDS*/
+			IF @Debug IN (1, 2) RAISERROR('User not SA, checking permissions', 0, 1) WITH NOWAIT;
+		    
+			SET @sa = 0; /*Setting this to 0 to skip DBCC COMMANDS*/
 
 		    IF NOT EXISTS
 		    (
@@ -292,20 +307,6 @@ AS
                 SET @SkipValidateLogins = 1;
             END; /*Need execute on sp_validatelogins*/
 
-			INSERT
-			    @db_perms
-			(
-			    database_name,
-			    permission_name
-			)
-            SELECT
-                database_name =
-				    DB_NAME(d.database_id),
-                fmp.permission_name
-            FROM sys.databases AS d
-            CROSS APPLY fn_my_permissions(d.name, 'DATABASE') AS fmp
-            WHERE fmp.permission_name = N'SELECT'
-            AND   d.database_id < 5; /*Databases where we don't have read permissions*/
 		END;
 
 		SET @crlf = NCHAR(13) + NCHAR(10);
@@ -469,43 +470,43 @@ AS
 		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
 		SELECT
 		    v.*
-		FROM (VALUES(NULL, NULL, 29)) AS v (DatabaseName, CheckID, ServerName) /*Looks for user tables in model*/
+		FROM (VALUES(NULL, 29, NULL)) AS v (DatabaseName, CheckID, ServerName) /*Looks for user tables in model*/
 		WHERE NOT EXISTS (SELECT 1/0 FROM @db_perms AS dp WHERE dp.database_name = 'model');
 
 		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
 		SELECT
 		    v.*
-		FROM (VALUES(NULL, NULL, 68)) AS v (DatabaseName, CheckID, ServerName) /*DBCC command*/
+		FROM (VALUES(NULL, 68, NULL)) AS v (DatabaseName, CheckID, ServerName) /*DBCC command*/
 		WHERE @sa = 0;
 
 		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
 		SELECT
 		    v.*
-		FROM (VALUES(NULL, NULL, 69)) AS v (DatabaseName, CheckID, ServerName) /*DBCC command*/
+		FROM (VALUES(NULL, 69, NULL)) AS v (DatabaseName, CheckID, ServerName) /*DBCC command*/
 		WHERE @sa = 0;
 
 		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
 		SELECT
 		    v.*
-		FROM (VALUES(NULL, NULL, 92)) AS v (DatabaseName, CheckID, ServerName) /*xp_fixeddrives*/
+		FROM (VALUES(NULL, 92, NULL)) AS v (DatabaseName, CheckID, ServerName) /*xp_fixeddrives*/
 		WHERE @SkipXPFixedDrives = 1;
 
 		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
 		SELECT
 		    v.*
-		FROM (VALUES(NULL, NULL, 211)) AS v (DatabaseName, CheckID, ServerName) /*xp_regread*/
+		FROM (VALUES(NULL, 211, NULL)) AS v (DatabaseName, CheckID, ServerName) /*xp_regread*/
 		WHERE @SkipXPRegRead = 1;
 
 		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
 		SELECT
 		    v.*
-		FROM (VALUES(NULL, NULL, 212)) AS v (DatabaseName, CheckID, ServerName) /*xp_regread*/
+		FROM (VALUES(NULL, 212, NULL)) AS v (DatabaseName, CheckID, ServerName) /*xp_regread*/
 		WHERE @SkipXPCMDShell = 1;
 
 		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
 		SELECT
 		    v.*
-		FROM (VALUES(NULL, NULL, 2301))	AS v (DatabaseName, CheckID, ServerName) /*sp_validatelogins*/
+		FROM (VALUES(NULL, 2301, NULL))	AS v (DatabaseName, CheckID, ServerName) /*sp_validatelogins*/
 		WHERE @SkipValidateLogins = 1
 
         IF(OBJECT_ID('tempdb..#InvalidLogins') IS NOT NULL)
