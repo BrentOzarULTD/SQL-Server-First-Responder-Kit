@@ -1620,6 +1620,7 @@ WITH total_plans AS
             ON qs.sql_handle = ps.sql_handle
         CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) pa
         WHERE pa.attribute = N'dbid'
+		AND   pa.value <> 32767 /*Omit Resource database-based queries, we're not going to "fix" them no matter what. Addresses #3314*/
         AND   qs.query_plan_hash <> 0x0000000000000000
         GROUP BY
 		    /* qs.query_plan_hash,  BGO 20210524 commenting this out to fix #2909 */
