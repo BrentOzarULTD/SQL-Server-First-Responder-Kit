@@ -6579,10 +6579,10 @@ IF @ProductVersionMajor >= 10
 																        DatabaseName
 													          FROM      #SkipChecks
 													          WHERE CheckID IS NULL OR CheckID = 19)
-										        AND is_published = 1
+										        AND (is_published = 1
 										        OR is_subscribed = 1
 										        OR is_merge_published = 1
-										        OR is_distributor = 1;
+										        OR is_distributor = 1);
 
 						        /* Method B: check subscribers for MSreplication_objects tables */
 						        EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
