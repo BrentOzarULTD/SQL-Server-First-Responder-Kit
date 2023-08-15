@@ -2325,7 +2325,7 @@ BEGIN
            max_grant_kb AS MaxGrantKB,
            min_used_grant_kb AS MinUsedGrantKB,
            max_used_grant_kb AS MaxUsedGrantKB,
-           CAST(ISNULL(NULLIF(( max_used_grant_kb * 1.00 ), 0) / NULLIF(min_grant_kb, 0), 0) * 100. AS MONEY) AS PercentMemoryGrantUsed,
+           CAST(ISNULL(NULLIF(( total_used_grant_kb * 1.00 ), 0) / NULLIF(total_grant_kb, 0), 0) * 100. AS MONEY) AS PercentMemoryGrantUsed,
 		   CAST(ISNULL(NULLIF(( total_grant_kb * 1. ), 0) / NULLIF(execution_count, 0), 0) AS MONEY) AS AvgMaxMemoryGrant, ';
     END;
     ELSE
