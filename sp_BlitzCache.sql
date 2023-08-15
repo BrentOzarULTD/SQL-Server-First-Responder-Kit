@@ -1616,8 +1616,7 @@ WITH total_plans AS
         SELECT
 		    COUNT_BIG(qs.query_plan_hash) AS duplicate_plan_hashes
         FROM sys.dm_exec_query_stats qs
-        LEFT JOIN sys.dm_exec_procedure_stats ps 
-            ON qs.sql_handle = ps.sql_handle
+        LEFT JOIN sys.dm_exec_procedure_stats ps ON qs.plan_handle = ps.plan_handle
         CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) pa
         WHERE pa.attribute = N'dbid'
 		AND   pa.value <> 32767 /*Omit Resource database-based queries, we're not going to "fix" them no matter what. Addresses #3314*/
