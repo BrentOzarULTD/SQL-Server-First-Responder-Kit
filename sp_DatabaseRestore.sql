@@ -31,6 +31,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @DatabaseOwner sysname = NULL,
     @SetTrustworthyON BIT = 0,
     @FixOrphanUsers BIT = 0,
+    @KeepCdc BIT = 0,
     @Execute CHAR(1) = Y,
     @FileExtensionDiff NVARCHAR(128) = NULL,
     @Debug INT = 0, 
@@ -44,7 +45,7 @@ SET STATISTICS XML OFF;
 
 /*Versioning details*/
 
-SELECT @Version = '8.15', @VersionDate = '20230613';
+SELECT @Version = '8.16', @VersionDate = '20230820';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -365,8 +366,8 @@ CREATE TABLE #Headers
     EncryptorThumbprint VARBINARY(20),
     EncryptorType NVARCHAR(32),
 	LastValidRestoreTime DATETIME, 
-	TimeZone NVARCHAR(256), 
-	CompressionAlgorithm NVARCHAR(256),
+	TimeZone NVARCHAR(32), 
+	CompressionAlgorithm NVARCHAR(32),
     --
     -- Seq added to retain order by
     --
@@ -1349,7 +1350,7 @@ IF (@LogRecoveryOption = N'')
 IF (@StopAt IS NOT NULL)
 BEGIN
 	
-	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('@OnlyLogsAfter is NOT NULL, deleting from @FileList', 0, 1) WITH NOWAIT;
+	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('@StopAt is NOT NULL, deleting from @FileList', 0, 1) WITH NOWAIT;
 
 	IF LEN(@StopAt) <> 14 OR PATINDEX('%[^0-9]%', @StopAt) > 0
 	BEGIN
@@ -1498,13 +1499,18 @@ END
 -- Put database in a useable state 
 IF @RunRecovery = 1
 	BEGIN
-		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' WITH RECOVERY' + NCHAR(13);
+		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' WITH RECOVERY';
+		
+		IF @KeepCdc = 1
+			SET @sql = @sql + N', KEEP_CDC';
 
-			IF @Debug = 1 OR @Execute = 'N'
-			BEGIN
-				IF @sql IS NULL PRINT '@sql is NULL for RESTORE DATABASE: @RestoreDatabaseName';
-				PRINT @sql;
-			END; 
+		SET @sql = @sql + NCHAR(13);
+
+		IF @Debug = 1 OR @Execute = 'N'
+		BEGIN
+			IF @sql IS NULL PRINT '@sql is NULL for RESTORE DATABASE: @RestoreDatabaseName';
+			PRINT @sql;
+		END; 
 
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
 			EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'RECOVER DATABASE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';

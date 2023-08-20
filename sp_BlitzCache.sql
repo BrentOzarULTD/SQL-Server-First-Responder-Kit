@@ -281,7 +281,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.15', @VersionDate = '20230613';
+SELECT @Version = '8.16', @VersionDate = '20230820';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -1579,6 +1579,7 @@ BEGIN
 	RAISERROR('Checking for Read intent databases to exclude',0,0) WITH NOWAIT;
 
     EXEC('INSERT INTO #ReadableDBs (database_id) SELECT DBs.database_id FROM sys.databases DBs INNER JOIN sys.availability_replicas Replicas ON DBs.replica_id = Replicas.replica_id WHERE replica_server_name NOT IN (SELECT DISTINCT primary_replica FROM sys.dm_hadr_availability_group_states States) AND Replicas.secondary_role_allow_connections_desc = ''READ_ONLY'' AND replica_server_name = @@SERVERNAME OPTION (RECOMPILE);');
+    EXEC('INSERT INTO #ReadableDBs VALUES (32767) ;');		-- Exclude internal resource database as well
 END
 
 RAISERROR(N'Checking plan cache age', 0, 1) WITH NOWAIT;
@@ -1615,10 +1616,10 @@ WITH total_plans AS
         SELECT
 		    COUNT_BIG(qs.query_plan_hash) AS duplicate_plan_hashes
         FROM sys.dm_exec_query_stats qs
-        LEFT JOIN sys.dm_exec_procedure_stats ps 
-            ON qs.sql_handle = ps.sql_handle
+        LEFT JOIN sys.dm_exec_procedure_stats ps ON qs.plan_handle = ps.plan_handle
         CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) pa
         WHERE pa.attribute = N'dbid'
+		AND   pa.value <> 32767 /*Omit Resource database-based queries, we're not going to "fix" them no matter what. Addresses #3314*/
         AND   qs.query_plan_hash <> 0x0000000000000000
         GROUP BY
 		    /* qs.query_plan_hash,  BGO 20210524 commenting this out to fix #2909 */
@@ -2323,7 +2324,7 @@ BEGIN
            max_grant_kb AS MaxGrantKB,
            min_used_grant_kb AS MinUsedGrantKB,
            max_used_grant_kb AS MaxUsedGrantKB,
-           CAST(ISNULL(NULLIF(( max_used_grant_kb * 1.00 ), 0) / NULLIF(min_grant_kb, 0), 0) * 100. AS MONEY) AS PercentMemoryGrantUsed,
+           CAST(ISNULL(NULLIF(( total_used_grant_kb * 1.00 ), 0) / NULLIF(total_grant_kb, 0), 0) * 100. AS MONEY) AS PercentMemoryGrantUsed,
 		   CAST(ISNULL(NULLIF(( total_grant_kb * 1. ), 0) / NULLIF(execution_count, 0), 0) AS MONEY) AS AvgMaxMemoryGrant, ';
     END;
     ELSE

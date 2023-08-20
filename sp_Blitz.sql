@@ -38,7 +38,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.15', @VersionDate = '20230613';
+	SELECT @Version = '8.16', @VersionDate = '20230820';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -186,10 +186,128 @@ AS
             ,@CurrentComponentVersionCheckModeOK     BIT
             ,@canExitLoop                            BIT
             ,@frkIsConsistent                        BIT
-			,@NeedToTurnNumericRoundabortBackOn      BIT;
+			,@NeedToTurnNumericRoundabortBackOn      BIT
+			,@sa bit = 1
+			,@SUSER_NAME sysname = SUSER_SNAME()
+			,@SkipDBCC bit = 0
+			,@SkipTrace bit = 0
+			,@SkipXPRegRead bit = 0
+			,@SkipXPFixedDrives bit = 0
+			,@SkipXPCMDShell bit = 0
+			,@SkipMaster bit = 0
+			,@SkipMSDB bit = 0
+			,@SkipModel bit = 0
+			,@SkipTempDB bit = 0
+			,@SkipValidateLogins bit = 0;
+
+			DECLARE
+			    @db_perms table
+            (
+			    database_name sysname,
+				permission_name sysname
+			);
+
+			INSERT
+			    @db_perms
+			(
+			    database_name,
+			    permission_name
+			)
+            SELECT
+                database_name =
+				    DB_NAME(d.database_id),
+                fmp.permission_name
+            FROM sys.databases AS d
+            CROSS APPLY fn_my_permissions(d.name, 'DATABASE') AS fmp
+            WHERE fmp.permission_name = N'SELECT' /*Databases where we don't have read permissions*/
             
             /* End of declarations for First Responder Kit consistency check:*/
         ;
+
+		/*Starting permissions checks here, but only if we're not a sysadmin*/
+		IF
+        (
+            SELECT 
+                sa = 
+                    ISNULL
+                    (
+                        IS_SRVROLEMEMBER(N'sysadmin'), 
+                        0
+                    )
+        ) = 0
+        BEGIN
+			IF @Debug IN (1, 2) RAISERROR('User not SA, checking permissions', 0, 1) WITH NOWAIT;
+		    
+			SET @sa = 0; /*Setting this to 0 to skip DBCC COMMANDS*/
+
+		    IF NOT EXISTS
+		    (
+		        SELECT 
+                    1/0 
+                FROM sys.fn_my_permissions(NULL, NULL) AS fmp 
+                WHERE fmp.permission_name = N'VIEW SERVER STATE'
+		    )
+			BEGIN
+			    RAISERROR('The user %s does not have VIEW SERVER STATE permissions.', 0, 11, @SUSER_NAME) WITH NOWAIT;
+				RETURN;
+			END; /*If we don't have this, we can't do anything at all.*/
+
+            IF NOT EXISTS
+            (
+                SELECT
+                    1/0
+                FROM fn_my_permissions(N'sys.traces', N'OBJECT') AS fmp
+                WHERE fmp.permission_name = N'ALTER'
+            )
+            BEGIN
+                SET @SkipTrace = 1;
+            END; /*We need this permission to execute trace stuff, apparently*/
+
+            IF NOT EXISTS
+            (
+                SELECT
+                    1/0
+                FROM fn_my_permissions(N'xp_regread', N'OBJECT') AS fmp
+                WHERE fmp.permission_name = N'EXECUTE'
+            )
+            BEGIN
+                SET @SkipXPRegRead = 1;
+            END; /*Need execute on xp_regread*/
+
+            IF NOT EXISTS
+            (
+                SELECT
+                    1/0
+                FROM fn_my_permissions(N'xp_fixeddrives', N'OBJECT') AS fmp
+                WHERE fmp.permission_name = N'EXECUTE'
+            )
+            BEGIN
+                SET @SkipXPFixedDrives = 1;
+            END; /*Need execute on xp_fixeddrives*/
+
+            IF NOT EXISTS
+            (
+                SELECT
+                    1/0
+                FROM fn_my_permissions(N'xp_cmdshell', N'OBJECT') AS fmp
+                WHERE fmp.permission_name = N'EXECUTE'
+            )
+            BEGIN
+                SET @SkipXPCMDShell = 1;
+            END; /*Need execute on xp_cmdshell*/
+
+            IF NOT EXISTS
+            (
+                SELECT
+                    1/0
+                FROM fn_my_permissions(N'sp_validatelogins', N'OBJECT') AS fmp
+                WHERE fmp.permission_name = N'EXECUTE'
+            )
+            BEGIN
+                SET @SkipValidateLogins = 1;
+            END; /*Need execute on sp_validatelogins*/
+
+		END;
 
 		SET @crlf = NCHAR(13) + NCHAR(10);
 		SET @ResultText = 'sp_Blitz Results: ' + @crlf;
@@ -331,6 +449,66 @@ AS
 		         OR LOWER(d.name) IN ('dbatools', 'dbadmin', 'dbmaintenance'))
 		OPTION(RECOMPILE);
 
+		/*Skip checks for database where we don't have read permissions*/
+		INSERT INTO
+		    #SkipChecks
+		(
+		    DatabaseName
+		)
+		SELECT
+		    DB_NAME(d.database_id)
+		FROM sys.databases AS d
+		WHERE NOT EXISTS
+		(
+		    SELECT
+			    1/0
+			FROM @db_perms AS dp
+			WHERE dp.database_name = DB_NAME(d.database_id)
+		);
+
+		/*Skip individial checks where we don't have permissions*/
+		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
+		SELECT
+		    v.*
+		FROM (VALUES(NULL, 29, NULL)) AS v (DatabaseName, CheckID, ServerName) /*Looks for user tables in model*/
+		WHERE NOT EXISTS (SELECT 1/0 FROM @db_perms AS dp WHERE dp.database_name = 'model');
+
+		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
+		SELECT
+		    v.*
+		FROM (VALUES(NULL, 68, NULL)) AS v (DatabaseName, CheckID, ServerName) /*DBCC command*/
+		WHERE @sa = 0;
+
+		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
+		SELECT
+		    v.*
+		FROM (VALUES(NULL, 69, NULL)) AS v (DatabaseName, CheckID, ServerName) /*DBCC command*/
+		WHERE @sa = 0;
+
+		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
+		SELECT
+		    v.*
+		FROM (VALUES(NULL, 92, NULL)) AS v (DatabaseName, CheckID, ServerName) /*xp_fixeddrives*/
+		WHERE @SkipXPFixedDrives = 1;
+
+		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
+		SELECT
+		    v.*
+		FROM (VALUES(NULL, 211, NULL)) AS v (DatabaseName, CheckID, ServerName) /*xp_regread*/
+		WHERE @SkipXPRegRead = 1;
+
+		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
+		SELECT
+		    v.*
+		FROM (VALUES(NULL, 212, NULL)) AS v (DatabaseName, CheckID, ServerName) /*xp_regread*/
+		WHERE @SkipXPCMDShell = 1;
+
+		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
+		SELECT
+		    v.*
+		FROM (VALUES(NULL, 2301, NULL))	AS v (DatabaseName, CheckID, ServerName) /*sp_validatelogins*/
+		WHERE @SkipValidateLogins = 1
+
         IF(OBJECT_ID('tempdb..#InvalidLogins') IS NOT NULL)
         BEGIN
             EXEC sp_executesql N'DROP TABLE #InvalidLogins;';
@@ -372,7 +550,8 @@ AS
 				SELECT @IsWindowsOperatingSystem = 1 ;
 			END;
 
-		IF NOT EXISTS ( SELECT  1
+
+			IF NOT EXISTS ( SELECT  1
 							FROM    #SkipChecks
 							WHERE   DatabaseName IS NULL AND CheckID = 106 )
 							AND (select convert(int,value_in_use) from sys.configurations where name = 'default trace enabled' ) = 1
@@ -4158,53 +4337,56 @@ AS
 
 						/* First, let's check that there aren't any issues with the trace files */
 						BEGIN TRY
-						
-						INSERT INTO #fnTraceGettable
-							(	TextData ,
-								DatabaseName ,
-								EventClass ,
-								Severity ,
-								StartTime ,
-								EndTime ,
-								Duration ,
-								NTUserName ,
-								NTDomainName ,
-								HostName ,
-								ApplicationName ,
-								LoginName ,
-								DBUserName
-							)
-							SELECT TOP 20000
-								CONVERT(NVARCHAR(4000),t.TextData) ,
-								t.DatabaseName ,
-								t.EventClass ,
-								t.Severity ,
-								t.StartTime ,
-								t.EndTime ,
-								t.Duration ,
-								t.NTUserName ,
-								t.NTDomainName ,
-								t.HostName ,
-								t.ApplicationName ,
-								t.LoginName ,
-								t.DBUserName
-							FROM sys.fn_trace_gettable(@base_tracefilename, DEFAULT) t
-							WHERE
-							(
-								t.EventClass = 22
-								AND t.Severity >= 17
-								AND t.StartTime > DATEADD(dd, -30, GETDATE())
-							)
-							OR
-							(
-							    t.EventClass IN (92, 93)
-                                AND t.StartTime > DATEADD(dd, -30, GETDATE())
-                                AND t.Duration > 15000000
-							)
-							OR
-							(
-								t.EventClass IN (94, 95, 116)
-							)
+
+						IF @SkipTrace = 0
+						BEGIN
+						    INSERT INTO #fnTraceGettable
+						    	(	TextData ,
+						    		DatabaseName ,
+						    		EventClass ,
+						    		Severity ,
+						    		StartTime ,
+						    		EndTime ,
+						    		Duration ,
+						    		NTUserName ,
+						    		NTDomainName ,
+						    		HostName ,
+						    		ApplicationName ,
+						    		LoginName ,
+						    		DBUserName
+						    	)
+						    	SELECT TOP 20000
+						    		CONVERT(NVARCHAR(4000),t.TextData) ,
+						    		t.DatabaseName ,
+						    		t.EventClass ,
+						    		t.Severity ,
+						    		t.StartTime ,
+						    		t.EndTime ,
+						    		t.Duration ,
+						    		t.NTUserName ,
+						    		t.NTDomainName ,
+						    		t.HostName ,
+						    		t.ApplicationName ,
+						    		t.LoginName ,
+						    		t.DBUserName
+						    	FROM sys.fn_trace_gettable(@base_tracefilename, DEFAULT) t
+						    	WHERE
+						    	(
+						    		t.EventClass = 22
+						    		AND t.Severity >= 17
+						    		AND t.StartTime > DATEADD(dd, -30, GETDATE())
+						    	)
+						    	OR
+						    	(
+						    	    t.EventClass IN (92, 93)
+                                    AND t.StartTime > DATEADD(dd, -30, GETDATE())
+                                    AND t.Duration > 15000000
+						    	)
+						    	OR
+						    	(
+						    		t.EventClass IN (94, 95, 116)
+						    	)
+							END;
 
 							SET @TraceFileIssue = 0
 
@@ -6579,10 +6761,10 @@ IF @ProductVersionMajor >= 10
 																        DatabaseName
 													          FROM      #SkipChecks
 													          WHERE CheckID IS NULL OR CheckID = 19)
-										        AND is_published = 1
+										        AND (is_published = 1
 										        OR is_subscribed = 1
 										        OR is_merge_published = 1
-										        OR is_distributor = 1;
+										        OR is_distributor = 1);
 
 						        /* Method B: check subscribers for MSreplication_objects tables */
 						        EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;

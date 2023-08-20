@@ -57,7 +57,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.15', @VersionDate = '20230613';
+SELECT @Version = '8.16', @VersionDate = '20230820';
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
@@ -330,6 +330,28 @@ SET @msg = N'New query_store_runtime_stats columns ' + CASE @new_columns
 							   END;
 RAISERROR(@msg, 0, 1) WITH NOWAIT;
 
+/*
+This section determines if Parameter Sensitive Plan Optimization is enabled on SQL Server 2022+.
+*/
+
+RAISERROR('Checking for Parameter Sensitive Plan Optimization ', 0, 1) WITH NOWAIT;
+
+DECLARE @pspo_out BIT,
+		@pspo_enabled BIT,
+		@pspo_sql NVARCHAR(MAX) = N'SELECT @i_out = CONVERT(bit,dsc.value)
+							      FROM ' + QUOTENAME(@DatabaseName) + N'.sys.database_scoped_configurations dsc
+								  WHERE dsc.name = ''PARAMETER_SENSITIVE_PLAN_OPTIMIZATION'';',
+		@pspo_params NVARCHAR(MAX) = N'@i_out INT OUTPUT';
+
+EXEC sys.sp_executesql @pspo_sql, @pspo_params, @i_out = @pspo_out OUTPUT;
+
+SET @pspo_enabled = CASE WHEN @pspo_out = 1 THEN 1 ELSE 0 END;
+
+SET @msg = N'Parameter Sensitive Plan Optimization ' + CASE @pspo_enabled 
+									WHEN 0 THEN N' not enabled, skipping.'
+									WHEN 1 THEN N' enabled, will analyze.'
+							   END;
+RAISERROR(@msg, 0, 1) WITH NOWAIT;
  
 /*
 These are the temp tables we use
@@ -1033,10 +1055,33 @@ IF @MinimumExecutionCount IS NOT NULL
 
 --You care about stored proc names
 IF @StoredProcName IS NOT NULL 
-	BEGIN 
-	RAISERROR(N'Setting stored proc filter', 0, 1) WITH NOWAIT;
-	SET @sql_where += N' AND object_name(qsq.object_id, DB_ID(' + QUOTENAME(@DatabaseName, '''') + N')) = @sp_StoredProcName 
-					   ';
+	BEGIN
+
+	IF (@pspo_enabled = 1)
+		BEGIN
+			RAISERROR(N'Setting stored proc filter, PSPO enabled', 0, 1) WITH NOWAIT;
+			/*	If PSPO is enabled, the object_id for a variant query would be 0. To include it, we check whether the object_id = 0 query
+				is a variant query, and whether it's parent query belongs to @sp_StoredProcName.											*/
+			SET @sql_where += N' AND (object_name(qsq.object_id, DB_ID(' + QUOTENAME(@DatabaseName, '''') + N')) = @sp_StoredProcName
+									OR (qsq.object_id = 0
+										AND EXISTS(
+											SELECT 1
+											FROM ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query_variant vr
+											JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query pqsq
+												ON pqsq.query_id = vr.parent_query_id
+											WHERE
+												vr.query_variant_query_id = qsq.query_id
+												AND object_name(pqsq.object_id, DB_ID(' + QUOTENAME(@DatabaseName, '''') + N')) = @sp_StoredProcName
+										)
+									))
+							   ';
+		END
+		ELSE
+		BEGIN
+			RAISERROR(N'Setting stored proc filter', 0, 1) WITH NOWAIT;
+			SET @sql_where += N' AND object_name(qsq.object_id, DB_ID(' + QUOTENAME(@DatabaseName, '''') + N')) = @sp_StoredProcName 
+							   ';
+		END
     END;
 
 --I will always love you, but hopefully this query will eventually end
@@ -2269,6 +2314,30 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 						@params = @sp_params,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName, @sp_PlanIdFilter = @PlanIdFilter, @sp_QueryIdFilter = @QueryIdFilter;
 
+
+/*If PSPO is enabled, get procedure names for variant queries.*/
+IF (@pspo_enabled = 1)
+BEGIN
+	DECLARE
+		@pspo_names NVARCHAR(MAX) = '';
+
+	SET @pspo_names =
+	'UPDATE wm
+	SET 
+		wm.proc_or_function_name = 
+			QUOTENAME(object_schema_name(qsq.object_id, DB_ID(' + QUOTENAME(@DatabaseName, '''') + N'))) + ''.'' +
+			QUOTENAME(object_name(qsq.object_id, DB_ID(' + QUOTENAME(@DatabaseName, '''') + N'))) 
+	FROM #working_metrics wm
+	JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query_variant AS vr
+		ON vr.query_variant_query_id = wm.query_id
+	JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.query_store_query AS qsq
+		ON qsq.query_id = vr.parent_query_id
+		AND qsq.object_id > 0
+	WHERE
+		wm.proc_or_function_name IS NULL;'
+		
+	EXEC sys.sp_executesql @pspo_names;
+END;
 
 
 /*This just helps us classify our queries*/
