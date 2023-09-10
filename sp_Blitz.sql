@@ -494,6 +494,12 @@ AS
 		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
 		SELECT
 		    v.*
+		FROM (VALUES(NULL, 106, NULL)) AS v (DatabaseName, CheckID, ServerName) /*alter trace*/
+		WHERE @SkipTrace = 1;
+
+		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
+		SELECT
+		    v.*
 		FROM (VALUES(NULL, 211, NULL)) AS v (DatabaseName, CheckID, ServerName) /*xp_regread*/
 		WHERE @SkipXPRegRead = 1;
 
