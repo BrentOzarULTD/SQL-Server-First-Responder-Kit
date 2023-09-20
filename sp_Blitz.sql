@@ -306,32 +306,35 @@ AS
             BEGIN
                 SET @SkipValidateLogins = 1;
             END; /*Need execute on sp_validatelogins*/
-
-			IF EXISTS
-            (
-                SELECT 1/0
-                FROM @db_perms
-                WHERE database_name = N'model'
-            )
-            BEGIN
-                BEGIN TRY
-                    IF EXISTS
-                    (
-                        SELECT 1/0
-                        FROM model.sys.objects
-                    )
-                    BEGIN
-                        SET @SkipModel = 0; /*We have read permissions in the model database, and can view the objects*/
-                    END;
-                END TRY
-                BEGIN CATCH
-                    SET @SkipModel = 1; /*We have read permissions in the model database ... oh wait we got tricked, we can't view the objects*/
-                END CATCH;
-            END;
-            ELSE
-            BEGIN
-                SET @SkipModel = 1; /*We don't have read permissions in the model database*/
-            END;
+            
+			IF ISNULL(@SkipModel, 0) != 1 /* If @SkipModel hasn't been set to 1 by the caller */
+			BEGIN
+				IF EXISTS
+            	(
+            	    SELECT 1/0
+            	    FROM @db_perms
+            	    WHERE database_name = N'model'
+            	)
+            	BEGIN
+            	    BEGIN TRY
+            	        IF EXISTS
+            	        (
+            	            SELECT 1/0
+            	            FROM model.sys.objects
+            	        )
+            	        BEGIN
+                            SET @SkipModel = 0; /*We have read permissions in the model database, and can view the objects*/
+            	        END;
+            	    END TRY
+            	    BEGIN CATCH
+            	        SET @SkipModel = 1; /*We have read permissions in the model database ... oh wait we got tricked, we can't view the objects*/
+            	    END CATCH;
+            	END;
+            	ELSE
+            	BEGIN
+            	    SET @SkipModel = 1; /*We don't have read permissions in the model database*/
+            	END;
+			END;
 		END;
 
 		SET @crlf = NCHAR(13) + NCHAR(10);
