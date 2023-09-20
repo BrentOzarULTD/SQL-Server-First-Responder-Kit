@@ -6651,25 +6651,6 @@ SET @AllSortSql += N'
 					 
 					 '; 
 					
-					IF @VersionShowsMemoryGrants = 0
-					BEGIN
-						IF @ExportToExcel = 1
-						BEGIN
-							SET @AllSortSql += N'  UPDATE #bou_allsort 
-												   SET 
-													QueryPlan = NULL,
-													implicit_conversion_info = NULL, 
-													cached_execution_parameters = NULL,
-													missing_indexes = NULL
-												   OPTION (RECOMPILE);
-
-												   UPDATE ##BlitzCacheProcs
-												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
-												   OPTION(RECOMPILE);';
-						END; 
-
-					END; 
-					
 					IF @VersionShowsMemoryGrants = 1
 					BEGIN 
 					SET @AllSortSql += N' SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
@@ -6683,42 +6664,8 @@ SET @AllSortSql += N'
                      @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName, @CheckDateOverride = @i_CheckDateOverride, @MinutesBack = @i_MinutesBack WITH RECOMPILE;
 					 					  
 										  UPDATE #bou_allsort SET Pattern = ''memory grant'' WHERE Pattern IS NULL OPTION(RECOMPILE);';
-						IF @ExportToExcel = 1
-						BEGIN
-							SET @AllSortSql += N'  UPDATE #bou_allsort 
-												   SET 
-													QueryPlan = NULL,
-													implicit_conversion_info = NULL, 
-													cached_execution_parameters = NULL, 
-													missing_indexes = NULL
-												   OPTION (RECOMPILE);
-
-												   UPDATE ##BlitzCacheProcs
-												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
-												   OPTION(RECOMPILE);';
-						END; 
-
 				    END;
 
-					IF @VersionShowsSpills = 0
-					BEGIN
-						IF @ExportToExcel = 1
-						BEGIN
-							SET @AllSortSql += N'  UPDATE #bou_allsort 
-												   SET 
-													QueryPlan = NULL,
-													implicit_conversion_info = NULL, 
-													cached_execution_parameters = NULL,
-													missing_indexes = NULL
-												   OPTION (RECOMPILE);
-
-												   UPDATE ##BlitzCacheProcs
-												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
-												   OPTION(RECOMPILE);';
-						END; 
-
-					END; 
-					
 					IF @VersionShowsSpills = 1
 					BEGIN 
 					SET @AllSortSql += N' SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
@@ -6732,33 +6679,7 @@ SET @AllSortSql += N'
                      @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName, @CheckDateOverride = @i_CheckDateOverride, @MinutesBack = @i_MinutesBack WITH RECOMPILE;
 					 					  
 										  UPDATE #bou_allsort SET Pattern = ''spills'' WHERE Pattern IS NULL OPTION(RECOMPILE);';
-						IF @ExportToExcel = 1
-						BEGIN
-							SET @AllSortSql += N'  UPDATE #bou_allsort 
-												   SET 
-													QueryPlan = NULL,
-													implicit_conversion_info = NULL, 
-													cached_execution_parameters = NULL, 
-													missing_indexes = NULL
-												   OPTION (RECOMPILE);
-
-												   UPDATE ##BlitzCacheProcs
-												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
-												   OPTION(RECOMPILE);';
-						END; 
-
 				    END;
-
-					IF(@OutputType <> 'NONE')
-					BEGIN
-						SET @AllSortSql += N' SELECT DatabaseName, Cost, QueryText, QueryType, Warnings, QueryPlan, missing_indexes, implicit_conversion_info, cached_execution_parameters,ExecutionCount, ExecutionsPerMinute, ExecutionWeight, 
-											  TotalCPU, AverageCPU, CPUWeight, TotalDuration, AverageDuration, DurationWeight, TotalReads, AverageReads, 
-											  ReadWeight, TotalWrites, AverageWrites, WriteWeight, AverageReturnedRows, MinGrantKB, MaxGrantKB, MinUsedGrantKB, 
-											  MaxUsedGrantKB, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, SetOptions, QueryHash, PlanGenerationNum, RemovePlanHandleFromCache, Pattern 
-											  FROM #bou_allsort 
-											  ORDER BY Id 
-											  OPTION(RECOMPILE);  ';
-					END;
 END; 			
 
 
@@ -6827,26 +6748,7 @@ SET @AllSortSql += N'
 					 UPDATE #bou_allsort SET Pattern = ''avg executions'' WHERE Pattern IS NULL OPTION(RECOMPILE);
 					 
 					 ';
-					 
-					IF @VersionShowsMemoryGrants = 0
-					BEGIN
-						IF @ExportToExcel = 1
-						BEGIN
-							SET @AllSortSql += N'  UPDATE #bou_allsort 
-												   SET 
-													QueryPlan = NULL,
-													implicit_conversion_info = NULL, 
-													cached_execution_parameters = NULL, 
-													missing_indexes = NULL
-												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
-												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
-												   OPTION(RECOMPILE);';
-						END;  
-
-					END; 
-					
 					IF @VersionShowsMemoryGrants = 1
 					BEGIN 
 					SET @AllSortSql += N' SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
@@ -6860,42 +6762,8 @@ SET @AllSortSql += N'
                      @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName, @CheckDateOverride = @i_CheckDateOverride, @MinutesBack = @i_MinutesBack WITH RECOMPILE;
 					 					  
 										  UPDATE #bou_allsort SET Pattern = ''avg memory grant'' WHERE Pattern IS NULL OPTION(RECOMPILE);';
-						IF @ExportToExcel = 1
-						BEGIN
-							SET @AllSortSql += N'  UPDATE #bou_allsort 
-												   SET 
-													QueryPlan = NULL,
-													implicit_conversion_info = NULL, 
-													cached_execution_parameters = NULL, 
-													missing_indexes = NULL
-												   OPTION (RECOMPILE);
-
-												   UPDATE ##BlitzCacheProcs
-												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
-												   OPTION(RECOMPILE);';
-						END; 
-
 				    END;
 
-					IF @VersionShowsSpills = 0
-					BEGIN
-						IF @ExportToExcel = 1
-						BEGIN
-							SET @AllSortSql += N'  UPDATE #bou_allsort 
-												   SET 
-													QueryPlan = NULL,
-													implicit_conversion_info = NULL, 
-													cached_execution_parameters = NULL, 
-													missing_indexes = NULL
-												   OPTION (RECOMPILE);
-
-												   UPDATE ##BlitzCacheProcs
-												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
-												   OPTION(RECOMPILE);';
-						END;  
-
-					END; 
-					
 					IF @VersionShowsSpills = 1
 					BEGIN 
 					SET @AllSortSql += N' SELECT TOP 1 @ISH = STUFF((SELECT DISTINCT N'','' + CONVERT(NVARCHAR(MAX),b2.SqlHandle, 1) FROM #bou_allsort AS b2 FOR XML PATH(N''''), TYPE).value(N''.[1]'', N''NVARCHAR(MAX)''), 1, 1, N'''') OPTION(RECOMPILE);
@@ -6909,22 +6777,22 @@ SET @AllSortSql += N'
                      @DatabaseName = @i_DatabaseName, @SkipAnalysis = @i_SkipAnalysis, @OutputDatabaseName = @i_OutputDatabaseName, @OutputSchemaName = @i_OutputSchemaName, @OutputTableName = @i_OutputTableName, @CheckDateOverride = @i_CheckDateOverride, @MinutesBack = @i_MinutesBack WITH RECOMPILE;
 					 					  
 										  UPDATE #bou_allsort SET Pattern = ''avg spills'' WHERE Pattern IS NULL OPTION(RECOMPILE);';
-						IF @ExportToExcel = 1
-						BEGIN
-							SET @AllSortSql += N'  UPDATE #bou_allsort 
-												   SET 
-													QueryPlan = NULL,
-													implicit_conversion_info = NULL, 
-													cached_execution_parameters = NULL, 
-													missing_indexes = NULL
-												   OPTION (RECOMPILE);
-
-												   UPDATE ##BlitzCacheProcs
-												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
-												   OPTION(RECOMPILE);';
-						END; 
-
 				    END;
+END;
+					IF @ExportToExcel = 1
+					BEGIN
+						SET @AllSortSql += N'  UPDATE #bou_allsort 
+											   SET 
+												QueryPlan = NULL,
+												implicit_conversion_info = NULL, 
+												cached_execution_parameters = NULL,
+												missing_indexes = NULL
+											   OPTION (RECOMPILE);
+
+											   UPDATE ##BlitzCacheProcs
+											   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
+											   OPTION(RECOMPILE);';
+					END; 
 
 					IF(@OutputType <> 'NONE')
 					BEGIN
@@ -6936,8 +6804,6 @@ SET @AllSortSql += N'
 											  ORDER BY Id 
 											  OPTION(RECOMPILE);  ';
 					END;
-END;
-
 					IF @Debug = 1
 						BEGIN
 						    PRINT SUBSTRING(@AllSortSql, 0, 4000);
