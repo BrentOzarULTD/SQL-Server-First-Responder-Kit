@@ -196,7 +196,7 @@ AS
 			,@SkipXPCMDShell bit = 0
 			,@SkipMaster bit = 0
 			,@SkipMSDB bit = 0
-			,@SkipModel BIT = 0
+			,@SkipModel bit = 0
 			,@SkipTempDB bit = 0
 			,@SkipValidateLogins bit = 0;
 
@@ -307,7 +307,7 @@ AS
                 SET @SkipValidateLogins = 1;
             END; /*Need execute on sp_validatelogins*/
             
-			IF ISNULL(@SkipModel, 0) != 1 /* If @SkipModel hasn't been set to 1 by the caller */
+			IF ISNULL(@SkipModel, 0) != 1 /*If @SkipModel hasn't been set to 1 by the caller*/
 			BEGIN
 				IF EXISTS
             	(
