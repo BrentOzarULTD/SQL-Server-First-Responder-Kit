@@ -196,10 +196,9 @@ AS
 			,@SkipXPCMDShell bit = 0
 			,@SkipMaster bit = 0
 			,@SkipMSDB bit = 0
-			,@SkipModel bit = 0
+			,@SkipModel BIT = 0
 			,@SkipTempDB bit = 0
-			,@SkipValidateLogins bit = 0
-            ,@SkipModelCheck BIT = 0;
+			,@SkipValidateLogins bit = 0;
 
 			DECLARE
 			    @db_perms table
@@ -322,16 +321,16 @@ AS
                         FROM model.sys.objects
                     )
                     BEGIN
-                        SET @SkipModelCheck = 0; /*We have read permissions in the model database, and can view the objects*/
+                        SET @SkipModel = 0; /*We have read permissions in the model database, and can view the objects*/
                     END;
                 END TRY
                 BEGIN CATCH
-                    SET @SkipModelCheck = 1; /*We have read permissions in the model database ... oh wait we got tricked, we can't view the objects*/
+                    SET @SkipModel = 1; /*We have read permissions in the model database ... oh wait we got tricked, we can't view the objects*/
                 END CATCH;
             END;
             ELSE
             BEGIN
-                SET @SkipModelCheck = 1; /*We don't have read permissions in the model database*/
+                SET @SkipModel = 1; /*We don't have read permissions in the model database*/
             END;
 		END;
 
@@ -497,7 +496,7 @@ AS
         SELECT
             v.*
         FROM (VALUES(NULL, 29, NULL)) AS v (DatabaseName, CheckID, ServerName) /*Looks for user tables in model*/
-        WHERE @SkipModelCheck = 1;
+        WHERE @SkipModel = 1;
 
 		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
 		SELECT
