@@ -354,7 +354,7 @@ IF @Help = 1
 	UNION ALL
 	SELECT N'@SortOrder',
 			N'VARCHAR(10)',
-			N'Data processing and display order. @SortOrder will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions", "Recent Compilations", "Memory Grant", "Unused Grant", "Spills", "Query Hash". Additionally, the word "Average" or "Avg" can be used to sort on averages rather than total. "Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used. Note that when you use all or all avg, the only parameters you can use are @Top and @DatabaseName. All others will be ignored.'
+			N'Data processing and display order. @SortOrder will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions", "Recent Compilations", "Memory Grant", "Unused Grant", "Spills", "Query Hash", "Duplicates". Additionally, the word "Average" or "Avg" can be used to sort on averages rather than total. "Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used. Note that when you use all or all avg, the only parameters you can use are @Top and @DatabaseName. All others will be ignored.'
 
 	UNION ALL
 	SELECT N'@UseTriggersAnyway',
@@ -806,6 +806,35 @@ IF @SortOrder LIKE 'query hash%'
 	
 	/* If they just called it with @SortOrder = 'query hash', set it to 'cpu' for backwards compatibility: */
 	IF @SortOrder = '' SET @SortOrder = 'cpu';
+
+	END
+
+
+/* If they want to sort by duplicates, populate the @OnlySqlHandles list for them */
+IF @SortOrder LIKE 'duplicate%'
+	BEGIN
+	RAISERROR('Beginning duplicate query hash sort', 0, 1) WITH NOWAIT;
+
+    SELECT qs.query_hash, 
+           MAX(qs.sql_handle) AS max_sql_handle,
+           COUNT_BIG(*) AS records
+    INTO #duplicate_grouped
+    FROM sys.dm_exec_query_stats AS qs
+    CROSS APPLY (   SELECT pa.value
+                    FROM   sys.dm_exec_plan_attributes(qs.plan_handle) AS pa
+                    WHERE  pa.attribute = 'dbid' ) AS ca
+    GROUP BY qs.query_hash, ca.value
+    HAVING COUNT_BIG(*) > 100
+    ORDER BY records DESC;
+    
+    SELECT TOP (1)
+	         @OnlySqlHandles = STUFF((SELECT DISTINCT N',' + CONVERT(NVARCHAR(MAX), qhg.max_sql_handle, 1) 
+    FROM #duplicate_grouped AS qhg 
+    WHERE qhg.max_sql_handle <> 0x00
+    FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
+	OPTION(RECOMPILE);
+
+	SET @SortOrder = 'cpu';
 
 	END
 
