@@ -967,31 +967,19 @@ IF EXISTS(SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec
 ELSE
     SET @VersionShowsAirQuoteActualPlans = 0;
 
-IF @Reanalyze = 1 AND OBJECT_ID('tempdb..##BlitzCacheResults') IS NULL
-  BEGIN
-  RAISERROR(N'##BlitzCacheResults does not exist, can''t reanalyze', 0, 1) WITH NOWAIT;
-  SET @Reanalyze = 0;
-  END;
-
-IF @Reanalyze = 0
-  BEGIN
-  RAISERROR(N'Cleaning up old warnings for your SPID', 0, 1) WITH NOWAIT;
-  DELETE ##BlitzCacheResults
-    WHERE SPID = @@SPID
-	OPTION (RECOMPILE) ;
-  RAISERROR(N'Cleaning up old plans for your SPID', 0, 1) WITH NOWAIT;
-  DELETE ##BlitzCacheProcs
-    WHERE SPID = @@SPID
-	OPTION (RECOMPILE) ;
-  END;  
-
 IF @Reanalyze = 1 
+  BEGIN
+  IF OBJECT_ID('tempdb..##BlitzCacheResults') IS NULL
+    BEGIN
+    RAISERROR(N'##BlitzCacheResults does not exist, can''t reanalyze', 0, 1) WITH NOWAIT;
+    SET @Reanalyze = 0;
+	END
+  ELSE
 	BEGIN
 	RAISERROR(N'Reanalyzing current data, skipping to results', 0, 1) WITH NOWAIT;
     GOTO Results;
 	END;
-
-
+  END;
 
 
 IF @SortOrder IN ('all', 'all avg')
@@ -2431,6 +2419,14 @@ BEGIN
         Details VARCHAR(4000)
     );
 END;
+ELSE
+BEGIN
+  RAISERROR(N'Cleaning up old warnings for your SPID', 0, 1) WITH NOWAIT;
+  DELETE ##BlitzCacheResults
+    WHERE SPID = @@SPID
+	OPTION (RECOMPILE) ;
+END
+
 
 IF OBJECT_ID('tempdb.dbo.##BlitzCacheProcs') IS NULL
 BEGIN
@@ -2622,7 +2618,13 @@ BEGIN
 		Pattern NVARCHAR(20)
     );
 END;
-
+ELSE
+BEGIN
+  RAISERROR(N'Cleaning up old plans for your SPID', 0, 1) WITH NOWAIT;
+  DELETE ##BlitzCacheProcs
+    WHERE SPID = @@SPID
+	OPTION (RECOMPILE) ;
+END
 
 IF @Reanalyze = 0
 BEGIN
