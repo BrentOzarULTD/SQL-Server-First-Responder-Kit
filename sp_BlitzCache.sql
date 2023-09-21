@@ -815,7 +815,7 @@ IF @SortOrder LIKE 'duplicate%'
 	BEGIN
 	RAISERROR('Beginning duplicate query hash sort', 0, 1) WITH NOWAIT;
 
-    SELECT qs.query_hash, 
+    SELECT TOP(@Top) qs.query_hash, 
            MAX(qs.sql_handle) AS max_sql_handle,
            COUNT_BIG(*) AS records
     INTO #duplicate_grouped
