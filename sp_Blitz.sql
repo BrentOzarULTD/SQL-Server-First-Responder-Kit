@@ -85,6 +85,7 @@ AS
 	@OutputType					''TABLE''=table | ''COUNT''=row with number found | ''MARKDOWN''=bulleted list (including server info, excluding security findings) | ''SCHEMA''=version and field list | ''XML'' =table output as XML | ''NONE'' = none
 	@IgnorePrioritiesBelow		50=ignore priorities below 50
 	@IgnorePrioritiesAbove		50=ignore priorities above 50
+	@Debug						0=silent (Default) | 1=messages per step | 2=outputs dynamic queries
 	For the rest of the parameters, see https://www.BrentOzar.com/blitz/documentation for details.
 
     MIT License
