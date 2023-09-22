@@ -354,7 +354,7 @@ IF @Help = 1
 	UNION ALL
 	SELECT N'@SortOrder',
 			N'VARCHAR(10)',
-			N'Data processing and display order. @SortOrder will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions", "Recent Compilations", "Memory Grant", "Unused Grant", "Spills", "Query Hash", "Duplicates". Additionally, the word "Average" or "Avg" can be used to sort on averages rather than total. "Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used. Note that when you use all or all avg, the only parameters you can use are @Top and @DatabaseName. All others will be ignored.'
+			N'Data processing and display order. @SortOrder will still be used, even when preparing output for a table or for excel. Possible values are: "CPU", "Reads", "Writes", "Duration", "Executions", "Recent Compilations", "Memory Grant", "Unused Grant", "Spills", "Query Hash", "Duplicate". Additionally, the word "Average" or "Avg" can be used to sort on averages rather than total. "Executions per minute" and "Executions / minute" can be used to sort by execution per minute. For the truly lazy, "xpm" can also be used. Note that when you use all or all avg, the only parameters you can use are @Top and @DatabaseName. All others will be ignored.'
 
 	UNION ALL
 	SELECT N'@UseTriggersAnyway',
@@ -776,12 +776,30 @@ END;
 /* Lets get @SortOrder set to lower case here for comparisons later */
 SET @SortOrder = LOWER(@SortOrder);
 
+/* Set @Top based on sort */
+IF (
+     @Top IS NULL
+     AND @SortOrder IN ( 'all', 'all sort' )
+   )
+   BEGIN
+         SET @Top = 5;
+   END;
+
+IF (
+     @Top IS NULL
+     AND @SortOrder NOT IN ( 'all', 'all sort' )
+   )
+   BEGIN
+         SET @Top = 10;
+   END;
+
+
 /* If they want to sort by query hash, populate the @OnlyQueryHashes list for them */
 IF @SortOrder LIKE 'query hash%'
 	BEGIN
 	RAISERROR('Beginning query hash sort', 0, 1) WITH NOWAIT;
 
-    SELECT qs.query_hash, 
+    SELECT TOP(@Top) qs.query_hash, 
            MAX(qs.max_worker_time) AS max_worker_time,
            COUNT_BIG(*) AS records
     INTO #query_hash_grouped
@@ -810,51 +828,32 @@ IF @SortOrder LIKE 'query hash%'
 	END
 
 
-/* If they want to sort by duplicates, populate the @OnlySqlHandles list for them */
+/* If they want to sort by duplicate, create a table with the worst offenders - issue #3345 */
 IF @SortOrder LIKE 'duplicate%'
 	BEGIN
 	RAISERROR('Beginning duplicate query hash sort', 0, 1) WITH NOWAIT;
 
-    SELECT TOP(@Top) qs.query_hash, 
-           MAX(qs.sql_handle) AS max_sql_handle,
-           COUNT_BIG(*) AS records
-    INTO #duplicate_grouped
-    FROM sys.dm_exec_query_stats AS qs
-    CROSS APPLY (   SELECT pa.value
-                    FROM   sys.dm_exec_plan_attributes(qs.plan_handle) AS pa
-                    WHERE  pa.attribute = 'dbid' ) AS ca
-    GROUP BY qs.query_hash, ca.value
-    HAVING COUNT_BIG(*) > 100
-    ORDER BY records DESC;
-    
-    SELECT TOP (1)
-	         @OnlySqlHandles = STUFF((SELECT DISTINCT N',' + CONVERT(NVARCHAR(MAX), qhg.max_sql_handle, 1) 
-    FROM #duplicate_grouped AS qhg 
-    WHERE qhg.max_sql_handle <> 0x00
-    FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
-	OPTION(RECOMPILE);
+	/* Find the query hashes that are the most duplicated */
+	WITH MostCommonQueries AS (
+		SELECT TOP(@Top) qs.query_hash, 
+			   COUNT_BIG(*) AS plans
+		FROM sys.dm_exec_query_stats AS qs
+		GROUP BY qs.query_hash
+		HAVING COUNT_BIG(*) > 100
+		ORDER BY COUNT_BIG(*) DESC
+	)
+	SELECT mcq_recent.sql_handle, mcq_recent.plan_handle, mcq_recent.creation_time AS duplicate_creation_time, mcq.plans
+	INTO #duplicate_query_filter
+	FROM MostCommonQueries mcq
+    CROSS APPLY (   SELECT TOP 1 qs.sql_handle, qs.plan_handle, qs.creation_time
+                    FROM   sys.dm_exec_query_stats qs
+                    WHERE  qs.query_hash = mcq.query_hash 
+					ORDER BY qs.creation_time DESC) AS mcq_recent
+	OPTION (RECOMPILE);
 
-	SET @SortOrder = 'cpu';
-
+	SET @minimumExecutionCount = 0;
 	END
 
-
-/* Set @Top based on sort */
-IF (
-     @Top IS NULL
-     AND @SortOrder IN ( 'all', 'all sort' )
-   )
-   BEGIN
-         SET @Top = 5;
-   END;
-
-IF (
-     @Top IS NULL
-     AND @SortOrder NOT IN ( 'all', 'all sort' )
-   )
-   BEGIN
-         SET @Top = 10;
-   END;
 
 /* validate user inputs */
 IF @Top IS NULL 
@@ -951,6 +950,7 @@ SET @SortOrder = CASE
                      WHEN @SortOrder IN ('spill') THEN 'spills'
                      WHEN @SortOrder IN ('avg spill') THEN 'avg spills'
                      WHEN @SortOrder IN ('execution') THEN 'executions'
+                     WHEN @SortOrder IN ('duplicates') THEN 'duplicate'
                  ELSE @SortOrder END							  
 							  
 RAISERROR(N'Checking sort order', 0, 1) WITH NOWAIT;
@@ -958,7 +958,7 @@ IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg wri
                        'duration', 'avg duration', 'executions', 'avg executions',
                        'compiles', 'memory grant', 'avg memory grant', 'unused grant',
 					   'spills', 'avg spills', 'all', 'all avg', 'sp_BlitzIndex',
-					   'query hash')
+					   'query hash', 'duplicate')
   BEGIN
   RAISERROR(N'Invalid sort order chosen, reverting to cpu', 16, 1) WITH NOWAIT;
   SET @SortOrder = 'cpu';
@@ -1801,6 +1801,10 @@ FROM   (SELECT TOP (@Top) x.*, xpa.*,
                CROSS APPLY (SELECT * FROM sys.dm_exec_plan_attributes(x.plan_handle) AS ixpa 
                             WHERE ixpa.attribute = ''dbid'') AS xpa ' + @nl ;
 
+IF @SortOrder = 'duplicate'	/* Issue #3345 */
+    BEGIN
+    SET @body += N'     INNER JOIN #duplicate_query_filter AS dqf ON x.sql_handle = dqf.sql_handle AND x.plan_handle = dqf.plan_handle AND x.creation_time = dqf.duplicate_creation_time ' + @nl ;
+    END
 
 IF @VersionShowsAirQuoteActualPlans = 1
     BEGIN
@@ -1859,7 +1863,6 @@ BEGIN
 END;
 /* end filtering for query hashes */
 
-
 IF @DurationFilter IS NOT NULL
     BEGIN 
 	RAISERROR(N'Setting duration filter', 0, 1) WITH NOWAIT;
@@ -1895,6 +1898,7 @@ SELECT @body += N'        ORDER BY ' +
 								 WHEN N'memory grant' THEN N'max_grant_kb'
 								 WHEN N'unused grant' THEN N'max_grant_kb - max_used_grant_kb'
 								 WHEN N'spills' THEN N'max_spills'
+								 WHEN N'duplicate' THEN N'total_worker_time'	/* Issue #3345 */
                                  /* And now the averages */
                                  WHEN N'avg cpu' THEN N'total_worker_time / execution_count'
                                  WHEN N'avg reads' THEN N'total_logical_reads / execution_count'
@@ -1935,7 +1939,6 @@ IF @VersionShowsAirQuoteActualPlans = 1
     END
 
 SET @body_where += N'       AND pa.attribute = ' + QUOTENAME('dbid', @q ) + @nl ;
-
 
 IF @NoobSaibot = 1
 BEGIN
@@ -2245,7 +2248,7 @@ END;
 IF (@QueryFilter = 'all' 
    AND (SELECT COUNT(*) FROM #only_query_hashes) = 0 
    AND (SELECT COUNT(*) FROM #ignore_query_hashes) = 0) 
-   AND (@SortOrder NOT IN ('memory grant', 'avg memory grant', 'unused grant'))
+   AND (@SortOrder NOT IN ('memory grant', 'avg memory grant', 'unused grant', 'duplicate'))	/* Issue #3345 added 'duplicate' */
    OR (LEFT(@QueryFilter, 3) = 'pro')
 BEGIN
     SET @sql += @insert_list;
@@ -2266,7 +2269,7 @@ IF (@v >= 13
    AND @QueryFilter = 'all'
    AND (SELECT COUNT(*) FROM #only_query_hashes) = 0 
    AND (SELECT COUNT(*) FROM #ignore_query_hashes) = 0) 
-   AND (@SortOrder NOT IN ('memory grant', 'avg memory grant', 'unused grant'))
+   AND (@SortOrder NOT IN ('memory grant', 'avg memory grant', 'unused grant', 'duplicate'))	/* Issue #3345 added 'duplicate' */
    AND (@SortOrder NOT IN ('spills', 'avg spills'))
    OR (LEFT(@QueryFilter, 3) = 'fun')
 BEGIN
@@ -2309,7 +2312,7 @@ IF (@UseTriggersAnyway = 1 OR @v >= 11)
    AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
    AND (SELECT COUNT(*) FROM #ignore_query_hashes) = 0
    AND (@QueryFilter = 'all')
-   AND (@SortOrder NOT IN ('memory grant', 'avg memory grant', 'unused grant'))
+   AND (@SortOrder NOT IN ('memory grant', 'avg memory grant', 'unused grant', 'duplicate'))	/* Issue #3345 added 'duplicate' */
 BEGIN
    RAISERROR (N'Adding SQL to collect trigger stats.',0,1) WITH NOWAIT;
 
@@ -2341,6 +2344,7 @@ SELECT @sort = CASE @SortOrder  WHEN N'cpu' THEN N'total_worker_time'
 								WHEN N'memory grant' THEN N'max_grant_kb'
 								WHEN N'unused grant' THEN N'max_grant_kb - max_used_grant_kb'
 								WHEN N'spills' THEN N'max_spills'
+								WHEN N'duplicate' THEN N'total_worker_time'		/* Issue #3345 */
                                 /* And now the averages */
                                 WHEN N'avg cpu' THEN N'total_worker_time / execution_count'
                                 WHEN N'avg reads' THEN N'total_logical_reads / execution_count'
@@ -2402,6 +2406,7 @@ SELECT @sort = CASE @SortOrder  WHEN N'cpu' THEN N'TotalCPU'
 								WHEN N'memory grant' THEN N'MaxGrantKB'
 								WHEN N'unused grant' THEN N'MaxGrantKB - MaxUsedGrantKB'
 								WHEN N'spills' THEN N'MaxSpills'
+								WHEN N'duplicate' THEN N'TotalCPU'			/* Issue #3345 */
                                 /* And now the averages */
                                 WHEN N'avg cpu' THEN N'TotalCPU / ExecutionCount'
                                 WHEN N'avg reads' THEN N'TotalReads / ExecutionCount'
@@ -2420,6 +2425,7 @@ SELECT @sql = REPLACE(@sql, '#sortable#', @sort);
 
 IF @Debug = 1
     BEGIN
+		PRINT N'Printing dynamic SQL stored in @sql: ';
         PRINT SUBSTRING(@sql, 0, 4000);
         PRINT SUBSTRING(@sql, 4000, 8000);
         PRINT SUBSTRING(@sql, 8000, 12000);
@@ -4990,6 +4996,7 @@ BEGIN
 							  WHEN N'memory grant' THEN N' MaxGrantKB'
 							  WHEN N'unused grant' THEN N' MaxGrantKB - MaxUsedGrantKB'
 							  WHEN N'spills' THEN N' MaxSpills'
+							  WHEN N'duplicate' THEN N' plan_multiple_plans '	/* Issue #3345 */
                               WHEN N'avg cpu' THEN N' AverageCPU'
                               WHEN N'avg reads' THEN N' AverageReads'
                               WHEN N'avg writes' THEN N' AverageWrites'
@@ -5001,8 +5008,14 @@ BEGIN
 
     SET @sql += N' OPTION (RECOMPILE) ; ';
 
+	IF @sql IS NULL
+		BEGIN
+		RAISERROR('@sql is null, which means dynamic SQL generation went terribly wrong', 0, 1) WITH NOWAIT;
+		END
+
 	IF @Debug = 1
 	BEGIN
+		RAISERROR('Printing @sql, the dynamic SQL we generated:', 0, 1) WITH NOWAIT;
 	    PRINT SUBSTRING(@sql, 0, 4000);
 	    PRINT SUBSTRING(@sql, 4000, 8000);
 	    PRINT SUBSTRING(@sql, 8000, 12000);
@@ -5214,8 +5227,6 @@ BEGIN
 		[Remove SQL Handle From Cache]';
 END;
 
-
-
 SET @sql = N'
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 SELECT  TOP (@Top) ' + @columns + @nl + N'
@@ -5240,7 +5251,8 @@ SELECT @sql += N' ORDER BY ' + CASE @SortOrder WHEN  N'cpu' THEN N' TotalCPU '
                                                 WHEN N'compiles' THEN N' PlanCreationTime '
 												WHEN N'memory grant' THEN N' MaxGrantKB'
 												WHEN N'unused grant' THEN N' MaxGrantKB - MaxUsedGrantKB '
-												WHEN N'spills' THEN N' MaxSpills'
+                                                WHEN N'duplicate' THEN N' plan_multiple_plans '
+												WHEN N'spills' THEN N' MaxSpills '
                                                 WHEN N'avg cpu' THEN N' AverageCPU'
                                                 WHEN N'avg reads' THEN N' AverageReads'
                                                 WHEN N'avg writes' THEN N' AverageWrites'
