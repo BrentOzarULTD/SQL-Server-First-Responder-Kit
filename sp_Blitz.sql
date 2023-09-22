@@ -1109,17 +1109,17 @@ AS
 				least one of the relevant checks is not being skipped then we can extract the
 				dbinfo information.
 				*/
-				IF NOT EXISTS ( SELECT 1 
-							FROM #BlitzResults 
-							WHERE CheckID = 223 AND URL = 'https://aws.amazon.com/rds/sqlserver/')
-					AND (
-							NOT EXISTS ( SELECT  1
-								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 2 )
-							OR NOT EXISTS ( SELECT  1
-								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 68 )
-					)
+				IF NOT EXISTS
+				(
+					SELECT	1/0 
+					FROM	#BlitzResults 
+					WHERE CheckID = 223 AND URL = 'https://aws.amazon.com/rds/sqlserver/'
+				) AND NOT EXISTS
+				(
+					SELECT	1/0
+					FROM    #SkipChecks
+					WHERE   DatabaseName IS NULL AND CheckID IN (2, 68)
+				)
 					BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Extracting DBCC DBINFO data (used in checks 2 and 68).', 0, 1, 68) WITH NOWAIT;
