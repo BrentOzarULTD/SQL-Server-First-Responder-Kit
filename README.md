@@ -100,6 +100,8 @@ Advanced tips:
 
 In addition to the [parameters common to many of the stored procedures](#parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_Blitz:
 
+* @Debug default 0. When 1, we print out messages of what we're doing. When 2, we print the dynamic queries as well
+
 [*Back to top*](#header1)
 
 #### Writing sp_Blitz Output to a Table
