@@ -1443,18 +1443,8 @@ WITH total_plans AS
 (
     SELECT
 	    COUNT_BIG(*) AS single_use_plan_count
-    FROM sys.dm_exec_cached_plans AS cp
-    WHERE cp.usecounts = 1
-    AND   cp.objtype = N'Adhoc'
-    AND   EXISTS
-	      (
-		      SELECT
-			      1/0
-              FROM sys.configurations AS c
-              WHERE c.name = N'optimize for ad hoc workloads'
-              AND   c.value_in_use = 0
-		  )
-    HAVING COUNT_BIG(*) > 1
+    FROM sys.dm_exec_query_stats AS s
+    WHERE s.execution_count = 1
 )
 INSERT
     #plan_usage
