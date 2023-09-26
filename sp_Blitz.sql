@@ -265,7 +265,7 @@ AS
             END; /*We need this permission to execute trace stuff, apparently*/
 
 			IF ISNULL(@SkipXPRegRead, 0) != 1 /*If @SkipXPRegRead hasn't been set to 1 by the caller*/
-			BEGIN TRY
+			BEGIN
 				IF OBJECT_ID(N'tempdb..#XpRegReadTest') IS NULL
 				BEGIN
 					CREATE TABLE #XpRegReadTest
@@ -275,25 +275,28 @@ AS
 					);
 				END;
 
-				INSERT INTO #XpRegReadTest
-				(
-					[Value]
-					,[Data]
-				)
-				EXEC xp_regread @rootkey = N'HKEY_LOCAL_MACHINE',
-								@key = N'',
-								@value_name = N'';
-				
-				SET @SkipXPRegRead = 0; /*We can execute xp_regread*/
+				BEGIN TRY
+					INSERT INTO #XpRegReadTest
+					(
+						[Value]
+						,[Data]
+					)
+					EXEC xp_regread @rootkey = N'HKEY_LOCAL_MACHINE',
+									@key = N'',
+									@value_name = N'';
+
+					SET @SkipXPRegRead = 0; /*We can execute xp_regread*/
+				END TRY
+				BEGIN CATCH
+					SET @SkipXPRegRead = 1; /*We have don't have execute rights or xp_regread throws an error so skip it*/
+				END CATCH;
 				
 				IF OBJECT_ID(N'tempdb..#XpRegReadTest') IS NOT NULL
 				BEGIN
 					DROP TABLE #XpRegReadTest;
 				END;
-			END TRY
-			BEGIN CATCH
-				SET @SkipXPRegRead = 1; /*We have don't have execute rights or xp_regread throws an error so skip it*/
-			END CATCH; /*Need execute on xp_regread*/
+			END; /*Need execute on xp_regread*/
+
 
             IF NOT EXISTS
             (
