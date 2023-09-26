@@ -299,26 +299,33 @@ AS
 
 			IF ISNULL(@SkipValidateLogins, 0) != 1 /*If @SkipValidateLogins hasn't been set to 1 by the caller*/
 			BEGIN
-				IF EXISTS
-				(
-					SELECT	1/0
-					FROM	fn_my_permissions(N'sp_validatelogins', N'OBJECT') AS fmp
-					WHERE	fmp.permission_name = N'EXECUTE'
-				)
-				BEGIN
-					BEGIN TRY 
-						EXEC sp_validatelogins;
-                        
-						SET @SkipValidateLogins = 0 /*We can execute sp_validatelogins*/
-					END TRY
-					BEGIN CATCH
-						SET @SkipValidateLogins = 1 /*We have execute rights but sp_validatelogins throws an error so skip it*/
-					END CATCH
-				END;
-			END;
-			ELSE
-			BEGIN
-				SET @SkipValidateLogins = 1;
+			    IF OBJECT_ID(N'tempdb..#ValidateLoginsTest') IS NULL
+			    BEGIN
+			    	CREATE TABLE #ValidateLoginsTest
+			    	(
+			    		[SID] varbinary(85)
+			    		,[NT_Login] sysname
+			    	);
+			    END;
+			
+			    BEGIN TRY
+			        INSERT INTO #ValidateLoginsTest
+			    	(
+			    		[SID]
+			    		,[NT_Login]
+			    	)
+			    	EXEC sp_validatelogins;
+			
+			    	SET @SkipValidateLogins = 0 /*We can execute sp_validatelogins*/
+			    END TRY
+			    BEGIN CATCH
+			    	SET @SkipValidateLogins = 1 /*We have don't have execute rights or sp_validatelogins throws an error so skip it*/
+			    END CATCH;
+			
+			    IF OBJECT_ID(N'tempdb..#ValidateLoginsTest') IS NOT NULL
+			    BEGIN
+			    	DROP TABLE #ValidateLoginsTest;
+			    END;
 			END; /*Need execute on sp_validatelogins*/
             
 			IF ISNULL(@SkipModel, 0) != 1 /*If @SkipModel hasn't been set to 1 by the caller*/
