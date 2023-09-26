@@ -299,14 +299,14 @@ AS
 
 			IF ISNULL(@SkipValidateLogins, 0) != 1 /*If @SkipValidateLogins hasn't been set to 1 by the caller*/
 			BEGIN
-			    IF OBJECT_ID(N'tempdb..#ValidateLoginsTest') IS NULL
-			    BEGIN
-			    	CREATE TABLE #ValidateLoginsTest
-			    	(
-			    		[SID] varbinary(85)
-			    		,[NT_Login] sysname
-			    	);
-			    END;
+			    IF OBJECT_ID(N'tempdb..#ValidateLoginsTest') IS NOT NULL
+			    	EXEC sp_executesql N'DROP TABLE #ValidateLoginsTest;';
+				
+			    CREATE TABLE #ValidateLoginsTest
+			    (
+			    	[SID] varbinary(85)
+			    	,[NT_Login] sysname
+			    );
 			
 			    BEGIN TRY
 			        INSERT INTO #ValidateLoginsTest
@@ -316,16 +316,14 @@ AS
 			    	)
 			    	EXEC sp_validatelogins;
 			
-			    	SET @SkipValidateLogins = 0 /*We can execute sp_validatelogins*/
+			    	SET @SkipValidateLogins = 0; /*We can execute sp_validatelogins*/
 			    END TRY
 			    BEGIN CATCH
-			    	SET @SkipValidateLogins = 1 /*We have don't have execute rights or sp_validatelogins throws an error so skip it*/
+			    	SET @SkipValidateLogins = 1; /*We have don't have execute rights or sp_validatelogins throws an error so skip it*/
 			    END CATCH;
 			
 			    IF OBJECT_ID(N'tempdb..#ValidateLoginsTest') IS NOT NULL
-			    BEGIN
-			    	DROP TABLE #ValidateLoginsTest;
-			    END;
+			    	EXEC sp_executesql N'DROP TABLE #ValidateLoginsTest;';
 			END; /*Need execute on sp_validatelogins*/
             
 			IF ISNULL(@SkipModel, 0) != 1 /*If @SkipModel hasn't been set to 1 by the caller*/
