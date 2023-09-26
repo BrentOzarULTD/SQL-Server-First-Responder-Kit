@@ -264,16 +264,36 @@ AS
                 SET @SkipTrace = 1;
             END; /*We need this permission to execute trace stuff, apparently*/
 
-            IF NOT EXISTS
-            (
-                SELECT
-                    1/0
-                FROM fn_my_permissions(N'xp_regread', N'OBJECT') AS fmp
-                WHERE fmp.permission_name = N'EXECUTE'
-            )
-            BEGIN
-                SET @SkipXPRegRead = 1;
-            END; /*Need execute on xp_regread*/
+			IF ISNULL(@SkipXPRegRead, 0) != 1 /*If @SkipXPRegRead hasn't been set to 1 by the caller*/
+			BEGIN TRY
+				IF OBJECT_ID(N'tempdb..#XpRegReadTest') IS NULL
+				BEGIN
+					CREATE TABLE #XpRegReadTest
+					(
+						[Value] varchar(20)
+						,[Data] int
+					);
+				END;
+
+				INSERT INTO #XpRegReadTest
+				(
+					[Value]
+					,[Data]
+				)
+				EXEC xp_regread @rootkey = N'HKEY_LOCAL_MACHINE',
+								@key = N'',
+								@value_name = N'';
+				
+				SET @SkipXPRegRead = 0; /*We can execute xp_regread*/
+				
+				IF OBJECT_ID(N'tempdb..#XpRegReadTest') IS NOT NULL
+				BEGIN
+					DROP TABLE #XpRegReadTest;
+				END;
+			END TRY
+			BEGIN CATCH
+				SET @SkipXPRegRead = 1; /*We have don't have execute rights or xp_regread throws an error so skip it*/
+			END CATCH; /*Need execute on xp_regread*/
 
             IF NOT EXISTS
             (
