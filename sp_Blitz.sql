@@ -290,7 +290,7 @@ AS
 					                @value_name	= N'~MHz',
 					                @value		= @cpu_speed_mhz OUTPUT;
 
-					/* Convert the Megahertz to Gigaherth */
+					/* Convert the Megahertz to Gigahertz */
 					SET @cpu_speed_ghz = CAST(CAST(@cpu_speed_mhz AS decimal) / 1000 AS decimal(18,2));
 
 					SET @SkipXPRegRead = 0; /*We could execute xp_regread*/
