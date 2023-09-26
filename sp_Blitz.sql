@@ -266,14 +266,14 @@ AS
 
 			IF ISNULL(@SkipXPRegRead, 0) != 1 /*If @SkipXPRegRead hasn't been set to 1 by the caller*/
 			BEGIN
-				IF OBJECT_ID(N'tempdb..#XpRegReadTest') IS NULL
-				BEGIN
-					CREATE TABLE #XpRegReadTest
-					(
-						[Value] varchar(20)
-						,[Data] int
-					);
-				END;
+				IF OBJECT_ID(N'tempdb..#XpRegReadTest') IS NOT NULL
+					EXEC sp_executesql N'DROP TABLE #XpRegReadTest;';
+				
+				CREATE TABLE #XpRegReadTest
+				(
+					[Value] varchar(20)
+					,[Data] int
+				);
 
 				BEGIN TRY
 					INSERT INTO #XpRegReadTest
@@ -292,11 +292,8 @@ AS
 				END CATCH;
 				
 				IF OBJECT_ID(N'tempdb..#XpRegReadTest') IS NOT NULL
-				BEGIN
-					DROP TABLE #XpRegReadTest;
-				END;
+					EXEC sp_executesql N'DROP TABLE #XpRegReadTest;';
 			END; /*Need execute on xp_regread*/
-
 
             IF NOT EXISTS
             (
