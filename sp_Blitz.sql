@@ -38,7 +38,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.15', @VersionDate = '20230613';
+	SELECT @Version = '8.16', @VersionDate = '20230820';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -85,6 +85,7 @@ AS
 	@OutputType					''TABLE''=table | ''COUNT''=row with number found | ''MARKDOWN''=bulleted list (including server info, excluding security findings) | ''SCHEMA''=version and field list | ''XML'' =table output as XML | ''NONE'' = none
 	@IgnorePrioritiesBelow		50=ignore priorities below 50
 	@IgnorePrioritiesAbove		50=ignore priorities above 50
+	@Debug						0=silent (Default) | 1=messages per step | 2=outputs dynamic queries
 	For the rest of the parameters, see https://www.BrentOzar.com/blitz/documentation for details.
 
     MIT License
@@ -219,7 +220,7 @@ AS
                 fmp.permission_name
             FROM sys.databases AS d
             CROSS APPLY fn_my_permissions(d.name, 'DATABASE') AS fmp
-            WHERE fmp.permission_name = N'SELECT' /*Databases where we don't have read permissions*/
+            WHERE fmp.permission_name = N'SELECT'; /*Databases where we don't have read permissions*/
             
             /* End of declarations for First Responder Kit consistency check:*/
         ;
@@ -306,7 +307,35 @@ AS
             BEGIN
                 SET @SkipValidateLogins = 1;
             END; /*Need execute on sp_validatelogins*/
-
+            
+			IF ISNULL(@SkipModel, 0) != 1 /*If @SkipModel hasn't been set to 1 by the caller*/
+			BEGIN
+				IF EXISTS
+            	(
+            	    SELECT 1/0
+            	    FROM @db_perms
+            	    WHERE database_name = N'model'
+            	)
+            	BEGIN
+            	    BEGIN TRY
+            	        IF EXISTS
+            	        (
+            	            SELECT 1/0
+            	            FROM model.sys.objects
+            	        )
+            	        BEGIN
+                            SET @SkipModel = 0; /*We have read permissions in the model database, and can view the objects*/
+            	        END;
+            	    END TRY
+            	    BEGIN CATCH
+            	        SET @SkipModel = 1; /*We have read permissions in the model database ... oh wait we got tricked, we can't view the objects*/
+            	    END CATCH;
+            	END;
+            	ELSE
+            	BEGIN
+            	    SET @SkipModel = 1; /*We don't have read permissions in the model database*/
+            	END;
+			END;
 		END;
 
 		SET @crlf = NCHAR(13) + NCHAR(10);
@@ -467,11 +496,11 @@ AS
 		);
 
 		/*Skip individial checks where we don't have permissions*/
-		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
-		SELECT
-		    v.*
-		FROM (VALUES(NULL, 29, NULL)) AS v (DatabaseName, CheckID, ServerName) /*Looks for user tables in model*/
-		WHERE NOT EXISTS (SELECT 1/0 FROM @db_perms AS dp WHERE dp.database_name = 'model');
+        INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
+        SELECT
+            v.*
+        FROM (VALUES(NULL, 29, NULL)) AS v (DatabaseName, CheckID, ServerName) /*Looks for user tables in model*/
+        WHERE @SkipModel = 1;
 
 		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
 		SELECT
@@ -490,6 +519,12 @@ AS
 		    v.*
 		FROM (VALUES(NULL, 92, NULL)) AS v (DatabaseName, CheckID, ServerName) /*xp_fixeddrives*/
 		WHERE @SkipXPFixedDrives = 1;
+
+		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
+		SELECT
+		    v.*
+		FROM (VALUES(NULL, 106, NULL)) AS v (DatabaseName, CheckID, ServerName) /*alter trace*/
+		WHERE @SkipTrace = 1;
 
 		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
 		SELECT

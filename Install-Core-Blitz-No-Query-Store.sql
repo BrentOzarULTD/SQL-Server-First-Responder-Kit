@@ -38,7 +38,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.15', @VersionDate = '20230613';
+	SELECT @Version = '8.16', @VersionDate = '20230820';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -186,10 +186,128 @@ AS
             ,@CurrentComponentVersionCheckModeOK     BIT
             ,@canExitLoop                            BIT
             ,@frkIsConsistent                        BIT
-			,@NeedToTurnNumericRoundabortBackOn      BIT;
+			,@NeedToTurnNumericRoundabortBackOn      BIT
+			,@sa bit = 1
+			,@SUSER_NAME sysname = SUSER_SNAME()
+			,@SkipDBCC bit = 0
+			,@SkipTrace bit = 0
+			,@SkipXPRegRead bit = 0
+			,@SkipXPFixedDrives bit = 0
+			,@SkipXPCMDShell bit = 0
+			,@SkipMaster bit = 0
+			,@SkipMSDB bit = 0
+			,@SkipModel bit = 0
+			,@SkipTempDB bit = 0
+			,@SkipValidateLogins bit = 0;
+
+			DECLARE
+			    @db_perms table
+            (
+			    database_name sysname,
+				permission_name sysname
+			);
+
+			INSERT
+			    @db_perms
+			(
+			    database_name,
+			    permission_name
+			)
+            SELECT
+                database_name =
+				    DB_NAME(d.database_id),
+                fmp.permission_name
+            FROM sys.databases AS d
+            CROSS APPLY fn_my_permissions(d.name, 'DATABASE') AS fmp
+            WHERE fmp.permission_name = N'SELECT' /*Databases where we don't have read permissions*/
             
             /* End of declarations for First Responder Kit consistency check:*/
         ;
+
+		/*Starting permissions checks here, but only if we're not a sysadmin*/
+		IF
+        (
+            SELECT 
+                sa = 
+                    ISNULL
+                    (
+                        IS_SRVROLEMEMBER(N'sysadmin'), 
+                        0
+                    )
+        ) = 0
+        BEGIN
+			IF @Debug IN (1, 2) RAISERROR('User not SA, checking permissions', 0, 1) WITH NOWAIT;
+		    
+			SET @sa = 0; /*Setting this to 0 to skip DBCC COMMANDS*/
+
+		    IF NOT EXISTS
+		    (
+		        SELECT 
+                    1/0 
+                FROM sys.fn_my_permissions(NULL, NULL) AS fmp 
+                WHERE fmp.permission_name = N'VIEW SERVER STATE'
+		    )
+			BEGIN
+			    RAISERROR('The user %s does not have VIEW SERVER STATE permissions.', 0, 11, @SUSER_NAME) WITH NOWAIT;
+				RETURN;
+			END; /*If we don't have this, we can't do anything at all.*/
+
+            IF NOT EXISTS
+            (
+                SELECT
+                    1/0
+                FROM fn_my_permissions(N'sys.traces', N'OBJECT') AS fmp
+                WHERE fmp.permission_name = N'ALTER'
+            )
+            BEGIN
+                SET @SkipTrace = 1;
+            END; /*We need this permission to execute trace stuff, apparently*/
+
+            IF NOT EXISTS
+            (
+                SELECT
+                    1/0
+                FROM fn_my_permissions(N'xp_regread', N'OBJECT') AS fmp
+                WHERE fmp.permission_name = N'EXECUTE'
+            )
+            BEGIN
+                SET @SkipXPRegRead = 1;
+            END; /*Need execute on xp_regread*/
+
+            IF NOT EXISTS
+            (
+                SELECT
+                    1/0
+                FROM fn_my_permissions(N'xp_fixeddrives', N'OBJECT') AS fmp
+                WHERE fmp.permission_name = N'EXECUTE'
+            )
+            BEGIN
+                SET @SkipXPFixedDrives = 1;
+            END; /*Need execute on xp_fixeddrives*/
+
+            IF NOT EXISTS
+            (
+                SELECT
+                    1/0
+                FROM fn_my_permissions(N'xp_cmdshell', N'OBJECT') AS fmp
+                WHERE fmp.permission_name = N'EXECUTE'
+            )
+            BEGIN
+                SET @SkipXPCMDShell = 1;
+            END; /*Need execute on xp_cmdshell*/
+
+            IF NOT EXISTS
+            (
+                SELECT
+                    1/0
+                FROM fn_my_permissions(N'sp_validatelogins', N'OBJECT') AS fmp
+                WHERE fmp.permission_name = N'EXECUTE'
+            )
+            BEGIN
+                SET @SkipValidateLogins = 1;
+            END; /*Need execute on sp_validatelogins*/
+
+		END;
 
 		SET @crlf = NCHAR(13) + NCHAR(10);
 		SET @ResultText = 'sp_Blitz Results: ' + @crlf;
@@ -331,6 +449,66 @@ AS
 		         OR LOWER(d.name) IN ('dbatools', 'dbadmin', 'dbmaintenance'))
 		OPTION(RECOMPILE);
 
+		/*Skip checks for database where we don't have read permissions*/
+		INSERT INTO
+		    #SkipChecks
+		(
+		    DatabaseName
+		)
+		SELECT
+		    DB_NAME(d.database_id)
+		FROM sys.databases AS d
+		WHERE NOT EXISTS
+		(
+		    SELECT
+			    1/0
+			FROM @db_perms AS dp
+			WHERE dp.database_name = DB_NAME(d.database_id)
+		);
+
+		/*Skip individial checks where we don't have permissions*/
+		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
+		SELECT
+		    v.*
+		FROM (VALUES(NULL, 29, NULL)) AS v (DatabaseName, CheckID, ServerName) /*Looks for user tables in model*/
+		WHERE NOT EXISTS (SELECT 1/0 FROM @db_perms AS dp WHERE dp.database_name = 'model');
+
+		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
+		SELECT
+		    v.*
+		FROM (VALUES(NULL, 68, NULL)) AS v (DatabaseName, CheckID, ServerName) /*DBCC command*/
+		WHERE @sa = 0;
+
+		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
+		SELECT
+		    v.*
+		FROM (VALUES(NULL, 69, NULL)) AS v (DatabaseName, CheckID, ServerName) /*DBCC command*/
+		WHERE @sa = 0;
+
+		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
+		SELECT
+		    v.*
+		FROM (VALUES(NULL, 92, NULL)) AS v (DatabaseName, CheckID, ServerName) /*xp_fixeddrives*/
+		WHERE @SkipXPFixedDrives = 1;
+
+		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
+		SELECT
+		    v.*
+		FROM (VALUES(NULL, 211, NULL)) AS v (DatabaseName, CheckID, ServerName) /*xp_regread*/
+		WHERE @SkipXPRegRead = 1;
+
+		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
+		SELECT
+		    v.*
+		FROM (VALUES(NULL, 212, NULL)) AS v (DatabaseName, CheckID, ServerName) /*xp_regread*/
+		WHERE @SkipXPCMDShell = 1;
+
+		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
+		SELECT
+		    v.*
+		FROM (VALUES(NULL, 2301, NULL))	AS v (DatabaseName, CheckID, ServerName) /*sp_validatelogins*/
+		WHERE @SkipValidateLogins = 1
+
         IF(OBJECT_ID('tempdb..#InvalidLogins') IS NOT NULL)
         BEGIN
             EXEC sp_executesql N'DROP TABLE #InvalidLogins;';
@@ -372,7 +550,8 @@ AS
 				SELECT @IsWindowsOperatingSystem = 1 ;
 			END;
 
-		IF NOT EXISTS ( SELECT  1
+
+			IF NOT EXISTS ( SELECT  1
 							FROM    #SkipChecks
 							WHERE   DatabaseName IS NULL AND CheckID = 106 )
 							AND (select convert(int,value_in_use) from sys.configurations where name = 'default trace enabled' ) = 1
@@ -4158,53 +4337,56 @@ AS
 
 						/* First, let's check that there aren't any issues with the trace files */
 						BEGIN TRY
-						
-						INSERT INTO #fnTraceGettable
-							(	TextData ,
-								DatabaseName ,
-								EventClass ,
-								Severity ,
-								StartTime ,
-								EndTime ,
-								Duration ,
-								NTUserName ,
-								NTDomainName ,
-								HostName ,
-								ApplicationName ,
-								LoginName ,
-								DBUserName
-							)
-							SELECT TOP 20000
-								CONVERT(NVARCHAR(4000),t.TextData) ,
-								t.DatabaseName ,
-								t.EventClass ,
-								t.Severity ,
-								t.StartTime ,
-								t.EndTime ,
-								t.Duration ,
-								t.NTUserName ,
-								t.NTDomainName ,
-								t.HostName ,
-								t.ApplicationName ,
-								t.LoginName ,
-								t.DBUserName
-							FROM sys.fn_trace_gettable(@base_tracefilename, DEFAULT) t
-							WHERE
-							(
-								t.EventClass = 22
-								AND t.Severity >= 17
-								AND t.StartTime > DATEADD(dd, -30, GETDATE())
-							)
-							OR
-							(
-							    t.EventClass IN (92, 93)
-                                AND t.StartTime > DATEADD(dd, -30, GETDATE())
-                                AND t.Duration > 15000000
-							)
-							OR
-							(
-								t.EventClass IN (94, 95, 116)
-							)
+
+						IF @SkipTrace = 0
+						BEGIN
+						    INSERT INTO #fnTraceGettable
+						    	(	TextData ,
+						    		DatabaseName ,
+						    		EventClass ,
+						    		Severity ,
+						    		StartTime ,
+						    		EndTime ,
+						    		Duration ,
+						    		NTUserName ,
+						    		NTDomainName ,
+						    		HostName ,
+						    		ApplicationName ,
+						    		LoginName ,
+						    		DBUserName
+						    	)
+						    	SELECT TOP 20000
+						    		CONVERT(NVARCHAR(4000),t.TextData) ,
+						    		t.DatabaseName ,
+						    		t.EventClass ,
+						    		t.Severity ,
+						    		t.StartTime ,
+						    		t.EndTime ,
+						    		t.Duration ,
+						    		t.NTUserName ,
+						    		t.NTDomainName ,
+						    		t.HostName ,
+						    		t.ApplicationName ,
+						    		t.LoginName ,
+						    		t.DBUserName
+						    	FROM sys.fn_trace_gettable(@base_tracefilename, DEFAULT) t
+						    	WHERE
+						    	(
+						    		t.EventClass = 22
+						    		AND t.Severity >= 17
+						    		AND t.StartTime > DATEADD(dd, -30, GETDATE())
+						    	)
+						    	OR
+						    	(
+						    	    t.EventClass IN (92, 93)
+                                    AND t.StartTime > DATEADD(dd, -30, GETDATE())
+                                    AND t.Duration > 15000000
+						    	)
+						    	OR
+						    	(
+						    		t.EventClass IN (94, 95, 116)
+						    	)
+							END;
 
 							SET @TraceFileIssue = 0
 
@@ -6579,10 +6761,10 @@ IF @ProductVersionMajor >= 10
 																        DatabaseName
 													          FROM      #SkipChecks
 													          WHERE CheckID IS NULL OR CheckID = 19)
-										        AND is_published = 1
+										        AND (is_published = 1
 										        OR is_subscribed = 1
 										        OR is_merge_published = 1
-										        OR is_distributor = 1;
+										        OR is_distributor = 1);
 
 						        /* Method B: check subscribers for MSreplication_objects tables */
 						        EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
@@ -9737,7 +9919,7 @@ AS
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
-SELECT @Version = '8.15', @VersionDate = '20230613';
+SELECT @Version = '8.16', @VersionDate = '20230820';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -10615,7 +10797,7 @@ AS
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.15', @VersionDate = '20230613';
+	SELECT @Version = '8.16', @VersionDate = '20230820';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -12397,7 +12579,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.15', @VersionDate = '20230613';
+SELECT @Version = '8.16', @VersionDate = '20230820';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -13695,6 +13877,7 @@ BEGIN
 	RAISERROR('Checking for Read intent databases to exclude',0,0) WITH NOWAIT;
 
     EXEC('INSERT INTO #ReadableDBs (database_id) SELECT DBs.database_id FROM sys.databases DBs INNER JOIN sys.availability_replicas Replicas ON DBs.replica_id = Replicas.replica_id WHERE replica_server_name NOT IN (SELECT DISTINCT primary_replica FROM sys.dm_hadr_availability_group_states States) AND Replicas.secondary_role_allow_connections_desc = ''READ_ONLY'' AND replica_server_name = @@SERVERNAME OPTION (RECOMPILE);');
+    EXEC('INSERT INTO #ReadableDBs VALUES (32767) ;');		-- Exclude internal resource database as well
 END
 
 RAISERROR(N'Checking plan cache age', 0, 1) WITH NOWAIT;
@@ -13731,10 +13914,10 @@ WITH total_plans AS
         SELECT
 		    COUNT_BIG(qs.query_plan_hash) AS duplicate_plan_hashes
         FROM sys.dm_exec_query_stats qs
-        LEFT JOIN sys.dm_exec_procedure_stats ps 
-            ON qs.sql_handle = ps.sql_handle
+        LEFT JOIN sys.dm_exec_procedure_stats ps ON qs.plan_handle = ps.plan_handle
         CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) pa
         WHERE pa.attribute = N'dbid'
+		AND   pa.value <> 32767 /*Omit Resource database-based queries, we're not going to "fix" them no matter what. Addresses #3314*/
         AND   qs.query_plan_hash <> 0x0000000000000000
         GROUP BY
 		    /* qs.query_plan_hash,  BGO 20210524 commenting this out to fix #2909 */
@@ -14439,7 +14622,7 @@ BEGIN
            max_grant_kb AS MaxGrantKB,
            min_used_grant_kb AS MinUsedGrantKB,
            max_used_grant_kb AS MaxUsedGrantKB,
-           CAST(ISNULL(NULLIF(( max_used_grant_kb * 1.00 ), 0) / NULLIF(min_grant_kb, 0), 0) * 100. AS MONEY) AS PercentMemoryGrantUsed,
+           CAST(ISNULL(NULLIF(( total_used_grant_kb * 1.00 ), 0) / NULLIF(total_grant_kb, 0), 0) * 100. AS MONEY) AS PercentMemoryGrantUsed,
 		   CAST(ISNULL(NULLIF(( total_grant_kb * 1. ), 0) / NULLIF(execution_count, 0), 0) AS MONEY) AS AvgMaxMemoryGrant, ';
     END;
     ELSE
@@ -19715,7 +19898,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.15', @VersionDate = '20230613';
+SELECT @Version = '8.16', @VersionDate = '20230820';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -22625,7 +22808,8 @@ BEGIN
 				+ CASE WHEN @ShowPartitionRanges = 1 THEN N' COALESCE(range_start_op + '' '' + range_start + '' '', '''') + COALESCE(range_end_op + '' '' + range_end, '''') AS partition_range, ' ELSE N' ' END
 				+ N' row_group_id, total_rows, deleted_rows, ' 
 				+ @ColumnList
-				+ CASE WHEN @ShowPartitionRanges = 1 THEN N'
+				+ CASE WHEN @ShowPartitionRanges = 1 THEN N' ,
+                    state_desc, trim_reason_desc, transition_to_compressed_state_desc, has_vertipaq_optimization
 				FROM (
 					SELECT column_name, partition_number, row_group_id, total_rows, deleted_rows, details,
 						range_start_op,
@@ -22635,10 +22819,12 @@ BEGIN
 						range_end_op,
 						CASE
 							WHEN format_type IS NULL THEN CAST(range_end_value AS NVARCHAR(4000))
-							ELSE CONVERT(NVARCHAR(4000), range_end_value, format_type) END range_end' ELSE N' ' END + N'
+							ELSE CONVERT(NVARCHAR(4000), range_end_value, format_type) END range_end' ELSE N' ' END + N',
+                        state_desc, trim_reason_desc, transition_to_compressed_state_desc, has_vertipaq_optimization
 					FROM (
 						SELECT c.name AS column_name, p.partition_number, rg.row_group_id, rg.total_rows, rg.deleted_rows,
-							details = CAST(seg.min_data_id AS VARCHAR(20)) + '' to '' + CAST(seg.max_data_id AS VARCHAR(20)) + '', '' + CAST(CAST((seg.on_disk_size / 1024.0 / 1024) AS DECIMAL(18,0)) AS VARCHAR(20)) + '' MB''' 
+                            phys.state_desc, phys.trim_reason_desc, phys.transition_to_compressed_state_desc, phys.has_vertipaq_optimization,
+							details = CAST(seg.min_data_id AS VARCHAR(20)) + '' to '' + CAST(seg.max_data_id AS VARCHAR(20)) + '', '' + CAST(CAST(((COALESCE(d.on_disk_size,0) + COALESCE(seg.on_disk_size,0)) / 1024.0 / 1024) AS DECIMAL(18,0)) AS VARCHAR(20)) + '' MB''' 
 							+ CASE WHEN @ShowPartitionRanges = 1 THEN N',
 							CASE
 								WHEN pp.system_type_id IN (40, 41, 42, 43, 58, 61) THEN 126
@@ -22652,7 +22838,8 @@ BEGIN
 						FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_row_groups rg 
 						INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c ON rg.object_id = c.object_id
 						INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partitions p ON rg.object_id = p.object_id AND rg.partition_number = p.partition_number
-						INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns ic on ic.column_id = c.column_id AND ic.object_id = c.object_id AND ic.index_id = p.index_id ' + CASE WHEN @ShowPartitionRanges = 1 THEN N' 
+						INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns ic on ic.column_id = c.column_id AND ic.object_id = c.object_id AND ic.index_id = p.index_id 
+                        LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_column_store_row_group_physical_stats phys ON rg.row_group_id = phys.row_group_id AND rg.object_id = phys.object_id AND rg.partition_number = phys.partition_number AND p.index_id = phys.index_id ' + CASE WHEN @ShowPartitionRanges = 1 THEN N' 
 						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.indexes i ON i.object_id = rg.object_id AND i.index_id = rg.index_id
 						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partition_schemes ps ON ps.data_space_id = i.data_space_id
 						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partition_functions pf ON pf.function_id = ps.function_id
@@ -22660,6 +22847,7 @@ BEGIN
 						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partition_range_values prvs ON prvs.function_id = pf.function_id AND prvs.boundary_id = p.partition_number - 1
 						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partition_range_values prve ON prve.function_id = pf.function_id AND prve.boundary_id = p.partition_number ' ELSE N' ' END 
 						+ N' LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_segments seg ON p.partition_id = seg.partition_id AND ic.index_column_id = seg.column_id AND rg.row_group_id = seg.segment_id
+                        LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_dictionaries d ON p.hobt_id = d.hobt_id AND c.column_id = d.column_id AND seg.secondary_dictionary_id = d.dictionary_id
 						WHERE rg.object_id = @ObjectID
 						AND rg.state IN (1, 2, 3)
 						AND c.name IN ( ' + @ColumnListWithApostrophes + N')' 
@@ -22696,6 +22884,9 @@ BEGIN
 		END
         RAISERROR(N'Done visualizing columnstore index contents.', 0,1) WITH NOWAIT;
     END
+
+    IF @ShowColumnstoreOnly = 1
+        RETURN;
 
 END; /* IF @TableName IS NOT NULL */
 
@@ -25892,7 +26083,7 @@ BEGIN
     SET NOCOUNT, XACT_ABORT ON;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-    SELECT @Version = '8.15', @VersionDate = '20230613';
+    SELECT @Version = '8.16', @VersionDate = '20230820';
 
     IF @VersionCheckMode = 1
     BEGIN
@@ -26036,7 +26227,11 @@ BEGIN
         @TargetSessionId int = 0,
         @FileName nvarchar(4000) = N'',
         @inputbuf_bom nvarchar(1) = CONVERT(nvarchar(1), 0x0a00, 0),
-        @deadlock_result nvarchar(MAX) = N'';
+        @deadlock_result nvarchar(MAX) = N'',
+        @StartDateOriginal datetime = @StartDate,
+        @EndDateOriginal datetime = @EndDate,
+        @StartDateUTC datetime,
+        @EndDateUTC datetime;
 
     /*Temporary objects used in the procedure*/
     DECLARE
@@ -26076,15 +26271,17 @@ BEGIN
         database_name nvarchar(256),
         object_name nvarchar(1000),
         finding_group nvarchar(100),
-        finding nvarchar(4000)
+        finding nvarchar(4000),
+        sort_order bigint
     );
 
     /*Set these to some sane defaults if NULLs are passed in*/
     /*Normally I'd hate this, but we RECOMPILE everything*/
+
     SELECT
         @StartDate =
-        CASE
-            WHEN @StartDate IS NULL
+            CASE
+                WHEN @StartDate IS NULL
                 THEN
                     DATEADD
                     (
@@ -26095,18 +26292,25 @@ BEGIN
                             SYSDATETIME(),
                             GETUTCDATE()
                         ),
-                        ISNULL
+                        DATEADD
                         (
-                            @StartDate,
-                            DATEADD
-                            (
-                                DAY,
-                                -7,
-                                SYSDATETIME()
-                            )
+                            DAY,
+                            -7,
+                            SYSDATETIME()
                         )
                     )
-                ELSE @StartDate
+                ELSE
+                    DATEADD
+                    (
+                        MINUTE,
+                        DATEDIFF
+                        (
+                            MINUTE,
+                            SYSDATETIME(),
+                            GETUTCDATE()
+                        ),
+                        @StartDate
+                    )
             END,
         @EndDate =
             CASE
@@ -26121,14 +26325,61 @@ BEGIN
                             SYSDATETIME(),
                             GETUTCDATE()
                         ),
-                        ISNULL
-                        (
-                            @EndDate,
-                            SYSDATETIME()
-                        )
+                        SYSDATETIME()
                     )
-                ELSE @EndDate
+                ELSE
+                    DATEADD
+                    (
+                        MINUTE,
+                        DATEDIFF
+                        (
+                            MINUTE,
+                            SYSDATETIME(),
+                            GETUTCDATE()
+                        ),
+                        @EndDate
+                    )
             END;
+
+    SELECT
+        @StartDateUTC = @StartDate,
+        @EndDateUTC = @EndDate;
+
+    IF @Azure = 0
+    BEGIN
+        IF NOT EXISTS
+        (
+            SELECT
+                1/0
+            FROM sys.server_event_sessions AS ses
+            JOIN sys.dm_xe_sessions AS dxs
+              ON dxs.name = ses.name
+            WHERE ses.name = @EventSessionName
+            AND   dxs.create_time IS NOT NULL
+        )
+        BEGIN
+            RAISERROR('A session with the name %s does not exist or is not currently active.', 11, 1, @EventSessionName) WITH NOWAIT;
+            RETURN;
+        END;
+    END;
+   
+    IF @Azure = 1
+    BEGIN
+        IF NOT EXISTS
+        (
+            SELECT
+                1/0
+            FROM sys.database_event_sessions AS ses
+            JOIN sys.dm_xe_database_sessions AS dxs
+              ON dxs.name = ses.name
+            WHERE ses.name = @EventSessionName
+            AND   dxs.create_time IS NOT NULL
+        )
+        BEGIN
+            RAISERROR('A session with the name %s does not exist or is not currently active.', 11, 1, @EventSessionName) WITH NOWAIT;
+            RETURN;
+        END;
+    END;
 
     IF @OutputDatabaseName IS NOT NULL
     BEGIN /*IF databaseName is set, do some sanity checks and put [] around def.*/
@@ -26712,8 +26963,7 @@ BEGIN
            OR e.x.exist('@name[ .= "database_xml_deadlock_report"]') = 1
            OR e.x.exist('@name[ .= "xml_deadlock_report_filtered"]') = 1
           )
-        AND   e.x.exist('@timestamp[. >= sql:variable("@StartDate")]') = 1
-        AND   e.x.exist('@timestamp[. <  sql:variable("@EndDate")]') = 1
+        AND   e.x.exist('@timestamp[. >= sql:variable("@StartDate") and .< sql:variable("@EndDate")]') = 1
         OPTION(RECOMPILE);
 
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
@@ -26730,9 +26980,9 @@ BEGIN
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
         RAISERROR('Inserting to #deadlock_data for event file data', 0, 1) WITH NOWAIT;
 
-		IF @Debug = 1 BEGIN SET STATISTICS XML ON; END;
+        IF @Debug = 1 BEGIN SET STATISTICS XML ON; END;
 
-		INSERT
+        INSERT
             #deadlock_data WITH(TABLOCKX)
         (
             deadlock_xml
@@ -26750,13 +27000,12 @@ BEGIN
            OR e.x.exist('@name[ .= "database_xml_deadlock_report"]') = 1
            OR e.x.exist('@name[ .= "xml_deadlock_report_filtered"]') = 1
           )
-        AND   e.x.exist('@timestamp[. >= sql:variable("@StartDate")]') = 1
-        AND   e.x.exist('@timestamp[. <  sql:variable("@EndDate")]') = 1
+        AND   e.x.exist('@timestamp[. >= sql:variable("@StartDate") and .< sql:variable("@EndDate")]') = 1
         OPTION(RECOMPILE);
 
-		IF @Debug = 1 BEGIN SET STATISTICS XML OFF; END;
+        IF @Debug = 1 BEGIN SET STATISTICS XML OFF; END;
 
-		SET @d = CONVERT(varchar(40), GETDATE(), 109);
+        SET @d = CONVERT(varchar(40), GETDATE(), 109);
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
     END;
 
@@ -26787,8 +27036,7 @@ BEGIN
         ) AS xml
         CROSS APPLY xml.deadlock_xml.nodes('/event') AS e(x)
         WHERE 1 = 1
-        AND   e.x.exist('@timestamp[. >= sql:variable("@StartDate")]') = 1
-        AND   e.x.exist('@timestamp[. <  sql:variable("@EndDate")]') = 1
+        AND   e.x.exist('@timestamp[. >= sql:variable("@StartDate") and .< sql:variable("@EndDate")]') = 1
         OPTION(RECOMPILE);
 
         INSERT
@@ -26915,7 +27163,12 @@ BEGIN
                     DATEADD
                     (
                         MINUTE,
-                        DATEDIFF(MINUTE, GETUTCDATE(), SYSDATETIME()),
+                        DATEDIFF
+                        (
+                            MINUTE,
+                            GETUTCDATE(),
+                            SYSDATETIME()
+                        ),
                         dd.event_date
                     ),
                 dd.victim_id,
@@ -26973,6 +27226,7 @@ BEGIN
         FROM #deadlock_process AS dp
         CROSS APPLY dp.process_xml.nodes('//executionStack/frame') AS ca(dp)
         WHERE (ca.dp.exist('@procname[. = sql:variable("@StoredProcName")]') = 1 OR @StoredProcName IS NULL)
+        AND    ca.dp.exist('@sqlhandle[ .= "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"]') = 0
         OPTION(RECOMPILE);
 
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
@@ -27045,7 +27299,7 @@ BEGIN
             waiter_mode = w.l.value('@mode', 'nvarchar(256)'),
             owner_id = o.l.value('@id', 'nvarchar(256)'),
             owner_mode = o.l.value('@mode', 'nvarchar(256)'),
-            lock_type = CAST(N'OBJECT' AS NVARCHAR(100))
+            lock_type = CAST(N'OBJECT' AS nvarchar(100))
         INTO #deadlock_owner_waiter
         FROM
         (
@@ -27441,13 +27695,19 @@ BEGIN
                         32
                     ),
                 step_id =
-                    SUBSTRING
-                    (
-                        dp.client_app,
-                        CHARINDEX(N': Step ', dp.client_app) + LEN(N': Step '),
-                        CHARINDEX(N')', dp.client_app, CHARINDEX(N': Step ', dp.client_app)) -
-                          (CHARINDEX(N': Step ', dp.client_app) + LEN(N': Step '))
-                    )
+                    CASE
+                        WHEN CHARINDEX(N': Step ', dp.client_app) > 0
+                        AND  CHARINDEX(N')', dp.client_app, CHARINDEX(N': Step ', dp.client_app)) > 0
+                        THEN
+                            SUBSTRING
+                            (
+                                dp.client_app,
+                                CHARINDEX(N': Step ', dp.client_app) + LEN(N': Step '),
+                                CHARINDEX(N')', dp.client_app, CHARINDEX(N': Step ', dp.client_app)) -
+                                  (CHARINDEX(N': Step ', dp.client_app) + LEN(N': Step '))
+                            )
+                        ELSE dp.client_app
+                    END
             FROM #deadlock_process AS dp
             WHERE dp.client_app LIKE N'SQLAgent - %'
             AND   dp.client_app <> N'SQLAgent - Initial Boot Probe'
@@ -27597,6 +27857,14 @@ BEGIN
 
         /*Begin checks based on parsed values*/
 
+        /*
+        First, revert these back since we already converted the event data to local time,
+        and searches will break if we use the times converted over to UTC for the event data
+        */
+        SELECT
+            @StartDate = @StartDateOriginal,
+            @EndDate = @EndDateOriginal;
+
         /*Check 1 is deadlocks by database*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
         RAISERROR('Check 1  database deadlocks %s', 0, 1, @d) WITH NOWAIT;
@@ -27608,7 +27876,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+            sort_order
         )
         SELECT
             check_id = 1,
@@ -27622,7 +27891,10 @@ BEGIN
                     nvarchar(20),
                     COUNT_BIG(DISTINCT dp.event_date)
                 ) +
-                N' deadlocks.'
+                N' deadlocks.',
+            sort_order =    
+                ROW_NUMBER()
+                OVER (ORDER BY COUNT_BIG(DISTINCT dp.event_date) DESC)
         FROM #deadlock_process AS dp
         WHERE 1 = 1
         AND (dp.database_name = @DatabaseName OR @DatabaseName IS NULL)
@@ -27647,7 +27919,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+            sort_order
         )
         SELECT
             check_id = 2,
@@ -27662,7 +27935,10 @@ BEGIN
                     nvarchar(20),
                     COUNT_BIG(DISTINCT dow.event_date)
                 ) +
-                N' deadlock(s) between read queries and modification queries.'
+                N' deadlock(s) between read queries and modification queries.',
+            sort_order =    
+                ROW_NUMBER()
+                OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
         FROM #deadlock_owner_waiter AS dow
         WHERE 1 = 1
         AND dow.lock_mode IN
@@ -27701,7 +27977,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+            sort_order
         )
         SELECT
             check_id = 3,
@@ -27720,7 +27997,10 @@ BEGIN
                     nvarchar(20),
                     COUNT_BIG(DISTINCT dow.event_date)
                 ) +
-                N' deadlock(s).'
+                N' deadlock(s).',
+            sort_order =    
+                ROW_NUMBER()
+                OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
         FROM #deadlock_owner_waiter AS dow
         WHERE 1 = 1
         AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
@@ -27745,7 +28025,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+            sort_order
         )
         SELECT
             check_id = 3,
@@ -27759,7 +28040,10 @@ BEGIN
                     nvarchar(20),
                     COUNT_BIG(DISTINCT dow.event_date)
                 ) +
-                N' deadlock(s).'
+                N' deadlock(s).',
+            sort_order =    
+                ROW_NUMBER()
+                OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
         FROM #deadlock_owner_waiter AS dow
         WHERE 1 = 1
         AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
@@ -27790,7 +28074,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+            sort_order
         )
         SELECT
             check_id = 3,
@@ -27804,7 +28089,10 @@ BEGIN
                     nvarchar(20),
                     COUNT_BIG(DISTINCT dow.event_date)
                 ) +
-                N' deadlock(s).'
+                N' deadlock(s).',
+            sort_order =    
+                ROW_NUMBER()
+                OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
         FROM #deadlock_owner_waiter AS dow
         WHERE 1 = 1
         AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
@@ -27834,7 +28122,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+            sort_order
         )
         SELECT
             check_id = 4,
@@ -27849,7 +28138,10 @@ BEGIN
                     nvarchar(20),
                     COUNT_BIG(DISTINCT dp.event_date)
                 ) +
-                N' instances of Serializable deadlocks.'
+                N' instances of Serializable deadlocks.',
+            sort_order =    
+                ROW_NUMBER()
+                OVER (ORDER BY COUNT_BIG(DISTINCT dp.event_date) DESC)
         FROM #deadlock_process AS dp
         WHERE dp.isolation_level LIKE N'serializable%'
         AND (dp.database_name = @DatabaseName OR @DatabaseName IS NULL)
@@ -27874,7 +28166,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+            sort_order
         )
         SELECT
             check_id = 5,
@@ -27888,7 +28181,10 @@ BEGIN
                     nvarchar(20),
                     COUNT_BIG(DISTINCT dp.event_date)
                 ) +
-                N' instances of Repeatable Read deadlocks.'
+                N' instances of Repeatable Read deadlocks.',
+            sort_order =    
+                ROW_NUMBER()
+                OVER (ORDER BY COUNT_BIG(DISTINCT dp.event_date) DESC)
         FROM #deadlock_process AS dp
         WHERE dp.isolation_level LIKE N'repeatable%'
         AND (dp.database_name = @DatabaseName OR @DatabaseName IS NULL)
@@ -27913,7 +28209,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+            sort_order
         )
         SELECT
             check_id = 6,
@@ -27946,7 +28243,10 @@ BEGIN
                     dp.host_name,
                     N'UNKNOWN'
                 ) +
-                N'.'
+                N'.',
+            sort_order =    
+                ROW_NUMBER()
+                OVER (ORDER BY COUNT_BIG(DISTINCT dp.event_date) DESC)
         FROM #deadlock_process AS dp
         WHERE 1 = 1
         AND (dp.database_name = @DatabaseName OR @DatabaseName IS NULL)
@@ -28027,7 +28327,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+            sort_order
         )
         SELECT
             check_id = 7,
@@ -28054,7 +28355,10 @@ BEGIN
                     1,
                     1,
                     N''
-                ) + N' locks.'
+                ) + N' locks.',
+            sort_order =    
+                ROW_NUMBER()
+                OVER (ORDER BY CONVERT(bigint, lt.lock_count) DESC)
         FROM lock_types AS lt
         OPTION(RECOMPILE);
 
@@ -28068,9 +28372,9 @@ BEGIN
             deadlock_stack AS
             (
                 SELECT DISTINCT
-                    ds.id,
-                    ds.proc_name,
-                    ds.event_date,
+                ds.id,
+                ds.event_date,
+                ds.proc_name,
                     database_name =
                         PARSENAME(ds.proc_name, 3),
                     schema_name =
@@ -28104,8 +28408,8 @@ BEGIN
                     PARSENAME(ds.proc_name, 3),
                     PARSENAME(ds.proc_name, 2),
                     PARSENAME(ds.proc_name, 1),
-                    ds.id,
                     ds.proc_name,
+                    ds.id,
                     ds.event_date
             )
         INSERT
@@ -28137,6 +28441,7 @@ BEGIN
         AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
         AND (dow.event_date < @EndDate OR @EndDate IS NULL)
         AND (dow.object_name = @StoredProcName OR @StoredProcName IS NULL)
+        AND ds.proc_name NOT LIKE 'Unknown%'
         OPTION(RECOMPILE);
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
@@ -28209,7 +28514,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+            sort_order
         )
         SELECT
             check_id = 9,
@@ -28228,7 +28534,10 @@ BEGIN
                     nvarchar(10),
                     COUNT_BIG(DISTINCT ds.id)
                 ) +
-                N' deadlocks.'
+                N' deadlocks.',
+            sort_order =    
+                ROW_NUMBER()
+                OVER (ORDER BY COUNT_BIG(DISTINCT ds.id) DESC)
         FROM #deadlock_stack AS ds
         JOIN #deadlock_process AS dp
           ON dp.id = ds.id
@@ -28327,19 +28636,19 @@ BEGIN
                      )
                  ),
              wait_time_hms =
-             /*the more wait time you rack up the less accurate this gets, 
+             /*the more wait time you rack up the less accurate this gets,   
              it's either that or erroring out*/
-            CASE 
-                WHEN 
+            CASE   
+                WHEN   
                     SUM
                     (
                         CONVERT
                         (
-                            bigint, 
+                            bigint,   
                             dp.wait_time
                         )
                     )/1000 > 2147483647
-                THEN 
+                THEN   
                    CONVERT
                    (
                        nvarchar(30),
@@ -28352,7 +28661,7 @@ BEGIN
                                     (
                                        CONVERT
                                        (
-                                           bigint, 
+                                           bigint,   
                                            dp.wait_time
                                        )
                                     )
@@ -28363,16 +28672,16 @@ BEGIN
                        ),
                        14
                    )
-                WHEN 
+                WHEN   
                     SUM
                     (
                         CONVERT
                         (
-                            bigint, 
+                            bigint,   
                             dp.wait_time
                         )
                     ) BETWEEN 2147483648 AND 2147483647000
-                THEN 
+                THEN   
                    CONVERT
                    (
                        nvarchar(30),
@@ -28385,7 +28694,7 @@ BEGIN
                                     (
                                        CONVERT
                                        (
-                                           bigint, 
+                                           bigint,   
                                            dp.wait_time
                                        )
                                     )
@@ -28417,7 +28726,9 @@ BEGIN
                     ),
                     14
                  )
-                 END
+                 END,
+                 total_waits =
+                     SUM(CONVERT(bigint, dp.wait_time))
             FROM #deadlock_owner_waiter AS dow
             JOIN #deadlock_process AS dp
               ON (dp.id = dow.owner_id
@@ -28442,7 +28753,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+            sort_order
         )
         SELECT
             check_id = 11,
@@ -28463,7 +28775,10 @@ BEGIN
                     cs.wait_time_hms,
                     14
                 ) +
-                N' [dd hh:mm:ss:ms] of deadlock wait time.'
+                N' [dd hh:mm:ss:ms] of deadlock wait time.',
+            sort_order =    
+                ROW_NUMBER()
+                OVER (ORDER BY cs.total_waits DESC)
         FROM chopsuey AS cs
         WHERE cs.object_name IS NOT NULL
         OPTION(RECOMPILE);
@@ -28511,7 +28826,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+            sort_order
         )
         SELECT
             check_id = 12,
@@ -28534,19 +28850,19 @@ BEGIN
                 )
             ) +
             N' ' +
-        /*the more wait time you rack up the less accurate this gets, 
+        /*the more wait time you rack up the less accurate this gets,   
         it's either that or erroring out*/
-            CASE 
-                WHEN 
+            CASE   
+                WHEN   
                     SUM
                     (
                         CONVERT
                         (
-                            bigint, 
+                            bigint,   
                             wt.total_wait_time_ms
                         )
                     )/1000 > 2147483647
-                THEN 
+                THEN   
                    CONVERT
                    (
                        nvarchar(30),
@@ -28559,7 +28875,7 @@ BEGIN
                                     (
                                        CONVERT
                                        (
-                                           bigint, 
+                                           bigint,   
                                            wt.total_wait_time_ms
                                        )
                                     )
@@ -28570,16 +28886,16 @@ BEGIN
                        ),
                        14
                    )
-                WHEN 
+                WHEN   
                     SUM
                     (
                         CONVERT
                         (
-                            bigint, 
+                            bigint,   
                             wt.total_wait_time_ms
                         )
                     ) BETWEEN 2147483648 AND 2147483647000
-                THEN 
+                THEN   
                    CONVERT
                    (
                        nvarchar(30),
@@ -28592,7 +28908,7 @@ BEGIN
                                     (
                                        CONVERT
                                        (
-                                           bigint, 
+                                           bigint,   
                                            wt.total_wait_time_ms
                                        )
                                     )
@@ -28624,7 +28940,10 @@ BEGIN
                   ),
                   14
               ) END +
-            N' [dd hh:mm:ss:ms] of deadlock wait time.'
+            N' [dd hh:mm:ss:ms] of deadlock wait time.',
+            sort_order =    
+                ROW_NUMBER()
+                OVER (ORDER BY SUM(CONVERT(bigint, wt.total_wait_time_ms)) DESC)
         FROM wait_time AS wt
         GROUP BY
             wt.database_name
@@ -28643,7 +28962,8 @@ BEGIN
             database_name,
             object_name,
             finding_group,
-            finding
+            finding,
+            sort_order
         )
         SELECT
             check_id = 13,
@@ -28658,7 +28978,10 @@ BEGIN
             finding =
                 N'There have been ' +
                 RTRIM(COUNT_BIG(DISTINCT aj.event_date)) +
-                N' deadlocks from this Agent Job and Step.'
+                N' deadlocks from this Agent Job and Step.',
+            sort_order =    
+                ROW_NUMBER()
+                OVER (ORDER BY COUNT_BIG(DISTINCT aj.event_date) DESC)
         FROM #agent_job AS aj
         GROUP BY
             DB_NAME(aj.database_id),
@@ -29202,7 +29525,8 @@ BEGIN
                 d.waiter_waiting_to_close,
                 /*end parallel deadlock columns*/
                 d.deadlock_graph,
-                d.is_victim
+                d.is_victim,
+                d.id
             INTO #deadlock_results
             FROM #deadlocks AS d;
 
@@ -29405,26 +29729,202 @@ BEGIN
             DROP SYNONYM DeadlockFindings; /*done with inserting.*/
         END;
         ELSE /*Output to database is not set output to client app*/
-		BEGIN
-		    SET @d = CONVERT(varchar(40), GETDATE(), 109);
+        BEGIN
+                SET @d = CONVERT(varchar(40), GETDATE(), 109);
                 RAISERROR('Results to client %s', 0, 1, @d) WITH NOWAIT;
-		    
+              
                 IF @Debug = 1 BEGIN SET STATISTICS XML ON; END;
-		    
+              
                 EXEC sys.sp_executesql
                     @deadlock_result;
-		    
+              
                 IF @Debug = 1
                 BEGIN
                     SET STATISTICS XML OFF;
                     PRINT @deadlock_result;
                 END;
-		    
+              
                 RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
-		    
+
+                SET @d = CONVERT(varchar(40), GETDATE(), 109);
+                RAISERROR('Getting available execution plans for deadlocks %s', 0, 1, @d) WITH NOWAIT;
+               
+                SELECT DISTINCT
+                    available_plans =
+                        'available_plans',
+                    ds.proc_name,
+                    sql_handle =
+                        CONVERT(varbinary(64), ds.sql_handle, 1),
+                    dow.database_name,
+                    dow.database_id,
+                    dow.object_name,
+                    query_xml =
+                        TRY_CAST(dr.query_xml AS nvarchar(MAX))
+                INTO #available_plans
+                FROM #deadlock_stack AS ds
+                JOIN #deadlock_owner_waiter AS dow
+                  ON dow.owner_id = ds.id
+                  AND dow.event_date = ds.event_date
+                JOIN #deadlock_results AS dr
+                  ON  dr.id = ds.id
+                  AND dr.event_date = ds.event_date
+                OPTION(RECOMPILE);
+
+                SELECT
+                    deqs.sql_handle,
+                    deqs.plan_handle,
+                    deqs.statement_start_offset,
+                    deqs.statement_end_offset,
+                    deqs.creation_time,
+                    deqs.last_execution_time,
+                    deqs.execution_count,
+                    total_worker_time_ms =
+                        deqs.total_worker_time / 1000.,
+                    avg_worker_time_ms =
+                        CONVERT(decimal(38, 6), deqs.total_worker_time / 1000. / deqs.execution_count),
+                    total_elapsed_time_ms =
+                        deqs.total_elapsed_time / 1000.,
+                    avg_elapsed_time =
+                        CONVERT(decimal(38, 6), deqs.total_elapsed_time / 1000. / deqs.execution_count),
+                    executions_per_second =
+                        ISNULL
+                        (
+                            deqs.execution_count /
+                                NULLIF
+                                (
+                                    DATEDIFF
+                                    (
+                                        SECOND,
+                                        deqs.creation_time,
+                                        deqs.last_execution_time
+                                    ),
+                                    0
+                                ),
+                                0
+                        ),
+                    total_physical_reads_mb =
+                        deqs.total_physical_reads * 8. / 1024.,
+                    total_logical_writes_mb =
+                        deqs.total_logical_writes * 8. / 1024.,
+                    total_logical_reads_mb =
+                        deqs.total_logical_reads * 8. / 1024.,
+                    min_grant_mb =
+                        deqs.min_grant_kb * 8. / 1024.,
+                    max_grant_mb =
+                        deqs.max_grant_kb * 8. / 1024.,
+                    min_used_grant_mb =
+                        deqs.min_used_grant_kb * 8. / 1024.,
+                    max_used_grant_mb =
+                        deqs.max_used_grant_kb * 8. / 1024.,    
+                    deqs.min_reserved_threads,
+                    deqs.max_reserved_threads,
+                    deqs.min_used_threads,
+                    deqs.max_used_threads,
+                    deqs.total_rows
+                INTO #dm_exec_query_stats
+                FROM sys.dm_exec_query_stats AS deqs
+                WHERE EXISTS
+                (
+                   SELECT
+                       1/0
+                   FROM #available_plans AS ap
+                   WHERE ap.sql_handle = deqs.sql_handle
+                )
+                AND deqs.query_hash IS NOT NULL;
+                
+                CREATE CLUSTERED INDEX 
+                    deqs 
+                ON #dm_exec_query_stats
+                (
+                    sql_handle, 
+                    plan_handle
+                );
+                
+                SELECT
+                    ap.available_plans,
+                    ap.database_name,
+                    query_text =
+                        TRY_CAST(ap.query_xml AS xml),
+                    ap.query_plan,
+                    ap.creation_time,
+                    ap.last_execution_time,
+                    ap.execution_count,
+                    ap.executions_per_second,
+                    ap.total_worker_time_ms,
+                    ap.avg_worker_time_ms,
+                    ap.total_elapsed_time_ms,
+                    ap.avg_elapsed_time,
+                    ap.total_logical_reads_mb,
+                    ap.total_physical_reads_mb,
+                    ap.total_logical_writes_mb,
+                    ap.min_grant_mb,
+                    ap.max_grant_mb,
+                    ap.min_used_grant_mb,
+                    ap.max_used_grant_mb,
+                    ap.min_reserved_threads,
+                    ap.max_reserved_threads,
+                    ap.min_used_threads,
+                    ap.max_used_threads,
+                    ap.total_rows,
+                    ap.sql_handle,
+                    ap.statement_start_offset,
+                    ap.statement_end_offset
+                FROM
+                (
+               
+                    SELECT
+                        ap.*,
+                        c.statement_start_offset,
+                        c.statement_end_offset,
+                        c.creation_time,
+                        c.last_execution_time,
+                        c.execution_count,
+                        c.total_worker_time_ms,
+                        c.avg_worker_time_ms,
+                        c.total_elapsed_time_ms,
+                        c.avg_elapsed_time,
+                        c.executions_per_second,
+                        c.total_physical_reads_mb,
+                        c.total_logical_writes_mb,
+                        c.total_logical_reads_mb,
+                        c.min_grant_mb,
+                        c.max_grant_mb,
+                        c.min_used_grant_mb,
+                        c.max_used_grant_mb,
+                        c.min_reserved_threads,
+                        c.max_reserved_threads,
+                        c.min_used_threads,
+                        c.max_used_threads,
+                        c.total_rows,
+                        c.query_plan
+                    FROM #available_plans AS ap
+                    OUTER APPLY
+                    (
+                        SELECT
+                            deqs.*,
+                            query_plan =
+                                TRY_CAST(deps.query_plan AS xml)
+                        FROM #dm_exec_query_stats deqs
+                        OUTER APPLY sys.dm_exec_text_query_plan
+                        (
+                            deqs.plan_handle,
+                            deqs.statement_start_offset,
+                            deqs.statement_end_offset
+                        ) AS deps
+                        WHERE deqs.sql_handle = ap.sql_handle
+                        AND   deps.dbid = ap.database_id
+                    ) AS c
+                ) AS ap
+                WHERE ap.query_plan IS NOT NULL
+                ORDER BY
+                    ap.avg_worker_time_ms DESC
+                OPTION(RECOMPILE, LOOP JOIN, HASH JOIN);
+
+                RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
+              
                 SET @d = CONVERT(varchar(40), GETDATE(), 109);
                 RAISERROR('Returning findings %s', 0, 1, @d) WITH NOWAIT;
-		    
+              
                 SELECT
                     df.check_id,
                     df.database_name,
@@ -29432,26 +29932,28 @@ BEGIN
                     df.finding_group,
                     df.finding
                 FROM #deadlock_findings AS df
-                ORDER BY df.check_id
+                ORDER BY
+                    df.check_id,
+                    df.sort_order
                 OPTION(RECOMPILE);
-		    
+              
                 SET @d = CONVERT(varchar(40), GETDATE(), 109);
                 RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
             END; /*done with output to client app.*/
-		END;
+        END;
 
         IF @Debug = 1
         BEGIN
             SELECT
-                table_name = N'#dd',
-                *
-            FROM #dd AS d
-            OPTION(RECOMPILE);
-
-            SELECT
                 table_name = N'#deadlock_data',
                 *
             FROM #deadlock_data AS dd
+            OPTION(RECOMPILE);
+
+            SELECT
+                table_name = N'#dd',
+                *
+            FROM #dd AS d
             OPTION(RECOMPILE);
 
             SELECT
@@ -29508,9 +30010,111 @@ BEGIN
             FROM @sysAssObjId AS s
             OPTION(RECOMPILE);
 
+            SELECT
+                table_name = N'#available_plans',
+                *
+            FROM #available_plans AS ap
+            OPTION(RECOMPILE);
+
+            SELECT
+                table_name = N'#dm_exec_query_stats',
+                *
+            FROM #dm_exec_query_stats
+			OPTION(RECOMPILE);
+
+            SELECT
+                procedure_parameters =
+                    'procedure_parameters',
+            DatabaseName =
+                @DatabaseName,
+            StartDate =
+                @StartDate,
+            EndDate =
+                @EndDate,
+            ObjectName =
+                @ObjectName,
+            StoredProcName =
+                @StoredProcName,
+            AppName =
+                @AppName,
+            HostName =
+                @HostName,
+            LoginName =
+                @LoginName,
+            EventSessionName =
+                @EventSessionName,
+            TargetSessionType =
+                @TargetSessionType,
+            VictimsOnly =
+                @VictimsOnly,
+            Debug =
+                @Debug,
+            Help =
+                @Help,
+            Version =
+                @Version,
+            VersionDate =
+                @VersionDate,
+            VersionCheckMode =
+                @VersionCheckMode,
+            OutputDatabaseName =
+                @OutputDatabaseName,
+            OutputSchemaName =
+                @OutputSchemaName,
+            OutputTableName =
+                @OutputTableName,
+            ExportToExcel =
+                @ExportToExcel;
+
+        SELECT
+            declared_variables =
+                'declared_variables',
+            DatabaseId =
+                @DatabaseId,
+            StartDateUTC =
+                @StartDateUTC,
+            EndDateUTC =
+                @EndDateUTC,
+            ProductVersion =
+                @ProductVersion,
+            ProductVersionMajor =
+                @ProductVersionMajor,
+            ProductVersionMinor =
+                @ProductVersionMinor,
+            ObjectFullName =
+                @ObjectFullName,
+            Azure =
+                @Azure,
+            RDS =
+                @RDS,
+            d =
+                @d,
+            StringToExecute =
+                @StringToExecute,
+            StringToExecuteParams =
+                @StringToExecuteParams,
+            r =
+                @r,
+            OutputTableFindings =
+                @OutputTableFindings,
+            DeadlockCount =
+                @DeadlockCount,
+            ServerName =
+                @ServerName,
+            OutputDatabaseCheck =
+                @OutputDatabaseCheck,
+            SessionId =
+                @SessionId,
+            TargetSessionId =
+                @TargetSessionId,
+            FileName =
+                @FileName,
+            inputbuf_bom =
+                @inputbuf_bom,
+            deadlock_result =
+                @deadlock_result;
         END; /*End debug*/
     END; /*Final End*/
-
 GO
 IF OBJECT_ID('dbo.sp_BlitzWho') IS NULL
 	EXEC ('CREATE PROCEDURE dbo.sp_BlitzWho AS RETURN 0;')
@@ -29547,7 +30151,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.15', @VersionDate = '20230613';
+	SELECT @Version = '8.16', @VersionDate = '20230820';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -30943,12 +31547,17 @@ DELETE FROM dbo.SqlServerVersions;
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
+    (16, 4065, 'CU7', 'https://support.microsoft.com/en-us/help/5028743', '2023-08-10', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 7'),
+    (16, 4055, 'CU6', 'https://support.microsoft.com/en-us/help/5027505', '2023-07-13', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 6'),
+    (16, 4045, 'CU5', 'https://support.microsoft.com/en-us/help/5026806', '2023-06-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 5'),
     (16, 4035, 'CU4', 'https://support.microsoft.com/en-us/help/5026717', '2023-05-11', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 4'),
     (16, 4025, 'CU3', 'https://support.microsoft.com/en-us/help/5024396', '2023-04-13', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 3'),
     (16, 4015, 'CU2', 'https://support.microsoft.com/en-us/help/5023127', '2023-03-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 2'),
     (16, 4003, 'CU1', 'https://support.microsoft.com/en-us/help/5022375', '2023-02-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 1'),
     (16, 1050, 'RTM GDR', 'https://support.microsoft.com/kb/5021522', '2023-02-14', '2028-01-11', '2033-01-11', 'SQL Server 2022 GDR', 'RTM'),
     (16, 1000, 'RTM', '', '2022-11-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'RTM'),
+    (15, 4322, 'CU22', 'https://support.microsoft.com/kb/5027702', '2023-08-14', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 22'),
+    (15, 4316, 'CU21', 'https://support.microsoft.com/kb/5025808', '2023-06-15', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 21'),
     (15, 4312, 'CU20', 'https://support.microsoft.com/kb/5024276', '2023-04-13', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 20'),
     (15, 4298, 'CU19', 'https://support.microsoft.com/kb/5023049', '2023-02-16', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 19'),
     (15, 4280, 'CU18 GDR', 'https://support.microsoft.com/kb/5021124', '2023-02-14', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 18 GDR'),
@@ -31371,7 +31980,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.15', @VersionDate = '20230613';
+SELECT @Version = '8.16', @VersionDate = '20230820';
 
 IF(@VersionCheckMode = 1)
 BEGIN
