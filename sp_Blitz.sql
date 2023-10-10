@@ -8697,12 +8697,22 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								END
 							ELSE
 								BEGIN
-								INSERT INTO #ErrorLog
-								EXEC sys.xp_readerrorlog 0, 1, N'Database Instant File Initialization: enabled';
+									BEGIN TRY
+										INSERT INTO #ErrorLog
+										EXEC sys.xp_readerrorlog 0, 1, N'Database Instant File Initialization: enabled';
+									END TRY
+									BEGIN CATCH
+										IF @Debug IN (1, 2) RAISERROR('No permissions to execute xp_readerrorlog.', 0, 1) WITH NOWAIT;
+									END CATCH
 								END
 
-							IF @@ROWCOUNT > 0
-								begin
+							IF EXISTS
+							(
+								SELECT	1/0
+								FROM	#ErrorLog
+								WHERE 	LEFT([Text], 45) = N'Database Instant File Initialization: enabled'
+							)
+								BEGIN
 								INSERT  INTO #BlitzResults
 										( CheckID ,
 										  [Priority] ,
@@ -8718,7 +8728,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												'Instant File Initialization Enabled' AS [Finding] ,
 												'https://www.brentozar.com/go/instant' AS [URL] ,
 												'The service account has the Perform Volume Maintenance Tasks permission.';
-								end
+								END;
 							else -- if version of sql server has instant_file_initialization_enabled column in dm_server_services, check that too
 							     --  in the event the error log has been cycled and the startup messages are not in the current error log
 								begin
