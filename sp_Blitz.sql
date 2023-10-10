@@ -199,7 +199,11 @@ AS
 			,@SkipMSDB bit = 0
 			,@SkipModel bit = 0
 			,@SkipTempDB bit = 0
-			,@SkipValidateLogins bit = 0;
+			,@SkipValidateLogins bit = 0
+			/* Variables for check 211: */
+			,@powerScheme varchar(36)
+			,@cpu_speed_mhz int
+			,@cpu_speed_ghz decimal(18,2);
 
 			DECLARE
 			    @db_perms table
@@ -274,16 +278,37 @@ AS
                 SET @SkipTrace = 1;
             END; /*We need this permission to execute trace stuff, apparently*/
 
-            IF NOT EXISTS
-            (
-                SELECT
-                    1/0
-                FROM fn_my_permissions(N'xp_regread', N'OBJECT') AS fmp
-                WHERE fmp.permission_name = N'EXECUTE'
-            )
-            BEGIN
-                SET @SkipXPRegRead = 1;
-            END; /*Need execute on xp_regread*/
+			IF ISNULL(@SkipXPRegRead, 0) != 1 /*If @SkipXPRegRead hasn't been set to 1 by the caller*/
+			BEGIN
+				BEGIN TRY
+					/* Get power plan if set by group policy [Git Hub Issue #1620] */						
+					EXEC xp_regread @rootkey	= N'HKEY_LOCAL_MACHINE',
+									@key		= N'SOFTWARE\Policies\Microsoft\Power\PowerSettings',
+									@value_name	= N'ActivePowerScheme',
+									@value		= @powerScheme OUTPUT,
+									@no_output	= N'no_output';
+
+					IF @powersaveSetting IS NULL /* If power plan was not set by group policy, get local value [Git Hub Issue #1620]*/
+					EXEC xp_regread @rootkey	= N'HKEY_LOCAL_MACHINE',
+									@key		= N'SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes',
+									@value_name	= N'ActivePowerScheme',
+									@value		= @powerScheme OUTPUT;
+
+					/* Get the cpu speed*/
+					EXEC xp_regread @rootkey	= N'HKEY_LOCAL_MACHINE',
+					                @key		= N'HARDWARE\DESCRIPTION\System\CentralProcessor\0',
+					                @value_name	= N'~MHz',
+					                @value		= @cpu_speed_mhz OUTPUT;
+
+					/* Convert the Megahertz to Gigahertz */
+					SET @cpu_speed_ghz = CAST(CAST(@cpu_speed_mhz AS decimal) / 1000 AS decimal(18,2));
+
+					SET @SkipXPRegRead = 0; /*We could execute xp_regread*/
+				END TRY
+				BEGIN CATCH
+					SET @SkipXPRegRead = 1; /*We have don't have execute rights or xp_regread throws an error so skip it*/
+				END CATCH;
+			END; /*Need execute on xp_regread*/
 
             IF NOT EXISTS
             (
@@ -9134,30 +9159,6 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 211) WITH NOWAIT;
 
-								DECLARE @outval VARCHAR(36);
-								/* Get power plan if set by group policy [Git Hub Issue #1620] */						
-								EXEC master.sys.xp_regread @rootkey = 'HKEY_LOCAL_MACHINE',
-														   @key = 'SOFTWARE\Policies\Microsoft\Power\PowerSettings',
-														   @value_name = 'ActivePowerScheme',
-														   @value = @outval OUTPUT,
-														   @no_output = 'no_output';
-
-								IF @outval IS NULL /* If power plan was not set by group policy, get local value [Git Hub Issue #1620]*/
-								EXEC master.sys.xp_regread @rootkey = 'HKEY_LOCAL_MACHINE',
-								                           @key = 'SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes',
-								                           @value_name = 'ActivePowerScheme',
-								                           @value = @outval OUTPUT;
-														   
-								DECLARE @cpu_speed_mhz int,
-								        @cpu_speed_ghz decimal(18,2);
-								
-								EXEC master.sys.xp_regread @rootkey = 'HKEY_LOCAL_MACHINE',
-								                           @key = 'HARDWARE\DESCRIPTION\System\CentralProcessor\0',
-								                           @value_name = '~MHz',
-								                           @value = @cpu_speed_mhz OUTPUT;
-								
-								SELECT @cpu_speed_ghz = CAST(CAST(@cpu_speed_mhz AS DECIMAL) / 1000 AS DECIMAL(18,2));
-
 									INSERT  INTO #BlitzResults
 										( CheckID ,
 										  Priority ,
@@ -9174,7 +9175,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 									'Your server has '
 									+ CAST(@cpu_speed_ghz as VARCHAR(4))
 									+ 'GHz CPUs, and is in '
-									+ CASE @outval
+									+ CASE @powerScheme
 							             WHEN 'a1841308-3541-4fab-bc81-f71556f20b4a'
 							             THEN 'power saving mode -- are you sure this is a production SQL Server?'
 							             WHEN '381b4222-f694-41f0-9685-ff5bb260df2e'
