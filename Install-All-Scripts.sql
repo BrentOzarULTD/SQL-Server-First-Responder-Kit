@@ -3150,7 +3150,7 @@ AS
 									@value		= @powerScheme OUTPUT,
 									@no_output	= N'no_output';
 
-					IF @powersaveSetting IS NULL /* If power plan was not set by group policy, get local value [Git Hub Issue #1620]*/
+					IF @powerScheme IS NULL /* If power plan was not set by group policy, get local value [Git Hub Issue #1620]*/
 					EXEC xp_regread @rootkey	= N'HKEY_LOCAL_MACHINE',
 									@key		= N'SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes',
 									@value_name	= N'ActivePowerScheme',
