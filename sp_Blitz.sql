@@ -225,6 +225,16 @@ AS
             /* End of declarations for First Responder Kit consistency check:*/
         ;
 
+		/* Create temp table for check 2301 */
+		IF OBJECT_ID('tempdb..#InvalidLogins') IS NOT NULL
+			EXEC sp_executesql N'DROP TABLE #InvalidLogins;';
+								 
+		CREATE TABLE #InvalidLogins
+		(
+			LoginSID    varbinary(85),
+			LoginName   VARCHAR(256)
+		);
+
 		/*Starting permissions checks here, but only if we're not a sysadmin*/
 		IF
         (
@@ -297,16 +307,23 @@ AS
                 SET @SkipXPCMDShell = 1;
             END; /*Need execute on xp_cmdshell*/
 
-            IF NOT EXISTS
-            (
-                SELECT
-                    1/0
-                FROM fn_my_permissions(N'sp_validatelogins', N'OBJECT') AS fmp
-                WHERE fmp.permission_name = N'EXECUTE'
-            )
-            BEGIN
-                SET @SkipValidateLogins = 1;
-            END; /*Need execute on sp_validatelogins*/
+			IF ISNULL(@SkipValidateLogins, 0) != 1 /*If @SkipValidateLogins hasn't been set to 1 by the caller*/
+			BEGIN
+			    BEGIN TRY
+			        /* Try to fill the table for check 2301 */
+					INSERT INTO #InvalidLogins
+			    	(
+			    		[LoginSID]
+			    		,[LoginName]
+			    	)
+			    	EXEC sp_validatelogins;
+			
+			    	SET @SkipValidateLogins = 0; /*We can execute sp_validatelogins*/
+			    END TRY
+			    BEGIN CATCH
+			    	SET @SkipValidateLogins = 1; /*We have don't have execute rights or sp_validatelogins throws an error so skip it*/
+			    END CATCH;
+			END; /*Need execute on sp_validatelogins*/
             
 			IF ISNULL(@SkipModel, 0) != 1 /*If @SkipModel hasn't been set to 1 by the caller*/
 			BEGIN
@@ -587,16 +604,6 @@ AS
 		    v.*
 		FROM (VALUES(NULL, 2301, NULL))	AS v (DatabaseName, CheckID, ServerName) /*sp_validatelogins*/
 		WHERE @SkipValidateLogins = 1
-
-        IF(OBJECT_ID('tempdb..#InvalidLogins') IS NOT NULL)
-        BEGIN
-            EXEC sp_executesql N'DROP TABLE #InvalidLogins;';
-        END;
-								 
-		CREATE TABLE #InvalidLogins (
-			LoginSID    varbinary(85),
-			LoginName   VARCHAR(256)
-		);
 
 		IF @SkipChecksTable IS NOT NULL
 			AND @SkipChecksSchema IS NOT NULL
@@ -1730,9 +1737,9 @@ AS
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 2301) WITH NOWAIT;
 						
-                        INSERT INTO #InvalidLogins
-                        EXEC sp_validatelogins 
-                        ;
+                        /*
+						#InvalidLogins is filled at the start during the permissions check
+						*/
                         
 						INSERT  INTO #BlitzResults
 								( CheckID ,
