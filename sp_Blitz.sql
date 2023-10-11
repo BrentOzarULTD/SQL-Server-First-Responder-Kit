@@ -9161,7 +9161,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 					                							  @value		= @cpu_speed_mhz OUTPUT;
 
 									/* Convert the Megahertz to Gigahertz */
-									IF @ExecResult != 0 RAISERROR('We couldn''t the CPU speed, you will see Unknown in the results', 0, 1)
+									IF @ExecResult != 0 RAISERROR('We couldn''t retrieve the CPU speed, you will see Unknown in the results', 0, 1)
 
 									SET @cpu_speed_ghz = CAST(CAST(@cpu_speed_mhz AS decimal) / 1000 AS decimal(18,2));
 
