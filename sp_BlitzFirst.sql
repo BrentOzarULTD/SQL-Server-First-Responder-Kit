@@ -47,7 +47,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.16', @VersionDate = '20230820';
+SELECT @Version = '8.17', @VersionDate = '20231010';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -3364,8 +3364,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             'Server Info' AS FindingGroup,
             'Wait Time per Core per Sec' AS Finding,
             'https://www.brentozar.com/go/measure' AS URL,
-            CAST((CAST(waits2.waits_ms - waits1.waits_ms AS MONEY)) / 1000 / i.cpu_count / DATEDIFF(ss, waits1.SampleTime, waits2.SampleTime) AS NVARCHAR(20)) AS Details,
-            (waits2.waits_ms - waits1.waits_ms) / 1000 / i.cpu_count / DATEDIFF(ss, waits1.SampleTime, waits2.SampleTime) AS DetailsInt
+            CAST((CAST(waits2.waits_ms - waits1.waits_ms AS MONEY)) / 1000 / i.cpu_count / ISNULL(NULLIF(DATEDIFF(ss, waits1.SampleTime, waits2.SampleTime), 0), 1) AS NVARCHAR(20)) AS Details,
+            (waits2.waits_ms - waits1.waits_ms) / 1000 / i.cpu_count / ISNULL(NULLIF(DATEDIFF(ss, waits1.SampleTime, waits2.SampleTime), 0), 1) AS DetailsInt
         FROM cores i
           CROSS JOIN waits1
           CROSS JOIN waits2;

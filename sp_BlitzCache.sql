@@ -281,7 +281,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.16', @VersionDate = '20230820';
+SELECT @Version = '8.17', @VersionDate = '20231010';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -851,7 +851,7 @@ IF @SortOrder LIKE 'duplicate%'
 					ORDER BY qs.creation_time DESC) AS mcq_recent
 	OPTION (RECOMPILE);
 
-	SET @minimumExecutionCount = 0;
+	SET @MinimumExecutionCount = 0;
 	END
 
 
@@ -4969,7 +4969,7 @@ BEGIN
 
     IF @MinimumExecutionCount IS NOT NULL
       BEGIN
-		SET @sql += N' AND ExecutionCount >= @minimumExecutionCount ';
+		SET @sql += N' AND ExecutionCount >= @MinimumExecutionCount ';
 	  END;
 	
    IF @MinutesBack IS NOT NULL
@@ -5018,7 +5018,7 @@ BEGIN
 	    PRINT SUBSTRING(@sql, 36000, 40000);
 	END;
 
-    EXEC sp_executesql @sql, N'@Top INT, @min_duration INT, @min_back INT, @minimumExecutionCount INT', @Top, @DurationFilter_i, @MinutesBack, @MinimumExecutionCount;
+    EXEC sp_executesql @sql, N'@Top INT, @min_duration INT, @min_back INT, @MinimumExecutionCount INT', @Top, @DurationFilter_i, @MinutesBack, @MinimumExecutionCount;
 END;
 
 
@@ -5225,7 +5225,7 @@ WHERE   SPID = @spid ' + @nl;
 
 IF @MinimumExecutionCount IS NOT NULL
 	BEGIN
-		SET @sql += N' AND ExecutionCount >= @minimumExecutionCount ' + @nl;
+		SET @sql += N' AND ExecutionCount >= @MinimumExecutionCount ' + @nl;
 	END;
 
 IF @MinutesBack IS NOT NULL
@@ -5268,7 +5268,7 @@ IF @Debug = 1
     END;
 IF(@OutputType <> 'NONE')
 BEGIN 
-    EXEC  sp_executesql @sql, N'@Top INT, @spid INT, @minimumExecutionCount INT, @min_back INT', @Top, @@SPID, @MinimumExecutionCount, @MinutesBack;
+    EXEC  sp_executesql @sql, N'@Top INT, @spid INT, @MinimumExecutionCount INT, @min_back INT', @Top, @@SPID, @MinimumExecutionCount, @MinutesBack;
 END;
 
 /*
