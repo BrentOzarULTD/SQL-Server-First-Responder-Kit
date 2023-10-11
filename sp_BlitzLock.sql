@@ -3736,7 +3736,7 @@ BEGIN
                         CONVERT(decimal(38, 6), deqs.total_worker_time / 1000. / deqs.execution_count),
                     total_elapsed_time_ms =
                         deqs.total_elapsed_time / 1000.,
-                    avg_elapsed_time =
+                    avg_elapsed_time_ms =
                         CONVERT(decimal(38, 6), deqs.total_elapsed_time / 1000. / deqs.execution_count),
                     executions_per_second =
                         ISNULL
