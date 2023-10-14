@@ -2591,6 +2591,7 @@ SELECT
 FROM #IndexSanity;
 	  
 RAISERROR (N'Populate #PartitionCompressionInfo.',0,1) WITH NOWAIT;
+IF OBJECT_ID('tempdb..#maps') IS NOT NULL DROP TABLE #maps;
 WITH maps
     AS
      (
@@ -2605,6 +2606,7 @@ SELECT *
 INTO   #maps
 FROM   maps;
 
+IF OBJECT_ID('tempdb..#grps') IS NOT NULL DROP TABLE #grps;
 WITH grps
     AS
      (
