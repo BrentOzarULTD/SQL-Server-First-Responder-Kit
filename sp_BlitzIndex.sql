@@ -1843,11 +1843,11 @@ create table #os
 								SUM(os.page_latch_wait_in_ms),
 								SUM(os.page_io_latch_wait_count),								
 								SUM(os.page_io_latch_wait_in_ms)
-                                ,COALESCE((SELECT SUM (dict.on_disk_size / 1024.0 / 1024) FROM [DataWarehouse].sys.column_store_dictionaries dict WHERE dict.partition_id = h.partition_id),0) AS reserved_dictionary_MB 
+                                , h.reserved_dictionary_MB 
                     from #h h
                     left JOIN #os as os ON
                         h.object_id=os.object_id and h.index_id=os.index_id and h.partition_number=os.partition_number 
-                    group by h.database_id, h.object_id, h.sname, h.index_id, h.partition_number, h.partition_id, h.row_count, h.reserved_MB, h.reserved_LOB_MB, h.reserved_row_overflow_MB, h.lock_escalation_desc, h.data_compression_desc                          
+                    group by h.database_id, h.object_id, h.sname, h.index_id, h.partition_number, h.partition_id, h.row_count, h.reserved_MB, h.reserved_LOB_MB, h.reserved_row_overflow_MB, h.lock_escalation_desc, h.data_compression_desc, h.reserved_dictionary_MB                           
                 
 		END; --End Check For @SkipPartitions = 0
 
