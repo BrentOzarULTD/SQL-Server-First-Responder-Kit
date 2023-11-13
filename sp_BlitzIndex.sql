@@ -38,7 +38,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
 	@SortOrder NVARCHAR(50) = NULL, /* Only affects @Mode = 2. */
 	@SortDirection NVARCHAR(4) = 'DESC', /* Only affects @Mode = 2. */
     @Help TINYINT = 0,
-	@Debug BIT = 0,
+	@Debug BIT =0,
     @Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0
@@ -105,7 +105,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ';
-RETURN;
+return;
 END;    /* @Help = 1 */
 
 DECLARE @ScriptVersionName NVARCHAR(50);
@@ -253,9 +253,14 @@ IF OBJECT_ID('tempdb..#CheckConstraints') IS NOT NULL
 
 IF OBJECT_ID('tempdb..#FilteredIndexes') IS NOT NULL
 	DROP TABLE #FilteredIndexes;
-		
+
 IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL 
     DROP TABLE #Ignore_Databases
+		
+IF OBJECT_ID('tempdb..#H') IS NOT NULL 
+    DROP TABLE #H
+IF OBJECT_ID('tempdb..#OS') IS NOT NULL 
+    DROP TABLE #OS
 
         RAISERROR (N'Create temp tables.',0,1) WITH NOWAIT;
         CREATE TABLE #BlitzIndexResults
@@ -1065,6 +1070,8 @@ FROM     sys.databases
 ----------------------------------------
 BEGIN TRY
     BEGIN
+        declare @d varchar(19) = convert(varchar(19), getdate(), 121);
+        RAISERROR (N'starting at %s',0,1, @d) WITH NOWAIT;
 
         --Validate SQL Server Version
 
@@ -1160,7 +1167,7 @@ BEGIN TRY
         --insert columns for clustered indexes and heaps
         --collect info on identity columns for this one
         SET @dsql = N'/* sp_BlitzIndex */
-				SET LOCK_TIMEOUT 1000; /* To fix locking bug in sys.identity_columns. See Github issue #2176. */
+				--SET LOCK_TIMEOUT 10000; /* To fix locking bug in sys.identity_columns. See Github issue #2176. */
 				SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                 SELECT ' + CAST(@DatabaseID AS NVARCHAR(16)) + ',
 					s.name,    
@@ -1435,40 +1442,100 @@ BEGIN TRY
 
             --NOTE: If you want to use the newer syntax for 2012+, you'll have to change 2147483647 to 11 on line ~819
 			--This change was made because on a table with lots of paritions, the OUTER APPLY was crazy slow.
-            SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+DROP TABLE if exists #h
+create table #h
+(
+    database_id smallint not null
+  , object_id int not null
+  , sname sysname NULL
+  , index_id int
+  , partition_number int
+  , partition_id bigint
+  , row_count bigint
+  , reserved_MB bigint
+  , reserved_LOB_MB bigint
+  , reserved_row_overflow_MB bigint
+  , lock_escalation_desc varchar(1000)/*?*/
+  , data_compression_desc varchar(100)/*?*/
+  , reserved_dictionary_MB bigint
+)
+drop TABLE if exists #os
+create table #os
+(
+    database_id smallint not null
+  , object_id int not null
+  , index_id int
+  , partition_number int
+  , hobt_id bigint
+  , leaf_insert_count bigint
+  , leaf_delete_count bigint
+  , leaf_update_count bigint
+  , leaf_ghost_count bigint
+  , nonleaf_insert_count bigint
+  , nonleaf_delete_count bigint
+  , nonleaf_update_count bigint
+  , leaf_allocation_count bigint
+  , nonleaf_allocation_count bigint
+  , leaf_page_merge_count bigint
+  , nonleaf_page_merge_count bigint
+  , range_scan_count bigint
+  , singleton_lookup_count bigint
+  , forwarded_fetch_count bigint
+  , lob_fetch_in_pages bigint
+  , lob_fetch_in_bytes bigint
+  , lob_orphan_create_count bigint
+  , lob_orphan_insert_count bigint
+  , row_overflow_fetch_in_pages bigint
+  , row_overflow_fetch_in_bytes bigint
+  , column_value_push_off_row_count bigint
+  , column_value_pull_in_row_count bigint
+  , row_lock_count bigint
+  , row_lock_wait_count bigint
+  , row_lock_wait_in_ms bigint
+  , page_lock_count bigint
+  , page_lock_wait_count bigint
+  , page_lock_wait_in_ms bigint
+  , index_lock_promotion_attempt_count bigint
+  , index_lock_promotion_count bigint
+  , page_latch_wait_count bigint
+  , page_latch_wait_in_ms bigint
+  , page_io_latch_wait_count bigint
+  , page_io_latch_wait_in_ms bigint
+  , tree_page_latch_wait_count bigint
+  , tree_page_latch_wait_in_ms bigint
+  , tree_page_io_latch_wait_count bigint
+  , tree_page_io_latch_wait_in_ms bigint
+  , page_compression_attempt_count bigint
+  , page_compression_success_count bigint
+  , version_generated_inrow           bigint
+  , version_generated_offrow          bigint
+  , ghost_version_inrow               bigint
+  , ghost_version_offrow              bigint
+  , insert_over_ghost_version_inrow   bigint
+  , insert_over_ghost_version_offrow  bigint
+  )
+  
+            SET @dsql = N'
+                        declare @d varchar(19) = convert(varchar(19), getdate(), 121)
+                        RAISERROR (N''start getting data into #h at %s'',0,1, @d) WITH NOWAIT;
+                        SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                        insert into #h
+                        (
+                            database_id, object_id, sname, index_id, partition_number, partition_id, row_count, reserved_MB, reserved_LOB_MB, reserved_row_overflow_MB, lock_escalation_desc, data_compression_desc, reserved_dictionary_MB
+                        )
                         SELECT  ' + CAST(@DatabaseID AS NVARCHAR(10)) + N' AS database_id,
                                 ps.object_id, 
-								s.name,
+								s.name as sname,
                                 ps.index_id, 
                                 ps.partition_number, 
+                                ps.partition_id,
                                 ps.row_count,
                                 ps.reserved_page_count * 8. / 1024. AS reserved_MB,
                                 ps.lob_reserved_page_count * 8. / 1024. AS reserved_LOB_MB,
                                 ps.row_overflow_reserved_page_count * 8. / 1024. AS reserved_row_overflow_MB,
 								le.lock_escalation_desc,
                             ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc ' END + N',
-                                SUM(os.leaf_insert_count), 
-                                SUM(os.leaf_delete_count), 
-                                SUM(os.leaf_update_count), 
-                                SUM(os.range_scan_count), 
-                                SUM(os.singleton_lookup_count),  
-                                SUM(os.forwarded_fetch_count),
-                                SUM(os.lob_fetch_in_pages), 
-                                SUM(os.lob_fetch_in_bytes), 
-                                SUM(os.row_overflow_fetch_in_pages),
-                                SUM(os.row_overflow_fetch_in_bytes), 
-                                SUM(os.row_lock_count), 
-                                SUM(os.row_lock_wait_count),
-                                SUM(os.row_lock_wait_in_ms), 
-                                SUM(os.page_lock_count), 
-                                SUM(os.page_lock_wait_count), 
-                                SUM(os.page_lock_wait_in_ms),
-                                SUM(os.index_lock_promotion_attempt_count), 
-                                SUM(os.index_lock_promotion_count), 
-								SUM(os.page_latch_wait_count),
-								SUM(os.page_latch_wait_in_ms),
-								SUM(os.page_io_latch_wait_count),								
-								SUM(os.page_io_latch_wait_in_ms), ';
+';
 
 		    /* Get columnstore dictionary size - more info: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2585 */
 			IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'column_store_dictionaries')
@@ -1484,9 +1551,6 @@ BEGIN TRY
                                AND so.is_ms_shipped = 0 /*Exclude objects shipped by Microsoft*/
                                AND so.type <> ''TF'' /*Exclude table valued functions*/
 					JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s ON s.schema_id = so.schema_id
-                    LEFT JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_index_operational_stats('
-                + CAST(@DatabaseID AS NVARCHAR(10)) + N', NULL, NULL,NULL) AS os ON
-                    ps.object_id=os.object_id and ps.index_id=os.index_id and ps.partition_number=os.partition_number 
 			            OUTER APPLY (SELECT st.lock_escalation_desc
 			                         FROM ' + QUOTENAME(@DatabaseName) + N'.sys.tables st
 			                         WHERE st.object_id = ps.object_id
@@ -1506,7 +1570,123 @@ BEGIN TRY
 								le.lock_escalation_desc,
                             ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc ' END + N'
 			ORDER BY ps.object_id,  ps.index_id, ps.partition_number
-            OPTION    ( RECOMPILE );
+            /*OPTION    ( RECOMPILE );*/
+            OPTION    ( RECOMPILE , min_grant_percent = 1);
+
+            set @d = convert(varchar(19), getdate(), 121)
+            RAISERROR (N''start getting data into #os at %s.'',0,1, @d) WITH NOWAIT;
+            
+                       insert  into #os
+           (
+                database_id
+              , object_id
+              , index_id
+              , partition_number
+              , hobt_id
+              , leaf_insert_count
+              , leaf_delete_count
+              , leaf_update_count
+              , leaf_ghost_count
+              , nonleaf_insert_count
+              , nonleaf_delete_count
+              , nonleaf_update_count
+              , leaf_allocation_count
+              , nonleaf_allocation_count
+              , leaf_page_merge_count
+              , nonleaf_page_merge_count
+              , range_scan_count
+              , singleton_lookup_count
+              , forwarded_fetch_count
+              , lob_fetch_in_pages
+              , lob_fetch_in_bytes
+              , lob_orphan_create_count
+              , lob_orphan_insert_count
+              , row_overflow_fetch_in_pages
+              , row_overflow_fetch_in_bytes
+              , column_value_push_off_row_count
+              , column_value_pull_in_row_count
+              , row_lock_count
+              , row_lock_wait_count
+              , row_lock_wait_in_ms
+              , page_lock_count
+              , page_lock_wait_count
+              , page_lock_wait_in_ms
+              , index_lock_promotion_attempt_count
+              , index_lock_promotion_count
+              , page_latch_wait_count
+              , page_latch_wait_in_ms
+              , page_io_latch_wait_count
+              , page_io_latch_wait_in_ms
+              , tree_page_latch_wait_count
+              , tree_page_latch_wait_in_ms
+              , tree_page_io_latch_wait_count
+              , tree_page_io_latch_wait_in_ms
+              , page_compression_attempt_count
+              , page_compression_success_count
+              , version_generated_inrow
+              , version_generated_offrow
+              , ghost_version_inrow
+              , ghost_version_offrow
+              , insert_over_ghost_version_inrow
+              , insert_over_ghost_version_offrow 
+            )
+            
+            select os.database_id
+                 , os.object_id
+                 , os.index_id
+                 , os.partition_number
+                 , os.hobt_id
+                 , os.leaf_insert_count
+                 , os.leaf_delete_count
+                 , os.leaf_update_count
+                 , os.leaf_ghost_count
+                 , os.nonleaf_insert_count
+                 , os.nonleaf_delete_count
+                 , os.nonleaf_update_count
+                 , os.leaf_allocation_count
+                 , os.nonleaf_allocation_count
+                 , os.leaf_page_merge_count
+                 , os.nonleaf_page_merge_count
+                 , os.range_scan_count
+                 , os.singleton_lookup_count
+                 , os.forwarded_fetch_count
+                 , os.lob_fetch_in_pages
+                 , os.lob_fetch_in_bytes
+                 , os.lob_orphan_create_count
+                 , os.lob_orphan_insert_count
+                 , os.row_overflow_fetch_in_pages
+                 , os.row_overflow_fetch_in_bytes
+                 , os.column_value_push_off_row_count
+                 , os.column_value_pull_in_row_count
+                 , os.row_lock_count
+                 , os.row_lock_wait_count
+                 , os.row_lock_wait_in_ms
+                 , os.page_lock_count
+                 , os.page_lock_wait_count
+                 , os.page_lock_wait_in_ms
+                 , os.index_lock_promotion_attempt_count
+                 , os.index_lock_promotion_count
+                 , os.page_latch_wait_count
+                 , os.page_latch_wait_in_ms
+                 , os.page_io_latch_wait_count
+                 , os.page_io_latch_wait_in_ms
+                 , os.tree_page_latch_wait_count
+                 , os.tree_page_latch_wait_in_ms
+                 , os.tree_page_io_latch_wait_count
+                 , os.tree_page_io_latch_wait_in_ms
+                 , os.page_compression_attempt_count
+                 , os.page_compression_success_count
+                 , os.version_generated_inrow
+                 , os.version_generated_offrow
+                 , os.ghost_version_inrow
+                 , os.ghost_version_offrow
+                 , os.insert_over_ghost_version_inrow
+                 , os.insert_over_ghost_version_offrow 
+                from ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_index_operational_stats('+ CAST(@DatabaseID AS NVARCHAR(10)) +', NULL, NULL,NULL) AS os 
+                OPTION    ( RECOMPILE , min_grant_percent = 1);
+
+                set @d = convert(varchar(19), getdate(), 121)
+                RAISERROR (N''finished getting data into #os at %s.'',0,1, @d) WITH NOWAIT;
             ';
         END;
         ELSE
@@ -1605,6 +1785,7 @@ BEGIN TRY
                 PRINT SUBSTRING(@dsql, 32000, 36000);
                 PRINT SUBSTRING(@dsql, 36000, 40000);
             END;
+        EXEC sp_executesql @dsql; 
         INSERT    #IndexPartitionSanity ( [database_id],
                                           [object_id], 
 										  [schema_name],
@@ -1639,8 +1820,35 @@ BEGIN TRY
 								          page_io_latch_wait_count,								
 								          page_io_latch_wait_in_ms,
 										  reserved_dictionary_MB)
-                EXEC sp_executesql @dsql;
-        
+                select h.database_id, h.object_id, h.sname, h.index_id, h.partition_number, h.row_count, h.reserved_MB, h.reserved_LOB_MB, h.reserved_row_overflow_MB, h.lock_escalation_desc, h.data_compression_desc,
+                                SUM(os.leaf_insert_count), 
+                                SUM(os.leaf_delete_count), 
+                                SUM(os.leaf_update_count), 
+                                SUM(os.range_scan_count), 
+                                SUM(os.singleton_lookup_count),  
+                                SUM(os.forwarded_fetch_count),
+                                SUM(os.lob_fetch_in_pages), 
+                                SUM(os.lob_fetch_in_bytes), 
+                                SUM(os.row_overflow_fetch_in_pages),
+                                SUM(os.row_overflow_fetch_in_bytes), 
+                                SUM(os.row_lock_count), 
+                                SUM(os.row_lock_wait_count),
+                                SUM(os.row_lock_wait_in_ms), 
+                                SUM(os.page_lock_count), 
+                                SUM(os.page_lock_wait_count), 
+                                SUM(os.page_lock_wait_in_ms),
+                                SUM(os.index_lock_promotion_attempt_count), 
+                                SUM(os.index_lock_promotion_count), 
+								SUM(os.page_latch_wait_count),
+								SUM(os.page_latch_wait_in_ms),
+								SUM(os.page_io_latch_wait_count),								
+								SUM(os.page_io_latch_wait_in_ms)
+                                ,COALESCE((SELECT SUM (dict.on_disk_size / 1024.0 / 1024) FROM [DataWarehouse].sys.column_store_dictionaries dict WHERE dict.partition_id = h.partition_id),0) AS reserved_dictionary_MB 
+                    from #h h
+                    left JOIN #os as os ON
+                        h.object_id=os.object_id and h.index_id=os.index_id and h.partition_number=os.partition_number 
+                    group by h.database_id, h.object_id, h.sname, h.index_id, h.partition_number, h.partition_id, h.row_count, h.reserved_MB, h.reserved_LOB_MB, h.reserved_row_overflow_MB, h.lock_escalation_desc, h.data_compression_desc                          
+                
 		END; --End Check For @SkipPartitions = 0
 
 
@@ -2591,7 +2799,6 @@ SELECT
 FROM #IndexSanity;
 	  
 RAISERROR (N'Populate #PartitionCompressionInfo.',0,1) WITH NOWAIT;
-IF OBJECT_ID('tempdb..#maps') IS NOT NULL DROP TABLE #maps;
 WITH maps
     AS
      (
@@ -2606,7 +2813,6 @@ SELECT *
 INTO   #maps
 FROM   maps;
 
-IF OBJECT_ID('tempdb..#grps') IS NOT NULL DROP TABLE #grps;
 WITH grps
     AS
      (
@@ -6178,7 +6384,8 @@ BEGIN
 
 
     END; /* End @Mode=3 (index detail)*/
-
+    set @d = convert(varchar(19), getdate(), 121);
+    RAISERROR (N'finishing at %s',0,1, @d) WITH NOWAIT;
 END /* End @TableName IS NULL (mode 0/1/2/3/4) */
 END TRY
 
@@ -6197,4 +6404,3 @@ BEGIN CATCH
 
         RETURN;
     END CATCH;
-GO
