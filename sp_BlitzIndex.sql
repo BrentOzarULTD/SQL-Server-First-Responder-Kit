@@ -38,7 +38,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
 	@SortOrder NVARCHAR(50) = NULL, /* Only affects @Mode = 2. */
 	@SortDirection NVARCHAR(4) = 'DESC', /* Only affects @Mode = 2. */
     @Help TINYINT = 0,
-	@Debug BIT =0,
+	@Debug BIT = 0,
     @Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0
@@ -105,7 +105,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ';
-return;
+RETURN;
 END;    /* @Help = 1 */
 
 DECLARE @ScriptVersionName NVARCHAR(50);
@@ -1070,7 +1070,7 @@ FROM     sys.databases
 ----------------------------------------
 BEGIN TRY
     BEGIN
-        declare @d varchar(19) = convert(varchar(19), getdate(), 121);
+        DECLARE @d VARCHAR(19) = CONVERT(VARCHAR(19), GETDATE(), 121);
         RAISERROR (N'starting at %s',0,1, @d) WITH NOWAIT;
 
         --Validate SQL Server Version
@@ -1167,7 +1167,7 @@ BEGIN TRY
         --insert columns for clustered indexes and heaps
         --collect info on identity columns for this one
         SET @dsql = N'/* sp_BlitzIndex */
-				--SET LOCK_TIMEOUT 10000; /* To fix locking bug in sys.identity_columns. See Github issue #2176. */
+				SET LOCK_TIMEOUT 1000; /* To fix locking bug in sys.identity_columns. See Github issue #2176. */
 				SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                 SELECT ' + CAST(@DatabaseID AS NVARCHAR(16)) + ',
 					s.name,    
@@ -1516,10 +1516,10 @@ create table #os
   )
   
             SET @dsql = N'
-                        declare @d varchar(19) = convert(varchar(19), getdate(), 121)
+                        DECLARE @d VARCHAR(19) = CONVERT(VARCHAR(19), GETDATE(), 121)
                         RAISERROR (N''start getting data into #h at %s'',0,1, @d) WITH NOWAIT;
                         SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-                        insert into #h
+                        INSERT INTO #h
                         (
                             database_id, object_id, sname, index_id, partition_number, partition_id, row_count, reserved_MB, reserved_LOB_MB, reserved_row_overflow_MB, lock_escalation_desc, data_compression_desc, reserved_dictionary_MB
                         )
@@ -1573,7 +1573,7 @@ create table #os
             /*OPTION    ( RECOMPILE );*/
             OPTION    ( RECOMPILE , min_grant_percent = 1);
 
-            set @d = convert(varchar(19), getdate(), 121)
+            SET @d = CONVERT(VARCHAR(19), GETDATE(), 121)
             RAISERROR (N''start getting data into #os at %s.'',0,1, @d) WITH NOWAIT;
             
                        insert  into #os
@@ -1685,7 +1685,7 @@ create table #os
                 from ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_index_operational_stats('+ CAST(@DatabaseID AS NVARCHAR(10)) +', NULL, NULL,NULL) AS os 
                 OPTION    ( RECOMPILE , min_grant_percent = 1);
 
-                set @d = convert(varchar(19), getdate(), 121)
+                SET @d = CONVERT(VARCHAR(19), GETDATE(), 121)
                 RAISERROR (N''finished getting data into #os at %s.'',0,1, @d) WITH NOWAIT;
             ';
         END;
@@ -2799,6 +2799,7 @@ SELECT
 FROM #IndexSanity;
 	  
 RAISERROR (N'Populate #PartitionCompressionInfo.',0,1) WITH NOWAIT;
+IF OBJECT_ID('tempdb..#maps') IS NOT NULL DROP TABLE #maps;
 WITH maps
     AS
      (
@@ -2813,6 +2814,7 @@ SELECT *
 INTO   #maps
 FROM   maps;
 
+IF OBJECT_ID('tempdb..#grps') IS NOT NULL DROP TABLE #grps;
 WITH grps
     AS
      (
@@ -6384,7 +6386,7 @@ BEGIN
 
 
     END; /* End @Mode=3 (index detail)*/
-    set @d = convert(varchar(19), getdate(), 121);
+    SET @d = CONVERT(VARCHAR(19), GETDATE(), 121);
     RAISERROR (N'finishing at %s',0,1, @d) WITH NOWAIT;
 END /* End @TableName IS NULL (mode 0/1/2/3/4) */
 END TRY
@@ -6404,3 +6406,4 @@ BEGIN CATCH
 
         RETURN;
     END CATCH;
+GO
