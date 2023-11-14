@@ -198,8 +198,6 @@ AS
 			,@SkipMaster bit = 0
 			,@SkipMSDB_objs bit = 0
             ,@SkipMSDB_jobs bit = 0
-            ,@SkipMSDB_alerts bit = 0
-            ,@SkipMSDB_operators bit = 0
 			,@SkipModel bit = 0
 			,@SkipTempDB bit = 0
 			,@SkipValidateLogins bit = 0
@@ -439,64 +437,6 @@ AS
 					SET @SkipMSDB_jobs = 1; /*We don't have read permissions in the msdb database*/
 				END;
 			END;
-
-            IF ISNULL(@SkipMSDB_alerts, 0) != 1 /*If @SkipMSDB_alerts hasn't been set to 1 by the caller*/
-			BEGIN
-				IF EXISTS
-				(
-					SELECT	1/0
-            	    FROM	@db_perms
-            	    WHERE	database_name = N'msdb'
-				)
-				BEGIN
-					BEGIN TRY
-						IF EXISTS
-						(
-            	            SELECT	1/0
-            	            FROM	msdb.dbo.sysalerts
-						)
-						BEGIN
-							SET @SkipMSDB_alerts = 0; /*We have read permissions in the msdb database, and can view the objects*/
-						END;
-					END TRY
-					BEGIN CATCH
-						SET @SkipMSDB_alerts = 1; /*We have read permissions in the msdb database ... oh wait we got tricked, we can't view the objects*/
-					END CATCH;
-				END;
-				ELSE
-				BEGIN
-					SET @SkipMSDB_alerts = 1; /*We don't have read permissions in the msdb database*/
-				END;
-			END;
-
-            IF ISNULL(@SkipMSDB_operators, 0) != 1 /*If @SkipMSDB_operators hasn't been set to 1 by the caller*/
-			BEGIN
-				IF EXISTS
-				(
-					SELECT	1/0
-            	    FROM	@db_perms
-            	    WHERE	database_name = N'msdb'
-				)
-				BEGIN
-					BEGIN TRY
-						IF EXISTS
-						(
-            	            SELECT	1/0
-            	            FROM	msdb.dbo.sysoperators
-						)
-						BEGIN
-							SET @SkipMSDB_operators = 0; /*We have read permissions in the msdb database, and can view the objects*/
-						END;
-					END TRY
-					BEGIN CATCH
-						SET @SkipMSDB_operators = 1; /*We have read permissions in the msdb database ... oh wait we got tricked, we can't view the objects*/
-					END CATCH;
-				END;
-				ELSE
-				BEGIN
-					SET @SkipMSDB_operators = 1; /*We don't have read permissions in the msdb database*/
-				END;
-			END;
 		END;
 
 		SET @crlf = NCHAR(13) + NCHAR(10);
@@ -672,33 +612,28 @@ AS
         INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
 		SELECT
 			v.*
-		FROM (VALUES(NULL,   6, NULL), /*Jobs Owned By Users*/
+		FROM (VALUES
+					/*sysjobs checks*/
+					(NULL,   6, NULL), /*Jobs Owned By Users*/
 					(NULL,  57, NULL), /*SQL Agent Job Runs at Startup*/
 					(NULL,  79, NULL), /*Shrink Database Job*/
 					(NULL,  94, NULL), /*Agent Jobs Without Failure Emails*/
 					(NULL, 123, NULL), /*Agent Jobs Starting Simultaneously*/
 					(NULL, 180, NULL), /*Shrink Database Step In Maintenance Plan*/
-					(NULL, 181, NULL)  /*Repetitive Maintenance Tasks*/
-            ) AS v (DatabaseName, CheckID, ServerName)
-		WHERE @SkipMSDB_jobs = 1;
-
-        INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
-		SELECT
-			v.*
-		FROM (VALUES(NULL,  30, NULL), /*Not All Alerts Configured*/
+					(NULL, 181, NULL), /*Repetitive Maintenance Tasks*/
+					
+					/*sysalerts checks*/
+					(NULL,  30, NULL), /*Not All Alerts Configured*/
 					(NULL,  59, NULL), /*Alerts Configured without Follow Up*/
                     (NULL,  61, NULL), /*No Alerts for Sev 19-25*/
 					(NULL,  96, NULL), /*No Alerts for Corruption*/
 					(NULL,  98, NULL), /*Alerts Disabled*/
-					(NULL, 219, NULL)  /*Alerts Without Event Descriptions*/
-            ) AS v (DatabaseName, CheckID, ServerName)
-		WHERE @SkipMSDB_alerts = 1;
+					(NULL, 219, NULL), /*Alerts Without Event Descriptions*/
 
-        INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
-		SELECT
-			v.*
-		FROM (VALUES(NULL,  31, NULL)) AS v (DatabaseName, CheckID, ServerName) /*No Operators Configured/Enabled*/
-		WHERE @SkipMSDB_operators = 1;
+					/*sysoperators*/
+					(NULL,  31, NULL)  /*No Operators Configured/Enabled*/
+            ) AS v (DatabaseName, CheckID, ServerName)
+		WHERE @SkipMSDB_jobs = 1;
 
 		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
 		SELECT
