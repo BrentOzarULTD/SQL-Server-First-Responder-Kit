@@ -1909,7 +1909,7 @@ BEGIN
                              SELECT
                                  1/0
                              FROM sys.databases AS d
-                             WHERE d.name = dow.database_name
+                             WHERE d.name COLLATE DATABASE_DEFAULT = dow.database_name COLLATE DATABASE_DEFAULT
                              AND   d.is_read_committed_snapshot_on = 1
                          )
                     THEN N'You already enabled RCSI, but...'
