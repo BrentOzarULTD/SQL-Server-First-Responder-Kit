@@ -9839,20 +9839,22 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												FROM #BlitzResults
 												WHERE Priority > 0 AND Priority < 255 AND FindingsGroup IS NOT NULL AND Finding IS NOT NULL
 												AND FindingsGroup <> 'Security' /* Specifically excluding security checks for public exports */)
-							SELECT
-								CASE
-									WHEN r.Priority <> COALESCE(rPrior.Priority, 0) OR r.FindingsGroup <> rPrior.FindingsGroup  THEN @crlf + N'**Priority ' + CAST(COALESCE(r.Priority,N'') AS NVARCHAR(5)) + N': ' + COALESCE(r.FindingsGroup,N'') + N'**:' + @crlf + @crlf
-									ELSE N''
-								END
-								+ CASE WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding <> COALESCE(rNext.Finding,N'') THEN N'- ' + COALESCE(r.Finding,N'') + N' ' + COALESCE(r.DatabaseName, N'') + N' - ' + COALESCE(r.Details,N'') + @crlf
-									   WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding = rNext.Finding AND r.Details = rNext.Details THEN N'- ' + COALESCE(r.Finding,N'') + N' - ' + COALESCE(r.Details,N'') + @crlf + @crlf + N'    * ' + COALESCE(r.DatabaseName, N'') + @crlf
-									   WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding = rNext.Finding THEN N'- ' + COALESCE(r.Finding,N'') + @crlf + CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,N'') END + CASE WHEN r.Details <> rPrior.Details THEN N'  - ' + COALESCE(r.Details,N'') + @crlf ELSE '' END
-									   ELSE CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,N'') END + CASE WHEN r.Details <> rPrior.Details THEN N'  - ' + COALESCE(r.Details,N'') + @crlf ELSE N'' + @crlf END
-								END + @crlf
-							  FROM Results r
-							  LEFT OUTER JOIN Results rPrior ON r.rownum = rPrior.rownum + 1
-							  LEFT OUTER JOIN Results rNext ON r.rownum = rNext.rownum - 1
-							ORDER BY r.rownum FOR XML PATH(N'');
+							SELECT 
+							    Markdown = CONVERT(XML, STUFF((SELECT
+																   CASE
+																	   WHEN r.Priority <> COALESCE(rPrior.Priority, 0) OR r.FindingsGroup <> rPrior.FindingsGroup  THEN @crlf + N'**Priority ' + CAST(COALESCE(r.Priority,N'') AS NVARCHAR(5)) + N': ' + COALESCE(r.FindingsGroup,N'') + N'**:' + @crlf + @crlf
+																	   ELSE N''
+																   END
+																   + CASE WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding <> COALESCE(rNext.Finding,N'') THEN N'- ' + COALESCE(r.Finding,N'') + N' ' + COALESCE(r.DatabaseName, N'') + N' - ' + COALESCE(r.Details,N'') + @crlf
+																	      WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding = rNext.Finding AND r.Details = rNext.Details THEN N'- ' + COALESCE(r.Finding,N'') + N' - ' + COALESCE(r.Details,N'') + @crlf + @crlf + N'    * ' + COALESCE(r.DatabaseName, N'') + @crlf
+																	      WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding = rNext.Finding THEN N'- ' + COALESCE(r.Finding,N'') + @crlf + @crlf + CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,N'') END + CASE WHEN r.Details <> rPrior.Details THEN N'  - ' + COALESCE(r.Details,N'') + @crlf ELSE '' END
+																	      ELSE CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,N'') END + CASE WHEN r.Details <> rPrior.Details THEN N'  - ' + COALESCE(r.Details,N'') + @crlf ELSE N'' + @crlf END
+																   END + @crlf
+															     FROM Results r
+															     LEFT OUTER JOIN Results rPrior ON r.rownum = rPrior.rownum + 1
+															     LEFT OUTER JOIN Results rNext ON r.rownum = rNext.rownum - 1
+															   ORDER BY r.rownum FOR XML PATH(N''), ROOT('Markdown'), TYPE).value('/Markdown[1]','VARCHAR(MAX)'), 1, 2, '')
+                                           + '<style>p { margin: 0 0 0.5em }</style>');
 						END;
                     ELSE IF @OutputType = 'XML'
                         BEGIN
