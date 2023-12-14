@@ -200,10 +200,6 @@ AS
 			,@SkipModel bit = 0
 			,@SkipTempDB bit = 0
 			,@SkipValidateLogins bit = 0
-			/* Variables for check 211: */
-			,@powerScheme varchar(36)
-			,@cpu_speed_mhz int
-			,@cpu_speed_ghz decimal(18,2);
 
 			DECLARE
 			    @db_perms table
@@ -277,38 +273,6 @@ AS
             BEGIN
                 SET @SkipTrace = 1;
             END; /*We need this permission to execute trace stuff, apparently*/
-
-			IF ISNULL(@SkipXPRegRead, 0) != 1 /*If @SkipXPRegRead hasn't been set to 1 by the caller*/
-			BEGIN
-				BEGIN TRY
-					/* Get power plan if set by group policy [Git Hub Issue #1620] */						
-					EXEC xp_regread @rootkey	= N'HKEY_LOCAL_MACHINE',
-									@key		= N'SOFTWARE\Policies\Microsoft\Power\PowerSettings',
-									@value_name	= N'ActivePowerScheme',
-									@value		= @powerScheme OUTPUT,
-									@no_output	= N'no_output';
-
-					IF @powerScheme IS NULL /* If power plan was not set by group policy, get local value [Git Hub Issue #1620]*/
-					EXEC xp_regread @rootkey	= N'HKEY_LOCAL_MACHINE',
-									@key		= N'SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes',
-									@value_name	= N'ActivePowerScheme',
-									@value		= @powerScheme OUTPUT;
-
-					/* Get the cpu speed*/
-					EXEC xp_regread @rootkey	= N'HKEY_LOCAL_MACHINE',
-					                @key		= N'HARDWARE\DESCRIPTION\System\CentralProcessor\0',
-					                @value_name	= N'~MHz',
-					                @value		= @cpu_speed_mhz OUTPUT;
-
-					/* Convert the Megahertz to Gigahertz */
-					SET @cpu_speed_ghz = CAST(CAST(@cpu_speed_mhz AS decimal) / 1000 AS decimal(18,2));
-
-					SET @SkipXPRegRead = 0; /*We could execute xp_regread*/
-				END TRY
-				BEGIN CATCH
-					SET @SkipXPRegRead = 1; /*We have don't have execute rights or xp_regread throws an error so skip it*/
-				END CATCH;
-			END; /*Need execute on xp_regread*/
 
             IF NOT EXISTS
             (
@@ -9186,7 +9150,39 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 										WHERE   DatabaseName IS NULL AND CheckID = 211 )
 								BEGIN																		
 								
+								/* Variables for check 211: */
+								DECLARE
+									@powerScheme varchar(36)
+									,@cpu_speed_mhz int
+									,@cpu_speed_ghz decimal(18,2)
+									,@ExecResult int;
+
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 211) WITH NOWAIT;
+								IF @sa = 0 RAISERROR('The errors: ''xp_regread() returned error 5, ''Access is denied.'''' can be safely ignored', 0, 1) WITH NOWAIT;
+
+									/* Get power plan if set by group policy [Git Hub Issue #1620] */						
+									EXEC xp_regread @rootkey	= N'HKEY_LOCAL_MACHINE',
+													@key		= N'SOFTWARE\Policies\Microsoft\Power\PowerSettings',
+													@value_name	= N'ActivePowerScheme',
+													@value		= @powerScheme OUTPUT,
+													@no_output	= N'no_output';
+
+									IF @powerScheme IS NULL /* If power plan was not set by group policy, get local value [Git Hub Issue #1620]*/
+									EXEC xp_regread @rootkey	= N'HKEY_LOCAL_MACHINE',
+													@key		= N'SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes',
+													@value_name	= N'ActivePowerScheme',
+													@value		= @powerScheme OUTPUT;
+								
+									/* Get the cpu speed*/
+									EXEC @ExecResult = xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+					                							  @key			= N'HARDWARE\DESCRIPTION\System\CentralProcessor\0',
+					                							  @value_name	= N'~MHz',
+					                							  @value		= @cpu_speed_mhz OUTPUT;
+
+									/* Convert the Megahertz to Gigahertz */
+									IF @ExecResult != 0 RAISERROR('We couldn''t retrieve the CPU speed, you will see Unknown in the results', 0, 1)
+
+									SET @cpu_speed_ghz = CAST(CAST(@cpu_speed_mhz AS decimal) / 1000 AS decimal(18,2));
 
 									INSERT  INTO #BlitzResults
 										( CheckID ,
@@ -9202,7 +9198,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 									'Power Plan' AS Finding,
 									'https://www.brentozar.com/blitz/power-mode/' AS URL,
 									'Your server has '
-									+ CAST(@cpu_speed_ghz as VARCHAR(4))
+									+ ISNULL(CAST(@cpu_speed_ghz as VARCHAR(8)), 'Unknown ')
 									+ 'GHz CPUs, and is in '
 									+ CASE @powerScheme
 							             WHEN 'a1841308-3541-4fab-bc81-f71556f20b4a'
