@@ -8704,122 +8704,141 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 										EXECUTE(@StringToExecute);
 									END;
 
-			/*
-			Starting with SQL Server 2014 SP2, Instant File Initialization
-			is logged in the SQL Server Error Log.
-			*/
-					IF NOT EXISTS ( SELECT  1
-									FROM    #SkipChecks
-									WHERE   DatabaseName IS NULL AND CheckID = 193 )
-							AND ((@ProductVersionMajor >= 13) OR (@ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000))
-						BEGIN
-							
-							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 193) WITH NOWAIT;
-							
-							-- If this is Amazon RDS, use rdsadmin.dbo.rds_read_error_log
-							IF LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
-							   AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
-							   AND db_id('rdsadmin') IS NOT NULL
-							   AND EXISTS(SELECT * FROM master.sys.all_objects WHERE name IN ('rds_startup_tasks', 'rds_help_revlogin', 'rds_hexadecimal', 'rds_failover_tracking', 'rds_database_tracking', 'rds_track_change'))
-								BEGIN
-								INSERT INTO #ErrorLog
-								EXEC rdsadmin.dbo.rds_read_error_log 0, 1, N'Database Instant File Initialization: enabled';
-								END
-							ELSE
-								BEGIN
-									BEGIN TRY
-										INSERT INTO #ErrorLog
-										EXEC sys.xp_readerrorlog 0, 1, N'Database Instant File Initialization: enabled';
-									END TRY
-									BEGIN CATCH
-										IF @Debug IN (1, 2) RAISERROR('No permissions to execute xp_readerrorlog.', 0, 1) WITH NOWAIT;
-									END CATCH
-								END
+					/* Performance - Instant File Initialization Not Enabled  - Check 192 */
+					/* Server Info - Instant File Initialization Enabled      - Check 193 */
+					IF NOT EXISTS (	SELECT 1/0
+    								FROM   #SkipChecks
+    								WHERE  DatabaseName IS NULL AND CheckID = 192 /* IFI disabled check disabled */
+								  ) OR NOT EXISTS
+								  ( SELECT 1/0
+								  	FROM   #SkipChecks
+    								WHERE  DatabaseName IS NULL AND CheckID = 193 /* IFI enabled check disabled */
+								  )
+					BEGIN
+					    IF @Debug IN (1, 2) RAISERROR('Running  CheckId [%d] and CheckId [%d].', 0, 1, 192, 193) WITH NOWAIT;
 
-							IF EXISTS
-							(
-								SELECT	1/0
-								FROM	#ErrorLog
-								WHERE 	LEFT([Text], 45) = N'Database Instant File Initialization: enabled'
-							)
-								BEGIN
-								INSERT  INTO #BlitzResults
-										( CheckID ,
-										  [Priority] ,
-										  FindingsGroup ,
-										  Finding ,
-										  URL ,
-										  Details
-										)
-										SELECT
-												193 AS [CheckID] ,
-												250 AS [Priority] ,
-												'Server Info' AS [FindingsGroup] ,
-												'Instant File Initialization Enabled' AS [Finding] ,
-												'https://www.brentozar.com/go/instant' AS [URL] ,
-												'The service account has the Perform Volume Maintenance Tasks permission.';
-								END;
-							else -- if version of sql server has instant_file_initialization_enabled column in dm_server_services, check that too
-							     --  in the event the error log has been cycled and the startup messages are not in the current error log
-								begin
-								if EXISTS ( SELECT  *
-												FROM    sys.all_objects o
-														INNER JOIN sys.all_columns c ON o.object_id = c.object_id
-												WHERE   o.name = 'dm_server_services'
-														AND c.name = 'instant_file_initialization_enabled' )
-									begin
-									SET @StringToExecute = N'
-									INSERT  INTO #BlitzResults
-											( CheckID ,
-											  [Priority] ,
-											  FindingsGroup ,
-											  Finding ,
-											  URL ,
-											  Details
-											)
-											SELECT
-													193 AS [CheckID] ,
-													250 AS [Priority] ,
-													''Server Info'' AS [FindingsGroup] ,
-													''Instant File Initialization Enabled'' AS [Finding] ,
-													''https://www.brentozar.com/go/instant'' AS [URL] ,
-													''The service account has the Perform Volume Maintenance Tasks permission.''
-											where exists (select 1 FROM sys.dm_server_services
-											               WHERE instant_file_initialization_enabled = ''Y''
-											               AND filename LIKE ''%sqlservr.exe%'')
-											OPTION (RECOMPILE);';
-									EXEC(@StringToExecute);
-									end;
-								end;
-						END;
+						DECLARE @IFISetting varchar(1) = N'N'
+        						,@IFIReadDMVFailed bit = 0
+        						,@IFIAllFailed bit = 0;
 
-			/* Server Info - Instant File Initialization Not Enabled - Check 192 - SQL Server 2016 SP1 and newer */
-						IF NOT EXISTS ( SELECT  1
-										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 192 )
-							AND EXISTS ( SELECT  *
-											FROM    sys.all_objects o
-													INNER JOIN sys.all_columns c ON o.object_id = c.object_id
-											WHERE   o.name = 'dm_server_services'
-													AND c.name = 'instant_file_initialization_enabled' )
-							BEGIN
-										
-										IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 192) WITH NOWAIT;
-										
-										SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-			SELECT  192 AS CheckID ,
-			50 AS Priority ,
-			''Server Info'' AS FindingsGroup ,
-			''Instant File Initialization Not Enabled'' AS Finding ,
-			''https://www.brentozar.com/go/instant'' AS URL ,
-			''Consider enabling IFI for faster restores and data file growths.''
-			FROM sys.dm_server_services WHERE instant_file_initialization_enabled <> ''Y'' AND filename LIKE ''%sqlservr.exe%'' OPTION (RECOMPILE);';
-										
-										IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
-										IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
-										
-										EXECUTE(@StringToExecute);
-									END;
+					    BEGIN TRY
+        					/* See if we can get the instant_file_initialization_enabled column from sys.dm_server_services */
+        					SET @StringToExecute = N'
+        					SELECT @IFISetting = instant_file_initialization_enabled
+        					FROM sys.dm_server_services
+        					WHERE filename LIKE ''%sqlservr.exe%''
+        					OPTION (RECOMPILE);';
+            
+        					IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
+        					IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
+	
+       						EXEC dbo.sp_executesql
+       						    @StringToExecute
+       						    ,N'@IFISetting varchar(1) OUTPUT'
+       						    ,@IFISetting = @IFISetting OUTPUT
+    					END TRY
+    					BEGIN CATCH
+       						/* We couldn't get the instant_file_initialization_enabled column from sys.dm_server_services, fall back to read error log */
+       						SET @IFIReadDMVFailed = 1;
+    					END CATCH;
+
+						IF @IFIReadDMVFailed = 1
+    					BEGIN
+       						/* If this is Amazon RDS, we'll use the rdsadmin.dbo.rds_read_error_log */
+       						IF LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
+       						AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
+       						AND db_id('rdsadmin') IS NOT NULL
+       						AND EXISTS ( SELECT 1/0
+       					    			 FROM   master.sys.all_objects
+       					    			 WHERE  name IN ('rds_startup_tasks', 'rds_help_revlogin', 'rds_hexadecimal', 'rds_failover_tracking', 'rds_database_tracking', 'rds_track_change')
+       								   )
+       						BEGIN
+           						/* Amazon RDS detected, read rdsadmin.dbo.rds_read_error_log */
+           						INSERT INTO #ErrorLog
+           						EXEC rdsadmin.dbo.rds_read_error_log 0, 1, N'Database Instant File Initialization: enabled';
+       						END
+       						ELSE
+       						BEGIN
+           						/* Try to read the error log, this might fail due to permissions */
+           						BEGIN TRY
+               						INSERT INTO #ErrorLog
+               						EXEC sys.xp_readerrorlog 0, 1, N'Database Instant File Initialization: enabled';
+           						END TRY
+           						BEGIN CATCH
+               						IF @Debug IN (1, 2) RAISERROR('No permissions to execute xp_readerrorlog.', 0, 1) WITH NOWAIT;
+               						SET @IFIAllFailed = 1;
+           						END CATCH
+       						END;
+    					END;
+
+						IF @IFIAllFailed = 0
+    					BEGIN
+        					IF @IFIReadDMVFailed = 1
+        					/* We couldn't read the DMV so set the @IFISetting variable using the error log */
+        					BEGIN
+        					    IF EXISTS ( SELECT 1/0
+        					        		FROM   #ErrorLog
+        					        		WHERE  LEFT([Text], 45) = N'Database Instant File Initialization: enabled'
+        					    		  )
+        					    BEGIN
+        					        SET @IFISetting = 'Y';
+        					    END
+        					    ELSE
+        					    BEGIN
+        					        SET @IFISetting = 'N';
+        					    END;
+        					END;
+
+					        IF NOT EXISTS ( SELECT 1/0
+            								FROM   #SkipChecks
+					    					WHERE  DatabaseName IS NULL AND CheckID = 192 /* IFI disabled check disabled */
+        								  ) AND @IFISetting = 'N'
+        					BEGIN
+        					    INSERT INTO #BlitzResults
+        					    (
+        					        CheckID ,
+        					        [Priority] ,
+        					        FindingsGroup ,
+        					        Finding ,
+        					        URL ,
+        					        Details
+        					    )
+        					    SELECT
+        					        192 AS [CheckID] ,
+							        50 AS [Priority] ,
+							        'Performance' AS [FindingsGroup] ,
+        					        'Instant File Initialization Not Enabled' AS [Finding] ,
+							        'https://www.brentozar.com/go/instant' AS [URL] ,
+        					        'Consider enabling IFI for faster restores and data file growths.' AS [Details]
+        					END;
+
+					        IF NOT EXISTS ( SELECT 1/0
+					            			FROM   #SkipChecks
+					            			WHERE  DatabaseName IS NULL AND CheckID = 193 /* IFI enabled check disabled */
+					        			  ) AND @IFISetting = 'Y'
+					        BEGIN
+					            INSERT INTO #BlitzResults
+					            (
+					                CheckID ,
+					                [Priority] ,
+					                FindingsGroup ,
+					                Finding ,
+					                URL ,
+					                Details
+					            )
+					            SELECT
+					                193 AS [CheckID] ,
+							        250 AS [Priority] ,
+							        'Server Info' AS [FindingsGroup] ,
+					                'Instant File Initialization Enabled' AS [Finding] ,
+							        'https://www.brentozar.com/go/instant' AS [URL] ,
+					                'The service account has the Perform Volume Maintenance Tasks permission.' AS [Details]
+					        END;
+					    END;
+					END;
+
+					/* End of checkId 192 */
+					/* End of checkId 193 */
 
 					IF NOT EXISTS ( SELECT  1
 									FROM    #SkipChecks
