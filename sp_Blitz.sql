@@ -630,6 +630,25 @@ AS
 		FROM (VALUES(NULL, 2301, NULL))	AS v (DatabaseName, CheckID, ServerName) /*sp_validatelogins*/
 		WHERE @SkipValidateLogins = 1
 
+		IF @sa = 0
+		BEGIN
+			INSERT INTO #BlitzResults
+			( CheckID ,
+			  Priority ,
+			  FindingsGroup ,
+			  Finding ,
+			  URL ,
+			  Details
+			)
+			SELECT 223 AS CheckID ,
+			         0 AS Priority ,
+			         'Informational' AS FindingsGroup ,
+			         'Some Checks Skipped' AS Finding ,
+			         '' AS URL ,
+			         'User ''' + @SUSER_NAME + ''' is not part of the sysadmin role, so we skipped some checks that are not possible due to lack of permissions.' AS Details;
+		END;
+		/*End of SkipsChecks added due to permissions*/
+
 		IF @SkipChecksTable IS NOT NULL
 			AND @SkipChecksSchema IS NOT NULL
 			AND @SkipChecksDatabase IS NOT NULL
