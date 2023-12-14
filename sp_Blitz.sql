@@ -196,7 +196,8 @@ AS
 			,@SkipXPFixedDrives bit = 0
 			,@SkipXPCMDShell bit = 0
 			,@SkipMaster bit = 0
-			,@SkipMSDB bit = 0
+			,@SkipMSDB_objs bit = 0
+            ,@SkipMSDB_jobs bit = 0
 			,@SkipModel bit = 0
 			,@SkipTempDB bit = 0
 			,@SkipValidateLogins bit = 0
@@ -343,7 +344,7 @@ AS
             	END;
 			END;
 
-			IF ISNULL(@SkipMSDB, 0) != 1 /*If @SkipMSDB hasn't been set to 1 by the caller*/
+			IF ISNULL(@SkipMSDB_objs, 0) != 1 /*If @SkipMSDB_objs hasn't been set to 1 by the caller*/
 			BEGIN
 				IF EXISTS
 				(
@@ -359,16 +360,45 @@ AS
             	            FROM	msdb.sys.objects
 						)
 						BEGIN
-							SET @SkipMSDB = 0; /*We have read permissions in the msdb database, and can view the objects*/
+							SET @SkipMSDB_objs = 0; /*We have read permissions in the msdb database, and can view the objects*/
 						END;
 					END TRY
 					BEGIN CATCH
-						SET @SkipMSDB = 1; /*We have read permissions in the msdb database ... oh wait we got tricked, we can't view the objects*/
+						SET @SkipMSDB_objs = 1; /*We have read permissions in the msdb database ... oh wait we got tricked, we can't view the objects*/
 					END CATCH;
 				END;
 				ELSE
 				BEGIN
-					SET @SkipMSDB = 1; /*We don't have read permissions in the msdb database*/
+					SET @SkipMSDB_objs = 1; /*We don't have read permissions in the msdb database*/
+				END;
+			END;
+
+            IF ISNULL(@SkipMSDB_jobs, 0) != 1 /*If @SkipMSDB_jobs hasn't been set to 1 by the caller*/
+			BEGIN
+				IF EXISTS
+				(
+					SELECT	1/0
+            	    FROM	@db_perms
+            	    WHERE	database_name = N'msdb'
+				)
+				BEGIN
+					BEGIN TRY
+						IF EXISTS
+						(
+            	            SELECT	1/0
+            	            FROM	msdb.dbo.sysjobs
+						)
+						BEGIN
+							SET @SkipMSDB_jobs = 0; /*We have read permissions in the msdb database, and can view the objects*/
+						END;
+					END TRY
+					BEGIN CATCH
+						SET @SkipMSDB_jobs = 1; /*We have read permissions in the msdb database ... oh wait we got tricked, we can't view the objects*/
+					END CATCH;
+				END;
+				ELSE
+				BEGIN
+					SET @SkipMSDB_jobs = 1; /*We don't have read permissions in the msdb database*/
 				END;
 			END;
 		END;
@@ -540,17 +570,34 @@ AS
 		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
 		SELECT
 			v.*
-		FROM (VALUES(NULL,   6, NULL), /*Jobs Owned By Users*/
-					(NULL,  28, NULL), /*SQL Agent Job Runs at Startup*/
-					(NULL,  57, NULL), /*Tables in the MSDB Database*/
+		FROM (VALUES(NULL,  28, NULL)) AS v (DatabaseName, CheckID, ServerName) /*Tables in the MSDB Database*/
+		WHERE @SkipMSDB_objs = 1;
+
+        INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
+		SELECT
+			v.*
+		FROM (VALUES
+					/*sysjobs checks*/
+					(NULL,   6, NULL), /*Jobs Owned By Users*/
+					(NULL,  57, NULL), /*SQL Agent Job Runs at Startup*/
 					(NULL,  79, NULL), /*Shrink Database Job*/
 					(NULL,  94, NULL), /*Agent Jobs Without Failure Emails*/
 					(NULL, 123, NULL), /*Agent Jobs Starting Simultaneously*/
 					(NULL, 180, NULL), /*Shrink Database Step In Maintenance Plan*/
 					(NULL, 181, NULL), /*Repetitive Maintenance Tasks*/
-					(NULL, 219, NULL)  /*Alerts Without Event Descriptions*/
-			) AS v (DatabaseName, CheckID, ServerName) 
-		WHERE @SkipMSDB = 1;
+					
+					/*sysalerts checks*/
+					(NULL,  30, NULL), /*Not All Alerts Configured*/
+					(NULL,  59, NULL), /*Alerts Configured without Follow Up*/
+                    (NULL,  61, NULL), /*No Alerts for Sev 19-25*/
+					(NULL,  96, NULL), /*No Alerts for Corruption*/
+					(NULL,  98, NULL), /*Alerts Disabled*/
+					(NULL, 219, NULL), /*Alerts Without Event Descriptions*/
+
+					/*sysoperators*/
+					(NULL,  31, NULL)  /*No Operators Configured/Enabled*/
+            ) AS v (DatabaseName, CheckID, ServerName)
+		WHERE @SkipMSDB_jobs = 1;
 
 		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
 		SELECT
