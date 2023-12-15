@@ -1214,16 +1214,16 @@ BEGIN TRY
         RAISERROR (N'Inserting data into #IndexColumns for clustered indexes and heaps',0,1) WITH NOWAIT;
         IF @Debug = 1
             BEGIN
-                PRINT SUBSTRING(@dsql, 0, 4000);
-                PRINT SUBSTRING(@dsql, 4000, 8000);
-                PRINT SUBSTRING(@dsql, 8000, 12000);
-                PRINT SUBSTRING(@dsql, 12000, 16000);
-                PRINT SUBSTRING(@dsql, 16000, 20000);
-                PRINT SUBSTRING(@dsql, 20000, 24000);
-                PRINT SUBSTRING(@dsql, 24000, 28000);
-                PRINT SUBSTRING(@dsql, 28000, 32000);
-                PRINT SUBSTRING(@dsql, 32000, 36000);
-                PRINT SUBSTRING(@dsql, 36000, 40000);
+                PRINT SUBSTRING(@dsql,     1, 4000);
+                PRINT SUBSTRING(@dsql,  4001, 4000);
+                PRINT SUBSTRING(@dsql,  8001, 4000);
+                PRINT SUBSTRING(@dsql, 12001, 4000);
+                PRINT SUBSTRING(@dsql, 16001, 4000);
+                PRINT SUBSTRING(@dsql, 20001, 4000);
+                PRINT SUBSTRING(@dsql, 24001, 4000);
+                PRINT SUBSTRING(@dsql, 28001, 4000);
+                PRINT SUBSTRING(@dsql, 32001, 4000);
+                PRINT SUBSTRING(@dsql, 36001, 4000);
             END;
 		BEGIN TRY
 			INSERT    #IndexColumns ( database_id, [schema_name], [object_id], index_id, key_ordinal, is_included_column, is_descending_key, partition_ordinal,
@@ -2591,6 +2591,7 @@ SELECT
 FROM #IndexSanity;
 	  
 RAISERROR (N'Populate #PartitionCompressionInfo.',0,1) WITH NOWAIT;
+IF OBJECT_ID('tempdb..#maps') IS NOT NULL DROP TABLE #maps;
 WITH maps
     AS
      (
@@ -2605,6 +2606,7 @@ SELECT *
 INTO   #maps
 FROM   maps;
 
+IF OBJECT_ID('tempdb..#grps') IS NOT NULL DROP TABLE #grps;
 WITH grps
     AS
      (
