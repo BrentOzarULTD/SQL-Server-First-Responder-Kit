@@ -8721,13 +8721,20 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
         						,@IFIReadDMVFailed bit = 0
         						,@IFIAllFailed bit = 0;
 
-					    BEGIN TRY
-        					/* See if we can get the instant_file_initialization_enabled column from sys.dm_server_services */
-        					SET @StringToExecute = N'
-        					SELECT @IFISetting = instant_file_initialization_enabled
-        					FROM sys.dm_server_services
-        					WHERE filename LIKE ''%sqlservr.exe%''
-        					OPTION (RECOMPILE);';
+						/* See if we can get the instant_file_initialization_enabled column from sys.dm_server_services */
+					    IF EXISTS
+						(
+						    SELECT 1/0
+						    FROM sys.all_columns
+						    WHERE [object_id] = OBJECT_ID(N'[sys].[dm_server_services]')
+						    AND [name] = N'instant_file_initialization_enabled'
+						)
+						BEGIN
+        					/* This needs to be a "dynamic" SQL statement because if the 'instant_file_initialization_enabled' column doesn't exist the procedure might fail on a bind error */
+							SET @StringToExecute = N'SELECT @IFISetting = instant_file_initialization_enabled' +
+        					N'FROM sys.dm_server_services' +
+        					N'WHERE filename LIKE ''%sqlservr.exe%''' +
+        					N'OPTION (RECOMPILE);';
             
         					IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
         					IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
@@ -8736,14 +8743,13 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
        						    @StringToExecute
        						    ,N'@IFISetting varchar(1) OUTPUT'
        						    ,@IFISetting = @IFISetting OUTPUT
-    					END TRY
-    					BEGIN CATCH
-       						/* We couldn't get the instant_file_initialization_enabled column from sys.dm_server_services, fall back to read error log */
-       						SET @IFIReadDMVFailed = 1;
-    					END CATCH;
-
-						IF @IFIReadDMVFailed = 1
+							
+							SET @IFIReadDMVFailed = 0;
+    					END
+    					ELSE 
+						/* We couldn't get the instant_file_initialization_enabled column from sys.dm_server_services, fall back to read error log */
     					BEGIN
+       						SET @IFIReadDMVFailed = 1;
        						/* If this is Amazon RDS, we'll use the rdsadmin.dbo.rds_read_error_log */
        						IF LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
        						AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
