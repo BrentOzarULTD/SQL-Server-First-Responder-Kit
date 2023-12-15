@@ -8731,9 +8731,9 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 						)
 						BEGIN
         					/* This needs to be a "dynamic" SQL statement because if the 'instant_file_initialization_enabled' column doesn't exist the procedure might fail on a bind error */
-							SET @StringToExecute = N'SELECT @IFISetting = instant_file_initialization_enabled' +
-        					N'FROM sys.dm_server_services' +
-        					N'WHERE filename LIKE ''%sqlservr.exe%''' +
+							SET @StringToExecute = N'SELECT @IFISetting = instant_file_initialization_enabled' + @crlf +
+        					N'FROM sys.dm_server_services' + @crlf +
+        					N'WHERE filename LIKE ''%sqlservr.exe%''' + @crlf +
         					N'OPTION (RECOMPILE);';
             
         					IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
