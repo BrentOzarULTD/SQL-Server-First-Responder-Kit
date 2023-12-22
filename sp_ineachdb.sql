@@ -4,31 +4,32 @@ GO
 
 ALTER PROCEDURE [dbo].[sp_ineachdb]
   -- mssqltips.com/sqlservertip/5694/execute-a-command-in-the-context-of-each-database-in-sql-server--part-2/
-  @command             nvarchar(max) = NULL,
-  @replace_character   nchar(1) = N'?',
-  @print_dbname        bit = 0,
-  @select_dbname       bit = 0, 
-  @print_command       bit = 0, 
-  @print_command_only  bit = 0,
-  @suppress_quotename  bit = 0, -- use with caution
-  @system_only         bit = 0,
-  @user_only           bit = 0,
-  @name_pattern        nvarchar(300)  = N'%', 
-  @database_list       nvarchar(max)  = NULL,
-  @exclude_pattern     nvarchar(300)  = NULL,
-  @exclude_list        nvarchar(max)  = NULL,
-  @recovery_model_desc nvarchar(120)  = NULL,
-  @compatibility_level tinyint        = NULL,
-  @state_desc          nvarchar(120)  = N'ONLINE',
-  @is_read_only        bit = 0,
-  @is_auto_close_on    bit = NULL,
-  @is_auto_shrink_on   bit = NULL,
-  @is_broker_enabled   bit = NULL,
-  @user_access         nvarchar(128)  = NULL, 
-  @Help                BIT = 0,
-  @Version             VARCHAR(30)    = NULL OUTPUT,
-  @VersionDate         DATETIME       = NULL OUTPUT,
-  @VersionCheckMode    BIT            = 0
+  @command              nvarchar(max) = NULL,
+  @replace_character    nchar(1)      = N'?',
+  @print_dbname         bit = 0,
+  @select_dbname        bit = 0, 
+  @print_command        bit = 0, 
+  @print_command_only   bit = 0,
+  @suppress_quotename   bit = 0, -- use with caution
+  @system_only          bit = 0,
+  @user_only            bit = 0,
+  @name_pattern         nvarchar(300)  = N'%', 
+  @database_list        nvarchar(max)  = NULL,
+  @exclude_pattern      nvarchar(300)  = NULL,
+  @exclude_list         nvarchar(max)  = NULL,
+  @recovery_model_desc  nvarchar(120)  = NULL,
+  @compatibility_level  tinyint        = NULL,
+  @state_desc           nvarchar(120)  = N'ONLINE',
+  @is_read_only         bit = 0,
+  @is_auto_close_on     bit = NULL,
+  @is_auto_shrink_on    bit = NULL,
+  @is_broker_enabled    bit = NULL,
+  @user_access          nvarchar(128)  = NULL, 
+  @Help                 bit = 0,
+  @Version              varchar(30)    = NULL OUTPUT,
+  @VersionDate          datetime       = NULL OUTPUT,
+  @VersionCheckMode     bit            = 0,
+  @is_ag_writeable_copy bit            = 0
 -- WITH EXECUTE AS OWNER – maybe not a great idea, depending on the security of your system
 AS
 BEGIN
@@ -277,6 +278,22 @@ OPTION (MAXRECURSION 0);
               AND ar.secondary_role_allow_connections = 0
               AND ags.primary_replica <> @ServerName
           );
+	/* Remove databases which are not the writeable copies in an AG. */
+    IF @is_ag_writeable_copy = 1
+    BEGIN
+      DELETE dbs FROM #ineachdb AS dbs
+      WHERE EXISTS
+          (
+          SELECT 1 FROM sys.dm_hadr_database_replica_states AS drs 
+            INNER JOIN sys.availability_replicas AS ar
+            ON ar.replica_id = drs.replica_id
+            INNER JOIN sys.dm_hadr_availability_group_states AS ags 
+            ON ags.group_id = ar.group_id
+            WHERE drs.database_id = dbs.id
+            AND drs.is_primary_replica <> 1
+            AND ags.primary_replica <> @ServerName
+          );
+    END
   END
 
   -- Well, if we deleted them all...
