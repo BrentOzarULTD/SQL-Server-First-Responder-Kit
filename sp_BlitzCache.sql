@@ -281,7 +281,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.17', @VersionDate = '20231010';
+SELECT @Version = '8.18', @VersionDate = '20231222';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -7338,16 +7338,16 @@ END ';
                     
                     IF @Debug = 1
                     BEGIN
-                        PRINT SUBSTRING(@StringToExecute, 0, 4000);
-                        PRINT SUBSTRING(@StringToExecute, 4000, 8000);
-                        PRINT SUBSTRING(@StringToExecute, 8000, 12000);
-                        PRINT SUBSTRING(@StringToExecute, 12000, 16000);
-                        PRINT SUBSTRING(@StringToExecute, 16000, 20000);
-                        PRINT SUBSTRING(@StringToExecute, 20000, 24000);
-                        PRINT SUBSTRING(@StringToExecute, 24000, 28000);
-                        PRINT SUBSTRING(@StringToExecute, 28000, 32000);
-                        PRINT SUBSTRING(@StringToExecute, 32000, 36000);
-                        PRINT SUBSTRING(@StringToExecute, 36000, 40000);
+                        PRINT SUBSTRING(@StringToExecute,     1, 4000);
+                        PRINT SUBSTRING(@StringToExecute,  4001, 4000);
+                        PRINT SUBSTRING(@StringToExecute,  8001, 4000);
+                        PRINT SUBSTRING(@StringToExecute, 12001, 4000);
+                        PRINT SUBSTRING(@StringToExecute, 16001, 4000);
+                        PRINT SUBSTRING(@StringToExecute, 20001, 4000);
+                        PRINT SUBSTRING(@StringToExecute, 24001, 4000);
+                        PRINT SUBSTRING(@StringToExecute, 28001, 4000);
+                        PRINT SUBSTRING(@StringToExecute, 32001, 4000);
+                        PRINT SUBSTRING(@StringToExecute, 36001, 4000);
                     END;
 
                     EXEC sp_executesql @StringToExecute, N'@Top INT, @min_duration INT, @min_back INT, @CheckDateOverride DATETIMEOFFSET, @MinimumExecutionCount INT', @Top, @DurationFilter_i, @MinutesBack, @CheckDateOverride, @MinimumExecutionCount;
