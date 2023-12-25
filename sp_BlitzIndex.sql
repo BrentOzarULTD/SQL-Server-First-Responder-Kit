@@ -257,10 +257,10 @@ IF OBJECT_ID('tempdb..#FilteredIndexes') IS NOT NULL
 IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL 
     DROP TABLE #Ignore_Databases
 		
-IF OBJECT_ID('tempdb..#H') IS NOT NULL 
-    DROP TABLE #H
-IF OBJECT_ID('tempdb..#OS') IS NOT NULL 
-    DROP TABLE #OS
+IF OBJECT_ID('tempdb..#dm_db_partition_stats_etc') IS NOT NULL 
+    DROP TABLE #dm_db_partition_stats_etc
+IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL 
+    DROP TABLE #dm_db_index_operational_stats
 
         RAISERROR (N'Create temp tables.',0,1) WITH NOWAIT;
         CREATE TABLE #BlitzIndexResults
@@ -1442,86 +1442,89 @@ BEGIN TRY
 
             --NOTE: If you want to use the newer syntax for 2012+, you'll have to change 2147483647 to 11 on line ~819
 			--This change was made because on a table with lots of paritions, the OUTER APPLY was crazy slow.
-DROP TABLE if exists #h
-create table #h
-(
-    database_id smallint not null
-  , object_id int not null
-  , sname sysname NULL
-  , index_id int
-  , partition_number int
-  , partition_id bigint
-  , row_count bigint
-  , reserved_MB bigint
-  , reserved_LOB_MB bigint
-  , reserved_row_overflow_MB bigint
-  , lock_escalation_desc varchar(1000)/*?*/
-  , data_compression_desc varchar(100)/*?*/
-  , reserved_dictionary_MB bigint
-)
-drop TABLE if exists #os
-create table #os
-(
-    database_id smallint not null
-  , object_id int not null
-  , index_id int
-  , partition_number int
-  , hobt_id bigint
-  , leaf_insert_count bigint
-  , leaf_delete_count bigint
-  , leaf_update_count bigint
-  , leaf_ghost_count bigint
-  , nonleaf_insert_count bigint
-  , nonleaf_delete_count bigint
-  , nonleaf_update_count bigint
-  , leaf_allocation_count bigint
-  , nonleaf_allocation_count bigint
-  , leaf_page_merge_count bigint
-  , nonleaf_page_merge_count bigint
-  , range_scan_count bigint
-  , singleton_lookup_count bigint
-  , forwarded_fetch_count bigint
-  , lob_fetch_in_pages bigint
-  , lob_fetch_in_bytes bigint
-  , lob_orphan_create_count bigint
-  , lob_orphan_insert_count bigint
-  , row_overflow_fetch_in_pages bigint
-  , row_overflow_fetch_in_bytes bigint
-  , column_value_push_off_row_count bigint
-  , column_value_pull_in_row_count bigint
-  , row_lock_count bigint
-  , row_lock_wait_count bigint
-  , row_lock_wait_in_ms bigint
-  , page_lock_count bigint
-  , page_lock_wait_count bigint
-  , page_lock_wait_in_ms bigint
-  , index_lock_promotion_attempt_count bigint
-  , index_lock_promotion_count bigint
-  , page_latch_wait_count bigint
-  , page_latch_wait_in_ms bigint
-  , page_io_latch_wait_count bigint
-  , page_io_latch_wait_in_ms bigint
-  , tree_page_latch_wait_count bigint
-  , tree_page_latch_wait_in_ms bigint
-  , tree_page_io_latch_wait_count bigint
-  , tree_page_io_latch_wait_in_ms bigint
-  , page_compression_attempt_count bigint
-  , page_compression_success_count bigint
-  , version_generated_inrow           bigint
-  , version_generated_offrow          bigint
-  , ghost_version_inrow               bigint
-  , ghost_version_offrow              bigint
-  , insert_over_ghost_version_inrow   bigint
-  , insert_over_ghost_version_offrow  bigint
-  )
+
+			-- get relevant columns from sys.dm_db_partition_stats, sys.partitions and sys.objects 
+			DROP TABLE if exists #dm_db_partition_stats_etc
+			create table #dm_db_partition_stats_etc
+			(
+				database_id smallint not null
+				, object_id int not null
+				, sname sysname NULL
+				, index_id int
+				, partition_number int
+				, partition_id bigint
+				, row_count bigint
+				, reserved_MB bigint
+				, reserved_LOB_MB bigint
+				, reserved_row_overflow_MB bigint
+				, lock_escalation_desc nvarchar(60)
+				, data_compression_desc nvarchar(60)
+			)
+
+			-- get relevant info from sys.dm_db_index_operational_stats
+			drop TABLE if exists #dm_db_index_operational_stats
+			create table #dm_db_index_operational_stats
+			(
+				database_id smallint not null
+				, object_id int not null
+				, index_id int
+				, partition_number int
+				, hobt_id bigint
+				, leaf_insert_count bigint
+				, leaf_delete_count bigint
+				, leaf_update_count bigint
+				, leaf_ghost_count bigint
+				, nonleaf_insert_count bigint
+				, nonleaf_delete_count bigint
+				, nonleaf_update_count bigint
+				, leaf_allocation_count bigint
+				, nonleaf_allocation_count bigint
+				, leaf_page_merge_count bigint
+				, nonleaf_page_merge_count bigint
+				, range_scan_count bigint
+				, singleton_lookup_count bigint
+				, forwarded_fetch_count bigint
+				, lob_fetch_in_pages bigint
+				, lob_fetch_in_bytes bigint
+				, lob_orphan_create_count bigint
+				, lob_orphan_insert_count bigint
+				, row_overflow_fetch_in_pages bigint
+				, row_overflow_fetch_in_bytes bigint
+				, column_value_push_off_row_count bigint
+				, column_value_pull_in_row_count bigint
+				, row_lock_count bigint
+				, row_lock_wait_count bigint
+				, row_lock_wait_in_ms bigint
+				, page_lock_count bigint
+				, page_lock_wait_count bigint
+				, page_lock_wait_in_ms bigint
+				, index_lock_promotion_attempt_count bigint
+				, index_lock_promotion_count bigint
+				, page_latch_wait_count bigint
+				, page_latch_wait_in_ms bigint
+				, page_io_latch_wait_count bigint
+				, page_io_latch_wait_in_ms bigint
+				, tree_page_latch_wait_count bigint
+				, tree_page_latch_wait_in_ms bigint
+				, tree_page_io_latch_wait_count bigint
+				, tree_page_io_latch_wait_in_ms bigint
+				, page_compression_attempt_count bigint
+				, page_compression_success_count bigint
+				, version_generated_inrow           bigint
+				, version_generated_offrow          bigint
+				, ghost_version_inrow               bigint
+				, ghost_version_offrow              bigint
+				, insert_over_ghost_version_inrow   bigint
+				, insert_over_ghost_version_offrow  bigint
+				)
   
             SET @dsql = N'
                         DECLARE @d VARCHAR(19) = CONVERT(VARCHAR(19), GETDATE(), 121)
-                        RAISERROR (N''start getting data into #h at %s'',0,1, @d) WITH NOWAIT;
+                        RAISERROR (N''start getting data into #dm_db_partition_stats_etc at %s'',0,1, @d) WITH NOWAIT;
                         SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-                        INSERT INTO #h
+                        INSERT INTO #dm_db_partition_stats_etc
                         (
-                            database_id, object_id, sname, index_id, partition_number, partition_id, row_count, reserved_MB, reserved_LOB_MB, reserved_row_overflow_MB, lock_escalation_desc, data_compression_desc, reserved_dictionary_MB
+                            database_id, object_id, sname, index_id, partition_number, partition_id, row_count, reserved_MB, reserved_LOB_MB, reserved_row_overflow_MB, lock_escalation_desc, data_compression_desc
                         )
                         SELECT  ' + CAST(@DatabaseID AS NVARCHAR(10)) + N' AS database_id,
                                 ps.object_id, 
@@ -1534,15 +1537,8 @@ create table #os
                                 ps.lob_reserved_page_count * 8. / 1024. AS reserved_LOB_MB,
                                 ps.row_overflow_reserved_page_count * 8. / 1024. AS reserved_row_overflow_MB,
 								le.lock_escalation_desc,
-                            ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc ' END + N',
+                            ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc ' END + N'
 ';
-
-		    /* Get columnstore dictionary size - more info: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2585 */
-			IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'column_store_dictionaries')
-				SET @dsql = @dsql + N' COALESCE((SELECT SUM (on_disk_size / 1024.0 / 1024) FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_dictionaries dict WHERE dict.partition_id = ps.partition_id),0) AS reserved_dictionary_MB ';
-			ELSE
-				SET @dsql = @dsql + N' 0 AS reserved_dictionary_MB ';
-
 
             SET @dsql = @dsql + N'
 			FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_partition_stats AS ps  
@@ -1574,9 +1570,9 @@ create table #os
             OPTION    ( RECOMPILE , min_grant_percent = 1);
 
             SET @d = CONVERT(VARCHAR(19), GETDATE(), 121)
-            RAISERROR (N''start getting data into #os at %s.'',0,1, @d) WITH NOWAIT;
+            RAISERROR (N''start getting data into #dm_db_index_operational_stats at %s.'',0,1, @d) WITH NOWAIT;
             
-                       insert  into #os
+                       insert  into #dm_db_index_operational_stats
            (
                 database_id
               , object_id
@@ -1686,7 +1682,7 @@ create table #os
                 OPTION    ( RECOMPILE , min_grant_percent = 1);
 
                 SET @d = CONVERT(VARCHAR(19), GETDATE(), 121)
-                RAISERROR (N''finished getting data into #os at %s.'',0,1, @d) WITH NOWAIT;
+                RAISERROR (N''finished getting data into #dm_db_index_operational_stats at %s.'',0,1, @d) WITH NOWAIT;
             ';
         END;
         ELSE
@@ -1843,11 +1839,11 @@ create table #os
 								SUM(os.page_latch_wait_in_ms),
 								SUM(os.page_io_latch_wait_count),								
 								SUM(os.page_io_latch_wait_in_ms)
-                                , h.reserved_dictionary_MB 
-                    from #h h
-                    left JOIN #os as os ON
+                                ,COALESCE((SELECT SUM (dict.on_disk_size / 1024.0 / 1024) FROM sys.column_store_dictionaries dict WHERE dict.partition_id = h.partition_id),0) AS reserved_dictionary_MB 
+                    from #dm_db_partition_stats_etc h
+                    left JOIN #dm_db_index_operational_stats as os ON
                         h.object_id=os.object_id and h.index_id=os.index_id and h.partition_number=os.partition_number 
-                    group by h.database_id, h.object_id, h.sname, h.index_id, h.partition_number, h.partition_id, h.row_count, h.reserved_MB, h.reserved_LOB_MB, h.reserved_row_overflow_MB, h.lock_escalation_desc, h.data_compression_desc, h.reserved_dictionary_MB                           
+                    group by h.database_id, h.object_id, h.sname, h.index_id, h.partition_number, h.partition_id, h.row_count, h.reserved_MB, h.reserved_LOB_MB, h.reserved_row_overflow_MB, h.lock_escalation_desc, h.data_compression_desc                          
                 
 		END; --End Check For @SkipPartitions = 0
 
