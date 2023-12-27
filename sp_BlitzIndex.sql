@@ -2991,7 +2991,7 @@ BEGIN
 						INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c ON rg.object_id = c.object_id
 						INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partitions p ON rg.object_id = p.object_id AND rg.partition_number = p.partition_number
 						INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns ic on ic.column_id = c.column_id AND ic.object_id = c.object_id AND ic.index_id = p.index_id 
-                        LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_column_store_row_group_physical_stats phys ON rg.row_group_id = phys.row_group_id AND rg.object_id = phys.object_id AND rg.partition_number = phys.partition_number AND p.index_id = phys.index_id ' + CASE WHEN @ShowPartitionRanges = 1 THEN N' 
+                        LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_column_store_row_group_physical_stats phys ON rg.row_group_id = phys.row_group_id AND rg.object_id = phys.object_id AND rg.partition_number = phys.partition_number AND rg.index_id = phys.index_id ' + CASE WHEN @ShowPartitionRanges = 1 THEN N' 
 						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.indexes i ON i.object_id = rg.object_id AND i.index_id = rg.index_id
 						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partition_schemes ps ON ps.data_space_id = i.data_space_id
 						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partition_functions pf ON pf.function_id = ps.function_id
