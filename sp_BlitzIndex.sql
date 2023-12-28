@@ -1473,25 +1473,13 @@ BEGIN TRY
 				, leaf_insert_count bigint
 				, leaf_delete_count bigint
 				, leaf_update_count bigint
-				, leaf_ghost_count bigint
-				, nonleaf_insert_count bigint
-				, nonleaf_delete_count bigint
-				, nonleaf_update_count bigint
-				, leaf_allocation_count bigint
-				, nonleaf_allocation_count bigint
-				, leaf_page_merge_count bigint
-				, nonleaf_page_merge_count bigint
 				, range_scan_count bigint
 				, singleton_lookup_count bigint
 				, forwarded_fetch_count bigint
 				, lob_fetch_in_pages bigint
 				, lob_fetch_in_bytes bigint
-				, lob_orphan_create_count bigint
-				, lob_orphan_insert_count bigint
 				, row_overflow_fetch_in_pages bigint
 				, row_overflow_fetch_in_bytes bigint
-				, column_value_push_off_row_count bigint
-				, column_value_pull_in_row_count bigint
 				, row_lock_count bigint
 				, row_lock_wait_count bigint
 				, row_lock_wait_in_ms bigint
@@ -1504,18 +1492,6 @@ BEGIN TRY
 				, page_latch_wait_in_ms bigint
 				, page_io_latch_wait_count bigint
 				, page_io_latch_wait_in_ms bigint
-				, tree_page_latch_wait_count bigint
-				, tree_page_latch_wait_in_ms bigint
-				, tree_page_io_latch_wait_count bigint
-				, tree_page_io_latch_wait_in_ms bigint
-				, page_compression_attempt_count bigint
-				, page_compression_success_count bigint
-				, version_generated_inrow           bigint
-				, version_generated_offrow          bigint
-				, ghost_version_inrow               bigint
-				, ghost_version_offrow              bigint
-				, insert_over_ghost_version_inrow   bigint
-				, insert_over_ghost_version_offrow  bigint
 				)
   
             SET @dsql = N'
@@ -1582,25 +1558,13 @@ BEGIN TRY
               , leaf_insert_count
               , leaf_delete_count
               , leaf_update_count
-              , leaf_ghost_count
-              , nonleaf_insert_count
-              , nonleaf_delete_count
-              , nonleaf_update_count
-              , leaf_allocation_count
-              , nonleaf_allocation_count
-              , leaf_page_merge_count
-              , nonleaf_page_merge_count
               , range_scan_count
               , singleton_lookup_count
               , forwarded_fetch_count
               , lob_fetch_in_pages
               , lob_fetch_in_bytes
-              , lob_orphan_create_count
-              , lob_orphan_insert_count
               , row_overflow_fetch_in_pages
               , row_overflow_fetch_in_bytes
-              , column_value_push_off_row_count
-              , column_value_pull_in_row_count
               , row_lock_count
               , row_lock_wait_count
               , row_lock_wait_in_ms
@@ -1613,18 +1577,6 @@ BEGIN TRY
               , page_latch_wait_in_ms
               , page_io_latch_wait_count
               , page_io_latch_wait_in_ms
-              , tree_page_latch_wait_count
-              , tree_page_latch_wait_in_ms
-              , tree_page_io_latch_wait_count
-              , tree_page_io_latch_wait_in_ms
-              , page_compression_attempt_count
-              , page_compression_success_count
-              , version_generated_inrow
-              , version_generated_offrow
-              , ghost_version_inrow
-              , ghost_version_offrow
-              , insert_over_ghost_version_inrow
-              , insert_over_ghost_version_offrow 
             )
             
             select os.database_id
@@ -1635,25 +1587,13 @@ BEGIN TRY
                  , os.leaf_insert_count
                  , os.leaf_delete_count
                  , os.leaf_update_count
-                 , os.leaf_ghost_count
-                 , os.nonleaf_insert_count
-                 , os.nonleaf_delete_count
-                 , os.nonleaf_update_count
-                 , os.leaf_allocation_count
-                 , os.nonleaf_allocation_count
-                 , os.leaf_page_merge_count
-                 , os.nonleaf_page_merge_count
                  , os.range_scan_count
                  , os.singleton_lookup_count
                  , os.forwarded_fetch_count
                  , os.lob_fetch_in_pages
                  , os.lob_fetch_in_bytes
-                 , os.lob_orphan_create_count
-                 , os.lob_orphan_insert_count
                  , os.row_overflow_fetch_in_pages
                  , os.row_overflow_fetch_in_bytes
-                 , os.column_value_push_off_row_count
-                 , os.column_value_pull_in_row_count
                  , os.row_lock_count
                  , os.row_lock_wait_count
                  , os.row_lock_wait_in_ms
@@ -1666,18 +1606,6 @@ BEGIN TRY
                  , os.page_latch_wait_in_ms
                  , os.page_io_latch_wait_count
                  , os.page_io_latch_wait_in_ms
-                 , os.tree_page_latch_wait_count
-                 , os.tree_page_latch_wait_in_ms
-                 , os.tree_page_io_latch_wait_count
-                 , os.tree_page_io_latch_wait_in_ms
-                 , os.page_compression_attempt_count
-                 , os.page_compression_success_count
-                 , os.version_generated_inrow
-                 , os.version_generated_offrow
-                 , os.ghost_version_inrow
-                 , os.ghost_version_offrow
-                 , os.insert_over_ghost_version_inrow
-                 , os.insert_over_ghost_version_offrow 
                 from ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_index_operational_stats('+ CAST(@DatabaseID AS NVARCHAR(10)) +', NULL, NULL,NULL) AS os 
                 OPTION    ( RECOMPILE , min_grant_percent = 1);
 
