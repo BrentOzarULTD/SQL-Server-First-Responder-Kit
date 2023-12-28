@@ -3394,23 +3394,6 @@ AS
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 53) WITH NOWAIT;
 
-						--INSERT  INTO #BlitzResults
-                                         --            ( CheckID ,
-                                         --              Priority ,
-                                         --              FindingsGroup ,
-                                         --              Finding ,
-                                         --              URL ,
-                                         --              Details
-                                         --            )
-                                         --            SELECT TOP 1
-                                         --                         53 AS CheckID ,
-                                         --                         200 AS Priority ,
-                                         --                         'Informational' AS FindingsGroup ,
-                                         --                         'Cluster Node' AS Finding ,
-                                         --                         'https://BrentOzar.com/go/node' AS URL ,
-                                         --                         'This is a node in a cluster.' AS Details
-                                         --            FROM    sys.dm_os_cluster_nodes;
-
                                          DECLARE @AOFCI AS INT, @AOAG AS INT, @HAType AS VARCHAR(10), @errmsg AS VARCHAR(200)
 
                                          SELECT @AOAG = CAST(SERVERPROPERTY('IsHadrEnabled') AS INT)
@@ -3441,7 +3424,7 @@ AS
                                                                       Details
                                                                )
 
-                                                   SELECT 53 AS CheckID ,
+                                                   SELECT DISTINCT 53 AS CheckID ,
                                                    200 AS Priority ,
                                                    'Informational' AS FindingsGroup ,
                                                    'Cluster Node' AS Finding ,
@@ -3458,7 +3441,7 @@ AS
                                                                                    URL ,
                                                                                    Details
                                                                             )
-                                                                SELECT 53 AS CheckID ,
+                                                                SELECT DISTINCT 53 AS CheckID ,
                                                                 200 AS Priority ,
                                                                 'Informational' AS FindingsGroup ,
                                                                 'Cluster Node Info' AS Finding ,
@@ -3484,7 +3467,7 @@ AS
                                                                                    URL ,
                                                                                    Details
                                                                             )
-                                                                SELECT 53 AS CheckID ,
+                                                                SELECT DISTINCT 53 AS CheckID ,
                                                                 200 AS Priority ,
                                                                 'Informational' AS FindingsGroup ,
                                                                 'Cluster Node Info' AS Finding ,
@@ -3509,7 +3492,7 @@ AS
                                                                                    URL ,
                                                                                    Details
                                                                             )
-                                                                SELECT 53 AS CheckID ,
+                                                                SELECT DISTINCT 53 AS CheckID ,
                                                                 200 AS Priority ,
                                                                 'Informational' AS FindingsGroup ,
                                                                 'Cluster Node Info' AS Finding ,
