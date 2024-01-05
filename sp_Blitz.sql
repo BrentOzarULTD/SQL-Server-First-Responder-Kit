@@ -4803,6 +4803,10 @@ AS
 						  FROM sys.all_columns
 						  WHERE name = 'is_memory_optimized_elevate_to_snapshot_on' AND object_id = OBJECT_ID('sys.databases')
                             AND SERVERPROPERTY('EngineEdition') <> 8; /* Hekaton is always enabled in Managed Instances per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
+						INSERT INTO #DatabaseDefaults
+						  SELECT 'is_accelerated_database_recovery_on', 0, 145, 210, 'Acclerated Database Recovery Enabled', 'https://www.brentozar.com/go/dbdefaults', NULL
+						  FROM sys.all_columns
+						  WHERE name = 'is_accelerated_database_recovery_on' AND object_id = OBJECT_ID('sys.databases') AND SERVERPROPERTY('EngineEdition') NOT IN (5, 8) ;
 
 						DECLARE DatabaseDefaultsLoop CURSOR FOR
 						  SELECT name, DefaultValue, CheckID, Priority, Finding, URL, Details
