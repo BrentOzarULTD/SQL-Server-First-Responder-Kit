@@ -38,7 +38,7 @@ SET STATISTICS XML OFF;
 
 BEGIN;
 
-SELECT @Version = '8.17', @VersionDate = '20231010';
+SELECT @Version = '8.18', @VersionDate = '20231222';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -1375,7 +1375,7 @@ SET STATISTICS XML OFF;
 BEGIN;
 
 
-SELECT @Version = '8.17', @VersionDate = '20231010';
+SELECT @Version = '8.18', @VersionDate = '20231222';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -2900,7 +2900,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.17', @VersionDate = '20231010';
+	SELECT @Version = '8.18', @VersionDate = '20231222';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -3058,14 +3058,11 @@ AS
 			,@SkipXPFixedDrives bit = 0
 			,@SkipXPCMDShell bit = 0
 			,@SkipMaster bit = 0
-			,@SkipMSDB bit = 0
+			,@SkipMSDB_objs bit = 0
+            ,@SkipMSDB_jobs bit = 0
 			,@SkipModel bit = 0
 			,@SkipTempDB bit = 0
 			,@SkipValidateLogins bit = 0
-			/* Variables for check 211: */
-			,@powerScheme varchar(36)
-			,@cpu_speed_mhz int
-			,@cpu_speed_ghz decimal(18,2);
 
 			DECLARE
 			    @db_perms table
@@ -3140,38 +3137,6 @@ AS
                 SET @SkipTrace = 1;
             END; /*We need this permission to execute trace stuff, apparently*/
 
-			IF ISNULL(@SkipXPRegRead, 0) != 1 /*If @SkipXPRegRead hasn't been set to 1 by the caller*/
-			BEGIN
-				BEGIN TRY
-					/* Get power plan if set by group policy [Git Hub Issue #1620] */						
-					EXEC xp_regread @rootkey	= N'HKEY_LOCAL_MACHINE',
-									@key		= N'SOFTWARE\Policies\Microsoft\Power\PowerSettings',
-									@value_name	= N'ActivePowerScheme',
-									@value		= @powerScheme OUTPUT,
-									@no_output	= N'no_output';
-
-					IF @powerScheme IS NULL /* If power plan was not set by group policy, get local value [Git Hub Issue #1620]*/
-					EXEC xp_regread @rootkey	= N'HKEY_LOCAL_MACHINE',
-									@key		= N'SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes',
-									@value_name	= N'ActivePowerScheme',
-									@value		= @powerScheme OUTPUT;
-
-					/* Get the cpu speed*/
-					EXEC xp_regread @rootkey	= N'HKEY_LOCAL_MACHINE',
-					                @key		= N'HARDWARE\DESCRIPTION\System\CentralProcessor\0',
-					                @value_name	= N'~MHz',
-					                @value		= @cpu_speed_mhz OUTPUT;
-
-					/* Convert the Megahertz to Gigahertz */
-					SET @cpu_speed_ghz = CAST(CAST(@cpu_speed_mhz AS decimal) / 1000 AS decimal(18,2));
-
-					SET @SkipXPRegRead = 0; /*We could execute xp_regread*/
-				END TRY
-				BEGIN CATCH
-					SET @SkipXPRegRead = 1; /*We have don't have execute rights or xp_regread throws an error so skip it*/
-				END CATCH;
-			END; /*Need execute on xp_regread*/
-
             IF NOT EXISTS
             (
                 SELECT
@@ -3241,7 +3206,7 @@ AS
             	END;
 			END;
 
-			IF ISNULL(@SkipMSDB, 0) != 1 /*If @SkipMSDB hasn't been set to 1 by the caller*/
+			IF ISNULL(@SkipMSDB_objs, 0) != 1 /*If @SkipMSDB_objs hasn't been set to 1 by the caller*/
 			BEGIN
 				IF EXISTS
 				(
@@ -3257,16 +3222,45 @@ AS
             	            FROM	msdb.sys.objects
 						)
 						BEGIN
-							SET @SkipMSDB = 0; /*We have read permissions in the msdb database, and can view the objects*/
+							SET @SkipMSDB_objs = 0; /*We have read permissions in the msdb database, and can view the objects*/
 						END;
 					END TRY
 					BEGIN CATCH
-						SET @SkipMSDB = 1; /*We have read permissions in the msdb database ... oh wait we got tricked, we can't view the objects*/
+						SET @SkipMSDB_objs = 1; /*We have read permissions in the msdb database ... oh wait we got tricked, we can't view the objects*/
 					END CATCH;
 				END;
 				ELSE
 				BEGIN
-					SET @SkipMSDB = 1; /*We don't have read permissions in the msdb database*/
+					SET @SkipMSDB_objs = 1; /*We don't have read permissions in the msdb database*/
+				END;
+			END;
+
+            IF ISNULL(@SkipMSDB_jobs, 0) != 1 /*If @SkipMSDB_jobs hasn't been set to 1 by the caller*/
+			BEGIN
+				IF EXISTS
+				(
+					SELECT	1/0
+            	    FROM	@db_perms
+            	    WHERE	database_name = N'msdb'
+				)
+				BEGIN
+					BEGIN TRY
+						IF EXISTS
+						(
+            	            SELECT	1/0
+            	            FROM	msdb.dbo.sysjobs
+						)
+						BEGIN
+							SET @SkipMSDB_jobs = 0; /*We have read permissions in the msdb database, and can view the objects*/
+						END;
+					END TRY
+					BEGIN CATCH
+						SET @SkipMSDB_jobs = 1; /*We have read permissions in the msdb database ... oh wait we got tricked, we can't view the objects*/
+					END CATCH;
+				END;
+				ELSE
+				BEGIN
+					SET @SkipMSDB_jobs = 1; /*We don't have read permissions in the msdb database*/
 				END;
 			END;
 		END;
@@ -3438,17 +3432,34 @@ AS
 		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
 		SELECT
 			v.*
-		FROM (VALUES(NULL,   6, NULL), /*Jobs Owned By Users*/
-					(NULL,  28, NULL), /*SQL Agent Job Runs at Startup*/
-					(NULL,  57, NULL), /*Tables in the MSDB Database*/
+		FROM (VALUES(NULL,  28, NULL)) AS v (DatabaseName, CheckID, ServerName) /*Tables in the MSDB Database*/
+		WHERE @SkipMSDB_objs = 1;
+
+        INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
+		SELECT
+			v.*
+		FROM (VALUES
+					/*sysjobs checks*/
+					(NULL,   6, NULL), /*Jobs Owned By Users*/
+					(NULL,  57, NULL), /*SQL Agent Job Runs at Startup*/
 					(NULL,  79, NULL), /*Shrink Database Job*/
 					(NULL,  94, NULL), /*Agent Jobs Without Failure Emails*/
 					(NULL, 123, NULL), /*Agent Jobs Starting Simultaneously*/
 					(NULL, 180, NULL), /*Shrink Database Step In Maintenance Plan*/
 					(NULL, 181, NULL), /*Repetitive Maintenance Tasks*/
-					(NULL, 219, NULL)  /*Alerts Without Event Descriptions*/
-			) AS v (DatabaseName, CheckID, ServerName) 
-		WHERE @SkipMSDB = 1;
+					
+					/*sysalerts checks*/
+					(NULL,  30, NULL), /*Not All Alerts Configured*/
+					(NULL,  59, NULL), /*Alerts Configured without Follow Up*/
+                    (NULL,  61, NULL), /*No Alerts for Sev 19-25*/
+					(NULL,  96, NULL), /*No Alerts for Corruption*/
+					(NULL,  98, NULL), /*Alerts Disabled*/
+					(NULL, 219, NULL), /*Alerts Without Event Descriptions*/
+
+					/*sysoperators*/
+					(NULL,  31, NULL)  /*No Operators Configured/Enabled*/
+            ) AS v (DatabaseName, CheckID, ServerName)
+		WHERE @SkipMSDB_jobs = 1;
 
 		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
 		SELECT
@@ -3491,6 +3502,25 @@ AS
 		    v.*
 		FROM (VALUES(NULL, 2301, NULL))	AS v (DatabaseName, CheckID, ServerName) /*sp_validatelogins*/
 		WHERE @SkipValidateLogins = 1
+
+		IF @sa = 0
+		BEGIN
+			INSERT INTO #BlitzResults
+			( CheckID ,
+			  Priority ,
+			  FindingsGroup ,
+			  Finding ,
+			  URL ,
+			  Details
+			)
+			SELECT 223 AS CheckID ,
+			         0 AS Priority ,
+			         'Informational' AS FindingsGroup ,
+			         'Some Checks Skipped' AS Finding ,
+			         '' AS URL ,
+			         'User ''' + @SUSER_NAME + ''' is not part of the sysadmin role, so we skipped some checks that are not possible due to lack of permissions.' AS Details;
+		END;
+		/*End of SkipsChecks added due to permissions*/
 
 		IF @SkipChecksTable IS NOT NULL
 			AND @SkipChecksSchema IS NOT NULL
@@ -11536,122 +11566,147 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 										EXECUTE(@StringToExecute);
 									END;
 
-			/*
-			Starting with SQL Server 2014 SP2, Instant File Initialization
-			is logged in the SQL Server Error Log.
-			*/
-					IF NOT EXISTS ( SELECT  1
-									FROM    #SkipChecks
-									WHERE   DatabaseName IS NULL AND CheckID = 193 )
-							AND ((@ProductVersionMajor >= 13) OR (@ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000))
+					/* Performance - Instant File Initialization Not Enabled  - Check 192 */
+					/* Server Info - Instant File Initialization Enabled      - Check 193 */
+					IF NOT EXISTS (	SELECT 1/0
+    								FROM   #SkipChecks
+    								WHERE  DatabaseName IS NULL AND CheckID = 192 /* IFI disabled check disabled */
+								  ) OR NOT EXISTS
+								  ( SELECT 1/0
+								  	FROM   #SkipChecks
+    								WHERE  DatabaseName IS NULL AND CheckID = 193 /* IFI enabled check disabled */
+								  )
+					BEGIN
+					    IF @Debug IN (1, 2) RAISERROR('Running  CheckId [%d] and CheckId [%d].', 0, 1, 192, 193) WITH NOWAIT;
+
+						DECLARE @IFISetting varchar(1) = N'N'
+        						,@IFIReadDMVFailed bit = 0
+        						,@IFIAllFailed bit = 0;
+
+						/* See if we can get the instant_file_initialization_enabled column from sys.dm_server_services */
+					    IF EXISTS
+						(
+						    SELECT 1/0
+						    FROM sys.all_columns
+						    WHERE [object_id] = OBJECT_ID(N'[sys].[dm_server_services]')
+						    AND [name] = N'instant_file_initialization_enabled'
+						)
 						BEGIN
+        					/* This needs to be a "dynamic" SQL statement because if the 'instant_file_initialization_enabled' column doesn't exist the procedure might fail on a bind error */
+							SET @StringToExecute = N'SELECT @IFISetting = instant_file_initialization_enabled' + @crlf +
+        					N'FROM sys.dm_server_services' + @crlf +
+        					N'WHERE filename LIKE ''%sqlservr.exe%''' + @crlf +
+        					N'OPTION (RECOMPILE);';
+            
+        					IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
+        					IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
+	
+       						EXEC dbo.sp_executesql
+       						    @StringToExecute
+       						    ,N'@IFISetting varchar(1) OUTPUT'
+       						    ,@IFISetting = @IFISetting OUTPUT
 							
-							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 193) WITH NOWAIT;
-							
-							-- If this is Amazon RDS, use rdsadmin.dbo.rds_read_error_log
-							IF LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
-							   AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
-							   AND db_id('rdsadmin') IS NOT NULL
-							   AND EXISTS(SELECT * FROM master.sys.all_objects WHERE name IN ('rds_startup_tasks', 'rds_help_revlogin', 'rds_hexadecimal', 'rds_failover_tracking', 'rds_database_tracking', 'rds_track_change'))
-								BEGIN
-								INSERT INTO #ErrorLog
-								EXEC rdsadmin.dbo.rds_read_error_log 0, 1, N'Database Instant File Initialization: enabled';
-								END
-							ELSE
-								BEGIN
-									BEGIN TRY
-										INSERT INTO #ErrorLog
-										EXEC sys.xp_readerrorlog 0, 1, N'Database Instant File Initialization: enabled';
-									END TRY
-									BEGIN CATCH
-										IF @Debug IN (1, 2) RAISERROR('No permissions to execute xp_readerrorlog.', 0, 1) WITH NOWAIT;
-									END CATCH
-								END
+							SET @IFIReadDMVFailed = 0;
+    					END
+    					ELSE 
+						/* We couldn't get the instant_file_initialization_enabled column from sys.dm_server_services, fall back to read error log */
+    					BEGIN
+       						SET @IFIReadDMVFailed = 1;
+       						/* If this is Amazon RDS, we'll use the rdsadmin.dbo.rds_read_error_log */
+       						IF LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
+       						AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
+       						AND db_id('rdsadmin') IS NOT NULL
+       						AND EXISTS ( SELECT 1/0
+       					    			 FROM   master.sys.all_objects
+       					    			 WHERE  name IN ('rds_startup_tasks', 'rds_help_revlogin', 'rds_hexadecimal', 'rds_failover_tracking', 'rds_database_tracking', 'rds_track_change')
+       								   )
+       						BEGIN
+           						/* Amazon RDS detected, read rdsadmin.dbo.rds_read_error_log */
+           						INSERT INTO #ErrorLog
+           						EXEC rdsadmin.dbo.rds_read_error_log 0, 1, N'Database Instant File Initialization: enabled';
+       						END
+       						ELSE
+       						BEGIN
+           						/* Try to read the error log, this might fail due to permissions */
+           						BEGIN TRY
+               						INSERT INTO #ErrorLog
+               						EXEC sys.xp_readerrorlog 0, 1, N'Database Instant File Initialization: enabled';
+           						END TRY
+           						BEGIN CATCH
+               						IF @Debug IN (1, 2) RAISERROR('No permissions to execute xp_readerrorlog.', 0, 1) WITH NOWAIT;
+               						SET @IFIAllFailed = 1;
+           						END CATCH
+       						END;
+    					END;
 
-							IF EXISTS
-							(
-								SELECT	1/0
-								FROM	#ErrorLog
-								WHERE 	LEFT([Text], 45) = N'Database Instant File Initialization: enabled'
-							)
-								BEGIN
-								INSERT  INTO #BlitzResults
-										( CheckID ,
-										  [Priority] ,
-										  FindingsGroup ,
-										  Finding ,
-										  URL ,
-										  Details
-										)
-										SELECT
-												193 AS [CheckID] ,
-												250 AS [Priority] ,
-												'Server Info' AS [FindingsGroup] ,
-												'Instant File Initialization Enabled' AS [Finding] ,
-												'https://www.brentozar.com/go/instant' AS [URL] ,
-												'The service account has the Perform Volume Maintenance Tasks permission.';
-								END;
-							else -- if version of sql server has instant_file_initialization_enabled column in dm_server_services, check that too
-							     --  in the event the error log has been cycled and the startup messages are not in the current error log
-								begin
-								if EXISTS ( SELECT  *
-												FROM    sys.all_objects o
-														INNER JOIN sys.all_columns c ON o.object_id = c.object_id
-												WHERE   o.name = 'dm_server_services'
-														AND c.name = 'instant_file_initialization_enabled' )
-									begin
-									SET @StringToExecute = N'
-									INSERT  INTO #BlitzResults
-											( CheckID ,
-											  [Priority] ,
-											  FindingsGroup ,
-											  Finding ,
-											  URL ,
-											  Details
-											)
-											SELECT
-													193 AS [CheckID] ,
-													250 AS [Priority] ,
-													''Server Info'' AS [FindingsGroup] ,
-													''Instant File Initialization Enabled'' AS [Finding] ,
-													''https://www.brentozar.com/go/instant'' AS [URL] ,
-													''The service account has the Perform Volume Maintenance Tasks permission.''
-											where exists (select 1 FROM sys.dm_server_services
-											               WHERE instant_file_initialization_enabled = ''Y''
-											               AND filename LIKE ''%sqlservr.exe%'')
-											OPTION (RECOMPILE);';
-									EXEC(@StringToExecute);
-									end;
-								end;
-						END;
+						IF @IFIAllFailed = 0
+    					BEGIN
+        					IF @IFIReadDMVFailed = 1
+        					/* We couldn't read the DMV so set the @IFISetting variable using the error log */
+        					BEGIN
+        					    IF EXISTS ( SELECT 1/0
+        					        		FROM   #ErrorLog
+        					        		WHERE  LEFT([Text], 45) = N'Database Instant File Initialization: enabled'
+        					    		  )
+        					    BEGIN
+        					        SET @IFISetting = 'Y';
+        					    END
+        					    ELSE
+        					    BEGIN
+        					        SET @IFISetting = 'N';
+        					    END;
+        					END;
 
-			/* Server Info - Instant File Initialization Not Enabled - Check 192 - SQL Server 2016 SP1 and newer */
-						IF NOT EXISTS ( SELECT  1
-										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 192 )
-							AND EXISTS ( SELECT  *
-											FROM    sys.all_objects o
-													INNER JOIN sys.all_columns c ON o.object_id = c.object_id
-											WHERE   o.name = 'dm_server_services'
-													AND c.name = 'instant_file_initialization_enabled' )
-							BEGIN
-										
-										IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 192) WITH NOWAIT;
-										
-										SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-			SELECT  192 AS CheckID ,
-			50 AS Priority ,
-			''Server Info'' AS FindingsGroup ,
-			''Instant File Initialization Not Enabled'' AS Finding ,
-			''https://www.brentozar.com/go/instant'' AS URL ,
-			''Consider enabling IFI for faster restores and data file growths.''
-			FROM sys.dm_server_services WHERE instant_file_initialization_enabled <> ''Y'' AND filename LIKE ''%sqlservr.exe%'' OPTION (RECOMPILE);';
-										
-										IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
-										IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
-										
-										EXECUTE(@StringToExecute);
-									END;
+					        IF NOT EXISTS ( SELECT 1/0
+            								FROM   #SkipChecks
+					    					WHERE  DatabaseName IS NULL AND CheckID = 192 /* IFI disabled check disabled */
+        								  ) AND @IFISetting = 'N'
+        					BEGIN
+        					    INSERT INTO #BlitzResults
+        					    (
+        					        CheckID ,
+        					        [Priority] ,
+        					        FindingsGroup ,
+        					        Finding ,
+        					        URL ,
+        					        Details
+        					    )
+        					    SELECT
+        					        192 AS [CheckID] ,
+							        50 AS [Priority] ,
+							        'Performance' AS [FindingsGroup] ,
+        					        'Instant File Initialization Not Enabled' AS [Finding] ,
+							        'https://www.brentozar.com/go/instant' AS [URL] ,
+        					        'Consider enabling IFI for faster restores and data file growths.' AS [Details]
+        					END;
+
+					        IF NOT EXISTS ( SELECT 1/0
+					            			FROM   #SkipChecks
+					            			WHERE  DatabaseName IS NULL AND CheckID = 193 /* IFI enabled check disabled */
+					        			  ) AND @IFISetting = 'Y'
+					        BEGIN
+					            INSERT INTO #BlitzResults
+					            (
+					                CheckID ,
+					                [Priority] ,
+					                FindingsGroup ,
+					                Finding ,
+					                URL ,
+					                Details
+					            )
+					            SELECT
+					                193 AS [CheckID] ,
+							        250 AS [Priority] ,
+							        'Server Info' AS [FindingsGroup] ,
+					                'Instant File Initialization Enabled' AS [Finding] ,
+							        'https://www.brentozar.com/go/instant' AS [URL] ,
+					                'The service account has the Perform Volume Maintenance Tasks permission.' AS [Details]
+					        END;
+					    END;
+					END;
+
+					/* End of checkId 192 */
+					/* End of checkId 193 */
 
 					IF NOT EXISTS ( SELECT  1
 									FROM    #SkipChecks
@@ -12029,7 +12084,39 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 										WHERE   DatabaseName IS NULL AND CheckID = 211 )
 								BEGIN																		
 								
+								/* Variables for check 211: */
+								DECLARE
+									@powerScheme varchar(36)
+									,@cpu_speed_mhz int
+									,@cpu_speed_ghz decimal(18,2)
+									,@ExecResult int;
+
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 211) WITH NOWAIT;
+								IF @sa = 0 RAISERROR('The errors: ''xp_regread() returned error 5, ''Access is denied.'''' can be safely ignored', 0, 1) WITH NOWAIT;
+
+									/* Get power plan if set by group policy [Git Hub Issue #1620] */						
+									EXEC xp_regread @rootkey	= N'HKEY_LOCAL_MACHINE',
+													@key		= N'SOFTWARE\Policies\Microsoft\Power\PowerSettings',
+													@value_name	= N'ActivePowerScheme',
+													@value		= @powerScheme OUTPUT,
+													@no_output	= N'no_output';
+
+									IF @powerScheme IS NULL /* If power plan was not set by group policy, get local value [Git Hub Issue #1620]*/
+									EXEC xp_regread @rootkey	= N'HKEY_LOCAL_MACHINE',
+													@key		= N'SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes',
+													@value_name	= N'ActivePowerScheme',
+													@value		= @powerScheme OUTPUT;
+								
+									/* Get the cpu speed*/
+									EXEC @ExecResult = xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+					                							  @key			= N'HARDWARE\DESCRIPTION\System\CentralProcessor\0',
+					                							  @value_name	= N'~MHz',
+					                							  @value		= @cpu_speed_mhz OUTPUT;
+
+									/* Convert the Megahertz to Gigahertz */
+									IF @ExecResult != 0 RAISERROR('We couldn''t retrieve the CPU speed, you will see Unknown in the results', 0, 1)
+
+									SET @cpu_speed_ghz = CAST(CAST(@cpu_speed_mhz AS decimal) / 1000 AS decimal(18,2));
 
 									INSERT  INTO #BlitzResults
 										( CheckID ,
@@ -12045,7 +12132,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 									'Power Plan' AS Finding,
 									'https://www.brentozar.com/blitz/power-mode/' AS URL,
 									'Your server has '
-									+ CAST(@cpu_speed_ghz as VARCHAR(4))
+									+ ISNULL(CAST(@cpu_speed_ghz as VARCHAR(8)), 'Unknown ')
 									+ 'GHz CPUs, and is in '
 									+ CASE @powerScheme
 							             WHEN 'a1841308-3541-4fab-bc81-f71556f20b4a'
@@ -12701,20 +12788,22 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												FROM #BlitzResults
 												WHERE Priority > 0 AND Priority < 255 AND FindingsGroup IS NOT NULL AND Finding IS NOT NULL
 												AND FindingsGroup <> 'Security' /* Specifically excluding security checks for public exports */)
-							SELECT
-								CASE
-									WHEN r.Priority <> COALESCE(rPrior.Priority, 0) OR r.FindingsGroup <> rPrior.FindingsGroup  THEN @crlf + N'**Priority ' + CAST(COALESCE(r.Priority,N'') AS NVARCHAR(5)) + N': ' + COALESCE(r.FindingsGroup,N'') + N'**:' + @crlf + @crlf
-									ELSE N''
-								END
-								+ CASE WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding <> COALESCE(rNext.Finding,N'') THEN N'- ' + COALESCE(r.Finding,N'') + N' ' + COALESCE(r.DatabaseName, N'') + N' - ' + COALESCE(r.Details,N'') + @crlf
-									   WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding = rNext.Finding AND r.Details = rNext.Details THEN N'- ' + COALESCE(r.Finding,N'') + N' - ' + COALESCE(r.Details,N'') + @crlf + @crlf + N'    * ' + COALESCE(r.DatabaseName, N'') + @crlf
-									   WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding = rNext.Finding THEN N'- ' + COALESCE(r.Finding,N'') + @crlf + CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,N'') END + CASE WHEN r.Details <> rPrior.Details THEN N'  - ' + COALESCE(r.Details,N'') + @crlf ELSE '' END
-									   ELSE CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,N'') END + CASE WHEN r.Details <> rPrior.Details THEN N'  - ' + COALESCE(r.Details,N'') + @crlf ELSE N'' + @crlf END
-								END + @crlf
-							  FROM Results r
-							  LEFT OUTER JOIN Results rPrior ON r.rownum = rPrior.rownum + 1
-							  LEFT OUTER JOIN Results rNext ON r.rownum = rNext.rownum - 1
-							ORDER BY r.rownum FOR XML PATH(N'');
+							SELECT 
+							    Markdown = CONVERT(XML, STUFF((SELECT
+																   CASE
+																	   WHEN r.Priority <> COALESCE(rPrior.Priority, 0) OR r.FindingsGroup <> rPrior.FindingsGroup  THEN @crlf + N'**Priority ' + CAST(COALESCE(r.Priority,N'') AS NVARCHAR(5)) + N': ' + COALESCE(r.FindingsGroup,N'') + N'**:' + @crlf + @crlf
+																	   ELSE N''
+																   END
+																   + CASE WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding <> COALESCE(rNext.Finding,N'') THEN N'- ' + COALESCE(r.Finding,N'') + N' ' + COALESCE(r.DatabaseName, N'') + N' - ' + COALESCE(r.Details,N'') + @crlf
+																	      WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding = rNext.Finding AND r.Details = rNext.Details THEN N'- ' + COALESCE(r.Finding,N'') + N' - ' + COALESCE(r.Details,N'') + @crlf + @crlf + N'    * ' + COALESCE(r.DatabaseName, N'') + @crlf
+																	      WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding = rNext.Finding THEN N'- ' + COALESCE(r.Finding,N'') + @crlf + @crlf + CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,N'') END + CASE WHEN r.Details <> rPrior.Details THEN N'  - ' + COALESCE(r.Details,N'') + @crlf ELSE '' END
+																	      ELSE CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,N'') END + CASE WHEN r.Details <> rPrior.Details THEN N'  - ' + COALESCE(r.Details,N'') + @crlf ELSE N'' + @crlf END
+																   END + @crlf
+															     FROM Results r
+															     LEFT OUTER JOIN Results rPrior ON r.rownum = rPrior.rownum + 1
+															     LEFT OUTER JOIN Results rNext ON r.rownum = rNext.rownum - 1
+															   ORDER BY r.rownum FOR XML PATH(N''), ROOT('Markdown'), TYPE).value('/Markdown[1]','VARCHAR(MAX)'), 1, 2, '')
+                                           + '<style>p { margin: 0 0 0.5em }</style>');
 						END;
                     ELSE IF @OutputType = 'XML'
                         BEGIN
@@ -12878,7 +12967,7 @@ AS
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
-SELECT @Version = '8.17', @VersionDate = '20231010';
+SELECT @Version = '8.18', @VersionDate = '20231222';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -13756,7 +13845,7 @@ AS
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.17', @VersionDate = '20231010';
+	SELECT @Version = '8.18', @VersionDate = '20231222';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -15538,7 +15627,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.17', @VersionDate = '20231010';
+SELECT @Version = '8.18', @VersionDate = '20231222';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -22595,16 +22684,16 @@ END ';
                     
                     IF @Debug = 1
                     BEGIN
-                        PRINT SUBSTRING(@StringToExecute, 0, 4000);
-                        PRINT SUBSTRING(@StringToExecute, 4000, 8000);
-                        PRINT SUBSTRING(@StringToExecute, 8000, 12000);
-                        PRINT SUBSTRING(@StringToExecute, 12000, 16000);
-                        PRINT SUBSTRING(@StringToExecute, 16000, 20000);
-                        PRINT SUBSTRING(@StringToExecute, 20000, 24000);
-                        PRINT SUBSTRING(@StringToExecute, 24000, 28000);
-                        PRINT SUBSTRING(@StringToExecute, 28000, 32000);
-                        PRINT SUBSTRING(@StringToExecute, 32000, 36000);
-                        PRINT SUBSTRING(@StringToExecute, 36000, 40000);
+                        PRINT SUBSTRING(@StringToExecute,     1, 4000);
+                        PRINT SUBSTRING(@StringToExecute,  4001, 4000);
+                        PRINT SUBSTRING(@StringToExecute,  8001, 4000);
+                        PRINT SUBSTRING(@StringToExecute, 12001, 4000);
+                        PRINT SUBSTRING(@StringToExecute, 16001, 4000);
+                        PRINT SUBSTRING(@StringToExecute, 20001, 4000);
+                        PRINT SUBSTRING(@StringToExecute, 24001, 4000);
+                        PRINT SUBSTRING(@StringToExecute, 28001, 4000);
+                        PRINT SUBSTRING(@StringToExecute, 32001, 4000);
+                        PRINT SUBSTRING(@StringToExecute, 36001, 4000);
                     END;
 
                     EXEC sp_executesql @StringToExecute, N'@Top INT, @min_duration INT, @min_back INT, @CheckDateOverride DATETIMEOFFSET, @MinimumExecutionCount INT', @Top, @DurationFilter_i, @MinutesBack, @CheckDateOverride, @MinimumExecutionCount;
@@ -22897,7 +22986,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.17', @VersionDate = '20231010';
+SELECT @Version = '8.18', @VersionDate = '20231222';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -24063,16 +24152,16 @@ BEGIN TRY
         RAISERROR (N'Inserting data into #IndexColumns for clustered indexes and heaps',0,1) WITH NOWAIT;
         IF @Debug = 1
             BEGIN
-                PRINT SUBSTRING(@dsql, 0, 4000);
-                PRINT SUBSTRING(@dsql, 4000, 8000);
-                PRINT SUBSTRING(@dsql, 8000, 12000);
-                PRINT SUBSTRING(@dsql, 12000, 16000);
-                PRINT SUBSTRING(@dsql, 16000, 20000);
-                PRINT SUBSTRING(@dsql, 20000, 24000);
-                PRINT SUBSTRING(@dsql, 24000, 28000);
-                PRINT SUBSTRING(@dsql, 28000, 32000);
-                PRINT SUBSTRING(@dsql, 32000, 36000);
-                PRINT SUBSTRING(@dsql, 36000, 40000);
+                PRINT SUBSTRING(@dsql,     1, 4000);
+                PRINT SUBSTRING(@dsql,  4001, 4000);
+                PRINT SUBSTRING(@dsql,  8001, 4000);
+                PRINT SUBSTRING(@dsql, 12001, 4000);
+                PRINT SUBSTRING(@dsql, 16001, 4000);
+                PRINT SUBSTRING(@dsql, 20001, 4000);
+                PRINT SUBSTRING(@dsql, 24001, 4000);
+                PRINT SUBSTRING(@dsql, 28001, 4000);
+                PRINT SUBSTRING(@dsql, 32001, 4000);
+                PRINT SUBSTRING(@dsql, 36001, 4000);
             END;
 		BEGIN TRY
 			INSERT    #IndexColumns ( database_id, [schema_name], [object_id], index_id, key_ordinal, is_included_column, is_descending_key, partition_ordinal,
@@ -25440,6 +25529,7 @@ SELECT
 FROM #IndexSanity;
 	  
 RAISERROR (N'Populate #PartitionCompressionInfo.',0,1) WITH NOWAIT;
+IF OBJECT_ID('tempdb..#maps') IS NOT NULL DROP TABLE #maps;
 WITH maps
     AS
      (
@@ -25454,6 +25544,7 @@ SELECT *
 INTO   #maps
 FROM   maps;
 
+IF OBJECT_ID('tempdb..#grps') IS NOT NULL DROP TABLE #grps;
 WITH grps
     AS
      (
@@ -29079,10 +29170,11 @@ WITH RECOMPILE
 AS
 BEGIN
     SET STATISTICS XML OFF;
-    SET NOCOUNT, XACT_ABORT ON;
+    SET NOCOUNT ON;
+    SET XACT_ABORT OFF;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-    SELECT @Version = '8.17', @VersionDate = '20231010';
+    SELECT @Version = '8.18', @VersionDate = '20231222';
 
     IF @VersionCheckMode = 1
     BEGIN
@@ -29203,6 +29295,20 @@ BEGIN
                             SERVERPROPERTY('EngineEdition')
                         )
                 ) = 5
+                THEN 1
+                ELSE 0
+            END,
+        @MI bit =
+            CASE
+                WHEN
+                (
+                    SELECT
+                        CONVERT
+                        (
+                            integer,
+                            SERVERPROPERTY('EngineEdition')
+                        )
+                ) = 8
                 THEN 1
                 ELSE 0
             END,
@@ -29344,6 +29450,17 @@ BEGIN
         @StartDateUTC = @StartDate,
         @EndDateUTC = @EndDate;
 
+    IF
+    (
+            @MI = 1
+        AND @EventSessionName = N'system_health'
+        AND @TargetSessionType IS NULL
+    )
+    BEGIN
+        SET
+            @TargetSessionType = N'ring_buffer';
+    END;
+
     IF @Azure = 0
     BEGIN
         IF NOT EXISTS
@@ -29361,7 +29478,7 @@ BEGIN
             RETURN;
         END;
     END;
-  
+ 
     IF @Azure = 1
     BEGIN
         IF NOT EXISTS
@@ -30891,7 +31008,7 @@ BEGIN
                     COUNT_BIG(DISTINCT dp.event_date)
                 ) +
                 N' deadlocks.',
-            sort_order =   
+            sort_order =  
                 ROW_NUMBER()
                 OVER (ORDER BY COUNT_BIG(DISTINCT dp.event_date) DESC)
         FROM #deadlock_process AS dp
@@ -30931,7 +31048,7 @@ BEGIN
                              SELECT
                                  1/0
                              FROM sys.databases AS d
-                             WHERE d.name = dow.database_name
+                             WHERE d.name COLLATE DATABASE_DEFAULT = dow.database_name COLLATE DATABASE_DEFAULT
                              AND   d.is_read_committed_snapshot_on = 1
                          )
                     THEN N'You already enabled RCSI, but...'
@@ -30946,7 +31063,7 @@ BEGIN
                     COUNT_BIG(DISTINCT dow.event_date)
                 ) +
                 N' deadlock(s) between read queries and modification queries.',
-            sort_order =   
+            sort_order =  
                 ROW_NUMBER()
                 OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
         FROM #deadlock_owner_waiter AS dow
@@ -31008,7 +31125,7 @@ BEGIN
                     COUNT_BIG(DISTINCT dow.event_date)
                 ) +
                 N' deadlock(s).',
-            sort_order =   
+            sort_order =  
                 ROW_NUMBER()
                 OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
         FROM #deadlock_owner_waiter AS dow
@@ -31051,7 +31168,7 @@ BEGIN
                     COUNT_BIG(DISTINCT dow.event_date)
                 ) +
                 N' deadlock(s).',
-            sort_order =   
+            sort_order =  
                 ROW_NUMBER()
                 OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
         FROM #deadlock_owner_waiter AS dow
@@ -31100,7 +31217,7 @@ BEGIN
                     COUNT_BIG(DISTINCT dow.event_date)
                 ) +
                 N' deadlock(s).',
-            sort_order =   
+            sort_order =  
                 ROW_NUMBER()
                 OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
         FROM #deadlock_owner_waiter AS dow
@@ -31149,7 +31266,7 @@ BEGIN
                     COUNT_BIG(DISTINCT dp.event_date)
                 ) +
                 N' instances of Serializable deadlocks.',
-            sort_order =   
+            sort_order =  
                 ROW_NUMBER()
                 OVER (ORDER BY COUNT_BIG(DISTINCT dp.event_date) DESC)
         FROM #deadlock_process AS dp
@@ -31192,7 +31309,7 @@ BEGIN
                     COUNT_BIG(DISTINCT dp.event_date)
                 ) +
                 N' instances of Repeatable Read deadlocks.',
-            sort_order =   
+            sort_order =  
                 ROW_NUMBER()
                 OVER (ORDER BY COUNT_BIG(DISTINCT dp.event_date) DESC)
         FROM #deadlock_process AS dp
@@ -31254,7 +31371,7 @@ BEGIN
                     N'UNKNOWN'
                 ) +
                 N'.',
-            sort_order =   
+            sort_order =  
                 ROW_NUMBER()
                 OVER (ORDER BY COUNT_BIG(DISTINCT dp.event_date) DESC)
         FROM #deadlock_process AS dp
@@ -31366,7 +31483,7 @@ BEGIN
                     1,
                     N''
                 ) + N' locks.',
-            sort_order =   
+            sort_order =  
                 ROW_NUMBER()
                 OVER (ORDER BY CONVERT(bigint, lt.lock_count) DESC)
         FROM lock_types AS lt
@@ -31545,7 +31662,7 @@ BEGIN
                     COUNT_BIG(DISTINCT ds.id)
                 ) +
                 N' deadlocks.',
-            sort_order =   
+            sort_order =  
                 ROW_NUMBER()
                 OVER (ORDER BY COUNT_BIG(DISTINCT ds.id) DESC)
         FROM #deadlock_stack AS ds
@@ -31646,19 +31763,19 @@ BEGIN
                      )
                  ),
              wait_time_hms =
-             /*the more wait time you rack up the less accurate this gets,  
+             /*the more wait time you rack up the less accurate this gets, 
              it's either that or erroring out*/
-            CASE  
-                WHEN  
+            CASE 
+                WHEN 
                     SUM
                     (
                         CONVERT
                         (
-                            bigint,  
+                            bigint, 
                             dp.wait_time
                         )
                     )/1000 > 2147483647
-                THEN  
+                THEN 
                    CONVERT
                    (
                        nvarchar(30),
@@ -31671,7 +31788,7 @@ BEGIN
                                     (
                                        CONVERT
                                        (
-                                           bigint,  
+                                           bigint, 
                                            dp.wait_time
                                        )
                                     )
@@ -31682,16 +31799,16 @@ BEGIN
                        ),
                        14
                    )
-                WHEN  
+                WHEN 
                     SUM
                     (
                         CONVERT
                         (
-                            bigint,  
+                            bigint, 
                             dp.wait_time
                         )
                     ) BETWEEN 2147483648 AND 2147483647000
-                THEN  
+                THEN 
                    CONVERT
                    (
                        nvarchar(30),
@@ -31704,7 +31821,7 @@ BEGIN
                                     (
                                        CONVERT
                                        (
-                                           bigint,  
+                                           bigint, 
                                            dp.wait_time
                                        )
                                     )
@@ -31786,7 +31903,7 @@ BEGIN
                     14
                 ) +
                 N' [dd hh:mm:ss:ms] of deadlock wait time.',
-            sort_order =   
+            sort_order =  
                 ROW_NUMBER()
                 OVER (ORDER BY cs.total_waits DESC)
         FROM chopsuey AS cs
@@ -31860,19 +31977,19 @@ BEGIN
                 )
             ) +
             N' ' +
-        /*the more wait time you rack up the less accurate this gets,  
+        /*the more wait time you rack up the less accurate this gets, 
         it's either that or erroring out*/
-            CASE  
-                WHEN  
+            CASE 
+                WHEN 
                     SUM
                     (
                         CONVERT
                         (
-                            bigint,  
+                            bigint, 
                             wt.total_wait_time_ms
                         )
                     )/1000 > 2147483647
-                THEN  
+                THEN 
                    CONVERT
                    (
                        nvarchar(30),
@@ -31885,7 +32002,7 @@ BEGIN
                                     (
                                        CONVERT
                                        (
-                                           bigint,  
+                                           bigint, 
                                            wt.total_wait_time_ms
                                        )
                                     )
@@ -31896,16 +32013,16 @@ BEGIN
                        ),
                        14
                    )
-                WHEN  
+                WHEN 
                     SUM
                     (
                         CONVERT
                         (
-                            bigint,  
+                            bigint, 
                             wt.total_wait_time_ms
                         )
                     ) BETWEEN 2147483648 AND 2147483647000
-                THEN  
+                THEN 
                    CONVERT
                    (
                        nvarchar(30),
@@ -31918,7 +32035,7 @@ BEGIN
                                     (
                                        CONVERT
                                        (
-                                           bigint,  
+                                           bigint, 
                                            wt.total_wait_time_ms
                                        )
                                     )
@@ -31951,7 +32068,7 @@ BEGIN
                   14
               ) END +
             N' [dd hh:mm:ss:ms] of deadlock wait time.',
-            sort_order =   
+            sort_order =  
                 ROW_NUMBER()
                 OVER (ORDER BY SUM(CONVERT(bigint, wt.total_wait_time_ms)) DESC)
         FROM wait_time AS wt
@@ -31989,7 +32106,7 @@ BEGIN
                 N'There have been ' +
                 RTRIM(COUNT_BIG(DISTINCT aj.event_date)) +
                 N' deadlocks from this Agent Job and Step.',
-            sort_order =   
+            sort_order =  
                 ROW_NUMBER()
                 OVER (ORDER BY COUNT_BIG(DISTINCT aj.event_date) DESC)
         FROM #agent_job AS aj
@@ -32769,23 +32886,23 @@ BEGIN
         BEGIN
                 SET @d = CONVERT(varchar(40), GETDATE(), 109);
                 RAISERROR('Results to client %s', 0, 1, @d) WITH NOWAIT;
-             
+            
                 IF @Debug = 1 BEGIN SET STATISTICS XML ON; END;
-             
+            
                 EXEC sys.sp_executesql
                     @deadlock_result;
-             
+            
                 IF @Debug = 1
                 BEGIN
                     SET STATISTICS XML OFF;
                     PRINT @deadlock_result;
                 END;
-             
+            
                 RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
                 SET @d = CONVERT(varchar(40), GETDATE(), 109);
                 RAISERROR('Getting available execution plans for deadlocks %s', 0, 1, @d) WITH NOWAIT;
-               
+              
                 SELECT DISTINCT
                     available_plans =
                         'available_plans',
@@ -32821,7 +32938,7 @@ BEGIN
                         CONVERT(decimal(38, 6), deqs.total_worker_time / 1000. / deqs.execution_count),
                     total_elapsed_time_ms =
                         deqs.total_elapsed_time / 1000.,
-                    avg_elapsed_time =
+                    avg_elapsed_time_ms =
                         CONVERT(decimal(38, 6), deqs.total_elapsed_time / 1000. / deqs.execution_count),
                     executions_per_second =
                         ISNULL
@@ -32833,7 +32950,7 @@ BEGIN
                                     (
                                         SECOND,
                                         deqs.creation_time,
-                                        deqs.last_execution_time
+                                        NULLIF(deqs.last_execution_time, '1900-01-01 00:00:00.000')
                                     ),
                                     0
                                 ),
@@ -32852,7 +32969,7 @@ BEGIN
                     min_used_grant_mb =
                         deqs.min_used_grant_kb * 8. / 1024.,
                     max_used_grant_mb =
-                        deqs.max_used_grant_kb * 8. / 1024.,    
+                        deqs.max_used_grant_kb * 8. / 1024.,   
                     deqs.min_reserved_threads,
                     deqs.max_reserved_threads,
                     deqs.min_used_threads,
@@ -32862,21 +32979,21 @@ BEGIN
                 FROM sys.dm_exec_query_stats AS deqs
                 WHERE EXISTS
                 (
-                   SELECT
-                       1/0
-                   FROM #available_plans AS ap
-                   WHERE ap.sql_handle = deqs.sql_handle
+                    SELECT
+                        1/0
+                    FROM #available_plans AS ap
+                    WHERE ap.sql_handle = deqs.sql_handle
                 )
                 AND deqs.query_hash IS NOT NULL;
-                
-                CREATE CLUSTERED INDEX 
-                    deqs 
+               
+                CREATE CLUSTERED INDEX
+                    deqs
                 ON #dm_exec_query_stats
                 (
-                    sql_handle, 
+                    sql_handle,
                     plan_handle
                 );
-                
+               
                 SELECT
                     ap.available_plans,
                     ap.database_name,
@@ -32890,7 +33007,7 @@ BEGIN
                     ap.total_worker_time_ms,
                     ap.avg_worker_time_ms,
                     ap.total_elapsed_time_ms,
-                    ap.avg_elapsed_time,
+                    ap.avg_elapsed_time_ms,
                     ap.total_logical_reads_mb,
                     ap.total_physical_reads_mb,
                     ap.total_logical_writes_mb,
@@ -32908,7 +33025,7 @@ BEGIN
                     ap.statement_end_offset
                 FROM
                 (
-               
+              
                     SELECT
                         ap.*,
                         c.statement_start_offset,
@@ -32919,7 +33036,7 @@ BEGIN
                         c.total_worker_time_ms,
                         c.avg_worker_time_ms,
                         c.total_elapsed_time_ms,
-                        c.avg_elapsed_time,
+                        c.avg_elapsed_time_ms,
                         c.executions_per_second,
                         c.total_physical_reads_mb,
                         c.total_logical_writes_mb,
@@ -32958,10 +33075,10 @@ BEGIN
                 OPTION(RECOMPILE, LOOP JOIN, HASH JOIN);
 
                 RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
-             
+            
                 SET @d = CONVERT(varchar(40), GETDATE(), 109);
                 RAISERROR('Returning findings %s', 0, 1, @d) WITH NOWAIT;
-             
+            
                 SELECT
                     df.check_id,
                     df.database_name,
@@ -32973,7 +33090,7 @@ BEGIN
                     df.check_id,
                     df.sort_order
                 OPTION(RECOMPILE);
-             
+            
                 SET @d = CONVERT(varchar(40), GETDATE(), 109);
                 RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
             END; /*done with output to client app.*/
@@ -33212,7 +33329,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.17', @VersionDate = '20231010';
+SELECT @Version = '8.18', @VersionDate = '20231222';
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
@@ -33273,8 +33390,6 @@ IF (SELECT CONVERT(NVARCHAR(128), SERVERPROPERTY ('EDITION'))) <> 'SQL Azure'
 
 IF @Help = 1
 	BEGIN
-	
-	SELECT N'You have requested assistance. It will arrive as soon as humanly possible.' AS [Take four red capsules, help is on the way];
 
 	PRINT N'
 	sp_BlitzQueryStore from http://FirstResponderKit.org
@@ -33318,6 +33433,257 @@ IF @Help = 1
 	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 	SOFTWARE.
 	';
+		/*Parameter info*/
+	SELECT N'@Help' AS [Parameter Name] ,
+			N'BIT' AS [Data Type] ,
+			N'0' AS [Default Value],
+			N'Displays this help message.' AS [Parameter Description]
+	UNION ALL
+	SELECT N'@DatabaseName',
+			N'NVARCHAR(128)',
+			N'NULL',
+			N'The name of the database you want to check the query store for.'
+	UNION ALL
+	SELECT N'@Top',
+			N'INT',
+			N'3',
+			N'The number of records to retrieve and analyze from the query store. The following system views are used: query_store_query, query_context_settings, query_store_wait_stats, query_store_runtime_stats,query_store_plan.'
+	
+	UNION ALL
+	SELECT N'@StartDate',
+			N'DATETIME2(7)',
+			N'NULL',
+			N'Get query store info starting from this date. When not specified, sp_BlitzQueryStore gets info from the last 7 days'
+	UNION ALL
+	SELECT N'@EndDate',
+			N'DATETIME2(7)',
+			N'NULL',
+			N'Get query store info until this date. When not specified, sp_BlitzQueryStore gets info from the last 7 days'
+	UNION ALL
+	SELECT N'@MinimumExecutionCount',
+			N'INT',
+			N'NULL',
+			N'When a value is specified, sp_BlitzQueryStore gets info for queries where count_executions >= @MinimumExecutionCount'
+	UNION ALL
+	SELECT N'@DurationFilter',
+			N'DECIMAL(38,4)',
+			N'NULL',
+			N'Time unit - seconds. When a value is specified, sp_BlitzQueryStore gets info for queries where the average duration >= @DurationFilter'
+	UNION ALL
+	SELECT N'@StoredProcName',
+			N'NVARCHAR(128)',
+			N'NULL',
+			N'Get information for this specific stored procedure.'
+	UNION ALL
+	SELECT N'@Failed',
+			N'BIT',
+			N'0',
+			N'When set to 1, only information about failed queries is returned.'
+	UNION ALL
+	SELECT N'@PlanIdFilter',
+			N'INT',
+			N'NULL',
+			N'The ID of the plan you want to check for.'
+	UNION ALL
+	SELECT N'@QueryIdFilter',
+			N'INT',
+			N'NULL',
+			N'The ID of the query you want to check for.'
+	UNION ALL
+	SELECT N'@ExportToExcel',
+			N'BIT',
+			N'0',
+			N'When set to 1, prepares output for exporting to Excel. Newlines and additional whitespace are removed from query text and the execution plan is not displayed.'
+	UNION ALL
+	SELECT N'@HideSummary',
+			N'BIT',
+			N'0',
+			N'When set to 1, hides the findings summary result set.'
+	UNION ALL
+	SELECT N'@SkipXML',
+			N'BIT',
+			N'0',
+			N'When set to 1, missing_indexes, implicit_conversion_info, cached_execution_parameters, are not returned. Does not affect query_plan_xml'
+	UNION ALL
+	SELECT N'@Debug',
+			N'BIT',
+			N'0',
+			N'Setting this to 1 will print dynamic SQL and select data from all tables used.'
+	UNION ALL
+	SELECT N'@ExpertMode',
+			N'BIT',
+			N'0',
+			N'When set to 1, more checks are done. Examples: many to many merge joins, row goals, adaptive joins, stats info, bad scans and plan forcing, computed columns that reference scalar UDFs.'
+	UNION ALL
+	SELECT N'@VersionCheckMode',
+			N'BIT',
+			N'0',
+			N'Outputs the version number and date.'
+
+		/* Column definitions */
+	SELECT 'database_name'                                            AS [Column Name],
+	       'NVARCHAR(258)'                                            AS [Data Type],
+	       'The name of the database where the plan was encountered.' AS [Column Description]
+	UNION ALL
+	SELECT 'query_cost',
+	       'FLOAT',
+	       'The cost of the execution plan in query bucks.'
+	UNION ALL
+	SELECT 'plan_id',
+	       'BIGINT',
+	       'The ID of the plan from sys.query_store_plan.'
+	UNION ALL
+	SELECT 'query_id',
+	       'BIGINT',
+	       'The ID of the query from sys.query_store_query.'
+	UNION ALL
+	SELECT 'query_id_all_plan_ids',
+	       'VARCHAR(8000)',
+	       'Comma-separated list of all query plan IDs associated with this query.'
+	UNION ALL
+	SELECT 'query_sql_text',
+	       'NVARCHAR(MAX)',
+	       'The text of the query, as provided by the user/app. Includes whitespaces, hints and comments. Comments and spaces before and after the query text are ignored.'
+	UNION ALL
+	SELECT 'proc_or_function_name',
+	       'NVARCHAR(258)',
+	       'If the query is part of a function/stored procedure, you''ll see here the name of its parent object.'
+	UNION ALL
+	SELECT 'query_plan_xml',
+	       ' XML',
+	       'The query plan. Click to display a graphical plan.'
+	UNION ALL
+	SELECT 'warnings',
+	       'VARCHAR(MAX)',
+	       'A list of individual warnings generated by this query.'
+	UNION ALL
+	SELECT 'pattern',
+	       'NVARCHAR(512)',
+	       'A list of performance related patterns identified for this query.'
+	UNION ALL
+	SELECT 'parameter_sniffing_symptoms',
+	       'NVARCHAR(4000)',
+	       'A list of all the identified symptoms that are usually indicators of parameter sniffing.'
+	UNION ALL
+	SELECT 'last_force_failure_reason_desc',
+	       'NVARCHAR(258)',
+	       'Reason why plan forcing failed. NONE if plan isn''t forced.'
+	UNION ALL
+	SELECT 'top_three_waits',
+	       'NVARCHAR(MAX)',
+	       'The top 3 wait types, and their times in milliseconds, recorded for this query.'
+	UNION ALL
+	SELECT 'missing_indexes',
+	       'XML',
+	       'Missing index recommendations retrieved from the query plan.'
+	UNION ALL
+	SELECT 'implicit_conversion_info',
+	       'XML',
+	       'Information about the implicit conversion warnings,if any, retrieved from the query plan.'
+	UNION ALL
+	SELECT 'cached_execution_parameters',
+	       'XML',
+	       'Names, data types, and values for the parameters used when the query plan was compiled.'
+	UNION ALL
+	SELECT 'count_executions ',
+	       'BIGINT',
+	       'The number of executions of this particular query.'
+	UNION ALL
+	SELECT 'count_compiles',
+	       'BIGINT',
+	       'The number of plan compilations for this particular query.'
+	UNION ALL
+	SELECT 'total_cpu_time',
+	       'BIGINT',
+	       'Total CPU time, reported in milliseconds, that was consumed by all executions of this query.'
+	UNION ALL
+	SELECT 'avg_cpu_time ',
+	       'BIGINT',
+	       'Average CPU time, reported in milliseconds, consumed by each execution of this query.'
+	UNION ALL
+	SELECT 'total_duration',
+	       'BIGINT',
+	       'Total elapsed time, reported in milliseconds, consumed by all executions of this query.'
+	UNION ALL
+	SELECT 'avg_duration',
+	       'BIGINT',
+	       'Average elapsed time, reported in milliseconds, consumed by each execution of this query.'
+	UNION ALL
+	SELECT 'total_logical_io_reads',
+	       'BIGINT',
+	       'Total logical reads, reported in MB, performed by this query.'
+	UNION ALL
+	SELECT 'avg_logical_io_reads',
+	       'BIGINT',
+	       'Average logical reads, reported in MB, performed by each execution of this query.'
+	UNION ALL
+	SELECT 'total_physical_io_reads',
+	       'BIGINT',
+	       'Total physical reads, reported in MB, performed by this query.'
+	UNION ALL
+	SELECT 'avg_physical_io_reads',
+	       'BIGINT',
+	       'Average physical reads, reported in MB, performed by each execution of this query.'
+	UNION ALL
+	SELECT 'total_logical_io_writes',
+	       'BIGINT',
+	       'Total logical writes, reported in MB, performed by this query.'
+	UNION ALL
+	SELECT 'avg_logical_io_writes',
+	       'BIGINT',
+	       'Average logical writes, reported in MB, performed by each execution of this query.'
+	UNION ALL
+	SELECT 'total_rowcount',
+	       'BIGINT',
+	       'Total number of rows returned for all executions of this query.'
+	UNION ALL
+	SELECT 'avg_rowcount',
+	       'BIGINT',
+	       'Average number of rows returned by each execution of this query.'
+	UNION ALL
+	SELECT 'total_query_max_used_memory',
+	       'DECIMAL(38,2)',
+	       'Total max memory grant, reported in MB, used by this query.'
+	UNION ALL
+	SELECT 'avg_query_max_used_memory',
+	       'DECIMAL(38,2)',
+	       'Average max memory grant, reported in MB, used by each execution of this query.'
+	UNION ALL
+	SELECT 'total_tempdb_space_used',
+	       'DECIMAL(38,2)',
+	       'Total tempdb space, reported in MB, used by this query.'
+	UNION ALL
+	SELECT 'avg_tempdb_space_used',
+	       'DECIMAL(38,2)',
+	       'Average tempdb space, reported in MB, used by each execution of this query.'
+	UNION ALL
+	SELECT 'total_log_bytes_used',
+	       'DECIMAL(38,2)',
+	       'Total number of bytes in the database log used by this query.'
+	UNION ALL
+	SELECT 'avg_log_bytes_used',
+	       'DECIMAL(38,2)',
+	       'Average number of bytes in the database log used by each execution of this query.'
+	UNION ALL
+	SELECT 'total_num_physical_io_reads',
+	       'DECIMAL(38,2)',
+	       'Total number of physical I/O reads performed by this query (expressed as a number of read I/O operations).'
+	UNION ALL
+	SELECT 'avg_num_physical_io_reads',
+	       'DECIMAL(38,2)',
+	       'Average number of physical I/O reads performed by each execution of this query (expressed as a number of read I/O operations).'
+	UNION ALL
+	SELECT 'first_execution_time',
+	       'DATETIME2',
+	       'First execution time for this query within the aggregation interval. This is the end time of the query execution.'
+	UNION ALL
+	SELECT 'last_execution_time',
+	       'DATETIME2',
+	       'Last execution time for this query within the aggregation interval. This is the end time of the query execution.'
+	UNION ALL
+	SELECT 'context_settings',
+	       'NVARCHAR(512)',
+	       'Contains information about context settings associated with this query.';
 	RETURN;
 
 END;
@@ -39012,7 +39378,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.17', @VersionDate = '20231010';
+	SELECT @Version = '8.18', @VersionDate = '20231222';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -40412,7 +40778,7 @@ SET STATISTICS XML OFF;
 
 /*Versioning details*/
 
-SELECT @Version = '8.17', @VersionDate = '20231010';
+SELECT @Version = '8.18', @VersionDate = '20231222';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -42027,38 +42393,39 @@ GO
 
 ALTER PROCEDURE [dbo].[sp_ineachdb]
   -- mssqltips.com/sqlservertip/5694/execute-a-command-in-the-context-of-each-database-in-sql-server--part-2/
-  @command             nvarchar(max) = NULL,
-  @replace_character   nchar(1) = N'?',
-  @print_dbname        bit = 0,
-  @select_dbname       bit = 0, 
-  @print_command       bit = 0, 
-  @print_command_only  bit = 0,
-  @suppress_quotename  bit = 0, -- use with caution
-  @system_only         bit = 0,
-  @user_only           bit = 0,
-  @name_pattern        nvarchar(300)  = N'%', 
-  @database_list       nvarchar(max)  = NULL,
-  @exclude_pattern     nvarchar(300)  = NULL,
-  @exclude_list        nvarchar(max)  = NULL,
-  @recovery_model_desc nvarchar(120)  = NULL,
-  @compatibility_level tinyint        = NULL,
-  @state_desc          nvarchar(120)  = N'ONLINE',
-  @is_read_only        bit = 0,
-  @is_auto_close_on    bit = NULL,
-  @is_auto_shrink_on   bit = NULL,
-  @is_broker_enabled   bit = NULL,
-  @user_access         nvarchar(128)  = NULL, 
-  @Help                BIT = 0,
-  @Version             VARCHAR(30)    = NULL OUTPUT,
-  @VersionDate         DATETIME       = NULL OUTPUT,
-  @VersionCheckMode    BIT            = 0
+  @command              nvarchar(max) = NULL,
+  @replace_character    nchar(1)      = N'?',
+  @print_dbname         bit = 0,
+  @select_dbname        bit = 0, 
+  @print_command        bit = 0, 
+  @print_command_only   bit = 0,
+  @suppress_quotename   bit = 0, -- use with caution
+  @system_only          bit = 0,
+  @user_only            bit = 0,
+  @name_pattern         nvarchar(300)  = N'%', 
+  @database_list        nvarchar(max)  = NULL,
+  @exclude_pattern      nvarchar(300)  = NULL,
+  @exclude_list         nvarchar(max)  = NULL,
+  @recovery_model_desc  nvarchar(120)  = NULL,
+  @compatibility_level  tinyint        = NULL,
+  @state_desc           nvarchar(120)  = N'ONLINE',
+  @is_read_only         bit = 0,
+  @is_auto_close_on     bit = NULL,
+  @is_auto_shrink_on    bit = NULL,
+  @is_broker_enabled    bit = NULL,
+  @user_access          nvarchar(128)  = NULL, 
+  @Help                 bit = 0,
+  @Version              varchar(30)    = NULL OUTPUT,
+  @VersionDate          datetime       = NULL OUTPUT,
+  @VersionCheckMode     bit            = 0,
+  @is_ag_writeable_copy bit            = 0
 -- WITH EXECUTE AS OWNER – maybe not a great idea, depending on the security of your system
 AS
 BEGIN
   SET NOCOUNT ON;
   SET STATISTICS XML OFF;
 
-  SELECT @Version = '8.17', @VersionDate = '20231010';
+  SELECT @Version = '8.18', @VersionDate = '20231222';
   
   IF(@VersionCheckMode = 1)
   BEGIN
@@ -42300,6 +42667,22 @@ OPTION (MAXRECURSION 0);
               AND ar.secondary_role_allow_connections = 0
               AND ags.primary_replica <> @ServerName
           );
+	/* Remove databases which are not the writeable copies in an AG. */
+    IF @is_ag_writeable_copy = 1
+    BEGIN
+      DELETE dbs FROM #ineachdb AS dbs
+      WHERE EXISTS
+          (
+          SELECT 1 FROM sys.dm_hadr_database_replica_states AS drs 
+            INNER JOIN sys.availability_replicas AS ar
+            ON ar.replica_id = drs.replica_id
+            INNER JOIN sys.dm_hadr_availability_group_states AS ags 
+            ON ags.group_id = ar.group_id
+            WHERE drs.database_id = dbs.id
+            AND drs.is_primary_replica <> 1
+            AND ags.primary_replica <> @ServerName
+          );
+    END
   END
 
   -- Well, if we deleted them all...
@@ -42404,6 +42787,8 @@ DELETE FROM dbo.SqlServerVersions;
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
+    (16, 4095, 'CU10', 'https://support.microsoft.com/en-us/help/5031778', '2023-11-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 10'),
+    (16, 4085, 'CU9', 'https://support.microsoft.com/en-us/help/5030731', '2023-10-12', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 9'),
     (16, 4075, 'CU8', 'https://support.microsoft.com/en-us/help/5029666', '2023-09-14', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 8'),
     (16, 4065, 'CU7', 'https://support.microsoft.com/en-us/help/5028743', '2023-08-10', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 7'),
     (16, 4055, 'CU6', 'https://support.microsoft.com/en-us/help/5027505', '2023-07-13', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 6'),
@@ -42414,6 +42799,8 @@ VALUES
     (16, 4003, 'CU1', 'https://support.microsoft.com/en-us/help/5022375', '2023-02-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 1'),
     (16, 1050, 'RTM GDR', 'https://support.microsoft.com/kb/5021522', '2023-02-14', '2028-01-11', '2033-01-11', 'SQL Server 2022 GDR', 'RTM'),
     (16, 1000, 'RTM', '', '2022-11-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'RTM'),
+    (15, 4345, 'CU24', 'https://support.microsoft.com/kb/5031908', '2023-12-14', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 24'),
+    (15, 4335, 'CU23', 'https://support.microsoft.com/kb/5030333', '2023-10-12', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 23'),
     (15, 4322, 'CU22', 'https://support.microsoft.com/kb/5027702', '2023-08-14', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 22'),
     (15, 4316, 'CU21', 'https://support.microsoft.com/kb/5025808', '2023-06-15', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 21'),
     (15, 4312, 'CU20', 'https://support.microsoft.com/kb/5024276', '2023-04-13', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 20'),
@@ -42441,6 +42828,7 @@ VALUES
     (15, 4003, 'CU1', 'https://support.microsoft.com/en-us/help/4527376', '2020-01-07', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 1 '),
     (15, 2070, 'GDR', 'https://support.microsoft.com/en-us/help/4517790', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM GDR '),
     (15, 2000, 'RTM ', '', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM '),
+    (14, 3465, 'RTM CU31 GDR', 'https://support.microsoft.com/kb/5029376', '2023-10-12', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
     (14, 3460, 'RTM CU31 GDR', 'https://support.microsoft.com/kb/5021126', '2023-02-14', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
     (14, 3456, 'RTM CU31', 'https://support.microsoft.com/en-us/help/5016884', '2022-09-20', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31'),
     (14, 3451, 'RTM CU30', 'https://support.microsoft.com/en-us/help/5013756', '2022-07-13', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 30'),
@@ -42838,7 +43226,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.17', @VersionDate = '20231010';
+SELECT @Version = '8.18', @VersionDate = '20231222';
 
 IF(@VersionCheckMode = 1)
 BEGIN
