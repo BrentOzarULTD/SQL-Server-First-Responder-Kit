@@ -201,6 +201,7 @@ AS
 			,@SkipModel bit = 0
 			,@SkipTempDB bit = 0
 			,@SkipValidateLogins bit = 0
+      ,@SkipGetAlertInfo bit = 0
 
 			DECLARE
 			    @db_perms table
@@ -225,6 +226,23 @@ AS
             
             /* End of declarations for First Responder Kit consistency check:*/
         ;
+
+        /* Create temp table for check 73 */
+        IF OBJECT_ID('tempdb..#AlertInfo') IS NOT NULL
+			EXEC sp_executesql N'DROP TABLE #AlertInfo;';
+
+        CREATE TABLE #AlertInfo
+		(
+		    FailSafeOperator NVARCHAR(255) ,
+		    NotificationMethod INT ,
+		    ForwardingServer NVARCHAR(255) ,
+		    ForwardingSeverity INT ,
+		    PagerToTemplate NVARCHAR(255) ,
+		    PagerCCTemplate NVARCHAR(255) ,
+		    PagerSubjectTemplate NVARCHAR(255) ,
+		    PagerSendSubjectOnly NVARCHAR(255) ,
+		    ForwardAlways INT
+		);
 
 		/* Create temp table for check 2301 */
 		IF OBJECT_ID('tempdb..#InvalidLogins') IS NOT NULL
@@ -315,6 +333,20 @@ AS
 			    END CATCH;
 			END; /*Need execute on sp_validatelogins*/
             
+            IF ISNULL(@SkipGetAlertInfo, 0) != 1 /*If @SkipGetAlertInfo hasn't been set to 1 by the caller*/
+			BEGIN
+			    BEGIN TRY
+			        /* Try to fill the table for check 73 */
+					INSERT INTO #AlertInfo
+                    EXEC [master].[dbo].[sp_MSgetalertinfo] @includeaddresses = 0;
+			
+			    	SET @SkipGetAlertInfo = 0; /*We can execute sp_MSgetalertinfo*/
+			    END TRY
+			    BEGIN CATCH
+			    	SET @SkipGetAlertInfo = 1; /*We have don't have execute rights or sp_MSgetalertinfo throws an error so skip it*/
+			    END CATCH;
+			END; /*Need execute on sp_MSgetalertinfo*/
+
 			IF ISNULL(@SkipModel, 0) != 1 /*If @SkipModel hasn't been set to 1 by the caller*/
 			BEGIN
 				IF EXISTS
@@ -639,7 +671,13 @@ AS
 		SELECT
 		    v.*
 		FROM (VALUES(NULL, 2301, NULL))	AS v (DatabaseName, CheckID, ServerName) /*sp_validatelogins*/
-		WHERE @SkipValidateLogins = 1
+		WHERE @SkipValidateLogins = 1;
+
+        INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
+		SELECT
+		    v.*
+		FROM (VALUES(NULL, 73, NULL)) AS v (DatabaseName, CheckID, ServerName) /*sp_validatelogins*/
+		WHERE @SkipGetAlertInfo = 1;
 
 		IF @sa = 0
 		BEGIN
@@ -8198,20 +8236,6 @@ IF @ProductVersionMajor >= 10
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 73) WITH NOWAIT;
 						
-						DECLARE @AlertInfo TABLE
-							(
-							  FailSafeOperator NVARCHAR(255) ,
-							  NotificationMethod INT ,
-							  ForwardingServer NVARCHAR(255) ,
-							  ForwardingSeverity INT ,
-							  PagerToTemplate NVARCHAR(255) ,
-							  PagerCCTemplate NVARCHAR(255) ,
-							  PagerSubjectTemplate NVARCHAR(255) ,
-							  PagerSendSubjectOnly NVARCHAR(255) ,
-							  ForwardAlways INT
-							);
-						INSERT  INTO @AlertInfo
-								EXEC [master].[dbo].[sp_MSgetalertinfo] @includeaddresses = 0;
 						INSERT  INTO #BlitzResults
 								( CheckID ,
 								  Priority ,
@@ -8226,7 +8250,7 @@ IF @ProductVersionMajor >= 10
 										'No Failsafe Operator Configured' AS Finding ,
 										'https://www.brentozar.com/go/failsafe' AS URL ,
 										( 'No failsafe operator is configured on this server.  This is a good idea just in-case there are issues with the [msdb] database that prevents alerting.' ) AS Details
-								FROM    @AlertInfo
+								FROM    #AlertInfo
 								WHERE   FailSafeOperator IS NULL;
 					END;
 
@@ -10031,6 +10055,11 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 	IF(OBJECT_ID('tempdb..#InvalidLogins') IS NOT NULL)
 	BEGIN
 		EXEC sp_executesql N'DROP TABLE #InvalidLogins;';
+	END;
+
+	IF OBJECT_ID('tempdb..#AlertInfo') IS NOT NULL
+	BEGIN
+		EXEC sp_executesql N'DROP TABLE #AlertInfo;';
 	END;
 
 	/*
