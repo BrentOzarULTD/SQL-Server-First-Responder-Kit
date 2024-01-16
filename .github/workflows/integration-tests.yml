@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
         matrix:
-            SQL_ENGINE_VERSION: [2017,2019]
+            SQL_ENGINE_VERSION: [2017,2019,2022]
             COLLATION: [SQL_Latin1_General_CP1_CS_AS]
         
 
