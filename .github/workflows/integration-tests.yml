@@ -13,6 +13,7 @@ jobs:
     strategy:
         matrix:
             SQL_ENGINE_VERSION: [2017,2019]
+            COLLATION: [SQL_Latin1_General_CP1_CS_AS]
         
 
     steps:
@@ -30,7 +31,7 @@ jobs:
           with:
             install: sqlengine
             version: ${{ matrix.SQL_ENGINE_VERSION }}
-            collation: SQL_Latin1_General_CP1_CS_AS
+            collation: ${{ matrix.COLLATION }}
 
         - name: Check SQL Install
           run: | 
