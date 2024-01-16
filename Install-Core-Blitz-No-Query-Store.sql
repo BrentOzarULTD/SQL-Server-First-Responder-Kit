@@ -723,7 +723,7 @@ AS
 			SET @CheckUserDatabaseObjects = 0;
 			PRINT 'Databases with compatibility level < 90 found, so setting @CheckUserDatabaseObjects = 0.';
 			PRINT 'The database-level checks rely on CTEs, which are not supported in SQL 2000 compat level databases.';
-			PRINT 'Get with the cool kids and switch to a current compatibility level, Grandpa. To find the insanity, run:';
+			PRINT 'Get with the cool kids and switch to a current compatibility level, Grandpa. To find the problems, run:';
 			PRINT 'SELECT * FROM sys.databases WHERE compatibility_level < 90;';
 			INSERT  INTO #BlitzResults
 			( CheckID ,
@@ -1160,7 +1160,7 @@ AS
 		IF @BringThePain = 0 AND 50 <= (SELECT COUNT(*) FROM sys.databases) AND @CheckUserDatabaseObjects = 1
 			BEGIN
 			SET @CheckUserDatabaseObjects = 0;
-			PRINT 'Running sp_Blitz @CheckUserDatabaseObjects = 1 on a server with 50+ databases may cause temporary insanity for the server and/or user.';
+			PRINT 'Running sp_Blitz @CheckUserDatabaseObjects = 1 on a server with 50+ databases may cause temporary problems for the server and/or user.';
 			PRINT 'If you''re sure you want to do this, run again with the parameter @BringThePain = 1.';
 			INSERT  INTO #BlitzResults
 			( CheckID ,
@@ -1255,9 +1255,9 @@ AS
 						Below, we check master.sys.databases looking for databases
 						that haven't had a backup in the last week. If we find any,
 						we insert them into #BlitzResults, the temp table that
-						tracks our server's insanity. Note that if the check does
-						NOT find any insanity, we don't save that. We're only
-						saving the insanity, not the successful checks.
+						tracks our server's problems. Note that if the check does
+						NOT find any problems, we don't save that. We're only
+						saving the problems, not the successful checks.
 						*/
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 1) WITH NOWAIT;
@@ -1347,7 +1347,7 @@ AS
 						And there you have it. The rest of this stored procedure works the same
 						way: it asks:
 						- Should I skip this check?
-						- If not, do I find insanity?
+						- If not, do I find problems?
 						- Insert the results into #BlitzResults
 						*/
 
@@ -1895,7 +1895,7 @@ AS
 										'https://www.brentozar.com/go/owners' AS URL ,
 										( 'Job [' + j.name + '] is owned by ['
 										  + SUSER_SNAME(j.owner_sid)
-										  + '] - meaning if their login is disabled or not available due to Active Directory insanity, the job will stop working.' ) AS Details
+										  + '] - meaning if their login is disabled or not available due to Active Directory problems, the job will stop working.' ) AS Details
 								FROM    msdb.dbo.sysjobs j
 								WHERE   j.enabled = 1
 										AND SUSER_SNAME(j.owner_sid) <> SUSER_SNAME(0x01);
@@ -3803,7 +3803,7 @@ AS
 										'Performance' AS FindingGroup ,
 										'CPU Schedulers Offline' AS Finding ,
 										'https://www.brentozar.com/go/schedulers' AS URL ,
-										'Some CPU cores are not accessible to SQL Server due to affinity masking or licensing insanity.';
+										'Some CPU cores are not accessible to SQL Server due to affinity masking or licensing problems.';
 					END;
 
 					IF NOT EXISTS ( SELECT  1
@@ -3831,7 +3831,7 @@ AS
 																''Performance'' AS FindingGroup ,
 																''Memory Nodes Offline'' AS Finding ,
 																''https://www.brentozar.com/go/schedulers'' AS URL ,
-																''Due to affinity masking or licensing insanity, some of the memory may not be available.'' OPTION (RECOMPILE)';
+																''Due to affinity masking or licensing problems, some of the memory may not be available.'' OPTION (RECOMPILE)';
 									
 									IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
 									IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
@@ -3918,7 +3918,7 @@ AS
 											'Performance' AS FindingGroup ,
 											'Poison Wait Detected: ' + wait_type  AS Finding ,
 											'https://www.brentozar.com/go/poison/#' + wait_type AS URL ,
-											CONVERT(VARCHAR(10), (SUM([wait_time_ms]) / 1000) / 86400) + ':' + CONVERT(VARCHAR(20), DATEADD(s, (SUM([wait_time_ms]) / 1000), 0), 108) + ' of this wait have been recorded. This wait often indicates killer performance insanity.'
+											CONVERT(VARCHAR(10), (SUM([wait_time_ms]) / 1000) / 86400) + ':' + CONVERT(VARCHAR(20), DATEADD(s, (SUM([wait_time_ms]) / 1000), 0), 108) + ' of this wait have been recorded. This wait often indicates killer performance problems.'
 									FROM sys.[dm_os_wait_stats]
 									WHERE wait_type IN('IO_QUEUE_LIMIT', 'IO_RETRY', 'LOG_RATE_GOVERNOR', 'POOL_LOG_RATE_GOVERNOR', 'PREEMPTIVE_DEBUG', 'RESMGR_THROTTLED', 'RESOURCE_SEMAPHORE', 'RESOURCE_SEMAPHORE_QUERY_COMPILE','SE_REPL_CATCHUP_THROTTLE','SE_REPL_COMMIT_ACK','SE_REPL_COMMIT_TURN','SE_REPL_ROLLBACK_ACK','SE_REPL_SLOW_SECONDARY_THROTTLE','THREADPOOL')
 									GROUP BY wait_type
@@ -3946,7 +3946,7 @@ AS
 											'Performance' AS FindingGroup ,
 											'Poison Wait Detected: Serializable Locking'  AS Finding ,
 											'https://www.brentozar.com/go/serializable' AS URL ,
-											CONVERT(VARCHAR(10), (SUM([wait_time_ms]) / 1000) / 86400) + ':' + CONVERT(VARCHAR(20), DATEADD(s, (SUM([wait_time_ms]) / 1000), 0), 108) + ' of LCK_M_R% waits have been recorded. This wait often indicates killer performance insanity.'
+											CONVERT(VARCHAR(10), (SUM([wait_time_ms]) / 1000) / 86400) + ':' + CONVERT(VARCHAR(20), DATEADD(s, (SUM([wait_time_ms]) / 1000), 0), 108) + ' of LCK_M_R% waits have been recorded. This wait often indicates killer performance problems.'
 									FROM sys.[dm_os_wait_stats]
 									WHERE wait_type IN ('LCK_M_RS_S', 'LCK_M_RS_U', 'LCK_M_RIn_NL','LCK_M_RIn_S', 'LCK_M_RIn_U','LCK_M_RIn_X', 'LCK_M_RX_S', 'LCK_M_RX_U','LCK_M_RX_X')
 								    HAVING SUM([wait_time_ms]) > (SELECT 5000 * datediff(HH,create_date,CURRENT_TIMESTAMP) AS hours_since_startup FROM sys.databases WHERE name='tempdb')
@@ -7154,7 +7154,7 @@ IF @ProductVersionMajor >= 10
 		  ''Performance'' AS FindingsGroup,
 		  ''Fill Factor Changed'',
 		  ''https://www.brentozar.com/go/fillfactor'' AS URL,
-		  ''The ['' + DB_NAME() + ''] database has '' + CAST(SUM(1) AS NVARCHAR(50)) + '' objects with fill factor = '' + CAST(fill_factor AS NVARCHAR(5)) + ''%. This can cause memory and storage performance insanity, but may also prevent page splits.''
+		  ''The ['' + DB_NAME() + ''] database has '' + CAST(SUM(1) AS NVARCHAR(50)) + '' objects with fill factor = '' + CAST(fill_factor AS NVARCHAR(5)) + ''%. This can cause memory and storage performance problems, but may also prevent page splits.''
 		  FROM    [?].sys.indexes
 		  WHERE   fill_factor <> 0 AND fill_factor < 80 AND is_disabled = 0 AND is_hypothetical = 0
 		  GROUP BY fill_factor OPTION (RECOMPILE);';
@@ -8137,7 +8137,7 @@ IF @ProductVersionMajor >= 10
                         'Security' AS [FindingsGroup] ,
                         'Endpoints Owned by Users' AS [Finding] ,
                        	'https://www.brentozar.com/go/owners' AS [URL] ,
-                        ( 'Endpoint ' + ep.[name] + ' is owned by ' + SUSER_NAME(ep.principal_id) + '. If the endpoint owner login is disabled or not available due to Active Directory insanity, the high availability will stop working.'
+                        ( 'Endpoint ' + ep.[name] + ' is owned by ' + SUSER_NAME(ep.principal_id) + '. If the endpoint owner login is disabled or not available due to Active Directory problems, the high availability will stop working.'
                         ) AS [Details]
 					FROM sys.database_mirroring_endpoints ep
 					LEFT OUTER JOIN sys.dm_server_services s ON SUSER_NAME(ep.principal_id) = s.service_account
@@ -11825,7 +11825,7 @@ RAISERROR('Rules analysis starting', 0, 1) WITH NOWAIT;
 		INSERT #Warnings (CheckId, Priority, DatabaseName, Finding, Warning )
 		EXEC sys.sp_executesql @StringToExecute;
 	
-	/*Looking for compatibility level changing. Only looking for databases that have changed more than twice (It''s possible someone may have changed up, had CE insanity, and then changed back)*/
+	/*Looking for compatibility level changing. Only looking for databases that have changed more than twice (It''s possible someone may have changed up, had CE problems, and then changed back)*/
 
 	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
@@ -17373,7 +17373,7 @@ RAISERROR('Checking for plans with no warnings', 0, 1) WITH NOWAIT;
 UPDATE ##BlitzCacheProcs
 SET Warnings = 'No warnings detected. ' + CASE @ExpertMode 
 											WHEN 0 
-											THEN ' Try running sp_BlitzCache with @ExpertMode = 1 to find more advanced insanity.' 
+											THEN ' Try running sp_BlitzCache with @ExpertMode = 1 to find more advanced problems.' 
 											ELSE '' 
 										  END
 WHERE Warnings = '' OR	Warnings IS NULL
@@ -18081,7 +18081,7 @@ BEGIN
                 'Performance',
                 'Function Join',
                 'https://www.brentozar.com/blitzcache/tvf-join/',
-                'Execution plans have been found that join to table valued functions (TVFs). TVFs produce inaccurate estimates of the number of rows returned and can lead to any number of query plan insanity.');
+                'Execution plans have been found that join to table valued functions (TVFs). TVFs produce inaccurate estimates of the number of rows returned and can lead to any number of query plan problems.');
 
         IF EXISTS (SELECT 1/0
                    FROM   ##BlitzCacheProcs
@@ -18394,7 +18394,7 @@ BEGIN
                     'Functions',
                     'Computed Column UDF',
                     'https://www.brentozar.com/blitzcache/computed-columns-referencing-functions/',
-                    'This can cause a whole mess of bad serializartion insanity.') ;
+                    'This can cause a whole mess of bad serializartion problems.') ;
 
         IF EXISTS (SELECT 1/0
                     FROM   ##BlitzCacheProcs p
@@ -18648,7 +18648,7 @@ BEGIN
                      'Functions',
 					 'MSTVFs',
                      'https://www.brentozar.com/blitzcache/tvf-join/',
-					 'Execution plans have been found that join to table valued functions (TVFs). TVFs produce inaccurate estimates of the number of rows returned and can lead to any number of query plan insanity.');	
+					 'Execution plans have been found that join to table valued functions (TVFs). TVFs produce inaccurate estimates of the number of rows returned and can lead to any number of query plan problems.');	
 
         IF EXISTS (SELECT 1/0
                     FROM   ##BlitzCacheProcs p
@@ -20153,7 +20153,7 @@ Known limitations of this version:
            filegroup/partition scheme etc.)
  --        (The compression and filegroup index create syntax is not trivial because it is set at the partition 
            level and is not trivial to code.)
- - Does not advise you about data modeling for clustered indexes and primary keys (primarily looks for signs of insanity.)
+ - Does not advise you about data modeling for clustered indexes and primary keys (primarily looks for signs of problems.)
 
 Unknown limitations of this version:
  - We knew them once, but we forgot.
@@ -20995,7 +20995,7 @@ BEGIN TRY
             VALUES  ( 1, 
 			          0, 
 		              N'You''re trying to run sp_BlitzIndex on a server with ' + CAST(@NumDatabases AS NVARCHAR(8)) + N' databases. ',
-                      N'Running sp_BlitzIndex on a server with 50+ databases may cause temporary insanity for the server and/or user.',
+                      N'Running sp_BlitzIndex on a server with 50+ databases may cause temporary problems for the server and/or user.',
 				      N'If you''re sure you want to do this, run again with the parameter @BringThePain = 1.',
                       'http://FirstResponderKit.org', 
 					  '', 
@@ -21022,7 +21022,7 @@ BEGIN TRY
 					   bir.create_tsql,
 					   bir.more_info 
 					   FROM #BlitzIndexResults AS bir;
-				RAISERROR('Running sp_BlitzIndex on a server with 50+ databases may cause temporary insanity for the server', 12, 1);
+				RAISERROR('Running sp_BlitzIndex on a server with 50+ databases may cause temporary problems for the server', 12, 1);
 			END;
 
 		RETURN;
@@ -25145,7 +25145,7 @@ BEGIN
             INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
                                             index_usage_summary, index_size_summary )
             VALUES  ( 1, 0 , 
-		           N'No Major insanity Found',
+		           N'No Major Problems Found',
                    N'Nice Work!',
                    N'http://FirstResponderKit.org', 
                    N'Consider running with @Mode = 4 in individual databases (not all) for more detailed diagnostics.', 
@@ -25167,7 +25167,7 @@ BEGIN
             INSERT    #BlitzIndexResults ( Priority, check_id, findings_group, finding, URL, details, index_definition,
                                             index_usage_summary, index_size_summary )
             VALUES  ( 1, 0 , 
-		           N'No insanity Found',
+		           N'No Problems Found',
                    N'Nice job! Or more likely, you have a nearly empty database.',
                    N'http://FirstResponderKit.org', 'Time to go read some blog posts.', 
                    @DaysUptimeInsertValue, N'', N''
@@ -33913,7 +33913,7 @@ BEGIN
 		AND r.database_id NOT IN (SELECT database_id FROM #ReadableDBs);
 	END
 
-    /* Query insanity - Long-Running Query Blocking Others - CheckID 5 */
+    /* Query Problems - Long-Running Query Blocking Others - CheckID 5 */
     IF SERVERPROPERTY('EngineEdition') <> 5 /*SERVERPROPERTY('Edition') <> 'SQL Azure'*/ AND @Seconds > 0 AND EXISTS(SELECT * FROM sys.dm_os_waiting_tasks WHERE wait_type LIKE 'LCK%' AND wait_duration_ms > 30000)
     BEGIN
 		IF (@Debug = 1)
@@ -33924,7 +33924,7 @@ BEGIN
         SET @StringToExecute = N'INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, QueryPlan, QueryText, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, OpenTransactionCount, QueryHash)
             SELECT 5 AS CheckID,
                 1 AS Priority,
-                ''Query insanity'' AS FindingGroup,
+                ''Query Problems'' AS FindingGroup,
                 ''Long-Running Query Blocking Others'' AS Finding,
                 ''https://www.brentozar.com/go/blocking'' AS URL,
                 ''Query in '' + COALESCE(DB_NAME(COALESCE((SELECT TOP 1 dbid FROM sys.dm_exec_sql_text(r.sql_handle)),
@@ -33956,7 +33956,7 @@ BEGIN
 		EXECUTE sp_executesql @StringToExecute;
     END;
 	
-    /* Query insanity - Plan Cache Erased Recently - CheckID 7 */
+    /* Query Problems - Plan Cache Erased Recently - CheckID 7 */
     IF DATEADD(mi, -15, SYSDATETIME()) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
     BEGIN
 		IF (@Debug = 1)
@@ -33967,7 +33967,7 @@ BEGIN
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
         SELECT TOP 1 7 AS CheckID,
             50 AS Priority,
-            'Query insanity' AS FindingGroup,
+            'Query Problems' AS FindingGroup,
             'Plan Cache Erased Recently' AS Finding,
             'https://www.brentozar.com/askbrent/plan-cache-erased-recently/' AS URL,
             'The oldest query in the plan cache was created at ' + CAST(creation_time AS NVARCHAR(50)) + '. ' + @LineFeed + @LineFeed
@@ -33981,7 +33981,7 @@ BEGIN
     END;
 
 
-    /* Query insanity - Sleeping Query with Open Transactions - CheckID 8 */
+    /* Query Problems - Sleeping Query with Open Transactions - CheckID 8 */
     IF @Seconds > 0
 	BEGIN
 		IF (@Debug = 1)
@@ -33993,7 +33993,7 @@ BEGIN
             INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
             SELECT 8 AS CheckID,
                 50 AS Priority,
-                'Query insanity' AS FindingGroup,
+                'Query Problems' AS FindingGroup,
                 'Sleeping Query with Open Transactions' AS Finding,
                 'https://www.brentozar.com/askbrent/sleeping-query-with-open-transactions/' AS URL,
                 'Database: ' + DB_NAME(db.resource_database_id) + @LineFeed + 'Host: ' + s.hostname + @LineFeed + 'Program: ' + s.[program_name] + @LineFeed + 'Asleep with open transactions and locks since ' + CAST(s.last_batch AS NVARCHAR(100)) + '. ' AS Details,
@@ -34023,7 +34023,7 @@ BEGIN
             AND NOT (resource_type = N'DATABASE' AND request_mode = N'S' AND request_status = N'GRANT' AND request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'));
 	END
 
-    /*Query insanity - Clients using implicit transactions - CheckID 37 */
+    /*Query Problems - Clients using implicit transactions - CheckID 37 */
     IF @Seconds > 0 
 		AND ( @@VERSION NOT LIKE 'Microsoft SQL Server 2005%'
 		AND	  @@VERSION NOT LIKE 'Microsoft SQL Server 2008%'
@@ -34037,7 +34037,7 @@ BEGIN
         SET @StringToExecute = N'INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
 		SELECT  37 AS CheckId,
 		        50 AS Priority,
-		        ''Query insanity'' AS FindingsGroup,
+		        ''Query Problems'' AS FindingsGroup,
 		        ''Implicit Transactions'',
 		        ''https://www.brentozar.com/go/ImplicitTransactions/'' AS URL,
 		        ''Database: '' + DB_NAME(s.database_id)  + '' '' + CHAR(13) + CHAR(10) +
@@ -34068,7 +34068,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		EXECUTE sp_executesql @StringToExecute;
     END;
 
-    /* Query insanity - Query Rolling Back - CheckID 9 */
+    /* Query Problems - Query Rolling Back - CheckID 9 */
     IF @Seconds > 0
 	BEGIN
 		IF (@Debug = 1)
@@ -34080,7 +34080,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, QueryHash)
             SELECT 9 AS CheckID,
                 1 AS Priority,
-                'Query insanity' AS FindingGroup,
+                'Query Problems' AS FindingGroup,
                 'Query Rolling Back' AS Finding,
                 'https://www.brentozar.com/askbrent/rollback/' AS URL,
                 'Rollback started at ' + CAST(r.start_time AS NVARCHAR(100)) + ', is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete.' AS Details,
@@ -34113,7 +34113,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     SELECT
         47 AS CheckId,
     	50 AS Priority,
-    	'Query insanity' AS FindingsGroup,
+    	'Query Problems' AS FindingsGroup,
     	'High Percentage Of Runnable Queries' AS Finding, 
     	'https://erikdarlingdata.com/go/RunnableQueue/' AS URL, 
     	'On the ' 
@@ -34289,7 +34289,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		'https://www.brentozar.com/askbrent/' AS URL
 	FROM sys.dm_exec_query_memory_grants AS Grants;
 
-	/* Query insanity - Queries with high memory grants - CheckID 46 */
+	/* Query Problems - Queries with high memory grants - CheckID 46 */
 	IF (@Debug = 1)
 	BEGIN
 		RAISERROR('Running CheckID 46',10,1) WITH NOWAIT;
@@ -34298,7 +34298,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 	INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, URL, QueryText, QueryPlan)
 	SELECT 46 AS CheckID,
 	    100 AS Priority,
-	    'Query insanity' AS FindingGroup,
+	    'Query Problems' AS FindingGroup,
 	    'Query with a memory grant exceeding '
 		+CAST(@MemoryGrantThresholdPct AS NVARCHAR(15))
 		+'%' AS Finding,
@@ -34319,7 +34319,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 	OUTER APPLY sys.dm_exec_query_plan(Grants.[plan_handle]) AS QueryPlan
 	WHERE Grants.granted_memory_kb > ((@MemoryGrantThresholdPct/100.00)*(@MaxWorkspace*1024));
 
-    /* Query insanity - Memory Leak in USERSTORE_TOKENPERM Cache - CheckID 45 */
+    /* Query Problems - Memory Leak in USERSTORE_TOKENPERM Cache - CheckID 45 */
     IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_os_memory_clerks') AND name = 'pages_kb')
         BEGIN
 			IF (@Debug = 1)
@@ -34332,7 +34332,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         INSERT  INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, URL)
         SELECT 45 AS CheckID,
                 50 AS Priority,
-                ''Query insanity'' AS FindingsGroup,
+                ''Query Problems'' AS FindingsGroup,
                 ''Memory Leak in USERSTORE_TOKENPERM Cache'' AS Finding,
                 N''UserStore_TokenPerm clerk is using '' + CAST(CAST(SUM(CASE WHEN type = ''USERSTORE_TOKENPERM'' AND name = ''TokenAndPermUserStore'' THEN pages_kb * 1.0 ELSE 0.0 END) / 1024.0 / 1024.0 AS INT) AS NVARCHAR(100)) 
                     + N''GB RAM, total buffer pool is '' + CAST(CAST(SUM(pages_kb) / 1024.0 / 1024.0 AS INT) AS NVARCHAR(100)) + N''GB.''
@@ -34692,7 +34692,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		
         END; /* IF @Seconds < 30 */
 
-    /* Query insanity - Statistics Updated Recently - CheckID 44 */
+    /* Query Problems - Statistics Updated Recently - CheckID 44 */
 	IF (@Debug = 1)
 	BEGIN
 		RAISERROR('Running CheckID 44',10,1) WITH NOWAIT;
@@ -34786,7 +34786,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
 			SELECT 44 AS CheckId,
 					50 AS Priority,
-					'Query insanity' AS FindingGroup,
+					'Query Problems' AS FindingGroup,
 					'Statistics Updated Recently' AS Finding,
 					'https://www.brentozar.com/go/stats' AS URL,
 					'In the last 15 minutes, statistics were updated. To see which ones, click the HowToStopIt column.' + @LineFeed + @LineFeed
@@ -35308,7 +35308,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         AND counter_name = 'Log Shrinks'
         AND value_delta > 0;
 
-    /* Query insanity - Compilations/Sec High - CheckID 15 */
+    /* Query Problems - Compilations/Sec High - CheckID 15 */
 	IF (@Debug = 1)
 	BEGIN
 		RAISERROR('Running CheckID 15',10,1) WITH NOWAIT;
@@ -35317,7 +35317,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 15 AS CheckID,
         50 AS Priority,
-        'Query insanity' AS FindingGroup,
+        'Query Problems' AS FindingGroup,
         'Compilations/Sec High' AS Finding,
         'https://www.brentozar.com/askbrent/compilations/' AS URL,
         'Number of batch requests during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed
@@ -35335,7 +35335,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         AND (psComp.value_delta > (10 * @Seconds) OR psComp.value_delta > ps.value_delta) /* Either doing 10 compilations per second, or more compilations than queries */
         AND (psComp.value_delta * 10) > ps.value_delta; /* Compilations are more than 10% of batch requests per second */
 
-    /* Query insanity - Re-Compilations/Sec High - CheckID 16 */
+    /* Query Problems - Re-Compilations/Sec High - CheckID 16 */
 	IF (@Debug = 1)
 	BEGIN
 		RAISERROR('Running CheckID 16',10,1) WITH NOWAIT;
@@ -35344,7 +35344,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 16 AS CheckID,
         50 AS Priority,
-        'Query insanity' AS FindingGroup,
+        'Query Problems' AS FindingGroup,
         'Re-Compilations/Sec High' AS Finding,
         'https://www.brentozar.com/askbrent/recompilations/' AS URL,
         'Number of batch requests during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed
@@ -35362,7 +35362,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         AND (psComp.value_delta > (10 * @Seconds) OR psComp.value_delta > ps.value_delta) /* Either doing 10 recompilations per second, or more recompilations than queries */
         AND (psComp.value_delta * 10) > ps.value_delta; /* Recompilations are more than 10% of batch requests per second */
 
-    /* Table insanity - Forwarded Fetches/Sec High - CheckID 29 */
+    /* Table Problems - Forwarded Fetches/Sec High - CheckID 29 */
 	IF (@Debug = 1)
 	BEGIN
 		RAISERROR('Running CheckID 29',10,1) WITH NOWAIT;
@@ -35371,7 +35371,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 29 AS CheckID,
         40 AS Priority,
-        'Table insanity' AS FindingGroup,
+        'Table Problems' AS FindingGroup,
         'Forwarded Fetches/Sec High' AS Finding,
         'https://www.brentozar.com/go/fetch/' AS URL,
         CAST(ps.value_delta AS NVARCHAR(20)) + ' forwarded fetches (from SQLServer:Access Methods counter)' + @LineFeed
@@ -35392,7 +35392,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
 		SELECT TOP 10 29 AS CheckID,
 			40 AS Priority,
-			''Table insanity'' AS FindingGroup,
+			''Table Problems'' AS FindingGroup,
 			''Forwarded Fetches/Sec High: TempDB Object'' AS Finding,
 			''https://www.brentozar.com/go/fetch/'' AS URL,
 			CAST(COALESCE(os.forwarded_fetch_count,0) - COALESCE(os_prior.forwarded_fetch_count,0) AS NVARCHAR(20)) + '' forwarded fetches on '' +
@@ -35456,7 +35456,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         AND ps.counter_name = 'Transactions aborted/sec'
         AND ps.value_delta > (10 * @Seconds); /* Ignore servers sitting idle */
 
-    /* Query insanity - Suboptimal Plans/Sec High - CheckID 33 */
+    /* Query Problems - Suboptimal Plans/Sec High - CheckID 33 */
 	IF (@Debug = 1)
 	BEGIN
 		RAISERROR('Running CheckID 33',10,1) WITH NOWAIT;
@@ -35465,7 +35465,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
     SELECT 32 AS CheckID,
         100 AS Priority,
-        'Query insanity' AS FindingGroup,
+        'Query Problems' AS FindingGroup,
         'Suboptimal Plans/Sec High' AS Finding,
         'https://www.brentozar.com/go/suboptimal/' AS URL,
         CAST(ps.value_delta AS NVARCHAR(50)) + ' plans reported in the ' + CAST(ps.instance_name AS NVARCHAR(100)) + ' workload group (from Workload GroupStats:Suboptimal plans/sec counter)'  + @LineFeed 
@@ -35608,7 +35608,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     SELECT
         47 AS CheckId,
     	50 AS Priority,
-    	'Query insanity' AS FindingsGroup,
+    	'Query Problems' AS FindingsGroup,
     	'High Percentage Of Runnable Queries' AS Finding, 
     	'https://erikdarlingdata.com/go/RunnableQueue/' AS URL, 
     	'On the ' 
@@ -35739,7 +35739,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 )
         VALUES  ( -1 ,
                   1 ,
-                  'No insanity Found' ,
+                  'No Problems Found' ,
                   'From Your Community Volunteers' ,
                   'http://FirstResponderKit.org/' ,
                   'Try running our more in-depth checks with sp_Blitz, or there may not be an unusual SQL Server performance problem. '
