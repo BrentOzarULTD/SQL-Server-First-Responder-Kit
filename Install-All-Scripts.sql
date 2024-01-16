@@ -23015,7 +23015,7 @@ Known limitations of this version:
            filegroup/partition scheme etc.)
  --        (The compression and filegroup index create syntax is not trivial because it is set at the partition 
            level and is not trivial to code.)
- - Does not advise you about data modeling for clustered indexes and primary keys (primarily looks for signs of problems.)
+ - Does not advise you about data modeling for clustered indexes and primary keys (primarily looks for signs of insanity.)
 
 Unknown limitations of this version:
  - We knew them once, but we forgot.
@@ -23884,7 +23884,7 @@ BEGIN TRY
 					   bir.create_tsql,
 					   bir.more_info 
 					   FROM #BlitzIndexResults AS bir;
-				RAISERROR('Running sp_BlitzIndex on a server with 50+ databases may cause temporary problems for the server', 12, 1);
+				RAISERROR('Running sp_BlitzIndex on a server with 50+ databases may cause temporary insanity for the server', 12, 1);
 			END;
 
 		RETURN;
