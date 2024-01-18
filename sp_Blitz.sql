@@ -659,7 +659,7 @@ AS
 		SELECT
 		    v.*
 		FROM (VALUES(NULL, 211, NULL)) AS v (DatabaseName, CheckID, ServerName) /*xp_regread*/
-		WHERE @SkipXPRegRead = 1;
+		WHERE @sa = 0;
 
 		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
 		SELECT
