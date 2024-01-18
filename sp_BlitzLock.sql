@@ -3916,59 +3916,6 @@ BEGIN
                     FROM #available_plans AS ap
                     OUTER APPLY
                     (
-                        SELECT TOP (1)
-                            deqs.statement_start_offset,
-                            deqs.statement_end_offset,
-                            deqs.creation_time,
-                            deqs.last_execution_time,
-                            deqs.execution_count,
-                            total_worker_time_ms =
-                                deqs.total_worker_time / 1000.,
-                            avg_worker_time_ms =
-                                CONVERT(decimal(38, 6), deqs.total_worker_time / 1000. / deqs.execution_count),
-                            total_elapsed_time_ms =
-                                deqs.total_elapsed_time / 1000.,
-                            avg_elapsed_time =
-                                CONVERT(decimal(38, 6), deqs.total_elapsed_time / 1000. / deqs.execution_count),
-                            executions_per_second =
-                                ISNULL
-                                (
-                                    execution_count /
-                                        NULLIF
-                                        (
-                                            DATEDIFF
-                                            (
-                                                SECOND,
-                                                deqs.creation_time,
-                                                deqs.last_execution_time
-                                            ),
-                                            0
-                                        ),
-                                        0
-                                ),
-                            total_physical_reads_mb =
-                                deqs.total_physical_reads * 8. / 1024.,
-                            total_logical_writes_mb =
-                                deqs.total_logical_writes * 8. / 1024.,
-                            total_logical_reads_mb =
-                                deqs.total_logical_reads * 8. / 1024.,
-                            min_grant_mb =
-                                deqs.min_grant_kb * 8. / 1024.,
-                            max_grant_mb =
-                                deqs.max_grant_kb * 8. / 1024.,
-                            min_used_grant_mb =
-                                deqs.min_used_grant_kb * 8. / 1024.,
-                            max_used_grant_mb =
-                                deqs.max_used_grant_kb * 8. / 1024.,
-                            min_spills_mb =
-                                deqs.min_spills * 8. / 1024.,
-                            max_spills_mb =
-                                deqs.max_spills * 8. / 1024.,      
-                            deqs.min_reserved_threads,
-                            deqs.max_reserved_threads,
-                            deqs.min_used_threads,
-                            deqs.max_used_threads,
-                            deqs.total_rows,
                         SELECT
                             deqs.*,
                             query_plan =
