@@ -38,7 +38,8 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @Help BIT = 0,
     @Version     VARCHAR(30) = NULL OUTPUT,
     @VersionDate DATETIME = NULL OUTPUT,
-    @VersionCheckMode BIT = 0
+    @VersionCheckMode BIT = 0,
+    @FileNamePrefix NVARCHAR(260) = NULL
 AS
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
@@ -791,7 +792,7 @@ BEGIN
 				    WHEN Type = 'L' THEN @MoveLogDrive
 				    WHEN Type = 'S' THEN @MoveFilestreamDrive
 					WHEN Type = 'F' THEN @MoveFullTextCatalogDrive
-			    END + CASE 
+			    END + COALESCE(@FileNamePrefix, '') + CASE
                         WHEN @Database = @RestoreDatabaseName THEN REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1))
 					    ELSE REPLACE(REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)), @Database, SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) -2))
 					    END AS TargetPhysicalName,
