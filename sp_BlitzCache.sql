@@ -468,7 +468,7 @@ IF @Help = 1
 	UNION ALL
 	SELECT N'@MinutesBack',
 			N'INT',
-			N'How many minutes back to begin plan cache analysis. If you put in a positive number, we''ll flip it to negtive.';
+			N'How many minutes back to begin plan cache analysis. If you put in a positive number, we''ll flip it to negative.';
 
 
 	/* Column definitions */
