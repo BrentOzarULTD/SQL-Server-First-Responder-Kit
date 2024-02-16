@@ -273,7 +273,7 @@ BEGIN TRY
 			(
 			  blitz_result_id INT IDENTITY PRIMARY KEY,
 			  check_id INT NOT NULL,
-			  index_issues_id INT NULL,
+			  index_issue_id INT NULL,
 			  findings_group VARCHAR(4000) NOT NULL,
 			  finding VARCHAR(200) NOT NULL,
 			  URL VARCHAR(200) NOT NULL,
@@ -288,7 +288,7 @@ BEGIN TRY
 
 		CREATE TABLE #IndexIssues
 			(
-			  [index_issues_id] INT IDENTITY PRIMARY KEY,
+			  [index_issue_id] INT IDENTITY PRIMARY KEY,
 			  [database_id] SMALLINT NOT NULL ,
 			  [object_id] INT NOT NULL ,
 			  [index_id] INT NOT NULL ,
@@ -335,7 +335,7 @@ BEGIN TRY
 		CREATE TABLE #IndexPartitionSanity
 			(
 			  [index_partition_sanity_id] INT IDENTITY PRIMARY KEY ,
-			  [index_issues_id] INT NULL ,
+			  [index_issue_id] INT NULL ,
 			  [object_id] INT NOT NULL ,
 			  [index_id] INT NOT NULL ,
 			  [partition_number] INT NOT NULL ,
@@ -367,7 +367,7 @@ BEGIN TRY
 		CREATE TABLE #IndexIssuesSize
 			(
 			  [index_issues_size_id] INT IDENTITY NOT NULL ,
-			  [index_issues_id] INT NOT NULL ,
+			  [index_issue_id] INT NOT NULL ,
 			  partition_count INT NOT NULL ,
 			  total_rows BIGINT NOT NULL ,
 			  total_reserved_MB NUMERIC(29,2) NOT NULL ,
@@ -450,7 +450,7 @@ BEGIN TRY
 		)
 		
 		CREATE TABLE #IndexCreateTsql (
-			index_issues_id INT NOT NULL,
+			index_issue_id INT NOT NULL,
 			create_tsql NVARCHAR(MAX) NOT NULL
 		)
 
@@ -855,16 +855,16 @@ BEGIN TRY
 				EXEC sp_executesql @dsql;
 
 
-		RAISERROR (N'Updating index_issues_id on #IndexPartitionSanity',0,1) WITH NOWAIT;
+		RAISERROR (N'Updating index_issue_id on #IndexPartitionSanity',0,1) WITH NOWAIT;
 		UPDATE	#IndexPartitionSanity
-		SET		index_issues_id = i.index_issues_id
+		SET		index_issue_id = i.index_issue_id
 		FROM #IndexPartitionSanity ps
 				JOIN #IndexIssues i ON ps.[object_id] = i.[object_id]
 										AND ps.index_id = i.index_id
 
 
 		RAISERROR (N'Inserting data into #IndexIssuesSize',0,1) WITH NOWAIT;
-		INSERT	#IndexIssuesSize ( [index_issues_id], partition_count, total_rows, total_reserved_MB,
+		INSERT	#IndexIssuesSize ( [index_issue_id], partition_count, total_rows, total_reserved_MB,
 									 total_reserved_LOB_MB, total_reserved_row_overflow_MB, total_range_scan_count,
 									 total_singleton_lookup_count, total_leaf_delete_count, total_leaf_update_count, 
 									 total_forwarded_fetch_count,total_row_lock_count,
@@ -872,7 +872,7 @@ BEGIN TRY
 									 total_page_lock_count, total_page_lock_wait_count, total_page_lock_wait_in_ms,
 									 avg_page_lock_wait_in_ms, total_index_lock_promotion_attempt_count, 
 									 total_index_lock_promotion_count, data_compression_desc )
-				SELECT	index_issues_id, COUNT(*), SUM(row_count), SUM(reserved_MB), SUM(reserved_LOB_MB),
+				SELECT	index_issue_id, COUNT(*), SUM(row_count), SUM(reserved_MB), SUM(reserved_LOB_MB),
 						SUM(reserved_row_overflow_MB), 
 						SUM(range_scan_count),
 						SUM(singleton_lookup_count),
@@ -904,8 +904,8 @@ BEGIN TRY
 					ORDER BY ipp2.partition_number
 					FOR	  XML PATH(''),TYPE).value('.', 'varchar(max)'), 1, 1, '')) 
 						data_compression_info(data_compression_rollup)
-				GROUP BY index_issues_id
-				ORDER BY index_issues_id 
+				GROUP BY index_issue_id
+				ORDER BY index_issue_id 
 		OPTION	( RECOMPILE );
 
 		RAISERROR (N'Adding UQ index on #IndexIssues (object_id,index_id)',0,1) WITH NOWAIT;
@@ -1200,9 +1200,9 @@ BEGIN TRY
 
 
 		RAISERROR (N'Populate #IndexCreateTsql.',0,1) WITH NOWAIT;
-		INSERT #IndexCreateTsql (index_issues_id, create_tsql)
+		INSERT #IndexCreateTsql (index_issue_id, create_tsql)
 		SELECT
-			index_issues_id,
+			index_issue_id,
 			ISNULL (
 			/* Script drops for disabled non-clustered indexes*/
 			CASE WHEN is_disabled = 1 AND index_id <> 1
@@ -1317,9 +1317,9 @@ BEGIN
 			1 as display_order
 		FROM #IndexIssues s
 		LEFT JOIN #IndexIssuesSize sz ON 
-			s.index_issues_id=sz.index_issues_id
+			s.index_issue_id=sz.index_issue_id
 		LEFT JOIN #IndexCreateTsql ct ON 
-			s.index_issues_id=ct.index_issues_id
+			s.index_issue_id=ct.index_issue_id
 		WHERE s.[object_id]=@ObjectID
 		UNION ALL
 		SELECT 	N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + convert(nvarchar(16),getdate(),121) + 			
@@ -1456,10 +1456,10 @@ BEGIN;
 								AND is_disabled = 0
 						   GROUP BY	[object_id], key_column_names
 						   HAVING	COUNT(*) > 1)
-				INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+				INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	1 AS check_id, 
-								ip.index_issues_id,
+								ip.index_issue_id,
 								'Multiple Index Personalities' AS findings_group,
 								'Duplicate keys' AS finding,
 								N'http://BrentOzar.com/go/duplicateindex' AS URL,
@@ -1471,7 +1471,7 @@ BEGIN;
 						FROM	duplicate_indexes di
 								JOIN #IndexIssues ip ON di.[object_id] = ip.[object_id]
 														 AND ip.key_column_names = di.key_column_names
-								JOIN #IndexIssuesSize ips ON ip.index_issues_id = ips.index_issues_id
+								JOIN #IndexIssuesSize ips ON ip.index_issue_id = ips.index_issue_id
 						ORDER BY ip.object_id, ip.key_column_names_with_sort_order	
 				OPTION	( RECOMPILE );
 
@@ -1483,10 +1483,10 @@ BEGIN;
 						   WHERE index_type IN (1,2) /* Clustered, NC only*/
 							AND is_hypothetical=0
 							AND is_disabled=0)
-				INSERT	#BlitzIndexResults ( check_id, index_issues_id,  findings_group, finding, URL, details, index_definition,
+				INSERT	#BlitzIndexResults ( check_id, index_issue_id,  findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	2 AS check_id, 
-								ip.index_issues_id,
+								ip.index_issue_id,
 								'Multiple Index Personalities' AS findings_group,
 								'Borderline duplicate keys' AS finding,
 								N'http://BrentOzar.com/go/duplicateindex' AS URL,
@@ -1496,7 +1496,7 @@ BEGIN;
 								ip.index_usage_summary,
 								ips.index_size_summary
 						FROM	#IndexIssues AS ip 
-						JOIN #IndexIssuesSize ips ON ip.index_issues_id = ips.index_issues_id
+						JOIN #IndexIssuesSize ips ON ip.index_issue_id = ips.index_issue_id
 						WHERE EXISTS (
 							SELECT di.[object_id]
 							FROM borderline_duplicate_indexes AS di
@@ -1515,10 +1515,10 @@ BEGIN;
 		BEGIN;
 
 		RAISERROR(N'check_id 11: Total lock wait time > 5 minutes (row + page)', 0,1) WITH NOWAIT;
-		INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+		INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 										secret_columns, index_usage_summary, index_size_summary )
 				SELECT	11 AS check_id, 
-						i.index_issues_id,
+						i.index_issue_id,
 						N'Aggressive Indexes' AS findings_group,
 						N'Total lock wait time > 5 minutes (row + page)' AS finding, 
 						N'http://BrentOzar.com/go/AggressiveIndexes' AS URL,
@@ -1529,7 +1529,7 @@ BEGIN;
 						i.index_usage_summary,
 						sz.index_size_summary
 				FROM	#IndexIssues AS i
-				JOIN #IndexIssuesSize AS sz ON i.index_issues_id = sz.index_issues_id
+				JOIN #IndexIssuesSize AS sz ON i.index_issue_id = sz.index_issue_id
 				WHERE	(total_row_lock_wait_in_ms + total_page_lock_wait_in_ms) > 300000
 				OPTION	( RECOMPILE );
 		END
@@ -1539,10 +1539,10 @@ BEGIN;
 		----------------------------------------
 		BEGIN
 			RAISERROR(N'check_id 20: >=7 NC indexes on any given table. Yes, 7 is an arbitrary number.', 0,1) WITH NOWAIT;
-				INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+				INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	20 AS check_id, 
-								MAX(i.index_issues_id) AS index_issues_id, 
+								MAX(i.index_issue_id) AS index_issue_id, 
 								'Index Hoarder' AS findings_group,
 								'Many NC indexes on a single table' AS finding,
 								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
@@ -1559,7 +1559,7 @@ BEGIN;
 									ELSE ''
 									END AS index_size_summary
 						FROM	#IndexIssues i
-						JOIN #IndexIssuesSize ip ON i.index_issues_id = ip.index_issues_id
+						JOIN #IndexIssuesSize ip ON i.index_issue_id = ip.index_issue_id
 						WHERE	index_id NOT IN ( 0, 1 )
 						GROUP BY schema_object_name
 						HAVING	COUNT(*) >= 7
@@ -1582,16 +1582,16 @@ BEGIN;
 									 ELSE 0
 								END) 
 					FROM	#IndexIssues i
-					JOIN	#IndexIssuesSize sz ON i.index_issues_id = sz.index_issues_id
+					JOIN	#IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
 					WHERE	index_id NOT IN ( 0, 1 ) 
 							and i.is_unique = 0
 					OPTION	( RECOMPILE );
 
 				IF @percent_NC_indexes_unused >= 5 
-					INSERT	#BlitzIndexResults ( check_id, index_issues_id,  findings_group, finding, URL, details, index_definition,
+					INSERT	#BlitzIndexResults ( check_id, index_issue_id,  findings_group, finding, URL, details, index_definition,
 												   secret_columns, index_usage_summary, index_size_summary )
 							SELECT	21 AS check_id, 
-									MAX(i.index_issues_id) AS index_issues_id, 
+									MAX(i.index_issue_id) AS index_issue_id, 
 									N'Index Hoarder' AS findings_group,
 									N'More than 5 percent NC indexes are unused' AS finding,
 									N'http://BrentOzar.com/go/IndexHoarder' AS URL,
@@ -1610,7 +1610,7 @@ BEGIN;
 										ELSE ''
 										END AS index_size_summary
 							FROM	#IndexIssues i
-							JOIN	#IndexIssuesSize sz ON i.index_issues_id = sz.index_issues_id
+							JOIN	#IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
 							WHERE	index_id NOT IN ( 0, 1 )
 									AND i.is_unique = 0
 									AND total_reads = 0
@@ -1618,10 +1618,10 @@ BEGIN;
 					OPTION	( RECOMPILE );
 
 				RAISERROR(N'check_id 22: NC indexes with 0 reads. (Borderline)', 0,1) WITH NOWAIT;
-				INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+				INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	22 AS check_id, 
-								i.index_issues_id,
+								i.index_issue_id,
 								N'Index Hoarder' AS findings_group,
 								N'Unused NC index' AS finding, 
 								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
@@ -1631,7 +1631,7 @@ BEGIN;
 								i.index_usage_summary,
 								sz.index_size_summary
 						FROM	#IndexIssues AS i
-						JOIN	#IndexIssuesSize AS sz ON i.index_issues_id = sz.index_issues_id
+						JOIN	#IndexIssuesSize AS sz ON i.index_issue_id = sz.index_issue_id
 						WHERE	i.total_reads=0
 								AND i.index_id NOT IN (0,1) /*NCs only*/
 								and i.is_unique = 0
@@ -1640,10 +1640,10 @@ BEGIN;
 			END /*end checks only run when @Filter <> 1*/
 
 			RAISERROR(N'check_id 23: Indexes with 7 or more columns. (Borderline)', 0,1) WITH NOWAIT;
-			INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+			INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 										   secret_columns, index_usage_summary, index_size_summary )
 					SELECT	23 AS check_id, 
-							i.index_issues_id, 
+							i.index_issue_id, 
 							N'Index Hoarder' AS findings_group,
 							N'Borderline: Wide indexes (7 or more columns)' AS finding, 
 							N'http://BrentOzar.com/go/IndexHoarder' AS URL,
@@ -1653,7 +1653,7 @@ BEGIN;
 							i.index_usage_summary,
 							sz.index_size_summary
 					FROM	#IndexIssues AS i
-					JOIN	#IndexIssuesSize AS sz ON i.index_issues_id = sz.index_issues_id
+					JOIN	#IndexIssuesSize AS sz ON i.index_issue_id = sz.index_issue_id
 					WHERE	( count_key_columns + count_included_columns ) >= 7
 					OPTION	( RECOMPILE );
 
@@ -1666,10 +1666,10 @@ BEGIN;
 							and key_ordinal > 0
 							GROUP BY object_id
 							)
-				INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+				INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	24 AS check_id, 
-								i.index_issues_id, 
+								i.index_issue_id, 
 								N'Index Hoarder' AS findings_group,
 								N'Wide clustered index (> 3 columns OR > 16 bytes)' AS finding,
 								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
@@ -1687,7 +1687,7 @@ BEGIN;
 								i.index_usage_summary,
 								ip.index_size_summary
 						FROM	#IndexIssues i
-						JOIN	#IndexIssuesSize ip ON i.index_issues_id = ip.index_issues_id
+						JOIN	#IndexIssuesSize ip ON i.index_issue_id = ip.index_issue_id
 						JOIN	count_columns AS cc ON i.[object_id]=cc.[object_id]	
 						WHERE	index_id = 1 /* clustered only */
 								AND 
@@ -1704,10 +1704,10 @@ BEGIN;
 							WHERE index_id in (1,0) /*Heap or clustered only*/
 							GROUP BY object_id
 							)
-				INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+				INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	25 AS check_id, 
-								i.index_issues_id, 
+								i.index_issue_id, 
 								N'Index Hoarder' AS findings_group,
 								N'Addicted to nulls' AS finding,
 								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
@@ -1720,7 +1720,7 @@ BEGIN;
 								ISNULL(i.index_usage_summary,''),
 								ISNULL(ip.index_size_summary,'')
 						FROM	#IndexIssues i
-						JOIN	#IndexIssuesSize ip ON i.index_issues_id = ip.index_issues_id
+						JOIN	#IndexIssuesSize ip ON i.index_issue_id = ip.index_issue_id
 						JOIN	count_columns AS cc ON i.[object_id]=cc.[object_id]
 						WHERE	i.index_id in (1,0)
 							AND cc.non_nullable_columns < 2
@@ -1737,10 +1737,10 @@ BEGIN;
 							WHERE index_id in (1,0) /*Heap or clustered only*/
 							GROUP BY object_id
 							)
-				INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+				INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	26 AS check_id, 
-								i.index_issues_id, 
+								i.index_issue_id, 
 								N'Index Hoarder' AS findings_group,
 								N'Wide tables: 35+ cols or > 2000 non-LOB bytes' AS finding,
 								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
@@ -1757,7 +1757,7 @@ BEGIN;
 								ISNULL(i.index_usage_summary,''),
 								ISNULL(ip.index_size_summary,'')
 						FROM	#IndexIssues i
-						JOIN	#IndexIssuesSize ip ON i.index_issues_id = ip.index_issues_id
+						JOIN	#IndexIssuesSize ip ON i.index_issue_id = ip.index_issue_id
 						JOIN	count_columns AS cc ON i.[object_id]=cc.[object_id]
 						WHERE	i.index_id in (1,0)
 							and 
@@ -1774,10 +1774,10 @@ BEGIN;
 							WHERE index_id in (1,0) /*Heap or clustered only*/
 							GROUP BY object_id
 							)
-				INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+				INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	27 AS check_id, 
-								i.index_issues_id, 
+								i.index_issue_id, 
 								N'Index Hoarder' AS findings_group,
 								N'Addicted to strings' AS finding,
 								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
@@ -1790,7 +1790,7 @@ BEGIN;
 								ISNULL(i.index_usage_summary,''),
 								ISNULL(ip.index_size_summary,'')
 						FROM	#IndexIssues i
-						JOIN	#IndexIssuesSize ip ON i.index_issues_id = ip.index_issues_id
+						JOIN	#IndexIssuesSize ip ON i.index_issue_id = ip.index_issue_id
 						JOIN	count_columns AS cc ON i.[object_id]=cc.[object_id]
 						CROSS APPLY (SELECT cc.total_columns - string_or_LOB_columns AS non_string_or_lob_columns) AS calc1
 						WHERE	i.index_id in (1,0)
@@ -1799,10 +1799,10 @@ BEGIN;
 						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
 
 			RAISERROR(N'check_id 28: Non-unique clustered index.', 0,1) WITH NOWAIT;
-				INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+				INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	28 AS check_id, 
-								i.index_issues_id, 
+								i.index_issue_id, 
 								N'Index Hoarder' AS findings_group,
 								N'Non-Unique clustered index' AS finding,
 								N'http://BrentOzar.com/go/IndexHoarder' AS URL,
@@ -1818,7 +1818,7 @@ BEGIN;
 								i.index_usage_summary,
 								ip.index_size_summary
 						FROM	#IndexIssues i
-						JOIN	#IndexIssuesSize ip ON i.index_issues_id = ip.index_issues_id
+						JOIN	#IndexIssuesSize ip ON i.index_issue_id = ip.index_issue_id
 						WHERE	index_id = 1 /* clustered only */
 								AND is_unique=0 /* not unique */
 								AND is_CX_columnstore=0 /* not a clustered columnstore-- no unique option on those */
@@ -1841,10 +1841,10 @@ BEGIN;
 			FROM	#IndexIssues;
 
 			IF @number_indexes_with_includes = 0 
-				INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+				INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	30 AS check_id, 
-								NULL AS index_issues_id, 
+								NULL AS index_issue_id, 
 								N'Feature-Phobic Indexes' AS findings_group,
 								N'No indexes use includes' AS finding, 'http://BrentOzar.com/go/IndexFeatures' AS URL,
 								N'No indexes use includes' AS details,
@@ -1855,10 +1855,10 @@ BEGIN;
 
 			RAISERROR(N'check_id 31: < 3 percent of indexes have includes', 0,1) WITH NOWAIT;
 			IF @percent_indexes_with_includes <= 3 AND @number_indexes_with_includes > 0 
-				INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+				INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	31 AS check_id,
-								NULL AS index_issues_id, 
+								NULL AS index_issue_id, 
 								N'Feature-Phobic Indexes' AS findings_group,
 								N'Borderline: Includes are used in < 3% of indexes' AS findings,
 								N'http://BrentOzar.com/go/IndexFeatures' AS URL,
@@ -1878,14 +1878,14 @@ BEGIN;
 
 				SELECT	@count_indexed_views=COUNT(*)
 				FROM	#IndexIssues AS i
-						JOIN #IndexIssuesSize AS sz ON i.index_issues_id = sz.index_issues_id
+						JOIN #IndexIssuesSize AS sz ON i.index_issue_id = sz.index_issue_id
 				WHERE	is_indexed_view = 1 OPTION	( RECOMPILE );
 
 			IF @count_filtered_indexes = 0 AND @count_indexed_views=0
-				INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+				INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	32 AS check_id, 
-								NULL AS index_issues_id,
+								NULL AS index_issue_id,
 								N'Feature-Phobic Indexes' AS findings_group,
 								N'Borderline: No filtered indexes or indexed views exist' AS finding, 
 								N'http://BrentOzar.com/go/IndexFeatures' AS URL,
@@ -1898,10 +1898,10 @@ BEGIN;
 
 		RAISERROR(N'check_id 33: Potential filtered indexes based on column names.', 0,1) WITH NOWAIT;
 
-		INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+		INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 										secret_columns, index_usage_summary, index_size_summary )
 		SELECT	33 AS check_id, 
-				i.index_issues_id AS index_issues_id,
+				i.index_issue_id AS index_issue_id,
 				N'Feature-Phobic Indexes' AS findings_group,
 				N'Potential filtered index (based on column name)' AS finding, 
 				N'http://BrentOzar.com/go/IndexFeatures' AS URL,
@@ -1915,7 +1915,7 @@ BEGIN;
 			ic.[object_id]=i.[object_id] and
 			ic.[index_id]=i.[index_id] and
 			i.[index_id] > 1 /* non-clustered index */
-		JOIN	#IndexIssuesSize AS sz ON i.index_issues_id = sz.index_issues_id
+		JOIN	#IndexIssuesSize AS sz ON i.index_issue_id = sz.index_issue_id
 		WHERE column_name like 'is%'
 			or column_name like '%archive%'
 			or column_name like '%active%'
@@ -1928,10 +1928,10 @@ BEGIN;
 		BEGIN
 
 			RAISERROR(N'check_id 40: Fillfactor in nonclustered 80 percent or less', 0,1) WITH NOWAIT;
-			INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+			INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 										   secret_columns, index_usage_summary, index_size_summary )
 					SELECT	40 AS check_id, 
-							i.index_issues_id,
+							i.index_issue_id,
 							N'Self Loathing Indexes' AS findings_group,
 							N'Low Fill Factor: nonclustered index' AS finding, 
 							N'http://BrentOzar.com/go/SelfLoathing' AS URL,
@@ -1948,15 +1948,15 @@ BEGIN;
 							i.index_usage_summary,
 							sz.index_size_summary
 					FROM	#IndexIssues AS i
-					JOIN	#IndexIssuesSize AS sz ON i.index_issues_id = sz.index_issues_id
+					JOIN	#IndexIssuesSize AS sz ON i.index_issue_id = sz.index_issue_id
 					WHERE	index_id > 1
 					and	fill_factor BETWEEN 1 AND 80 OPTION	( RECOMPILE );
 
 			RAISERROR(N'check_id 40: Fillfactor in clustered 90 percent or less', 0,1) WITH NOWAIT;
-			INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+			INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 										   secret_columns, index_usage_summary, index_size_summary )
 					SELECT	40 AS check_id, 
-							i.index_issues_id,
+							i.index_issue_id,
 							N'Self Loathing Indexes' AS findings_group,
 							N'Low Fill Factor: clustered index' AS finding, 
 							N'http://BrentOzar.com/go/SelfLoathing' AS URL,
@@ -1973,7 +1973,7 @@ BEGIN;
 							i.index_usage_summary,
 							sz.index_size_summary
 					FROM	#IndexIssues AS i
-					JOIN #IndexIssuesSize AS sz ON i.index_issues_id = sz.index_issues_id
+					JOIN #IndexIssuesSize AS sz ON i.index_issue_id = sz.index_issue_id
 					WHERE	index_id = 1
 					and fill_factor BETWEEN 1 AND 90 OPTION	( RECOMPILE );
 
@@ -1995,10 +1995,10 @@ BEGIN;
 
 			RAISERROR(N'check_id 42: Disabled indexes', 0,1) WITH NOWAIT;
 			--Note: disabled NC indexes will have O rows in #IndexIssuesSize!
-			INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+			INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 										   secret_columns, index_usage_summary, index_size_summary )
 					SELECT	42 AS check_id, 
-							index_issues_id,
+							index_issue_id,
 							N'Self Loathing Indexes' AS findings_group,
 							N'Disabled Index' AS finding, 
 							N'http://BrentOzar.com/go/SelfLoathing' AS URL,
@@ -2019,10 +2019,10 @@ BEGIN;
 						   GROUP BY	[object_id]
 						   HAVING	SUM(forwarded_fetch_count) > 0
 									OR SUM(leaf_delete_count) > 0)
-				INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+				INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	43 AS check_id, 
-								i.index_issues_id,
+								i.index_issue_id,
 								N'Self Loathing Indexes' AS findings_group,
 								N'Heaps with forwarded records or deletes' AS finding, 
 								N'http://BrentOzar.com/go/SelfLoathing' AS URL,
@@ -2035,7 +2035,7 @@ BEGIN;
 								sz.index_size_summary
 						FROM	#IndexIssues i
 						JOIN heaps_cte h ON i.[object_id] = h.[object_id]
-						JOIN #IndexIssuesSize sz ON i.index_issues_id = sz.index_issues_id
+						JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
 						WHERE	i.index_id = 0 
 				OPTION	( RECOMPILE );
 
@@ -2047,10 +2047,10 @@ BEGIN;
 						   GROUP BY	[object_id]
 						   HAVING	SUM(forwarded_fetch_count) > 0
 									OR SUM(leaf_delete_count) > 0)
-				INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+				INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	44 AS check_id, 
-								i.index_issues_id,
+								i.index_issue_id,
 								N'Self Loathing Indexes' AS findings_group,
 								N'Active heap' AS finding, 
 								N'http://BrentOzar.com/go/SelfLoathing' AS URL,
@@ -2061,7 +2061,7 @@ BEGIN;
 								sz.index_size_summary
 						FROM	#IndexIssues i
 						LEFT JOIN heaps_cte h ON i.[object_id] = h.[object_id]
-						JOIN #IndexIssuesSize sz ON i.index_issues_id = sz.index_issues_id
+						JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
 						WHERE	i.index_id = 0 
 								AND 
 									(i.total_reads > 0 OR i.user_updates > 0)
@@ -2078,7 +2078,7 @@ BEGIN;
 			RAISERROR(N'check_id 50: Indexaphobia.', 0,1) WITH NOWAIT;
 			WITH	index_size_cte
 					  AS ( SELECT	i.[object_id], 
-									MAX(i.index_issues_id) AS index_issues_id,
+									MAX(i.index_issue_id) AS index_issue_id,
 								ISNULL (
 									CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN 1 ELSE 0 END)
 										 AS NVARCHAR(30))+ N' NC indexes exist (' + 
@@ -2094,12 +2094,12 @@ BEGIN;
 									+ N' Estimated Rows;' 
 								,N'') AS index_size_summary
 							FROM	#IndexIssues AS i
-							LEFT	JOIN #IndexIssuesSize AS sz ON i.index_issues_id = sz.index_issues_id
+							LEFT	JOIN #IndexIssuesSize AS sz ON i.index_issue_id = sz.index_issue_id
 						   GROUP BY	i.[object_id])
-				INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+				INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 											   index_usage_summary, index_size_summary, create_tsql, more_info )
 						SELECT	50 AS check_id, 
-								sz.index_issues_id,
+								sz.index_issue_id,
 								N'Indexaphobia' AS findings_group,
 								N'High value missing index' AS finding, 
 								N'http://BrentOzar.com/go/Indexaphobia' AS URL,
@@ -2123,10 +2123,10 @@ BEGIN;
 		----------------------------------------
 	BEGIN
 			RAISERROR(N'check_id 60: XML indexes', 0,1) WITH NOWAIT;
-			INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+			INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 										   secret_columns, index_usage_summary, index_size_summary )
 					SELECT	60 AS check_id, 
-							i.index_issues_id,
+							i.index_issue_id,
 							N'Abnormal Psychology' AS findings_group,
 							N'XML Indexes' AS finding, 
 							N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
@@ -2136,14 +2136,14 @@ BEGIN;
 							N'' AS index_usage_summary,
 							ISNULL(sz.index_size_summary,'') AS index_size_summary
 					FROM	#IndexIssues AS i
-					JOIN #IndexIssuesSize sz ON i.index_issues_id = sz.index_issues_id
+					JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
 					WHERE i.is_XML = 1 OPTION	( RECOMPILE );
 
 			RAISERROR(N'check_id 61: Columnstore indexes', 0,1) WITH NOWAIT;
-			INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+			INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 										   secret_columns, index_usage_summary, index_size_summary )
 					SELECT	61 AS check_id, 
-							i.index_issues_id,
+							i.index_issue_id,
 							N'Abnormal Psychology' AS findings_group,
 							CASE WHEN i.is_NC_columnstore=1
 								THEN N'NC Columnstore Index' 
@@ -2156,16 +2156,16 @@ BEGIN;
 							i.index_usage_summary,
 							ISNULL(sz.index_size_summary,'') AS index_size_summary
 					FROM	#IndexIssues AS i
-					JOIN #IndexIssuesSize sz ON i.index_issues_id = sz.index_issues_id
+					JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
 					WHERE i.is_NC_columnstore = 1 OR i.is_CX_columnstore=1
 					OPTION	( RECOMPILE );
 
 
 			RAISERROR(N'check_id 62: Spatial indexes', 0,1) WITH NOWAIT;
-			INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+			INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 										   secret_columns, index_usage_summary, index_size_summary )
 					SELECT	62 AS check_id, 
-							i.index_issues_id,
+							i.index_issue_id,
 							N'Abnormal Psychology' AS findings_group,
 							N'Spatial indexes' AS finding, 
 							N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
@@ -2175,14 +2175,14 @@ BEGIN;
 							i.index_usage_summary,
 							ISNULL(sz.index_size_summary,'') AS index_size_summary
 					FROM	#IndexIssues AS i
-					JOIN #IndexIssuesSize sz ON i.index_issues_id = sz.index_issues_id
+					JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
 					WHERE i.is_spatial = 1 OPTION	( RECOMPILE );
 
 			RAISERROR(N'check_id 63: Compressed indexes', 0,1) WITH NOWAIT;
-			INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+			INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 										   secret_columns, index_usage_summary, index_size_summary )
 					SELECT	63 AS check_id, 
-							i.index_issues_id,
+							i.index_issue_id,
 							N'Abnormal Psychology' AS findings_group,
 							N'Compressed indexes' AS finding, 
 							N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
@@ -2192,14 +2192,14 @@ BEGIN;
 							i.index_usage_summary,
 							ISNULL(sz.index_size_summary,'') AS index_size_summary
 					FROM	#IndexIssues AS i
-					JOIN #IndexIssuesSize sz ON i.index_issues_id = sz.index_issues_id
+					JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
 					WHERE sz.data_compression_desc LIKE '%PAGE%' OR sz.data_compression_desc LIKE '%ROW%' OPTION	( RECOMPILE );
 
 			RAISERROR(N'check_id 64: Partitioned', 0,1) WITH NOWAIT;
-			INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+			INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 										   secret_columns, index_usage_summary, index_size_summary )
 					SELECT	64 AS check_id, 
-							i.index_issues_id,
+							i.index_issue_id,
 							N'Abnormal Psychology' AS findings_group,
 							N'Partitioned indexes' AS finding, 
 							N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
@@ -2209,14 +2209,14 @@ BEGIN;
 							i.index_usage_summary,
 							ISNULL(sz.index_size_summary,'') AS index_size_summary
 					FROM	#IndexIssues AS i
-					JOIN #IndexIssuesSize sz ON i.index_issues_id = sz.index_issues_id
+					JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
 					WHERE i.partition_key_column_name IS NOT NULL OPTION	( RECOMPILE );
 
 			RAISERROR(N'check_id 65: Non-Aligned Partitioned', 0,1) WITH NOWAIT;
-			INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+			INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 										   secret_columns, index_usage_summary, index_size_summary )
 					SELECT	65 AS check_id, 
-							i.index_issues_id,
+							i.index_issue_id,
 							N'Abnormal Psychology' AS findings_group,
 							N'Non-Aligned index on a partitioned table' AS finding, 
 							N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
@@ -2230,15 +2230,15 @@ BEGIN;
 						i.[object_id]=iParent.[object_id]
 						AND iParent.index_id IN (0,1) /* could be a partitioned heap or clustered table */
 						AND iParent.partition_key_column_name IS NOT NULL /* parent is partitioned*/         
-					JOIN #IndexIssuesSize sz ON i.index_issues_id = sz.index_issues_id
+					JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
 					WHERE i.partition_key_column_name IS NULL 
 						OPTION	( RECOMPILE );
 
 			RAISERROR(N'check_id 66: Recently created tables/indexes (1 week)', 0,1) WITH NOWAIT;
-			INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+			INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 										   secret_columns, index_usage_summary, index_size_summary )
 					SELECT	66 AS check_id, 
-							i.index_issues_id,
+							i.index_issue_id,
 							N'Abnormal Psychology' AS findings_group,
 							N'Recently created tables/indexes (1 week)' AS finding, 
 							N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
@@ -2251,15 +2251,15 @@ BEGIN;
 							i.index_usage_summary,
 							ISNULL(sz.index_size_summary,'') AS index_size_summary
 					FROM	#IndexIssues AS i
-					JOIN #IndexIssuesSize sz ON i.index_issues_id = sz.index_issues_id
+					JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
 					WHERE i.create_date >= DATEADD(dd,-7,GETDATE()) 
 						OPTION	( RECOMPILE );
 
 			RAISERROR(N'check_id 67: Recently modified tables/indexes (2 days)', 0,1) WITH NOWAIT;
-			INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+			INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 										   secret_columns, index_usage_summary, index_size_summary )
 					SELECT	67 AS check_id, 
-							i.index_issues_id,
+							i.index_issue_id,
 							N'Abnormal Psychology' AS findings_group,
 							N'Recently modified tables/indexes (2 days)' AS finding, 
 							N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
@@ -2272,7 +2272,7 @@ BEGIN;
 							i.index_usage_summary,
 							ISNULL(sz.index_size_summary,'') AS index_size_summary
 					FROM	#IndexIssues AS i
-					JOIN #IndexIssuesSize sz ON i.index_issues_id = sz.index_issues_id
+					JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
 					WHERE i.modify_date > DATEADD(dd,-2,GETDATE()) 
 					and /*Exclude recently created tables unless they've been modified after being created.*/
 					(i.create_date < DATEADD(dd,-7,GETDATE()) or i.create_date <> i.modify_date)
@@ -2284,10 +2284,10 @@ BEGIN;
 				--smallint -32,768 to 32,768
 				--tinyint 0 to 255
 
-				INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+				INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	68 AS check_id, 
-								i.index_issues_id, 
+								i.index_issue_id, 
 								N'Abnormal Psychology' AS findings_group,
 								N'Identity column within ' + 									
 									CAST (calc1.percent_remaining as nvarchar(256))
@@ -2316,7 +2316,7 @@ BEGIN;
 							and i.index_id in (0,1) /* heaps and cx only */
 							and ic.is_identity=1
 							and ic.system_type_name in ('tinyint', 'smallint', 'int')
-						JOIN	#IndexIssuesSize ip ON i.index_issues_id = ip.index_issues_id
+						JOIN	#IndexIssuesSize ip ON i.index_issue_id = ip.index_issue_id
 						CROSS APPLY (
 							SELECT CAST(CASE WHEN ic.increment_value >= 0
 									THEN
@@ -2339,7 +2339,7 @@ BEGIN;
 							and calc1.percent_remaining <= 30
 						UNION ALL
 						SELECT	68 AS check_id, 
-								i.index_issues_id, 
+								i.index_issue_id, 
 								N'Abnormal Psychology' AS findings_group,
 								N'Identity column using a negative seed or increment other than 1' AS finding,
 								N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
@@ -2366,7 +2366,7 @@ BEGIN;
 							and i.index_id in (0,1) /* heaps and cx only */
 							and ic.is_identity=1
 							and ic.system_type_name in ('tinyint', 'smallint', 'int')
-						JOIN	#IndexIssuesSize ip ON i.index_issues_id = ip.index_issues_id
+						JOIN	#IndexIssuesSize ip ON i.index_issue_id = ip.index_issue_id
 						WHERE	i.index_id in (1,0)
 							and (ic.seed_value < 0 or ic.increment_value <> 1)
 						ORDER BY finding, details DESC OPTION	( RECOMPILE );
@@ -2380,10 +2380,10 @@ BEGIN;
 								and collation_name <> @collation
 							GROUP BY object_id
 							)
-				INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+				INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	69 AS check_id, 
-								i.index_issues_id, 
+								i.index_issue_id, 
 								N'Abnormal Psychology' AS findings_group,
 								N'Column collation does not match database collation' AS finding,
 								N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
@@ -2397,7 +2397,7 @@ BEGIN;
 								ISNULL(i.index_usage_summary,''),
 								ISNULL(ip.index_size_summary,'')
 						FROM	#IndexIssues i
-						JOIN	#IndexIssuesSize ip ON i.index_issues_id = ip.index_issues_id
+						JOIN	#IndexIssuesSize ip ON i.index_issue_id = ip.index_issue_id
 						JOIN	count_columns AS cc ON i.[object_id]=cc.[object_id]
 						WHERE	i.index_id in (1,0)
 						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
@@ -2411,10 +2411,10 @@ BEGIN;
 							WHERE index_id in (1,0) /*Heap or clustered only*/
 							GROUP BY object_id
 							)
-				INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+				INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 											   secret_columns, index_usage_summary, index_size_summary )
 						SELECT	70 AS check_id, 
-								i.index_issues_id, 
+								i.index_issue_id, 
 								N'Abnormal Psychology' AS findings_group,
 								N'Replicated columns' AS finding,
 								N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
@@ -2429,17 +2429,17 @@ BEGIN;
 								ISNULL(i.index_usage_summary,''),
 								ISNULL(ip.index_size_summary,'')
 						FROM	#IndexIssues i
-						JOIN	#IndexIssuesSize ip ON i.index_issues_id = ip.index_issues_id
+						JOIN	#IndexIssuesSize ip ON i.index_issue_id = ip.index_issue_id
 						JOIN	count_columns AS cc ON i.[object_id]=cc.[object_id]
 						WHERE	i.index_id in (1,0)
 							and replicated_column_count > 0
 						ORDER BY i.schema_object_name DESC OPTION	( RECOMPILE );
 
 			RAISERROR(N'check_id 71: Cascading updates or cascading deletes.', 0,1) WITH NOWAIT;
-			INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+			INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 								   secret_columns, index_usage_summary, index_size_summary, more_info )
 			SELECT	71 AS check_id, 
-					null as index_issues_id,
+					null as index_issue_id,
 					N'Abnormal Psychology' AS findings_group,
 					N'Cascading Updates or Deletes' AS finding, 
 					N'http://BrentOzar.com/go/AbnormalPsychology' AS URL,
@@ -2469,7 +2469,7 @@ BEGIN;
 	BEGIN
 
 		RAISERROR(N'check_id 80: Most scanned indexes (index_usage_stats)', 0,1) WITH NOWAIT;
-		INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+		INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 							   secret_columns, index_usage_summary, index_size_summary )
 
 		--Workaholics according to index_usage_stats
@@ -2478,7 +2478,7 @@ BEGIN;
 		--in the case of things like indexed views, the operator might be in the plan but never executed
 		SELECT TOP 5 
 			80 AS check_id,
-			i.index_issues_id as index_issues_id,
+			i.index_issue_id as index_issue_id,
 			N'Workaholics' as findings_group,
 			N'Scan-a-lots (index_usage_stats)' as finding,
 			N'http://BrentOzar.com/go/Workaholics' AS URL,
@@ -2491,19 +2491,19 @@ BEGIN;
 			i.index_usage_summary as index_usage_summary,
 			iss.index_size_summary as index_size_summary
 		FROM #IndexIssues i
-		JOIN #IndexIssuesSize iss on i.index_issues_id=iss.index_issues_id
+		JOIN #IndexIssuesSize iss on i.index_issue_id=iss.index_issue_id
 		WHERE isnull(i.user_scans,0) > 0
 		ORDER BY  i.user_scans * iss.total_reserved_MB DESC;
 
 		RAISERROR(N'check_id 81: Top recent accesses (op stats)', 0,1) WITH NOWAIT;
-		INSERT	#BlitzIndexResults ( check_id, index_issues_id, findings_group, finding, URL, details, index_definition,
+		INSERT	#BlitzIndexResults ( check_id, index_issue_id, findings_group, finding, URL, details, index_definition,
 							   secret_columns, index_usage_summary, index_size_summary )
 		--Workaholics according to index_operational_stats
 		--This isn't perfect either: range_scan_count contains full scans, partial scans, even seeks in nested loop ops
 		--But this can help bubble up some most-accessed tables 
 		SELECT TOP 5 
 			81 as check_id,
-			i.index_issues_id as index_issues_id,
+			i.index_issue_id as index_issue_id,
 			N'Workaholics' as findings_group,
 			N'Top recent accesses (index_op_stats)' as finding,
 			N'http://BrentOzar.com/go/Workaholics' AS URL,
@@ -2519,7 +2519,7 @@ BEGIN;
 			i.index_usage_summary as index_usage_summary,
 			iss.index_size_summary as index_size_summary
 		FROM #IndexIssues i
-		JOIN #IndexIssuesSize iss on i.index_issues_id=iss.index_issues_id
+		JOIN #IndexIssuesSize iss on i.index_issue_id=iss.index_issue_id
 		WHERE isnull(iss.total_range_scan_count,0)  > 0 or isnull(iss.total_singleton_lookup_count,0) > 0
 		ORDER BY ((iss.total_range_scan_count + iss.total_singleton_lookup_count) * iss.total_reserved_MB) DESC;
 
@@ -2558,9 +2558,9 @@ BEGIN;
 			COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL]
 		FROM #BlitzIndexResults br
 		LEFT JOIN #IndexIssues sn ON 
-			br.index_issues_id=sn.index_issues_id
+			br.index_issue_id=sn.index_issue_id
 		LEFT JOIN #IndexCreateTsql ts ON 
-			br.index_issues_id=ts.index_issues_id
+			br.index_issue_id=ts.index_issue_id
 		ORDER BY [check_id] ASC, blitz_result_id ASC, findings_group;
 
 	END; /* End @Mode=0 (diagnose)*/
@@ -2613,7 +2613,7 @@ BEGIN;
 		FROM #IndexIssues AS i
 		--left join here so we don't lose disabled nc indexes
 		LEFT JOIN #IndexIssuesSize AS sz 
-			ON i.index_issues_id=sz.index_issues_id 
+			ON i.index_issue_id=sz.index_issue_id 
 		UNION ALL
 		SELECT	N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + convert(nvarchar(16),getdate(),121)	,		
 				N'sp_BlitzIndex(TM) v2.02 - Jan 30, 2014' ,   
@@ -2692,7 +2692,7 @@ BEGIN;
 				more_info AS [More Info],
 				1 as [Display Order]
 		FROM	#IndexIssues AS i --left join here so we don't lose disabled nc indexes
-				LEFT JOIN #IndexIssuesSize AS sz ON i.index_issues_id = sz.index_issues_id
+				LEFT JOIN #IndexIssuesSize AS sz ON i.index_issue_id = sz.index_issue_id
 		UNION ALL
 		SELECT 	N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + convert(nvarchar(16),getdate(),121)			
 				N'sp_BlitzIndex(TM) v2.02 - Jan 30, 2014' ,   
