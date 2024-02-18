@@ -39,7 +39,8 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @Version     VARCHAR(30) = NULL OUTPUT,
     @VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0,
-    @FileNamePrefix NVARCHAR(260) = NULL
+    @FileNamePrefix NVARCHAR(260) = NULL,
+	@VerifyRestoreWithStoredProcedure NVARCHAR(260) = NULL
 AS
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
@@ -1637,6 +1638,29 @@ END;'
 -- If test restore then blow the database away (be careful)
 IF @TestRestore = 1
 	BEGIN
+
+		IF @VerifyRestoreWithStoredProcedure IS NOT NULL AND LEN(LTRIM(@VerifyRestoreWithStoredProcedure)) > 0
+		BEGIN
+			PRINT 'Attempting to run ' + @VerifyRestoreWithStoredProcedure
+			SET @sql = N'EXEC ' + @RestoreDatabaseName + '.' + @VerifyRestoreWithStoredProcedure
+
+			IF @Debug = 1 OR @Execute = 'N'
+			BEGIN
+				IF @sql IS NULL PRINT '@sql is NULL for Verify Restore with Stored Procedure'
+				PRINT @sql
+			END
+			
+			IF @RunRecovery = 0
+			BEGIN
+				PRINT 'Unable to run Verify Restore with Stored Procedure as database is not recovered. Run command again with @RunRecovery = 1'
+			END
+			ELSE
+            BEGIN
+				IF @Debug IN (0, 1) AND @Execute = 'Y'
+					EXEC sp_executesql  @sql
+			END
+		END
+
 		SET @sql = N'DROP DATABASE ' + @RestoreDatabaseName + NCHAR(13);
 			
 			IF @Debug = 1 OR @Execute = 'N'
