@@ -40,7 +40,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0,
     @FileNamePrefix NVARCHAR(260) = NULL,
-	@VerifyRestoreWithStoredProcedure NVARCHAR(260) = NULL
+	@RunStoredProcAfterRestore NVARCHAR(260) = NULL
 AS
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
@@ -1639,20 +1639,20 @@ END;'
 IF @TestRestore = 1
 	BEGIN
 
-		IF @VerifyRestoreWithStoredProcedure IS NOT NULL AND LEN(LTRIM(@VerifyRestoreWithStoredProcedure)) > 0
+		IF @RunStoredProcAfterRestore IS NOT NULL AND LEN(LTRIM(@RunStoredProcAfterRestore)) > 0
 		BEGIN
-			PRINT 'Attempting to run ' + @VerifyRestoreWithStoredProcedure
-			SET @sql = N'EXEC ' + @RestoreDatabaseName + '.' + @VerifyRestoreWithStoredProcedure
+			PRINT 'Attempting to run ' + @RunStoredProcAfterRestore
+			SET @sql = N'EXEC ' + @RestoreDatabaseName + '.' + @RunStoredProcAfterRestore
 
 			IF @Debug = 1 OR @Execute = 'N'
 			BEGIN
-				IF @sql IS NULL PRINT '@sql is NULL for Verify Restore with Stored Procedure'
+				IF @sql IS NULL PRINT '@sql is NULL when building for @RunStoredProcAfterRestore'
 				PRINT @sql
 			END
 			
 			IF @RunRecovery = 0
 			BEGIN
-				PRINT 'Unable to run Verify Restore with Stored Procedure as database is not recovered. Run command again with @RunRecovery = 1'
+				PRINT 'Unable to run Run Stored Procedure After Restore as database is not recovered. Run command again with @RunRecovery = 1'
 			END
 			ELSE
             BEGIN
