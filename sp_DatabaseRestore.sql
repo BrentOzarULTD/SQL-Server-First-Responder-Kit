@@ -1635,32 +1635,31 @@ END;'
 			EXECUTE [dbo].[CommandExecute] @DatabaseContext = 'master', @Command = @sql, @CommandType = 'UPDATE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
 	END; 
 
+IF @RunStoredProcAfterRestore IS NOT NULL AND LEN(LTRIM(@RunStoredProcAfterRestore)) > 0
+BEGIN
+	PRINT 'Attempting to run ' + @RunStoredProcAfterRestore
+	SET @sql = N'EXEC ' + @RestoreDatabaseName + '.' + @RunStoredProcAfterRestore
+
+	IF @Debug = 1 OR @Execute = 'N'
+	BEGIN
+		IF @sql IS NULL PRINT '@sql is NULL when building for @RunStoredProcAfterRestore'
+		PRINT @sql
+	END
+			
+	IF @RunRecovery = 0
+	BEGIN
+		PRINT 'Unable to run Run Stored Procedure After Restore as database is not recovered. Run command again with @RunRecovery = 1'
+	END
+	ELSE
+    BEGIN
+		IF @Debug IN (0, 1) AND @Execute = 'Y'
+			EXEC sp_executesql  @sql
+	END
+END
+
 -- If test restore then blow the database away (be careful)
 IF @TestRestore = 1
 	BEGIN
-
-		IF @RunStoredProcAfterRestore IS NOT NULL AND LEN(LTRIM(@RunStoredProcAfterRestore)) > 0
-		BEGIN
-			PRINT 'Attempting to run ' + @RunStoredProcAfterRestore
-			SET @sql = N'EXEC ' + @RestoreDatabaseName + '.' + @RunStoredProcAfterRestore
-
-			IF @Debug = 1 OR @Execute = 'N'
-			BEGIN
-				IF @sql IS NULL PRINT '@sql is NULL when building for @RunStoredProcAfterRestore'
-				PRINT @sql
-			END
-			
-			IF @RunRecovery = 0
-			BEGIN
-				PRINT 'Unable to run Run Stored Procedure After Restore as database is not recovered. Run command again with @RunRecovery = 1'
-			END
-			ELSE
-            BEGIN
-				IF @Debug IN (0, 1) AND @Execute = 'Y'
-					EXEC sp_executesql  @sql
-			END
-		END
-
 		SET @sql = N'DROP DATABASE ' + @RestoreDatabaseName + NCHAR(13);
 			
 			IF @Debug = 1 OR @Execute = 'N'
