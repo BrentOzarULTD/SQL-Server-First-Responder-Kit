@@ -38,14 +38,16 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @Help BIT = 0,
     @Version     VARCHAR(30) = NULL OUTPUT,
     @VersionDate DATETIME = NULL OUTPUT,
-    @VersionCheckMode BIT = 0
+    @VersionCheckMode BIT = 0,
+    @FileNamePrefix NVARCHAR(260) = NULL,
+	@RunStoredProcAfterRestore NVARCHAR(260) = NULL
 AS
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
 /*Versioning details*/
 
-SELECT @Version = '8.18', @VersionDate = '20231222';
+SELECT @Version = '8.19', @VersionDate = '20240222';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -799,7 +801,7 @@ BEGIN
 				    WHEN Type = 'L' THEN @MoveLogDrive
 				    WHEN Type = 'S' THEN @MoveFilestreamDrive
 					WHEN Type = 'F' THEN @MoveFullTextCatalogDrive
-			    END + CASE 
+			    END + COALESCE(@FileNamePrefix, '') + CASE
                         WHEN @Database = @RestoreDatabaseName THEN REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1))
 					    ELSE REPLACE(REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)), @Database, SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) -2))
 					    END AS TargetPhysicalName,
@@ -1640,6 +1642,28 @@ END;'
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
 			EXECUTE [dbo].[CommandExecute] @DatabaseContext = 'master', @Command = @sql, @CommandType = 'UPDATE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
 	END; 
+
+IF @RunStoredProcAfterRestore IS NOT NULL AND LEN(LTRIM(@RunStoredProcAfterRestore)) > 0
+BEGIN
+	PRINT 'Attempting to run ' + @RunStoredProcAfterRestore
+	SET @sql = N'EXEC ' + @RestoreDatabaseName + '.' + @RunStoredProcAfterRestore
+
+	IF @Debug = 1 OR @Execute = 'N'
+	BEGIN
+		IF @sql IS NULL PRINT '@sql is NULL when building for @RunStoredProcAfterRestore'
+		PRINT @sql
+	END
+			
+	IF @RunRecovery = 0
+	BEGIN
+		PRINT 'Unable to run Run Stored Procedure After Restore as database is not recovered. Run command again with @RunRecovery = 1'
+	END
+	ELSE
+    BEGIN
+		IF @Debug IN (0, 1) AND @Execute = 'Y'
+			EXEC sp_executesql  @sql
+	END
+END
 
 -- If test restore then blow the database away (be careful)
 IF @TestRestore = 1

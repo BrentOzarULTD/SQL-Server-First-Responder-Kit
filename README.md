@@ -22,7 +22,7 @@ Navigation
  - Performance Tuning:   
    - [sp_BlitzInMemoryOLTP: Hekaton Analysis](#sp_blitzinmemoryoltp-hekaton-analysis) 
    - [sp_BlitzLock: Deadlock Analysis](#sp_blitzlock-deadlock-analysis) 
-   - [sp_BlitzQueryStore: Like BlitzCache, for Query Store](#sp_blitzquerystore-query-store-sale)
+   - [sp_BlitzQueryStore: Like BlitzCache, for Query Store](#sp_blitzquerystore-how-has-a-query-plan-changed-over-time)  
    - [sp_BlitzWho: What Queries are Running Now](#sp_blitzwho-what-queries-are-running-now)   
    - [sp_BlitzAnalysis: Query sp_BlitzFirst output tables](#sp_blitzanalysis-query-sp_BlitzFirst-output-tables) 
  - Backups and Restores:
@@ -513,6 +513,7 @@ Parameters include:
 * @BackupPathFull - typically a UNC path like '\\\\FILESERVER\BACKUPS\SQL2016PROD1A\LogShipMe\FULL\' that points to where the full backups are stored. Note that if the path doesn't exist, we don't create it, and the query might take 30+ seconds if you specify an invalid server name.
 * @BackupPathDiff, @BackupPathLog - as with the Full, this should be set to the exact path where the differentials and logs are stored. We don't append anything to these parameters.
 * @MoveFiles, @MoveDataDrive, @MoveLogDrive - if you want to restore to somewhere other than your default database locations.
+* @FileNamePrefix - Prefix to add to the names of all restored files. Useful when you need to restore different backups of the same database into the same directory.
 * @RunCheckDB - default 0. When set to 1, we run Ola Hallengren's DatabaseIntegrityCheck stored procedure on this database, and log the results to table. We use that stored proc's default parameters, nothing fancy.
 * @TestRestore - default 0. When set to 1, we delete the database after the restore completes. Used for just testing your restores. Especially useful in combination with @RunCheckDB = 1 because we'll delete the database after running checkdb, but know that we delete the database even if it fails checkdb tests.
 * @RestoreDiff - default 0. When set to 1, we restore the ncessary full, differential, and log backups (instead of just full and log) to get to the most recent point in time.

@@ -48,7 +48,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.18', @VersionDate = '20231222';
+SELECT @Version = '8.19', @VersionDate = '20240222';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -77,7 +77,7 @@ Known limitations of this version:
            filegroup/partition scheme etc.)
  --        (The compression and filegroup index create syntax is not trivial because it is set at the partition 
            level and is not trivial to code.)
- - Does not advise you about data modeling for clustered indexes and primary keys (primarily looks for signs of insanity.)
+ - Does not advise you about data modeling for clustered indexes and primary keys (primarily looks for signs of problems.)
 
 Unknown limitations of this version:
  - We knew them once, but we forgot.
@@ -253,9 +253,14 @@ IF OBJECT_ID('tempdb..#CheckConstraints') IS NOT NULL
 
 IF OBJECT_ID('tempdb..#FilteredIndexes') IS NOT NULL
 	DROP TABLE #FilteredIndexes;
-		
+
 IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL 
     DROP TABLE #Ignore_Databases
+		
+IF OBJECT_ID('tempdb..#dm_db_partition_stats_etc') IS NOT NULL 
+    DROP TABLE #dm_db_partition_stats_etc
+IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL 
+    DROP TABLE #dm_db_index_operational_stats
 
         RAISERROR (N'Create temp tables.',0,1) WITH NOWAIT;
         CREATE TABLE #BlitzIndexResults
@@ -919,7 +924,7 @@ BEGIN TRY
             VALUES  ( 1, 
 			          0, 
 		              N'You''re trying to run sp_BlitzIndex on a server with ' + CAST(@NumDatabases AS NVARCHAR(8)) + N' databases. ',
-                      N'Running sp_BlitzIndex on a server with 50+ databases may cause temporary insanity for the server and/or user.',
+                      N'Running sp_BlitzIndex on a server with 50+ databases may cause temporary problems for the server and/or user.',
 				      N'If you''re sure you want to do this, run again with the parameter @BringThePain = 1.',
                       'http://FirstResponderKit.org', 
 					  '', 
@@ -946,7 +951,7 @@ BEGIN TRY
 					   bir.create_tsql,
 					   bir.more_info 
 					   FROM #BlitzIndexResults AS bir;
-				RAISERROR('Running sp_BlitzIndex on a server with 50+ databases may cause temporary insanity for the server', 12, 1);
+				RAISERROR('Running sp_BlitzIndex on a server with 50+ databases may cause temporary problems for the server', 12, 1);
 			END;
 
 		RETURN;
@@ -1065,6 +1070,8 @@ FROM     sys.databases
 ----------------------------------------
 BEGIN TRY
     BEGIN
+        DECLARE @d VARCHAR(19) = CONVERT(VARCHAR(19), GETDATE(), 121);
+        RAISERROR (N'starting at %s',0,1, @d) WITH NOWAIT;
 
         --Validate SQL Server Version
 
@@ -1435,47 +1442,79 @@ BEGIN TRY
 
             --NOTE: If you want to use the newer syntax for 2012+, you'll have to change 2147483647 to 11 on line ~819
 			--This change was made because on a table with lots of paritions, the OUTER APPLY was crazy slow.
-            SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+
+			-- get relevant columns from sys.dm_db_partition_stats, sys.partitions and sys.objects 
+			DROP TABLE if exists #dm_db_partition_stats_etc
+			create table #dm_db_partition_stats_etc
+			(
+				database_id smallint not null
+				, object_id int not null
+				, sname sysname NULL
+				, index_id int
+				, partition_number int
+				, partition_id bigint
+				, row_count bigint
+				, reserved_MB bigint
+				, reserved_LOB_MB bigint
+				, reserved_row_overflow_MB bigint
+				, lock_escalation_desc nvarchar(60)
+				, data_compression_desc nvarchar(60)
+			)
+
+			-- get relevant info from sys.dm_db_index_operational_stats
+			drop TABLE if exists #dm_db_index_operational_stats
+			create table #dm_db_index_operational_stats
+			(
+				database_id smallint not null
+				, object_id int not null
+				, index_id int
+				, partition_number int
+				, hobt_id bigint
+				, leaf_insert_count bigint
+				, leaf_delete_count bigint
+				, leaf_update_count bigint
+				, range_scan_count bigint
+				, singleton_lookup_count bigint
+				, forwarded_fetch_count bigint
+				, lob_fetch_in_pages bigint
+				, lob_fetch_in_bytes bigint
+				, row_overflow_fetch_in_pages bigint
+				, row_overflow_fetch_in_bytes bigint
+				, row_lock_count bigint
+				, row_lock_wait_count bigint
+				, row_lock_wait_in_ms bigint
+				, page_lock_count bigint
+				, page_lock_wait_count bigint
+				, page_lock_wait_in_ms bigint
+				, index_lock_promotion_attempt_count bigint
+				, index_lock_promotion_count bigint
+				, page_latch_wait_count bigint
+				, page_latch_wait_in_ms bigint
+				, page_io_latch_wait_count bigint
+				, page_io_latch_wait_in_ms bigint
+				)
+  
+            SET @dsql = N'
+                        DECLARE @d VARCHAR(19) = CONVERT(VARCHAR(19), GETDATE(), 121)
+                        RAISERROR (N''start getting data into #dm_db_partition_stats_etc at %s'',0,1, @d) WITH NOWAIT;
+                        SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                        INSERT INTO #dm_db_partition_stats_etc
+                        (
+                            database_id, object_id, sname, index_id, partition_number, partition_id, row_count, reserved_MB, reserved_LOB_MB, reserved_row_overflow_MB, lock_escalation_desc, data_compression_desc
+                        )
                         SELECT  ' + CAST(@DatabaseID AS NVARCHAR(10)) + N' AS database_id,
                                 ps.object_id, 
-								s.name,
+								s.name as sname,
                                 ps.index_id, 
                                 ps.partition_number, 
+                                ps.partition_id,
                                 ps.row_count,
                                 ps.reserved_page_count * 8. / 1024. AS reserved_MB,
                                 ps.lob_reserved_page_count * 8. / 1024. AS reserved_LOB_MB,
                                 ps.row_overflow_reserved_page_count * 8. / 1024. AS reserved_row_overflow_MB,
 								le.lock_escalation_desc,
-                            ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc ' END + N',
-                                SUM(os.leaf_insert_count), 
-                                SUM(os.leaf_delete_count), 
-                                SUM(os.leaf_update_count), 
-                                SUM(os.range_scan_count), 
-                                SUM(os.singleton_lookup_count),  
-                                SUM(os.forwarded_fetch_count),
-                                SUM(os.lob_fetch_in_pages), 
-                                SUM(os.lob_fetch_in_bytes), 
-                                SUM(os.row_overflow_fetch_in_pages),
-                                SUM(os.row_overflow_fetch_in_bytes), 
-                                SUM(os.row_lock_count), 
-                                SUM(os.row_lock_wait_count),
-                                SUM(os.row_lock_wait_in_ms), 
-                                SUM(os.page_lock_count), 
-                                SUM(os.page_lock_wait_count), 
-                                SUM(os.page_lock_wait_in_ms),
-                                SUM(os.index_lock_promotion_attempt_count), 
-                                SUM(os.index_lock_promotion_count), 
-								SUM(os.page_latch_wait_count),
-								SUM(os.page_latch_wait_in_ms),
-								SUM(os.page_io_latch_wait_count),								
-								SUM(os.page_io_latch_wait_in_ms), ';
-
-		    /* Get columnstore dictionary size - more info: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2585 */
-			IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'column_store_dictionaries')
-				SET @dsql = @dsql + N' COALESCE((SELECT SUM (on_disk_size / 1024.0 / 1024) FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_dictionaries dict WHERE dict.partition_id = ps.partition_id),0) AS reserved_dictionary_MB ';
-			ELSE
-				SET @dsql = @dsql + N' 0 AS reserved_dictionary_MB ';
-
+                            ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc ' END + N'
+';
 
             SET @dsql = @dsql + N'
 			FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_partition_stats AS ps  
@@ -1484,9 +1523,6 @@ BEGIN TRY
                                AND so.is_ms_shipped = 0 /*Exclude objects shipped by Microsoft*/
                                AND so.type <> ''TF'' /*Exclude table valued functions*/
 					JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s ON s.schema_id = so.schema_id
-                    LEFT JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_index_operational_stats('
-                + CAST(@DatabaseID AS NVARCHAR(10)) + N', NULL, NULL,NULL) AS os ON
-                    ps.object_id=os.object_id and ps.index_id=os.index_id and ps.partition_number=os.partition_number 
 			            OUTER APPLY (SELECT st.lock_escalation_desc
 			                         FROM ' + QUOTENAME(@DatabaseName) + N'.sys.tables st
 			                         WHERE st.object_id = ps.object_id
@@ -1506,7 +1542,75 @@ BEGIN TRY
 								le.lock_escalation_desc,
                             ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc ' END + N'
 			ORDER BY ps.object_id,  ps.index_id, ps.partition_number
-            OPTION    ( RECOMPILE );
+            /*OPTION    ( RECOMPILE );*/
+            OPTION    ( RECOMPILE , min_grant_percent = 1);
+
+            SET @d = CONVERT(VARCHAR(19), GETDATE(), 121)
+            RAISERROR (N''start getting data into #dm_db_index_operational_stats at %s.'',0,1, @d) WITH NOWAIT;
+            
+                       insert  into #dm_db_index_operational_stats
+           (
+                database_id
+              , object_id
+              , index_id
+              , partition_number
+              , hobt_id
+              , leaf_insert_count
+              , leaf_delete_count
+              , leaf_update_count
+              , range_scan_count
+              , singleton_lookup_count
+              , forwarded_fetch_count
+              , lob_fetch_in_pages
+              , lob_fetch_in_bytes
+              , row_overflow_fetch_in_pages
+              , row_overflow_fetch_in_bytes
+              , row_lock_count
+              , row_lock_wait_count
+              , row_lock_wait_in_ms
+              , page_lock_count
+              , page_lock_wait_count
+              , page_lock_wait_in_ms
+              , index_lock_promotion_attempt_count
+              , index_lock_promotion_count
+              , page_latch_wait_count
+              , page_latch_wait_in_ms
+              , page_io_latch_wait_count
+              , page_io_latch_wait_in_ms
+            )
+            
+            select os.database_id
+                 , os.object_id
+                 , os.index_id
+                 , os.partition_number
+                 , os.hobt_id
+                 , os.leaf_insert_count
+                 , os.leaf_delete_count
+                 , os.leaf_update_count
+                 , os.range_scan_count
+                 , os.singleton_lookup_count
+                 , os.forwarded_fetch_count
+                 , os.lob_fetch_in_pages
+                 , os.lob_fetch_in_bytes
+                 , os.row_overflow_fetch_in_pages
+                 , os.row_overflow_fetch_in_bytes
+                 , os.row_lock_count
+                 , os.row_lock_wait_count
+                 , os.row_lock_wait_in_ms
+                 , os.page_lock_count
+                 , os.page_lock_wait_count
+                 , os.page_lock_wait_in_ms
+                 , os.index_lock_promotion_attempt_count
+                 , os.index_lock_promotion_count
+                 , os.page_latch_wait_count
+                 , os.page_latch_wait_in_ms
+                 , os.page_io_latch_wait_count
+                 , os.page_io_latch_wait_in_ms
+                from ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_index_operational_stats('+ CAST(@DatabaseID AS NVARCHAR(10)) +', NULL, NULL,NULL) AS os 
+                OPTION    ( RECOMPILE , min_grant_percent = 1);
+
+                SET @d = CONVERT(VARCHAR(19), GETDATE(), 121)
+                RAISERROR (N''finished getting data into #dm_db_index_operational_stats at %s.'',0,1, @d) WITH NOWAIT;
             ';
         END;
         ELSE
@@ -1605,6 +1709,7 @@ BEGIN TRY
                 PRINT SUBSTRING(@dsql, 32000, 36000);
                 PRINT SUBSTRING(@dsql, 36000, 40000);
             END;
+        EXEC sp_executesql @dsql; 
         INSERT    #IndexPartitionSanity ( [database_id],
                                           [object_id], 
 										  [schema_name],
@@ -1639,8 +1744,35 @@ BEGIN TRY
 								          page_io_latch_wait_count,								
 								          page_io_latch_wait_in_ms,
 										  reserved_dictionary_MB)
-                EXEC sp_executesql @dsql;
-        
+                select h.database_id, h.object_id, h.sname, h.index_id, h.partition_number, h.row_count, h.reserved_MB, h.reserved_LOB_MB, h.reserved_row_overflow_MB, h.lock_escalation_desc, h.data_compression_desc,
+                                SUM(os.leaf_insert_count), 
+                                SUM(os.leaf_delete_count), 
+                                SUM(os.leaf_update_count), 
+                                SUM(os.range_scan_count), 
+                                SUM(os.singleton_lookup_count),  
+                                SUM(os.forwarded_fetch_count),
+                                SUM(os.lob_fetch_in_pages), 
+                                SUM(os.lob_fetch_in_bytes), 
+                                SUM(os.row_overflow_fetch_in_pages),
+                                SUM(os.row_overflow_fetch_in_bytes), 
+                                SUM(os.row_lock_count), 
+                                SUM(os.row_lock_wait_count),
+                                SUM(os.row_lock_wait_in_ms), 
+                                SUM(os.page_lock_count), 
+                                SUM(os.page_lock_wait_count), 
+                                SUM(os.page_lock_wait_in_ms),
+                                SUM(os.index_lock_promotion_attempt_count), 
+                                SUM(os.index_lock_promotion_count), 
+								SUM(os.page_latch_wait_count),
+								SUM(os.page_latch_wait_in_ms),
+								SUM(os.page_io_latch_wait_count),								
+								SUM(os.page_io_latch_wait_in_ms)
+                                ,COALESCE((SELECT SUM (dict.on_disk_size / 1024.0 / 1024) FROM sys.column_store_dictionaries dict WHERE dict.partition_id = h.partition_id),0) AS reserved_dictionary_MB 
+                    from #dm_db_partition_stats_etc h
+                    left JOIN #dm_db_index_operational_stats as os ON
+                        h.object_id=os.object_id and h.index_id=os.index_id and h.partition_number=os.partition_number 
+                    group by h.database_id, h.object_id, h.sname, h.index_id, h.partition_number, h.partition_id, h.row_count, h.reserved_MB, h.reserved_LOB_MB, h.reserved_row_overflow_MB, h.lock_escalation_desc, h.data_compression_desc                          
+                
 		END; --End Check For @SkipPartitions = 0
 
 
@@ -2991,7 +3123,7 @@ BEGIN
 						INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c ON rg.object_id = c.object_id
 						INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partitions p ON rg.object_id = p.object_id AND rg.partition_number = p.partition_number
 						INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns ic on ic.column_id = c.column_id AND ic.object_id = c.object_id AND ic.index_id = p.index_id 
-                        LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_column_store_row_group_physical_stats phys ON rg.row_group_id = phys.row_group_id AND rg.object_id = phys.object_id AND rg.partition_number = phys.partition_number AND p.index_id = phys.index_id ' + CASE WHEN @ShowPartitionRanges = 1 THEN N' 
+                        LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_column_store_row_group_physical_stats phys ON rg.row_group_id = phys.row_group_id AND rg.object_id = phys.object_id AND rg.partition_number = phys.partition_number AND rg.index_id = phys.index_id ' + CASE WHEN @ShowPartitionRanges = 1 THEN N' 
 						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.indexes i ON i.object_id = rg.object_id AND i.index_id = rg.index_id
 						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partition_schemes ps ON ps.data_space_id = i.data_space_id
 						LEFT OUTER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partition_functions pf ON pf.function_id = ps.function_id
@@ -6178,7 +6310,8 @@ BEGIN
 
 
     END; /* End @Mode=3 (index detail)*/
-
+    SET @d = CONVERT(VARCHAR(19), GETDATE(), 121);
+    RAISERROR (N'finishing at %s',0,1, @d) WITH NOWAIT;
 END /* End @TableName IS NULL (mode 0/1/2/3/4) */
 END TRY
 
