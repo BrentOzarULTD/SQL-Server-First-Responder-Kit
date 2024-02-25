@@ -1559,10 +1559,8 @@ AS
 				end of the stored proc, where we start doing things like checking
 				the plan cache, but those aren't as cleanly commented.
 
-				If you'd like to contribute your own check, use one of the check
-				formats shown above and email it to Help@BrentOzar.com. You don't
-				have to pick a CheckID or a link - we'll take care of that when we
-				test and publish the code. Thanks!
+				To contribute your own checks or fix bugs, learn more here:
+				https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/blob/main/CONTRIBUTING.md
 				*/
 
 				IF NOT EXISTS ( SELECT  1
