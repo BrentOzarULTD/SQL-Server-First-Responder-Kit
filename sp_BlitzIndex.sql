@@ -203,14 +203,14 @@ BEGIN
 	*/
 END;
 
-IF OBJECT_ID('tempdb..#IndexSanity') IS NOT NULL 
-    DROP TABLE #IndexSanity;
+IF OBJECT_ID('tempdb..#IndexIssues') IS NOT NULL 
+    DROP TABLE #IndexIssues;
 
 IF OBJECT_ID('tempdb..#IndexPartitionSanity') IS NOT NULL 
     DROP TABLE #IndexPartitionSanity;
 
-IF OBJECT_ID('tempdb..#IndexSanitySize') IS NOT NULL 
-    DROP TABLE #IndexSanitySize;
+IF OBJECT_ID('tempdb..#IndexIssuesSize') IS NOT NULL 
+    DROP TABLE #IndexIssuesSize;
 
 IF OBJECT_ID('tempdb..#IndexColumns') IS NOT NULL 
     DROP TABLE #IndexColumns;
@@ -267,7 +267,7 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
             (
               blitz_result_id INT IDENTITY PRIMARY KEY,
               check_id INT NOT NULL,
-              index_sanity_id INT NULL,
+              index_issue_id INT NULL,
               Priority INT NULL,
               findings_group NVARCHAR(4000) NOT NULL,
               finding NVARCHAR(200) NOT NULL,
@@ -283,9 +283,9 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
               sample_query_plan XML NULL
             );
 
-        CREATE TABLE #IndexSanity
+        CREATE TABLE #IndexIssues
             (
-              [index_sanity_id] INT IDENTITY PRIMARY KEY CLUSTERED,
+              [index_issue_id] INT IDENTITY PRIMARY KEY CLUSTERED,
               [database_id] SMALLINT NOT NULL ,
               [object_id] INT NOT NULL ,
               [index_id] INT NOT NULL ,
@@ -398,15 +398,15 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
 					N', @SchemaName=' + QUOTENAME([schema_name],N'''') + N', @TableName=' + QUOTENAME([object_name],N'''') + N';'
 				END
 		);
-        RAISERROR (N'Adding UQ index on #IndexSanity (database_id, object_id, index_id)',0,1) WITH NOWAIT;
+        RAISERROR (N'Adding UQ index on #IndexIssues (database_id, object_id, index_id)',0,1) WITH NOWAIT;
         IF NOT EXISTS(SELECT 1 FROM tempdb.sys.indexes WHERE name='uq_database_id_object_id_index_id') 
-            CREATE UNIQUE INDEX uq_database_id_object_id_index_id ON #IndexSanity (database_id, object_id, index_id);
+            CREATE UNIQUE INDEX uq_database_id_object_id_index_id ON #IndexIssues (database_id, object_id, index_id);
 
 
         CREATE TABLE #IndexPartitionSanity
             (
               [index_partition_sanity_id] INT IDENTITY,
-              [index_sanity_id] INT NULL ,
+              [index_issue_id] INT NULL ,
               [database_id] INT NOT NULL ,
               [object_id] INT NOT NULL ,
 			  [schema_name] NVARCHAR(128) NOT NULL,
@@ -443,10 +443,10 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
               lock_escalation_desc nvarchar(60) NULL
             );
 
-        CREATE TABLE #IndexSanitySize
+        CREATE TABLE #IndexIssuesSize
             (
-              [index_sanity_size_id] INT IDENTITY NOT NULL ,
-              [index_sanity_id] INT NULL ,
+              [index_issues_size_id] INT IDENTITY NOT NULL ,
+              [index_issue_id] INT NULL ,
               [database_id] INT NOT NULL,
 			  [schema_name] NVARCHAR(128) NOT NULL,
               partition_count INT NOT NULL ,
@@ -691,7 +691,7 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
         );
         
         CREATE TABLE #IndexCreateTsql (
-            index_sanity_id INT NOT NULL,
+            index_issue_id INT NOT NULL,
             create_tsql NVARCHAR(MAX) NOT NULL
         );
 
@@ -702,7 +702,7 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
         );
 
 		CREATE TABLE #PartitionCompressionInfo (
-			[index_sanity_id] INT NULL,
+			[index_issue_id] INT NULL,
 			[partition_compression_detail] NVARCHAR(4000) NULL
         );
 
@@ -733,7 +733,7 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
 
 		CREATE TABLE #ComputedColumns
 		(
-		  index_sanity_id INT IDENTITY(1, 1) NOT NULL,
+		  index_issue_id INT IDENTITY(1, 1) NOT NULL,
 		  database_name NVARCHAR(128) NULL,
 		  database_id INT NOT NULL,
 		  table_name NVARCHAR(128) NOT NULL,
@@ -758,7 +758,7 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
 
         CREATE TABLE #TemporalTables
         (
-            index_sanity_id INT IDENTITY(1, 1) NOT NULL,
+            index_issue_id INT IDENTITY(1, 1) NOT NULL,
             database_name NVARCHAR(128) NOT NULL,
             database_id INT NOT NULL,
             schema_name NVARCHAR(128) NOT NULL,
@@ -772,7 +772,7 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
 
 		CREATE TABLE #CheckConstraints
 		(
-		  index_sanity_id INT IDENTITY(1, 1) NOT NULL,
+		  index_issue_id INT IDENTITY(1, 1) NOT NULL,
 		  database_name NVARCHAR(128) NULL,
 		  database_id INT NOT NULL,
 		  table_name NVARCHAR(128) NOT NULL,
@@ -788,7 +788,7 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
 
 		CREATE TABLE #FilteredIndexes
 		(
-		  index_sanity_id INT IDENTITY(1, 1) NOT NULL,
+		  index_issue_id INT IDENTITY(1, 1) NOT NULL,
 		  database_name NVARCHAR(128) NULL,
 		  database_id INT NOT NULL,
 		  schema_name NVARCHAR(128) NOT NULL,
@@ -937,7 +937,7 @@ BEGIN TRY
 			BEGIN
 				SELECT bir.blitz_result_id,
 					   bir.check_id,
-					   bir.index_sanity_id,
+					   bir.index_issue_id,
 					   bir.Priority,
 					   bir.findings_group,
 					   bir.finding,
@@ -1387,7 +1387,7 @@ BEGIN TRY
         IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
 
-        RAISERROR (N'Inserting data into #IndexSanity',0,1) WITH NOWAIT;
+        RAISERROR (N'Inserting data into #IndexIssues',0,1) WITH NOWAIT;
         IF @Debug = 1
             BEGIN
                 PRINT SUBSTRING(@dsql, 0, 4000);
@@ -1401,7 +1401,7 @@ BEGIN TRY
                 PRINT SUBSTRING(@dsql, 32000, 36000);
                 PRINT SUBSTRING(@dsql, 36000, 40000);
             END;
-        INSERT    #IndexSanity ( [database_id], [object_id], [index_id], [index_type], [database_name], [schema_name], [object_name],
+        INSERT    #IndexIssues ( [database_id], [object_id], [index_id], [index_type], [database_name], [schema_name], [object_name],
                                 index_name, is_indexed_view, is_unique, is_primary_key, is_unique_constraint, is_XML, is_spatial, is_NC_columnstore, is_CX_columnstore, is_in_memory_oltp,
                                 is_disabled, is_hypothetical, is_padded, fill_factor, filter_definition,  [optimize_for_sequential_key], user_seeks, user_scans, 
                                 user_lookups, user_updates, last_user_seek, last_user_scan, last_user_lookup, last_user_update,
@@ -2399,10 +2399,10 @@ DEALLOCATE c1;
 --EVERY QUERY AFTER THIS GOES AGAINST TEMP TABLES ONLY.
 ----------------------------------------
 
-RAISERROR (N'Updating #IndexSanity.key_column_names',0,1) WITH NOWAIT;
-UPDATE    #IndexSanity
+RAISERROR (N'Updating #IndexIssues.key_column_names',0,1) WITH NOWAIT;
+UPDATE    #IndexIssues
 SET        key_column_names = D1.key_column_names
-FROM    #IndexSanity si
+FROM    #IndexIssues si
         CROSS APPLY ( SELECT  RTRIM(STUFF( (SELECT  N', ' + c.column_name 
                             + N' {' + system_type_name +
 							CASE max_length WHEN -1 THEN N' (max)' ELSE
@@ -2425,10 +2425,10 @@ FROM    #IndexSanity si
                     FOR      XML PATH('') ,TYPE).value('.', 'nvarchar(max)'), 1, 1, ''))
                                 ) D1 ( key_column_names );
 
-RAISERROR (N'Updating #IndexSanity.partition_key_column_name',0,1) WITH NOWAIT;
-UPDATE    #IndexSanity
+RAISERROR (N'Updating #IndexIssues.partition_key_column_name',0,1) WITH NOWAIT;
+UPDATE    #IndexIssues
 SET        partition_key_column_name = D1.partition_key_column_name
-FROM    #IndexSanity si
+FROM    #IndexIssues si
         CROSS APPLY ( SELECT  RTRIM(STUFF( (SELECT  N', ' + c.column_name AS col_definition
                             FROM    #IndexColumns c
                             WHERE    c.database_id= si.database_id
@@ -2440,10 +2440,10 @@ FROM    #IndexSanity si
                     FOR      XML PATH('') , TYPE).value('.', 'nvarchar(max)'), 1, 1,''))) D1 
                                 ( partition_key_column_name );
 
-RAISERROR (N'Updating #IndexSanity.key_column_names_with_sort_order',0,1) WITH NOWAIT;
-UPDATE    #IndexSanity
+RAISERROR (N'Updating #IndexIssues.key_column_names_with_sort_order',0,1) WITH NOWAIT;
+UPDATE    #IndexIssues
 SET        key_column_names_with_sort_order = D2.key_column_names_with_sort_order
-FROM    #IndexSanity si
+FROM    #IndexIssues si
         CROSS APPLY ( SELECT  RTRIM(STUFF( (SELECT  N', ' + c.column_name + CASE c.is_descending_key
                             WHEN 1 THEN N' DESC'
                             ELSE N''
@@ -2469,10 +2469,10 @@ FROM    #IndexSanity si
             FOR      XML PATH('') , TYPE).value('.', 'nvarchar(max)'), 1, 1, ''))
             ) D2 ( key_column_names_with_sort_order );
 
-RAISERROR (N'Updating #IndexSanity.key_column_names_with_sort_order_no_types (for create tsql)',0,1) WITH NOWAIT;
-UPDATE    #IndexSanity
+RAISERROR (N'Updating #IndexIssues.key_column_names_with_sort_order_no_types (for create tsql)',0,1) WITH NOWAIT;
+UPDATE    #IndexIssues
 SET        key_column_names_with_sort_order_no_types = D2.key_column_names_with_sort_order_no_types
-FROM    #IndexSanity si
+FROM    #IndexIssues si
         CROSS APPLY ( SELECT  RTRIM(STUFF( (SELECT  N', ' + QUOTENAME(c.column_name) + CASE c.is_descending_key
                             WHEN 1 THEN N' DESC'
                             ELSE N''
@@ -2488,10 +2488,10 @@ FROM    #IndexSanity si
             FOR      XML PATH('') , TYPE).value('.', 'nvarchar(max)'), 1, 1, ''))
             ) D2 ( key_column_names_with_sort_order_no_types );
 
-RAISERROR (N'Updating #IndexSanity.include_column_names',0,1) WITH NOWAIT;
-UPDATE    #IndexSanity
+RAISERROR (N'Updating #IndexIssues.include_column_names',0,1) WITH NOWAIT;
+UPDATE    #IndexIssues
 SET        include_column_names = D3.include_column_names
-FROM    #IndexSanity si
+FROM    #IndexIssues si
         CROSS APPLY ( SELECT  RTRIM(STUFF( (SELECT  N', ' + c.column_name
 								+ N' {' + system_type_name +
 								CASE max_length WHEN -1 THEN N' (max)' ELSE
@@ -2513,10 +2513,10 @@ FROM    #IndexSanity si
                 FOR      XML PATH('') ,  TYPE).value('.', 'nvarchar(max)'), 1, 1, ''))
                 ) D3 ( include_column_names );
 
-RAISERROR (N'Updating #IndexSanity.include_column_names_no_types (for create tsql)',0,1) WITH NOWAIT;
-UPDATE    #IndexSanity
+RAISERROR (N'Updating #IndexIssues.include_column_names_no_types (for create tsql)',0,1) WITH NOWAIT;
+UPDATE    #IndexIssues
 SET        include_column_names_no_types = D3.include_column_names_no_types
-FROM    #IndexSanity si
+FROM    #IndexIssues si
         CROSS APPLY ( SELECT  RTRIM(STUFF( (SELECT  N', ' + QUOTENAME(c.column_name)
                         FROM    #IndexColumns c
                                 WHERE    c.database_id= si.database_id
@@ -2529,11 +2529,11 @@ FROM    #IndexSanity si
                 FOR      XML PATH('') ,  TYPE).value('.', 'nvarchar(max)'), 1, 1, ''))
                 ) D3 ( include_column_names_no_types );
 
-RAISERROR (N'Updating #IndexSanity.count_key_columns and count_include_columns',0,1) WITH NOWAIT;
-UPDATE    #IndexSanity
+RAISERROR (N'Updating #IndexIssues.count_key_columns and count_include_columns',0,1) WITH NOWAIT;
+UPDATE    #IndexIssues
 SET        count_included_columns = D4.count_included_columns,
         count_key_columns = D4.count_key_columns
-FROM    #IndexSanity si
+FROM    #IndexIssues si
         CROSS APPLY ( SELECT  SUM(CASE WHEN is_included_column = 'true' THEN 1
                                             ELSE 0
                                     END) AS count_included_columns,
@@ -2547,18 +2547,18 @@ FROM    #IndexSanity si
                                 AND c.index_id = si.index_id 
                                 ) AS D4 ( count_included_columns, count_key_columns );
 
-RAISERROR (N'Updating index_sanity_id on #IndexPartitionSanity',0,1) WITH NOWAIT;
+RAISERROR (N'Updating index_issue_id on #IndexPartitionSanity',0,1) WITH NOWAIT;
 UPDATE    #IndexPartitionSanity
-SET        index_sanity_id = i.index_sanity_id
+SET        index_issue_id = i.index_issue_id
 FROM #IndexPartitionSanity ps
-        JOIN #IndexSanity i ON ps.[object_id] = i.[object_id]
+        JOIN #IndexIssues i ON ps.[object_id] = i.[object_id]
                                 AND ps.index_id = i.index_id
                                 AND i.database_id = ps.database_id
 								AND i.schema_name = ps.schema_name;
 
 
-RAISERROR (N'Inserting data into #IndexSanitySize',0,1) WITH NOWAIT;
-INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], [schema_name], [lock_escalation_desc], partition_count, total_rows, total_reserved_MB,
+RAISERROR (N'Inserting data into #IndexIssuesSize',0,1) WITH NOWAIT;
+INSERT    #IndexIssuesSize ( [index_issue_id], [database_id], [schema_name], [lock_escalation_desc], partition_count, total_rows, total_reserved_MB,
                                 total_reserved_LOB_MB, total_reserved_row_overflow_MB, total_reserved_dictionary_MB, total_range_scan_count,
                                 total_singleton_lookup_count, total_leaf_delete_count, total_leaf_update_count, 
                                 total_forwarded_fetch_count,total_row_lock_count,
@@ -2567,7 +2567,7 @@ INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], [schema_name], [l
                                 avg_page_lock_wait_in_ms, total_index_lock_promotion_attempt_count, 
                                 total_index_lock_promotion_count, data_compression_desc, 
 								page_latch_wait_count, page_latch_wait_in_ms, page_io_latch_wait_count, page_io_latch_wait_in_ms)
-        SELECT  index_sanity_id, ipp.database_id, ipp.schema_name, ipp.lock_escalation_desc,						
+        SELECT  index_issue_id, ipp.database_id, ipp.schema_name, ipp.lock_escalation_desc,						
 				COUNT(*), SUM(row_count), SUM(reserved_MB),
 				SUM(reserved_LOB_MB) - SUM(reserved_dictionary_MB), /* Subtract columnstore dictionaries from LOB data */
                 SUM(reserved_row_overflow_MB), 
@@ -2608,8 +2608,8 @@ INSERT    #IndexSanitySize ( [index_sanity_id], [database_id], [schema_name], [l
             ORDER BY ipp2.partition_number
             FOR      XML PATH(''),TYPE).value('.', 'nvarchar(max)'), 1, 1, '')) 
                 data_compression_info(data_compression_rollup)
-        GROUP BY index_sanity_id, ipp.database_id, ipp.schema_name, ipp.lock_escalation_desc
-        ORDER BY index_sanity_id 
+        GROUP BY index_issue_id, ipp.database_id, ipp.schema_name, ipp.lock_escalation_desc
+        ORDER BY index_issue_id 
 OPTION    ( RECOMPILE );
 
 RAISERROR (N'Determining index usefulness',0,1) WITH NOWAIT;
@@ -2620,16 +2620,16 @@ SET is_low = CASE WHEN (user_seeks + user_scans) < 5000
 				  ELSE 0 
 			  END;
 
-RAISERROR (N'Updating #IndexSanity.referenced_by_foreign_key',0,1) WITH NOWAIT;
-UPDATE #IndexSanity
+RAISERROR (N'Updating #IndexIssues.referenced_by_foreign_key',0,1) WITH NOWAIT;
+UPDATE #IndexIssues
     SET is_referenced_by_foreign_key=1
-FROM #IndexSanity s
+FROM #IndexIssues s
 JOIN #ForeignKeys fk ON 
     s.object_id=fk.referenced_object_id
     AND s.database_id=fk.database_id
     AND LEFT(s.key_column_names,LEN(fk.referenced_fk_columns)) = fk.referenced_fk_columns;
 
-RAISERROR (N'Update index_secret on #IndexSanity for NC indexes.',0,1) WITH NOWAIT;
+RAISERROR (N'Update index_secret on #IndexIssues for NC indexes.',0,1) WITH NOWAIT;
 UPDATE nc 
 SET secret_columns=
     N'[' + 
@@ -2645,26 +2645,26 @@ SET secret_columns=
         tb.count_key_columns +
             CASE tb.is_unique WHEN 0 THEN 1 ELSE 0 END
     END
-FROM #IndexSanity AS nc
-JOIN #IndexSanity AS tb ON nc.object_id=tb.object_id
+FROM #IndexIssues AS nc
+JOIN #IndexIssues AS tb ON nc.object_id=tb.object_id
 	AND nc.database_id = tb.database_id
 	AND nc.schema_name = tb.schema_name
     AND tb.index_id IN (0,1) 
 WHERE nc.index_id > 1;
 
-RAISERROR (N'Update index_secret on #IndexSanity for heaps and non-unique clustered.',0,1) WITH NOWAIT;
+RAISERROR (N'Update index_secret on #IndexIssues for heaps and non-unique clustered.',0,1) WITH NOWAIT;
 UPDATE tb
 SET secret_columns=    CASE tb.index_id WHEN 0 THEN '[RID]' ELSE '[UNIQUIFIER]' END
     , count_secret_columns = 1
-FROM #IndexSanity AS tb
+FROM #IndexIssues AS tb
 WHERE tb.index_id = 0 /*Heaps-- these have the RID */
     OR (tb.index_id=1 AND tb.is_unique=0); /* Non-unique CX: has uniquifer (when needed) */
 
 
 RAISERROR (N'Populate #IndexCreateTsql.',0,1) WITH NOWAIT;
-INSERT #IndexCreateTsql (index_sanity_id, create_tsql)
+INSERT #IndexCreateTsql (index_issue_id, create_tsql)
 SELECT
-    index_sanity_id,
+    index_issue_id,
     ISNULL (
     CASE index_id WHEN 0 THEN N'ALTER TABLE ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name])  + ' REBUILD;'
     ELSE 
@@ -2720,17 +2720,17 @@ SELECT
             END /*End non-spatial and non-xml CASE */ 
     END, '[Unknown Error]')
         AS create_tsql
-FROM #IndexSanity;
+FROM #IndexIssues;
 	  
 RAISERROR (N'Populate #PartitionCompressionInfo.',0,1) WITH NOWAIT;
 IF OBJECT_ID('tempdb..#maps') IS NOT NULL DROP TABLE #maps;
 WITH maps
     AS
      (
-         SELECT ips.index_sanity_id,
+         SELECT ips.index_issue_id,
                 ips.partition_number,
                 ips.data_compression_desc,
-                ips.partition_number - ROW_NUMBER() OVER ( PARTITION BY ips.index_sanity_id, ips.data_compression_desc
+                ips.partition_number - ROW_NUMBER() OVER ( PARTITION BY ips.index_issue_id, ips.data_compression_desc
                                                            ORDER BY ips.partition_number ) AS rn
          FROM   #IndexPartitionSanity AS ips
      )
@@ -2744,18 +2744,18 @@ WITH grps
      (
          SELECT   MIN(maps.partition_number) AS MinKey,
                   MAX(maps.partition_number) AS MaxKey,
-                  maps.index_sanity_id,
+                  maps.index_issue_id,
                   maps.data_compression_desc
          FROM     #maps AS maps
-         GROUP BY maps.rn, maps.index_sanity_id, maps.data_compression_desc
+         GROUP BY maps.rn, maps.index_issue_id, maps.data_compression_desc
      )
 SELECT *
 INTO   #grps
 FROM   grps;
 
-INSERT #PartitionCompressionInfo ( index_sanity_id, partition_compression_detail )
+INSERT #PartitionCompressionInfo ( index_issue_id, partition_compression_detail )
 SELECT DISTINCT
-       grps.index_sanity_id,
+       grps.index_issue_id,
        SUBSTRING(
            ( STUFF(
                  (   SELECT   N', ' + N' Partition'
@@ -2768,7 +2768,7 @@ SELECT DISTINCT
                                      N' ' + CAST(grps2.MinKey AS NVARCHAR(10)) + N' uses ' + grps2.data_compression_desc
                                 END AS Partitions
                      FROM     #grps AS grps2
-                     WHERE    grps2.index_sanity_id = grps.index_sanity_id
+                     WHERE    grps2.index_issue_id = grps.index_issue_id
                      ORDER BY grps2.MinKey, grps2.MaxKey
                      FOR XML PATH(''), TYPE ).value('.', 'NVARCHAR(MAX)'), 1, 1, '')), 0, 8000) AS partition_compression_detail
 FROM   #grps AS grps;
@@ -2776,21 +2776,21 @@ FROM   #grps AS grps;
 RAISERROR (N'Update #PartitionCompressionInfo.',0,1) WITH NOWAIT;
 UPDATE sz
 SET sz.data_compression_desc = pci.partition_compression_detail
-FROM #IndexSanitySize sz
+FROM #IndexIssuesSize sz
 JOIN #PartitionCompressionInfo AS pci
-ON pci.index_sanity_id = sz.index_sanity_id;
+ON pci.index_issue_id = sz.index_issue_id;
 
-RAISERROR (N'Update #IndexSanity for filtered indexes with columns not in the index definition.',0,1) WITH NOWAIT;
-UPDATE    #IndexSanity
+RAISERROR (N'Update #IndexIssues for filtered indexes with columns not in the index definition.',0,1) WITH NOWAIT;
+UPDATE    #IndexIssues
 SET        filter_columns_not_in_index = D1.filter_columns_not_in_index
-FROM    #IndexSanity si
+FROM    #IndexIssues si
         CROSS APPLY ( SELECT  RTRIM(STUFF( (SELECT  N', ' + c.column_name AS col_definition
                             FROM    #FilteredIndexes AS c
                             WHERE    c.database_id= si.database_id
 									AND c.schema_name = si.schema_name
                                     AND c.table_name = si.object_name
                                     AND c.index_name = si.index_name   
-                                    ORDER BY c.index_sanity_id
+                                    ORDER BY c.index_issue_id
                     FOR      XML PATH('') , TYPE).value('.', 'nvarchar(max)'), 1, 1,''))) D1 
                                 ( filter_columns_not_in_index );
 
@@ -2798,9 +2798,9 @@ FROM    #IndexSanity si
 IF @Debug = 1
 BEGIN
     SELECT '#BlitzIndexResults' AS table_name, * FROM  #BlitzIndexResults AS bir;
-    SELECT '#IndexSanity' AS table_name, * FROM  #IndexSanity;
+    SELECT '#IndexIssues' AS table_name, * FROM  #IndexIssues;
     SELECT '#IndexPartitionSanity' AS table_name, * FROM  #IndexPartitionSanity;
-    SELECT '#IndexSanitySize' AS table_name, * FROM  #IndexSanitySize;
+    SELECT '#IndexIssuesSize' AS table_name, * FROM  #IndexIssuesSize;
     SELECT '#IndexColumns' AS table_name, * FROM  #IndexColumns;
     SELECT '#MissingIndexes' AS table_name, * FROM  #MissingIndexes;
     SELECT '#ForeignKeys' AS table_name, * FROM  #ForeignKeys;
@@ -2876,13 +2876,13 @@ BEGIN
                 ELSE N''
             END AS drop_tsql,
             1 AS display_order
-        FROM #IndexSanity s
-        LEFT JOIN #IndexSanitySize sz ON 
-            s.index_sanity_id=sz.index_sanity_id
+        FROM #IndexIssues s
+        LEFT JOIN #IndexIssuesSize sz ON 
+            s.index_issue_id=sz.index_issue_id
         LEFT JOIN #IndexCreateTsql ct ON 
-            s.index_sanity_id=ct.index_sanity_id
+            s.index_issue_id=ct.index_issue_id
 		LEFT JOIN #PartitionCompressionInfo pci ON 
-			pci.index_sanity_id = s.index_sanity_id
+			pci.index_issue_id = s.index_issue_id
         WHERE s.[object_id]=@ObjectID
         UNION ALL
         SELECT  N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121) +             
@@ -2929,7 +2929,7 @@ BEGIN
 							   i.schema_name,
 							   i.[object_id], 
 							   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, SYSDATETIME())), 0), 1) AS create_days
-						FROM #IndexSanity AS i
+						FROM #IndexIssues AS i
 						GROUP BY i.database_id, i.schema_name, i.object_id
 						)
         SELECT  N'Missing index.' AS Finding ,
@@ -3327,15 +3327,15 @@ BEGIN
         RAISERROR('check_id 1: Duplicate keys', 0,1) WITH NOWAIT;
             WITH    duplicate_indexes
                       AS ( SELECT  [object_id], key_column_names, database_id, [schema_name]
-                           FROM        #IndexSanity AS ip
+                           FROM        #IndexIssues AS ip
                            WHERE  index_type IN (1,2) /* Clustered, NC only*/
                                 AND is_hypothetical = 0
                                 AND is_disabled = 0
 								AND is_primary_key = 0
 								AND EXISTS (
 											SELECT 1/0
-											FROM #IndexSanitySize ips 
-											WHERE ip.index_sanity_id = ips.index_sanity_id 
+											FROM #IndexIssuesSize ips 
+											WHERE ip.index_issue_id = ips.index_issue_id 
 								            AND ip.database_id = ips.database_id
 											AND ip.schema_name = ips.schema_name
 								            AND ips.total_reserved_MB >= CASE 
@@ -3346,10 +3346,10 @@ BEGIN
 								            )
                            GROUP BY    [object_id], key_column_names, database_id, [schema_name]
                            HAVING    COUNT(*) > 1)
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  1 AS check_id, 
-                                ip.index_sanity_id,
+                                ip.index_issue_id,
                                 20 AS Priority,
                                 'Multiple Index Personalities' AS findings_group,
                                 'Duplicate keys' AS finding,
@@ -3361,11 +3361,11 @@ BEGIN
                                 ip.index_usage_summary,
                                 ips.index_size_summary
                         FROM    duplicate_indexes di
-                                JOIN #IndexSanity ip ON di.[object_id] = ip.[object_id]
+                                JOIN #IndexIssues ip ON di.[object_id] = ip.[object_id]
                                                          AND ip.database_id = di.database_id
 														 AND ip.[schema_name] = di.[schema_name]
                                                          AND di.key_column_names = ip.key_column_names
-                                JOIN #IndexSanitySize ips ON ip.index_sanity_id = ips.index_sanity_id 
+                                JOIN #IndexIssuesSize ips ON ip.index_issue_id = ips.index_issue_id 
 								                          AND ip.database_id = ips.database_id
 														  AND ip.schema_name = ips.schema_name
                         /* WHERE clause limits to only @ThresholdMB or larger duplicate indexes when getting all databases or using PainRelief mode */
@@ -3378,15 +3378,15 @@ BEGIN
             WITH    borderline_duplicate_indexes
                       AS ( SELECT DISTINCT database_id, [object_id], first_key_column_name, key_column_names,
                                     COUNT([object_id]) OVER ( PARTITION BY database_id, [object_id], first_key_column_name ) AS number_dupes
-                           FROM        #IndexSanity
+                           FROM        #IndexIssues
                            WHERE index_type IN (1,2) /* Clustered, NC only*/
                             AND is_hypothetical=0
                             AND is_disabled=0
 							AND is_primary_key = 0)
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  2 AS check_id, 
-                                ip.index_sanity_id,
+                                ip.index_issue_id,
                                 30 AS Priority,
                                 'Multiple Index Personalities' AS findings_group,
                                 'Borderline duplicate keys' AS finding,
@@ -3397,8 +3397,8 @@ BEGIN
                                 ip.secret_columns,
                                 ip.index_usage_summary,
                                 ips.index_size_summary
-                        FROM    #IndexSanity AS ip 
-                        JOIN #IndexSanitySize ips ON ip.index_sanity_id = ips.index_sanity_id
+                        FROM    #IndexIssues AS ip 
+                        JOIN #IndexIssuesSize ips ON ip.index_issue_id = ips.index_issue_id
                         WHERE EXISTS (
                             SELECT di.[object_id]
                             FROM borderline_duplicate_indexes AS di
@@ -3417,19 +3417,19 @@ BEGIN
         ----------------------------------------
 
         RAISERROR(N'check_id 11: Total lock wait time > 5 minutes (row + page)', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                 SELECT  11 AS check_id, 
-                        i.index_sanity_id,
+                        i.index_issue_id,
                         70 AS Priority,
                         N'Aggressive ' 
                             + CASE COALESCE((SELECT SUM(1) 
-							                 FROM #IndexSanity iMe 
-											 INNER JOIN #IndexSanity iOthers 
+							                 FROM #IndexIssues iMe 
+											 INNER JOIN #IndexIssues iOthers 
 												ON iMe.database_id = iOthers.database_id 
 												AND iMe.object_id = iOthers.object_id 
 												AND iOthers.index_id > 1 
-											 WHERE i.index_sanity_id = iMe.index_sanity_id
+											 WHERE i.index_issue_id = iMe.index_issue_id
 												AND iOthers.is_hypothetical = 0
 												AND iOthers.is_disabled = 0
 											), 0)
@@ -3451,12 +3451,12 @@ BEGIN
                         (i.db_schema_object_indexid + N': ' +
                             sz.index_lock_wait_summary + N' NC indexes on table: ') COLLATE DATABASE_DEFAULT +
 							 CAST(COALESCE((SELECT SUM(1) 
-							                FROM #IndexSanity iMe 
-											INNER JOIN #IndexSanity iOthers 
+							                FROM #IndexIssues iMe 
+											INNER JOIN #IndexIssues iOthers 
 												ON iMe.database_id = iOthers.database_id 
 												AND iMe.object_id = iOthers.object_id 
 												AND iOthers.index_id > 1 
-											WHERE i.index_sanity_id = iMe.index_sanity_id
+											WHERE i.index_issue_id = iMe.index_issue_id
 											AND iOthers.is_hypothetical = 0
 											AND iOthers.is_disabled = 0
 										   ), 0)
@@ -3465,10 +3465,10 @@ BEGIN
                         i.secret_columns,
                         i.index_usage_summary,
                         sz.index_size_summary
-                FROM    #IndexSanity AS i
-                JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
+                FROM    #IndexIssues AS i
+                JOIN #IndexIssuesSize AS sz ON i.index_issue_id = sz.index_issue_id
                 WHERE    (total_row_lock_wait_in_ms + total_page_lock_wait_in_ms) > 300000
-				GROUP BY i.index_sanity_id, [database_name], i.db_schema_object_indexid, sz.index_lock_wait_summary, i.index_definition, i.secret_columns, i.index_usage_summary, sz.index_size_summary, sz.index_sanity_id
+				GROUP BY i.index_issue_id, [database_name], i.db_schema_object_indexid, sz.index_lock_wait_summary, i.index_definition, i.secret_columns, i.index_usage_summary, sz.index_size_summary, sz.index_issue_id
                 ORDER BY SUM(total_row_lock_wait_in_ms + total_page_lock_wait_in_ms) DESC, 4, [database_name], 8
                 OPTION    ( RECOMPILE );
 
@@ -3478,10 +3478,10 @@ BEGIN
         --Index Hoarder: Check_id 20-29
         ----------------------------------------
             RAISERROR(N'check_id 20: >= 10 NC indexes on any given table. Yes, 10 is an arbitrary number.', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  20 AS check_id, 
-                                MAX(i.index_sanity_id) AS index_sanity_id, 
+                                MAX(i.index_issue_id) AS index_issue_id, 
                                 10 AS Priority,
                                 'Index Hoarder' AS findings_group,
                                 'Many NC Indexes on a Single Table' AS finding,
@@ -3499,8 +3499,8 @@ BEGIN
                                         N'; ' + CAST(CAST(SUM(total_reserved_MB) AS NUMERIC(29,1)) AS NVARCHAR(30)) + 'MB (ALL)'
                                     ELSE ''
                                     END AS index_size_summary
-                        FROM    #IndexSanity i
-                        JOIN #IndexSanitySize ip ON i.index_sanity_id = ip.index_sanity_id
+                        FROM    #IndexIssues i
+                        JOIN #IndexIssuesSize ip ON i.index_issue_id = ip.index_issue_id
                         WHERE    index_id NOT IN ( 0, 1 )
                         GROUP BY db_schema_object_name, [i].[database_name]
                         HAVING    COUNT(*) >= 10
@@ -3508,10 +3508,10 @@ BEGIN
 						OPTION    ( RECOMPILE );
 
                 RAISERROR(N'check_id 22: NC indexes with 0 reads. (Borderline) and >= 10,000 writes', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  22 AS check_id, 
-                                i.index_sanity_id,
+                                i.index_issue_id,
                                 10 AS Priority,
                                 N'Index Hoarder' AS findings_group,
                                 N'Unused NC Index with High Writes' AS finding, 
@@ -3527,8 +3527,8 @@ BEGIN
                                 i.secret_columns, 
                                 i.index_usage_summary,
                                 sz.index_size_summary
-                        FROM    #IndexSanity AS i
-                        JOIN    #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
+                        FROM    #IndexIssues AS i
+                        JOIN    #IndexIssuesSize AS sz ON i.index_issue_id = sz.index_issue_id
                         WHERE    i.total_reads=0
 						    AND i.user_updates >= 10000
                                 AND i.index_id NOT IN (0,1) /*NCs only*/
@@ -3541,10 +3541,10 @@ BEGIN
 
 		RAISERROR(N'check_id 34: Filtered index definition columns not in index definition', 0,1) WITH NOWAIT;
                  
-                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                 INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  34 AS check_id, 
-                                i.index_sanity_id,
+                                i.index_issue_id,
                                 80 AS Priority,
                                 N'Abnormal Psychology' AS findings_group,
                                 N'Filter Columns Not In Index Definition' AS finding, 
@@ -3564,8 +3564,8 @@ BEGIN
                                 i.secret_columns, 
                                 i.index_usage_summary,
                                 sz.index_size_summary
-                        FROM    #IndexSanity i
-                        JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                        FROM    #IndexIssues i
+                        JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
                         WHERE   i.filter_columns_not_in_index IS NOT NULL
                         ORDER BY i.db_schema_object_indexid
                         OPTION    ( RECOMPILE );
@@ -3575,10 +3575,10 @@ BEGIN
         ----------------------------------------
         
             RAISERROR(N'check_id 40: Fillfactor in nonclustered 80 percent or less', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  40 AS check_id, 
-                            i.index_sanity_id,
+                            i.index_issue_id,
                             100 AS Priority,
                             N'Self Loathing Indexes' AS findings_group,
                             N'Low Fill Factor on Nonclustered Index' AS finding, 
@@ -3596,16 +3596,16 @@ BEGIN
                             i.secret_columns,
                             i.index_usage_summary,
                             sz.index_size_summary
-                    FROM    #IndexSanity AS i
-                    JOIN    #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
+                    FROM    #IndexIssues AS i
+                    JOIN    #IndexIssuesSize AS sz ON i.index_issue_id = sz.index_issue_id
                     WHERE    index_id > 1
                     AND    fill_factor BETWEEN 1 AND 80 OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 40: Fillfactor in clustered 80 percent or less', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  40 AS check_id, 
-                            i.index_sanity_id,
+                            i.index_issue_id,
                             100 AS Priority,
                             N'Self Loathing Indexes' AS findings_group,
                             N'Low Fill Factor on Clustered Index' AS finding, 
@@ -3623,8 +3623,8 @@ BEGIN
                             i.secret_columns,
                             i.index_usage_summary,
                             sz.index_size_summary
-                    FROM    #IndexSanity AS i
-                    JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
+                    FROM    #IndexIssues AS i
+                    JOIN #IndexIssuesSize AS sz ON i.index_issue_id = sz.index_issue_id
                     WHERE    index_id = 1
                     AND fill_factor BETWEEN 1 AND 80 OPTION    ( RECOMPILE );
 
@@ -3641,10 +3641,10 @@ BEGIN
 								       [database_id],
 								       [schema_name]
                            HAVING    SUM(forwarded_fetch_count) > 0)
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  43 AS check_id, 
-                                i.index_sanity_id,
+                                i.index_issue_id,
                                 100 AS Priority,
                                 N'Self Loathing Indexes' AS findings_group,
                                 N'Heaps with Forwarded Fetches' AS finding, 
@@ -3661,11 +3661,11 @@ BEGIN
                                 i.secret_columns,
                                 i.index_usage_summary,
                                 sz.index_size_summary
-                        FROM    #IndexSanity i
+                        FROM    #IndexIssues i
                         JOIN heaps_cte h ON i.[object_id] = h.[object_id] 
 							 AND i.[database_id] = h.[database_id]
 							 AND i.[schema_name] = h.[schema_name]
-                        JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                        JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
                         WHERE    i.index_id = 0 
                         AND h.forwarded_fetch_count / @DaysUptime > 1000
                         AND sz.total_reserved_MB >= CASE WHEN NOT (@GetAllDatabases = 1 OR @Mode = 4) THEN @ThresholdMB ELSE sz.total_reserved_MB END
@@ -3684,10 +3684,10 @@ BEGIN
 								     [schema_name]
                            HAVING    SUM(forwarded_fetch_count) > 0
                                     OR SUM(leaf_delete_count) > 0)
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  44 AS check_id, 
-                                i.index_sanity_id,
+                                i.index_issue_id,
                                 100 AS Priority,
                                 N'Self Loathing Indexes' AS findings_group,
                                 N'Large Active Heap' AS finding, 
@@ -3698,11 +3698,11 @@ BEGIN
                                 'N/A' AS secret_columns,
                                 i.index_usage_summary,
                                 sz.index_size_summary
-                        FROM    #IndexSanity i
+                        FROM    #IndexIssues i
                         LEFT JOIN heaps_cte h ON i.[object_id] = h.[object_id] 
 								AND i.[database_id] = h.[database_id]
 								AND i.[schema_name] = h.[schema_name]
-                        JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                        JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
                         WHERE    i.index_id = 0 
                                 AND (i.total_reads > 0 OR i.user_updates > 0)
 								AND sz.total_rows >= 100000
@@ -3722,10 +3722,10 @@ BEGIN
 								     [schema_name]
                            HAVING    SUM(forwarded_fetch_count) > 0
                                     OR SUM(leaf_delete_count) > 0)
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  45 AS check_id, 
-                                i.index_sanity_id,
+                                i.index_issue_id,
                                 100 AS Priority,
                                 N'Self Loathing Indexes' AS findings_group,
                                 N'Medium Active heap' AS finding, 
@@ -3736,11 +3736,11 @@ BEGIN
                                 'N/A' AS secret_columns,
                                 i.index_usage_summary,
                                 sz.index_size_summary
-                        FROM    #IndexSanity i
+                        FROM    #IndexIssues i
                         LEFT JOIN heaps_cte h ON i.[object_id] = h.[object_id] 
 								AND i.[database_id] = h.[database_id]
 								AND i.[schema_name] = h.[schema_name]
-                        JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                        JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
                         WHERE    i.index_id = 0 
                                 AND 
                                     (i.total_reads > 0 OR i.user_updates > 0)
@@ -3761,10 +3761,10 @@ BEGIN
 								     [schema_name]
                            HAVING    SUM(forwarded_fetch_count) > 0
                                     OR SUM(leaf_delete_count) > 0)
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  46 AS check_id, 
-                                i.index_sanity_id,
+                                i.index_issue_id,
                                 100 AS Priority,
                                 N'Self Loathing Indexes' AS findings_group,
                                 N'Small Active heap' AS finding, 
@@ -3775,11 +3775,11 @@ BEGIN
                                 'N/A' AS secret_columns,
                                 i.index_usage_summary,
                                 sz.index_size_summary
-                        FROM    #IndexSanity i
+                        FROM    #IndexIssues i
                         LEFT JOIN heaps_cte h ON i.[object_id] = h.[object_id] 
 								AND i.[database_id] = h.[database_id]
 								AND i.[schema_name] = h.[schema_name]
-                        JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                        JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
                         WHERE    i.index_id = 0 
                                 AND 
                                     (i.total_reads > 0 OR i.user_updates > 0)
@@ -3788,10 +3788,10 @@ BEGIN
 						OPTION    ( RECOMPILE );
 
 				            RAISERROR(N'check_id 47: Heap with a Nonclustered Primary Key', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  47 AS check_id, 
-                                i.index_sanity_id,
+                                i.index_issue_id,
                                 100 AS Priority,
                                 N'Self Loathing Indexes' AS findings_group,
                                 N'Heap with a Nonclustered Primary Key' AS finding, 
@@ -3802,13 +3802,13 @@ BEGIN
                                 i.secret_columns,
                                 i.index_usage_summary,
                                 sz.index_size_summary
-                        FROM    #IndexSanity i
-                        JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                        FROM    #IndexIssues i
+                        JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
                         WHERE    i.index_type = 2 AND i.is_primary_key = 1
                         AND EXISTS 
                             (
                               SELECT 1/0 
-                              FROM #IndexSanity AS isa
+                              FROM #IndexIssues AS isa
                               WHERE i.database_id = isa.database_id
                               AND   i.object_id = isa.object_id
                               AND   isa.index_id = 0
@@ -3816,10 +3816,10 @@ BEGIN
 						OPTION    ( RECOMPILE );
 
 	            RAISERROR(N'check_id 48: Nonclustered indexes with a bad read to write ratio', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  48 AS check_id, 
-                                i.index_sanity_id,
+                                i.index_issue_id,
                                 100 AS Priority,
                                 N'Index Hoarder' AS findings_group,
                                 N'NC index with High Writes:Reads' AS finding, 
@@ -3835,8 +3835,8 @@ BEGIN
                                 i.secret_columns, 
                                 i.index_usage_summary,
                                 sz.index_size_summary
-                        FROM    #IndexSanity i
-                        JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                        FROM    #IndexIssues i
+                        JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
                         WHERE    i.total_reads > 0 /*Not totally unused*/
 								AND i.user_updates >= 10000 /*Decent write activity*/
 								AND i.total_reads < 10000
@@ -3856,7 +3856,7 @@ BEGIN
                       AS ( SELECT   i.database_id,
 									i.schema_name,
 									i.[object_id], 
-                                    MAX(i.index_sanity_id) AS index_sanity_id,
+                                    MAX(i.index_issue_id) AS index_issue_id,
 									ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, SYSDATETIME())), 0), 1) AS create_days,
                                 ISNULL (
                                     CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN 1 ELSE 0 END)
@@ -3873,21 +3873,21 @@ BEGIN
                                         END +
                                     + N' Estimated Rows;' 
                                 ,N'') AS index_size_summary
-                            FROM    #IndexSanity AS i
-                            LEFT    JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id  AND i.database_id = sz.database_id
+                            FROM    #IndexIssues AS i
+                            LEFT    JOIN #IndexIssuesSize AS sz ON i.index_issue_id = sz.index_issue_id  AND i.database_id = sz.database_id
 							WHERE i.is_hypothetical = 0
                                   AND i.is_disabled = 0
                            GROUP BY    i.database_id, i.schema_name, i.[object_id])
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                index_usage_summary, index_size_summary, create_tsql, more_info, sample_query_plan )
                         
-                        SELECT check_id, t.index_sanity_id, t.check_id, t.findings_group, t.finding, t.[Database Name], t.URL, t.details, t.[definition],
+                        SELECT check_id, t.index_issue_id, t.check_id, t.findings_group, t.finding, t.[Database Name], t.URL, t.details, t.[definition],
                                 index_estimated_impact, t.index_size_summary, create_tsql, more_info, sample_query_plan
                         FROM
                         (
                             SELECT  ROW_NUMBER() OVER (ORDER BY magic_benefit_number DESC) AS rownum,
                                 50 AS check_id, 
-                                sz.index_sanity_id,
+                                sz.index_issue_id,
                                 40 AS Priority,
                                 N'Indexaphobia' AS findings_group,
                                 N'High Value Missing Index' AS finding, 
@@ -3929,10 +3929,10 @@ BEGIN
                 --smallint -32,768 to 32,768
                 --tinyint 0 to 255
 
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  68 AS check_id, 
-                                i.index_sanity_id, 
+                                i.index_issue_id, 
                                 80 AS Priority,
                                 N'Abnormal Psychology' AS findings_group,
                                 N'Identity Column Within ' +                                     
@@ -3958,7 +3958,7 @@ BEGIN
                                 secret_columns, 
                                 ISNULL(i.index_usage_summary,''),
                                 ISNULL(ip.index_size_summary,'')
-                        FROM    #IndexSanity i
+                        FROM    #IndexIssues i
                         JOIN    #IndexColumns ic ON
                             i.object_id=ic.object_id
 							AND i.database_id = ic.database_id
@@ -3966,7 +3966,7 @@ BEGIN
                             AND i.index_id IN (0,1) /* heaps and cx only */
                             AND ic.is_identity=1
                             AND ic.system_type_name IN ('tinyint', 'smallint', 'int')
-                        JOIN    #IndexSanitySize ip ON i.index_sanity_id = ip.index_sanity_id
+                        JOIN    #IndexIssuesSize ip ON i.index_issue_id = ip.index_issue_id
                         CROSS APPLY (
                             SELECT CAST(CASE WHEN ic.increment_value >= 0
                                     THEN
@@ -3991,13 +3991,13 @@ BEGIN
 
 
 		RAISERROR(N'check_id 72: Columnstore indexes with Trace Flag 834', 0,1) WITH NOWAIT;
-            IF EXISTS (SELECT * FROM #IndexSanity WHERE index_type IN (5,6))
+            IF EXISTS (SELECT * FROM #IndexIssues WHERE index_type IN (5,6))
 			AND EXISTS (SELECT * FROM #TraceStatus WHERE TraceFlag = 834 AND status = 1)
 			BEGIN
-			INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+			INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                             secret_columns, index_usage_summary, index_size_summary )
                 SELECT  72 AS check_id, 
-                        i.index_sanity_id,
+                        i.index_issue_id,
                         80 AS Priority,
                         N'Abnormal Psychology' AS findings_group,
                         'Columnstore Indexes with Trace Flag 834' AS finding, 
@@ -4008,8 +4008,8 @@ BEGIN
                         i.secret_columns,
                         i.index_usage_summary,
                         ISNULL(sz.index_size_summary,'') AS index_size_summary
-                FROM    #IndexSanity AS i
-                JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                FROM    #IndexIssues AS i
+                JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
                 WHERE i.index_type IN (5,6)
                 OPTION    ( RECOMPILE );
 			END;
@@ -4150,8 +4150,8 @@ BEGIN
 																THEN sz.total_reserved_MB
                                                                 ELSE 0
                                                             END) 
-            FROM    #IndexSanity i
-            JOIN    #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+            FROM    #IndexIssues i
+            JOIN    #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
             WHERE    index_id NOT IN ( 0, 1 ) 
                     AND i.is_unique = 0
 					/*Skipping tables created in the last week, or modified in past 2 days*/
@@ -4159,10 +4159,10 @@ BEGIN
 					AND i.modify_date > DATEADD(dd,-2,GETDATE()) 
             OPTION    ( RECOMPILE );
             IF @percent_NC_indexes_unused >= 5 
-            INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+            INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                             secret_columns, index_usage_summary, index_size_summary )
                         SELECT  21 AS check_id, 
-                                MAX(i.index_sanity_id) AS index_sanity_id, 
+                                MAX(i.index_issue_id) AS index_issue_id, 
                                 150 AS Priority,
                                 N'Index Hoarder' AS findings_group,
                                 N'More Than 5 Percent NC Indexes Are Unused' AS finding,
@@ -4182,8 +4182,8 @@ BEGIN
                                         N'; ' + CAST(CAST(SUM(total_reserved_MB) AS NUMERIC(29,1)) AS NVARCHAR(30)) + 'MB (ALL)'
                                     ELSE ''
                                     END AS index_size_summary
-                        FROM    #IndexSanity i
-                        JOIN    #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                        FROM    #IndexIssues i
+                        JOIN    #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
                         WHERE    index_id NOT IN ( 0, 1 )
                                 AND i.is_unique = 0
                                 AND total_reads = 0
@@ -4194,10 +4194,10 @@ BEGIN
                 OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 23: Indexes with 7 or more columns. (Borderline)', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  23 AS check_id, 
-                            i.index_sanity_id,
+                            i.index_issue_id,
                             150 AS Priority, 
                             N'Index Hoarder' AS findings_group,
                             N'Borderline: Wide Indexes (7 or More Columns)' AS finding, 
@@ -4208,8 +4208,8 @@ BEGIN
                             i.secret_columns, 
                             i.index_usage_summary,
                             sz.index_size_summary
-                    FROM    #IndexSanity AS i
-                    JOIN    #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
+                    FROM    #IndexIssues AS i
+                    JOIN    #IndexIssuesSize AS sz ON i.index_issue_id = sz.index_issue_id
                     WHERE    ( count_key_columns + count_included_columns ) >= 7
                     OPTION    ( RECOMPILE );
 
@@ -4222,10 +4222,10 @@ BEGIN
                             AND key_ordinal > 0
                             GROUP BY database_id, object_id
                             )
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  24 AS check_id, 
-                                i.index_sanity_id, 
+                                i.index_issue_id, 
                                 150 AS Priority,
                                 N'Index Hoarder' AS findings_group,
                                 N'Wide Clustered Index (> 3 columns OR > 16 bytes)' AS finding,
@@ -4236,7 +4236,7 @@ BEGIN
                                     + N' bytes in clustered index:' + i.db_schema_object_name 
                                     + N'. ' + 
                                         (SELECT CAST(COUNT(*) AS NVARCHAR(23)) 
-										 FROM #IndexSanity i2 
+										 FROM #IndexIssues i2 
                                          WHERE i2.[object_id]=i.[object_id] 
 										 AND i2.database_id = i.database_id 
 										 AND i2.index_id <> 1
@@ -4248,8 +4248,8 @@ BEGIN
                                 secret_columns, 
                                 i.index_usage_summary,
                                 ip.index_size_summary
-                        FROM    #IndexSanity i
-                        JOIN    #IndexSanitySize ip ON i.index_sanity_id = ip.index_sanity_id
+                        FROM    #IndexIssues i
+                        JOIN    #IndexIssuesSize ip ON i.index_issue_id = ip.index_issue_id
                         JOIN    count_columns AS cc ON i.[object_id]=cc.[object_id]
                                                    AND i.database_id = cc.database_id
                         WHERE    index_id = 1 /* clustered only */
@@ -4272,10 +4272,10 @@ BEGIN
 								     [database_id],
 								     [schema_name]
                             )
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  25 AS check_id, 
-                                i.index_sanity_id, 
+                                i.index_issue_id, 
                                 200 AS Priority,
                                 N'Index Hoarder' AS findings_group,
                                 N'Addicted to Nulls' AS finding,
@@ -4289,8 +4289,8 @@ BEGIN
                                 secret_columns, 
                                 ISNULL(i.index_usage_summary,''),
                                 ISNULL(ip.index_size_summary,'')
-                        FROM    #IndexSanity i
-                        JOIN    #IndexSanitySize ip ON i.index_sanity_id = ip.index_sanity_id
+                        FROM    #IndexIssues i
+                        JOIN    #IndexIssuesSize ip ON i.index_issue_id = ip.index_issue_id
                         JOIN    count_columns AS cc ON i.[object_id]=cc.[object_id]
 								AND cc.database_id = ip.database_id
 								AND cc.[schema_name] = ip.[schema_name]
@@ -4313,10 +4313,10 @@ BEGIN
 								     [database_id],
 								     [schema_name]
                             )
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  26 AS check_id, 
-                                i.index_sanity_id, 
+                                i.index_issue_id, 
                                 150 AS Priority,
                                 N'Index Hoarder' AS findings_group,
                                 N'Wide Tables: 35+ cols or > 2000 non-LOB bytes' AS finding,
@@ -4334,8 +4334,8 @@ BEGIN
                                 secret_columns, 
                                 ISNULL(i.index_usage_summary,''),
                                 ISNULL(ip.index_size_summary,'')
-                        FROM    #IndexSanity i
-                        JOIN    #IndexSanitySize ip ON i.index_sanity_id = ip.index_sanity_id
+                        FROM    #IndexIssues i
+                        JOIN    #IndexIssuesSize ip ON i.index_issue_id = ip.index_issue_id
                         JOIN    count_columns AS cc ON i.[object_id]=cc.[object_id]
 								AND cc.database_id = i.database_id
 								AND cc.[schema_name] = i.[schema_name]
@@ -4358,10 +4358,10 @@ BEGIN
 								     [database_id],
 								     [schema_name]
                             )
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  27 AS check_id, 
-                                i.index_sanity_id, 
+                                i.index_issue_id, 
                                 200 AS Priority,
                                 N'Index Hoarder' AS findings_group,
                                 N'Addicted to strings' AS finding,
@@ -4375,8 +4375,8 @@ BEGIN
                                 secret_columns, 
                                 ISNULL(i.index_usage_summary,''),
                                 ISNULL(ip.index_size_summary,'')
-                        FROM    #IndexSanity i
-                        JOIN    #IndexSanitySize ip ON i.index_sanity_id = ip.index_sanity_id
+                        FROM    #IndexIssues i
+                        JOIN    #IndexIssuesSize ip ON i.index_issue_id = ip.index_issue_id
                         JOIN    count_columns AS cc ON i.[object_id]=cc.[object_id]
 								AND cc.database_id = i.database_id
 								AND cc.[schema_name] = i.[schema_name]
@@ -4387,10 +4387,10 @@ BEGIN
                         ORDER BY i.db_schema_object_name DESC OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 28: Non-unique clustered index.', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  28 AS check_id, 
-                                i.index_sanity_id, 
+                                i.index_issue_id, 
                                 150 AS Priority,
                                 N'Index Hoarder' AS findings_group,
                                 N'Non-Unique Clustered Index' AS finding,
@@ -4399,7 +4399,7 @@ BEGIN
                                 N'Uniquifiers will be required! Clustered index: ' + i.db_schema_object_name 
                                     + N' and all NC indexes. ' + 
                                         (SELECT CAST(COUNT(*) AS NVARCHAR(23)) 
-										 FROM #IndexSanity i2 
+										 FROM #IndexIssues i2 
                                          WHERE i2.[object_id]=i.[object_id] 
 										 AND i2.database_id = i.database_id 
 										 AND i2.index_id <> 1
@@ -4411,18 +4411,18 @@ BEGIN
                                 secret_columns, 
                                 i.index_usage_summary,
                                 ip.index_size_summary
-                        FROM    #IndexSanity i
-                        JOIN    #IndexSanitySize ip ON i.index_sanity_id = ip.index_sanity_id
+                        FROM    #IndexIssues i
+                        JOIN    #IndexIssuesSize ip ON i.index_issue_id = ip.index_issue_id
                         WHERE    index_id = 1 /* clustered only */
                                 AND is_unique=0 /* not unique */
                                 AND is_CX_columnstore=0 /* not a clustered columnstore-- no unique option on those */
                         ORDER BY i.db_schema_object_name DESC OPTION    ( RECOMPILE );
 
         RAISERROR(N'check_id 29: NC indexes with 0 reads. (Borderline) and < 10,000 writes', 0,1) WITH NOWAIT;
-        INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+        INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                         secret_columns, index_usage_summary, index_size_summary )
                 SELECT  29 AS check_id, 
-                        i.index_sanity_id,
+                        i.index_issue_id,
                         150 AS Priority,
                         N'Index Hoarder' AS findings_group,
                         N'Unused NC index with Low Writes' AS finding, 
@@ -4433,8 +4433,8 @@ BEGIN
                         i.secret_columns, 
                         i.index_usage_summary,
                         sz.index_size_summary
-                FROM    #IndexSanity AS i
-                JOIN    #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
+                FROM    #IndexIssues AS i
+                JOIN    #IndexIssuesSize AS sz ON i.index_issue_id = sz.index_issue_id
                 WHERE    i.total_reads=0
 						AND i.user_updates < 10000
                         AND i.index_id NOT IN (0,1) /*NCs only*/
@@ -4459,16 +4459,16 @@ BEGIN
 					SUM(CASE WHEN count_included_columns > 0 THEN 1 ELSE 0 END) AS number_indexes_with_includes,
 					100.* SUM(CASE WHEN count_included_columns > 0 THEN 1 ELSE 0 END) / ( 1.0 * COUNT(*) ) AS percent_indexes_with_includes
 			INTO #index_includes
-            FROM    #IndexSanity
+            FROM    #IndexIssues
 			WHERE is_hypothetical = 0
 			AND is_disabled = 0
 			AND NOT (@GetAllDatabases = 1 OR @Mode = 0)
 			GROUP BY database_name;
 
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  30 AS check_id, 
-                                NULL AS index_sanity_id, 
+                                NULL AS index_issue_id, 
                                 250 AS Priority,
                                 N'Feature-Phobic Indexes' AS findings_group,
 								database_name AS [Database Name],
@@ -4483,10 +4483,10 @@ BEGIN
 						OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 31: < 3 percent of indexes have includes', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
 					SELECT  31 AS check_id,
-					        NULL AS index_sanity_id, 
+					        NULL AS index_issue_id, 
 					        250 AS Priority,
 					        N'Feature-Phobic Indexes' AS findings_group,
 					        N'Few Indexes Use Includes' AS findings,
@@ -4503,11 +4503,11 @@ BEGIN
 
             RAISERROR(N'check_id 32: filtered indexes and indexed views', 0,1) WITH NOWAIT;
 
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
 					SELECT  DISTINCT
 							32 AS check_id, 
-					        NULL AS index_sanity_id,
+					        NULL AS index_issue_id,
 					        250 AS Priority,
 					        N'Feature-Phobic Indexes' AS findings_group,
 					        N'No Filtered Indexes or Indexed Views' AS finding, 
@@ -4518,22 +4518,22 @@ BEGIN
 					        N'' AS secret_columns,
 					        N'N/A' AS index_usage_summary, 
 					        N'N/A' AS index_size_summary 
-					FROM #IndexSanity i
+					FROM #IndexIssues i
 					WHERE i.database_name NOT IN (                
 							SELECT   database_name
-							FROM     #IndexSanity
+							FROM     #IndexIssues
 							WHERE    filter_definition <> '' )
 					AND i.database_name NOT IN (
 					       SELECT  database_name
-						   FROM    #IndexSanity
+						   FROM    #IndexIssues
 						   WHERE   is_indexed_view = 1 )
 					OPTION    ( RECOMPILE );
 
         RAISERROR(N'check_id 33: Potential filtered indexes based on column names.', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
 					SELECT  33 AS check_id, 
-					        i.index_sanity_id AS index_sanity_id,
+					        i.index_issue_id AS index_issue_id,
 					        250 AS Priority,
 					        N'Feature-Phobic Indexes' AS findings_group,
 					        N'Potential Filtered Index (Based on Column Name)' AS finding, 
@@ -4545,12 +4545,12 @@ BEGIN
 					        i.index_usage_summary, 
 					        sz.index_size_summary
 					FROM #IndexColumns ic 
-					JOIN #IndexSanity i ON ic.[object_id]=i.[object_id] 
+					JOIN #IndexIssues i ON ic.[object_id]=i.[object_id] 
 						AND ic.database_id =i.database_id
 						AND ic.schema_name = i.schema_name
 						AND ic.[index_id]=i.[index_id] 
 						AND i.[index_id] > 1 /* non-clustered index */
-					JOIN    #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
+					JOIN    #IndexIssuesSize AS sz ON i.index_issue_id = sz.index_issue_id
 					WHERE (column_name LIKE 'is%'
 					    OR column_name LIKE '%archive%'
 					    OR column_name LIKE '%active%'
@@ -4558,10 +4558,10 @@ BEGIN
 					OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 41: Hypothetical indexes ', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  41 AS check_id, 
-                            i.index_sanity_id,
+                            i.index_issue_id,
                             150 AS Priority,
                             N'Self Loathing Indexes' AS findings_group,
                             N'Hypothetical Index' AS finding,
@@ -4572,17 +4572,17 @@ BEGIN
                             i.secret_columns,
                             N'' AS index_usage_summary, 
                             N'' AS index_size_summary
-                    FROM    #IndexSanity AS i
+                    FROM    #IndexIssues AS i
                     WHERE    is_hypothetical = 1 
                     OPTION    ( RECOMPILE );
 
 
             RAISERROR(N'check_id 42: Disabled indexes', 0,1) WITH NOWAIT;
-            --Note: disabled NC indexes will have O rows in #IndexSanitySize!
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+            --Note: disabled NC indexes will have O rows in #IndexIssuesSize!
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  42 AS check_id, 
-                            index_sanity_id,
+                            index_issue_id,
                             150 AS Priority,
                             N'Self Loathing Indexes' AS findings_group,
                             N'Disabled Index' AS finding, 
@@ -4593,7 +4593,7 @@ BEGIN
                             i.secret_columns,
                             i.index_usage_summary,
                             'DISABLED' AS index_size_summary
-                    FROM    #IndexSanity AS i
+                    FROM    #IndexIssues AS i
                     WHERE    is_disabled = 1
                     OPTION    ( RECOMPILE );
 
@@ -4609,10 +4609,10 @@ BEGIN
 								       [schema_name]
                            HAVING    SUM(forwarded_fetch_count) < 1000 * @DaysUptime /* Only alert about indexes with no forwarded fetches - we already alerted about those in check_id 43 */
                                     AND SUM(leaf_delete_count) > 0)
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  49 AS check_id, 
-                                i.index_sanity_id,
+                                i.index_issue_id,
                                 200 AS Priority,
                                 N'Self Loathing Indexes' AS findings_group,
                                 N'Heaps with Deletes' AS finding, 
@@ -4624,11 +4624,11 @@ BEGIN
                                 i.secret_columns,
                                 i.index_usage_summary,
                                 sz.index_size_summary
-                        FROM    #IndexSanity i
+                        FROM    #IndexIssues i
                         JOIN heaps_cte h ON i.[object_id] = h.[object_id] 
 							 AND i.[database_id] = h.[database_id]
 							 AND i.[schema_name] = h.[schema_name]
-                        JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                        JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
                         WHERE    i.index_id = 0 
                         AND sz.total_reserved_MB >= CASE WHEN NOT (@GetAllDatabases = 1 OR @Mode = 4) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                 OPTION    ( RECOMPILE );
@@ -4637,10 +4637,10 @@ BEGIN
         --Abnormal Psychology : Check_id 60-79
         ----------------------------------------
             RAISERROR(N'check_id 60: XML indexes', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  60 AS check_id, 
-                            i.index_sanity_id,
+                            i.index_issue_id,
                             150 AS Priority,
                             N'Abnormal Psychology' AS findings_group,
                             N'XML Index' AS finding, 
@@ -4651,16 +4651,16 @@ BEGIN
                             i.secret_columns,
                             N'' AS index_usage_summary,
                             ISNULL(sz.index_size_summary,'') AS index_size_summary
-                    FROM    #IndexSanity AS i
-                    JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                    FROM    #IndexIssues AS i
+                    JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
                     WHERE i.is_XML = 1 
 					OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 61: Columnstore indexes', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  61 AS check_id, 
-                            i.index_sanity_id,
+                            i.index_issue_id,
                             150 AS Priority,
                             N'Abnormal Psychology' AS findings_group,
                             CASE WHEN i.is_NC_columnstore=1
@@ -4674,17 +4674,17 @@ BEGIN
                             i.secret_columns,
                             i.index_usage_summary,
                             ISNULL(sz.index_size_summary,'') AS index_size_summary
-                    FROM    #IndexSanity AS i
-                    JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                    FROM    #IndexIssues AS i
+                    JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
                     WHERE i.is_NC_columnstore = 1 OR i.is_CX_columnstore=1
                     OPTION    ( RECOMPILE );
 
 
             RAISERROR(N'check_id 62: Spatial indexes', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  62 AS check_id, 
-                            i.index_sanity_id,
+                            i.index_issue_id,
                             150 AS Priority,
                             N'Abnormal Psychology' AS findings_group,
                             N'Spatial Index' AS finding,
@@ -4695,16 +4695,16 @@ BEGIN
                             i.secret_columns,
                             i.index_usage_summary,
                             ISNULL(sz.index_size_summary,'') AS index_size_summary
-                    FROM    #IndexSanity AS i
-                    JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                    FROM    #IndexIssues AS i
+                    JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
                     WHERE i.is_spatial = 1 
 					OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 63: Compressed indexes', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  63 AS check_id, 
-                            i.index_sanity_id,
+                            i.index_issue_id,
                             150 AS Priority,
                             N'Abnormal Psychology' AS findings_group,
                             N'Compressed Index' AS finding,
@@ -4715,16 +4715,16 @@ BEGIN
                             i.secret_columns,
                             i.index_usage_summary,
                             ISNULL(sz.index_size_summary,'') AS index_size_summary
-                    FROM    #IndexSanity AS i
-                    JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                    FROM    #IndexIssues AS i
+                    JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
                     WHERE sz.data_compression_desc LIKE '%PAGE%' OR sz.data_compression_desc LIKE '%ROW%' 
 					OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 64: Partitioned', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  64 AS check_id, 
-                            i.index_sanity_id,
+                            i.index_issue_id,
                             150 AS Priority,
                             N'Abnormal Psychology' AS findings_group,
                             N'Partitioned Index' AS finding,
@@ -4735,16 +4735,16 @@ BEGIN
                             i.secret_columns,
                             i.index_usage_summary,
                             ISNULL(sz.index_size_summary,'') AS index_size_summary
-                    FROM    #IndexSanity AS i
-                    JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                    FROM    #IndexIssues AS i
+                    JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
                     WHERE i.partition_key_column_name IS NOT NULL 
 					OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 65: Non-Aligned Partitioned', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  65 AS check_id, 
-                            i.index_sanity_id,
+                            i.index_issue_id,
                             150 AS Priority,
                             N'Abnormal Psychology' AS findings_group,
                             N'Non-Aligned Index on a Partitioned Table' AS finding,
@@ -4755,22 +4755,22 @@ BEGIN
                             i.secret_columns,
                             i.index_usage_summary,
                             ISNULL(sz.index_size_summary,'') AS index_size_summary
-                    FROM    #IndexSanity AS i
-                    JOIN #IndexSanity AS iParent ON
+                    FROM    #IndexIssues AS i
+                    JOIN #IndexIssues AS iParent ON
                         i.[object_id]=iParent.[object_id]
 						AND i.database_id = iParent.database_id
 						AND i.schema_name = iParent.schema_name
                         AND iParent.index_id IN (0,1) /* could be a partitioned heap or clustered table */
                         AND iParent.partition_key_column_name IS NOT NULL /* parent is partitioned*/         
-                    JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                    JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
                     WHERE i.partition_key_column_name IS NULL 
                     OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 66: Recently created tables/indexes (1 week)', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  66 AS check_id, 
-                            i.index_sanity_id,
+                            i.index_issue_id,
                             200 AS Priority,
                             N'Abnormal Psychology' AS findings_group,
                             N'Recently Created Tables/Indexes (1 week)' AS finding,
@@ -4784,16 +4784,16 @@ BEGIN
                             i.secret_columns,
                             i.index_usage_summary,
                             ISNULL(sz.index_size_summary,'') AS index_size_summary
-                    FROM    #IndexSanity AS i
-                    JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                    FROM    #IndexIssues AS i
+                    JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
                     WHERE i.create_date >= DATEADD(dd,-7,GETDATE()) 
                     OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 67: Recently modified tables/indexes (2 days)', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  67 AS check_id, 
-                            i.index_sanity_id,
+                            i.index_issue_id,
                             200 AS Priority,
                             N'Abnormal Psychology' AS findings_group,
                             N'Recently Modified Tables/Indexes (2 days)' AS finding,
@@ -4807,8 +4807,8 @@ BEGIN
                             i.secret_columns,
                             i.index_usage_summary,
                             ISNULL(sz.index_size_summary,'') AS index_size_summary
-                    FROM    #IndexSanity AS i
-                    JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                    FROM    #IndexIssues AS i
+                    JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
                     WHERE i.modify_date > DATEADD(dd,-2,GETDATE()) 
                     AND /*Exclude recently created tables.*/
                     i.create_date < DATEADD(dd,-7,GETDATE()) 
@@ -4827,10 +4827,10 @@ BEGIN
 								     database_id,
 								     schema_name
                             )
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  69 AS check_id, 
-                                i.index_sanity_id, 
+                                i.index_issue_id, 
                                 150 AS Priority,
                                 N'Abnormal Psychology' AS findings_group,
                                 N'Column Collation Does Not Match Database Collation' AS finding,
@@ -4845,8 +4845,8 @@ BEGIN
                                 secret_columns, 
                                 ISNULL(i.index_usage_summary,''),
                                 ISNULL(ip.index_size_summary,'')
-                        FROM    #IndexSanity i
-                        JOIN    #IndexSanitySize ip ON i.index_sanity_id = ip.index_sanity_id
+                        FROM    #IndexIssues i
+                        JOIN    #IndexIssuesSize ip ON i.index_issue_id = ip.index_issue_id
                         JOIN    count_columns AS cc ON i.[object_id]=cc.[object_id]
 								AND cc.database_id = i.database_id
 								AND cc.schema_name = i.schema_name
@@ -4866,10 +4866,10 @@ BEGIN
 								     database_id,
 								     schema_name
                             )
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  70 AS check_id, 
-                                i.index_sanity_id,
+                                i.index_issue_id,
                                 200 AS Priority, 
                                 N'Abnormal Psychology' AS findings_group,
                                 N'Replicated Columns' AS finding,
@@ -4885,8 +4885,8 @@ BEGIN
                                 secret_columns, 
                                 ISNULL(i.index_usage_summary,''),
                                 ISNULL(ip.index_size_summary,'')
-                        FROM    #IndexSanity i
-                        JOIN    #IndexSanitySize ip ON i.index_sanity_id = ip.index_sanity_id
+                        FROM    #IndexIssues i
+                        JOIN    #IndexIssuesSize ip ON i.index_issue_id = ip.index_issue_id
                         JOIN    count_columns AS cc ON i.[object_id]=cc.[object_id]
 								AND i.database_id = cc.database_id
 								AND i.schema_name = cc.schema_name
@@ -4896,10 +4896,10 @@ BEGIN
 						OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 71: Cascading updates or cascading deletes.', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary, more_info )
             SELECT  71 AS check_id, 
-                    NULL AS index_sanity_id,
+                    NULL AS index_issue_id,
                     150 AS Priority,
                     N'Abnormal Psychology' AS findings_group,
                     N'Cascading Updates or Deletes' AS finding, 
@@ -4916,7 +4916,7 @@ BEGIN
                     N'N/A' AS secret_columns,
                     N'N/A' AS index_usage_summary,
                     N'N/A' AS index_size_summary,
-                    (SELECT TOP 1 more_info FROM #IndexSanity i WHERE i.object_id=fk.parent_object_id AND i.database_id = fk.database_id AND i.schema_name = fk.schema_name)
+                    (SELECT TOP 1 more_info FROM #IndexIssues i WHERE i.object_id=fk.parent_object_id AND i.database_id = fk.database_id AND i.schema_name = fk.schema_name)
                         AS more_info
             FROM #ForeignKeys fk
             WHERE ([delete_referential_action_desc] <> N'NO_ACTION'
@@ -4924,10 +4924,10 @@ BEGIN
 			OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 72: Unindexed foreign keys.', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary, more_info )
             SELECT  72 AS check_id, 
-                    NULL AS index_sanity_id,
+                    NULL AS index_issue_id,
                     150 AS Priority,
                     N'Abnormal Psychology' AS findings_group,
                     N'Unindexed Foreign Keys' AS finding, 
@@ -4941,17 +4941,17 @@ BEGIN
                     N'N/A' AS secret_columns,
                     N'N/A' AS index_usage_summary,
                     N'N/A' AS index_size_summary,
-                    (SELECT TOP 1 more_info FROM #IndexSanity i WHERE i.object_id=fk.parent_object_id AND i.database_id = fk.database_id AND i.schema_name = fk.schema_name)
+                    (SELECT TOP 1 more_info FROM #IndexIssues i WHERE i.object_id=fk.parent_object_id AND i.database_id = fk.database_id AND i.schema_name = fk.schema_name)
                         AS more_info
             FROM #UnindexedForeignKeys AS fk
 			OPTION    ( RECOMPILE );
 
 
             RAISERROR(N'check_id 73: In-Memory OLTP', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                     SELECT  73 AS check_id, 
-                            i.index_sanity_id,
+                            i.index_issue_id,
                             150 AS Priority,
                             N'Abnormal Psychology' AS findings_group,
                             N'In-Memory OLTP' AS finding,
@@ -4962,16 +4962,16 @@ BEGIN
                             i.secret_columns,
                             i.index_usage_summary,
                             ISNULL(sz.index_size_summary,'') AS index_size_summary
-                    FROM    #IndexSanity AS i
-                    JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                    FROM    #IndexIssues AS i
+                    JOIN #IndexIssuesSize sz ON i.index_issue_id = sz.index_issue_id
                     WHERE i.is_in_memory_oltp = 1
 					OPTION    ( RECOMPILE );
 
         RAISERROR(N'check_id 74: Identity column with unusual seed', 0,1) WITH NOWAIT;
-            INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+            INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                             secret_columns, index_usage_summary, index_size_summary )
                     SELECT  74 AS check_id, 
-                            i.index_sanity_id, 
+                            i.index_issue_id, 
                             200 AS Priority,
                             N'Abnormal Psychology' AS findings_group,
                             N'Identity Column Using a Negative Seed or Increment Other Than 1' AS finding,
@@ -4995,7 +4995,7 @@ BEGIN
                             secret_columns, 
                             ISNULL(i.index_usage_summary,''),
                             ISNULL(ip.index_size_summary,'')
-                    FROM    #IndexSanity i
+                    FROM    #IndexIssues i
                     JOIN    #IndexColumns ic ON
                         i.object_id=ic.object_id
 						AND i.database_id = ic.database_id
@@ -5003,7 +5003,7 @@ BEGIN
                         AND i.index_id IN (0,1) /* heaps and cx only */
                         AND ic.is_identity=1
                         AND ic.system_type_name IN ('tinyint', 'smallint', 'int')
-                    JOIN    #IndexSanitySize ip ON i.index_sanity_id = ip.index_sanity_id
+                    JOIN    #IndexIssuesSize ip ON i.index_issue_id = ip.index_issue_id
                     WHERE    i.index_id IN (1,0)
                         AND (ic.seed_value < 0 OR ic.increment_value <> 1)
                     ORDER BY finding, details DESC 
@@ -5014,7 +5014,7 @@ BEGIN
         ----------------------------------------
 
         RAISERROR(N'check_id 80: Most scanned indexes (index_usage_stats)', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
 
         --Workaholics according to index_usage_stats
@@ -5023,7 +5023,7 @@ BEGIN
         --in the case of things like indexed views, the operator might be in the plan but never executed
         SELECT TOP 5 
             80 AS check_id,
-            i.index_sanity_id AS index_sanity_id,
+            i.index_issue_id AS index_issue_id,
             200 AS Priority,
             N'Workaholics' AS findings_group,
             N'Scan-a-lots (index-usage-stats)' AS finding,
@@ -5037,21 +5037,21 @@ BEGIN
             ISNULL(i.secret_columns,'') AS secret_columns,
             i.index_usage_summary AS index_usage_summary,
             iss.index_size_summary AS index_size_summary
-        FROM #IndexSanity i
-        JOIN #IndexSanitySize iss ON i.index_sanity_id=iss.index_sanity_id
+        FROM #IndexIssues i
+        JOIN #IndexIssuesSize iss ON i.index_issue_id=iss.index_issue_id
         WHERE ISNULL(i.user_scans,0) > 0
         ORDER BY  i.user_scans * iss.total_reserved_MB DESC
 		OPTION    ( RECOMPILE );
 
         RAISERROR(N'check_id 81: Top recent accesses (op stats)', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                INSERT    #BlitzIndexResults ( check_id, index_issue_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
         --Workaholics according to index_operational_stats
         --This isn't perfect either: range_scan_count contains full scans, partial scans, even seeks in nested loop ops
         --But this can help bubble up some most-accessed tables 
         SELECT TOP 5 
             81 AS check_id,
-            i.index_sanity_id AS index_sanity_id,
+            i.index_issue_id AS index_issue_id,
             200 AS Priority,
             N'Workaholics' AS findings_group,
             N'Top Recent Accesses (index-op-stats)' AS finding,
@@ -5068,8 +5068,8 @@ BEGIN
             ISNULL(i.secret_columns,'') AS secret_columns,
             i.index_usage_summary AS index_usage_summary,
             iss.index_size_summary AS index_size_summary
-        FROM #IndexSanity i
-        JOIN #IndexSanitySize iss ON i.index_sanity_id=iss.index_sanity_id
+        FROM #IndexIssues i
+        JOIN #IndexIssuesSize iss ON i.index_issue_id=iss.index_issue_id
         WHERE (ISNULL(iss.total_range_scan_count,0)  > 0 OR ISNULL(iss.total_singleton_lookup_count,0) > 0)
         ORDER BY ((iss.total_range_scan_count + iss.total_singleton_lookup_count) * iss.total_reserved_MB) DESC
 		OPTION    ( RECOMPILE );
@@ -5150,7 +5150,7 @@ BEGIN
 				'N/A' AS secret_columns,
 				'N/A' AS index_usage_summary,
 				'N/A' AS index_size_summary
-		FROM #IndexSanity AS i
+		FROM #IndexIssues AS i
 		WHERE i.optimize_for_sequential_key = 1
 		OPTION    ( RECOMPILE );
 
@@ -5331,10 +5331,10 @@ BEGIN
 						COALESCE(br.create_tsql,ts.create_tsql,'''') AS [Create TSQL],
 						br.sample_query_plan AS [Sample Query Plan]
 					FROM #BlitzIndexResults br
-					LEFT JOIN #IndexSanity sn ON 
-						br.index_sanity_id=sn.index_sanity_id
+					LEFT JOIN #IndexIssues sn ON 
+						br.index_issue_id=sn.index_issue_id
 					LEFT JOIN #IndexCreateTsql ts ON 
-						br.index_sanity_id=ts.index_sanity_id
+						br.index_issue_id=ts.index_issue_id
 					ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
 					OPTION (RECOMPILE);';
 	
@@ -5366,10 +5366,10 @@ BEGIN
 						COALESCE(br.create_tsql,ts.create_tsql,'') AS [Create TSQL],
 						br.sample_query_plan AS [Sample Query Plan]
 					FROM #BlitzIndexResults br
-					LEFT JOIN #IndexSanity sn ON 
-						br.index_sanity_id=sn.index_sanity_id
+					LEFT JOIN #IndexIssues sn ON 
+						br.index_issue_id=sn.index_issue_id
 					LEFT JOIN #IndexCreateTsql ts ON 
-						br.index_sanity_id=ts.index_sanity_id
+						br.index_issue_id=ts.index_issue_id
 					ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
 					OPTION (RECOMPILE);
 				 END;
@@ -5550,10 +5550,10 @@ BEGIN
 								MAX(create_date) AS [Most Recent Create Date],
 								MAX(modify_date) AS [Most Recent Modify Date],
 								1 AS [Display Order]
-							FROM #IndexSanity AS i
+							FROM #IndexIssues AS i
 							--left join here so we don''t lose disabled nc indexes
-							LEFT JOIN #IndexSanitySize AS sz 
-								ON i.index_sanity_id=sz.index_sanity_id
+							LEFT JOIN #IndexIssuesSize AS sz 
+								ON i.index_issue_id=sz.index_issue_id
 							GROUP BY DB_NAME(i.database_id)
 							ORDER BY [Display Order] ASC
 							OPTION (RECOMPILE);';
@@ -5616,10 +5616,10 @@ BEGIN
 				MAX(create_date) AS [Most Recent Create Date],
 				MAX(modify_date) AS [Most Recent Modify Date],
 				1 AS [Display Order]
-			FROM #IndexSanity AS i
+			FROM #IndexIssues AS i
 			--left join here so we don't lose disabled nc indexes
-			LEFT JOIN #IndexSanitySize AS sz 
-				ON i.index_sanity_id=sz.index_sanity_id
+			LEFT JOIN #IndexIssuesSize AS sz 
+				ON i.index_issue_id=sz.index_issue_id
 			GROUP BY DB_NAME(i.database_id)	 
 			UNION ALL
 			SELECT  CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121) END,        
@@ -5926,9 +5926,9 @@ BEGIN
 										i.modify_date AS [Modify Date],
 										more_info AS [More Info],
 										1 AS [Display Order]
-									FROM #IndexSanity AS i
-									LEFT JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
-                                    LEFT JOIN #IndexCreateTsql AS ict  ON i.index_sanity_id = ict.index_sanity_id
+									FROM #IndexIssues AS i
+									LEFT JOIN #IndexIssuesSize AS sz ON i.index_issue_id = sz.index_issue_id
+                                    LEFT JOIN #IndexCreateTsql AS ict  ON i.index_issue_id = ict.index_issue_id
 									ORDER BY [Database Name], [Schema Name], [Object Name], [Index ID]
 									OPTION (RECOMPILE);';
 	
@@ -6036,9 +6036,9 @@ BEGIN
 						WHEN i.index_definition = '[HEAP]' THEN N''
 					    ELSE N'--' + ict.create_tsql END AS [Create TSQL], 
 					1 AS [Display Order]
-			FROM    #IndexSanity AS i --left join here so we don't lose disabled nc indexes
-					LEFT JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
-                    LEFT JOIN #IndexCreateTsql AS ict ON i.index_sanity_id = ict.index_sanity_id
+			FROM    #IndexIssues AS i --left join here so we don't lose disabled nc indexes
+					LEFT JOIN #IndexIssuesSize AS sz ON i.index_issue_id = sz.index_issue_id
+                    LEFT JOIN #IndexCreateTsql AS ict ON i.index_issue_id = ict.index_issue_id
 			ORDER BY    /* Shout out to DHutmacher */
 						/*DESC*/
 						CASE WHEN @SortOrder = N'rows' AND @SortDirection = N'desc' THEN sz.total_rows ELSE NULL END DESC,
@@ -6164,7 +6164,7 @@ BEGIN
 										   i.schema_name,
 										   i.[object_id], 
 										   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, SYSDATETIME())), 0), 1) AS create_days
-									FROM #IndexSanity AS i
+									FROM #IndexIssues AS i
 									GROUP BY i.database_id, i.schema_name, i.object_id
 									)
 						INSERT @@@OutputServerName@@@.@@@OutputDatabaseName@@@.@@@OutputSchemaName@@@.@@@OutputTableName@@@
@@ -6249,7 +6249,7 @@ BEGIN
 							   i.schema_name,
 							   i.[object_id], 
 							   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, SYSDATETIME())), 0), 1) AS create_days
-						FROM #IndexSanity AS i
+						FROM #IndexIssues AS i
 						GROUP BY i.database_id, i.schema_name, i.object_id
 						)
 			SELECT 
