@@ -468,7 +468,22 @@ IF @Help = 1
 	UNION ALL
 	SELECT N'@MinutesBack',
 			N'INT',
-			N'How many minutes back to begin plan cache analysis. If you put in a positive number, we''ll flip it to negative.';
+			N'How many minutes back to begin plan cache analysis. If you put in a positive number, we''ll flip it to negative.'
+
+	UNION ALL
+	SELECT N'@Version',
+			N'VARCHAR(30)',
+			N'OUTPUT parameter holding version number'
+	
+	UNION ALL
+	SELECT N'@VersionDate',
+			N'DATETIME',
+			N'OUTPUT parameter holding version date.'
+
+	UNION ALL
+	SELECT N'@VersionCheckMode',
+			N'BIT',
+			N'Setting this to 1 will make the procedure stop after setting @Version and @VersionDate.';
 
 
 	/* Column definitions */
