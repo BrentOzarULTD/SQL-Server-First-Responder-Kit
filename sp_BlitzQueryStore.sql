@@ -538,7 +538,7 @@ SELECT @compatibility_level = d.compatibility_level
 FROM sys.databases AS d
 WHERE d.name = @DatabaseName;
 
-RAISERROR('The @DatabaseName you specified ([%s])is running in compatibility level ([%d]).', 0, 1, @DatabaseName, @compatibility_level) WITH NOWAIT;
+RAISERROR('The @DatabaseName you specified ([%s]) is running in compatibility level ([%d]).', 0, 1, @DatabaseName, @compatibility_level) WITH NOWAIT;
 
 
 /*Making sure top is set to something if NULL*/
