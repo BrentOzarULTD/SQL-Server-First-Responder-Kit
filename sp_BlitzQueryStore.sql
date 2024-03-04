@@ -31,18 +31,18 @@ GO
 
 ALTER PROCEDURE dbo.sp_BlitzQueryStore
     @Help BIT = 0,
-    @DatabaseName NVARCHAR(128) = NULL ,
+    @DatabaseName NVARCHAR(128) = NULL,
     @Top INT = 3,
 	@StartDate DATETIME2 = NULL,
 	@EndDate DATETIME2 = NULL,
     @MinimumExecutionCount INT = NULL,
-    @DurationFilter DECIMAL(38,4) = NULL ,
+    @DurationFilter DECIMAL(38,4) = NULL,
     @StoredProcName NVARCHAR(128) = NULL,
 	@Failed BIT = 0,
 	@PlanIdFilter INT = NULL,
 	@QueryIdFilter INT = NULL,
     @ExportToExcel BIT = 0,
-    @HideSummary BIT = 0 ,
+    @HideSummary BIT = 0,
 	@SkipXML BIT = 0,
 	@Debug BIT = 0,
 	@ExpertMode BIT = 0,
@@ -65,28 +65,32 @@ END;
 
 
 DECLARE /*Variables for the variable Gods*/
-		@msg NVARCHAR(MAX) = N'', --Used to format RAISERROR messages in some places
-		@sql_select NVARCHAR(MAX) = N'', --Used to hold SELECT statements for dynamic SQL
-		@sql_where NVARCHAR(MAX) = N'', -- Used to hold WHERE clause for dynamic SQL
-		@duration_filter_ms DECIMAL(38,4) = (@DurationFilter * 1000.), --We accept Duration in seconds, but we filter in milliseconds (this is grandfathered from sp_BlitzCache)
-		@execution_threshold INT = 1000, --Threshold at which we consider a query to be frequently executed
-        @ctp_threshold_pct TINYINT = 10, --Percentage of CTFP at which we consider a query to be near parallel
-        @long_running_query_warning_seconds BIGINT = 300 * 1000 ,--Number of seconds (converted to milliseconds) at which a query is considered long running
-		@memory_grant_warning_percent INT = 10,--Percent of memory grant used compared to what's granted; used to trigger unused memory grant warning
-		@ctp INT,--Holds the CTFP value for the server
-		@min_memory_per_query INT,--Holds the server configuration value for min memory per query
-		@cr NVARCHAR(1) = NCHAR(13),--Special character
-		@lf NVARCHAR(1) = NCHAR(10),--Special character
-		@tab NVARCHAR(1) = NCHAR(9),--Special character
-		@error_severity INT,--Holds error info for try/catch blocks
-		@error_state INT,--Holds error info for try/catch blocks
-		@sp_params NVARCHAR(MAX) = N'@sp_Top INT, @sp_StartDate DATETIME2, @sp_EndDate DATETIME2, @sp_MinimumExecutionCount INT, @sp_MinDuration INT, @sp_StoredProcName NVARCHAR(128), @sp_PlanIdFilter INT, @sp_QueryIdFilter INT',--Holds parameters used in dynamic SQL
-		@is_azure_db BIT = 0, --Are we using Azure? I'm not. You might be. That's cool.
-		@compatibility_level TINYINT = 0, --Some functionality (T-SQL) isn't available in lower compat levels. We can use this to weed out those issues as we go.
+		@msg NVARCHAR(MAX) = N'', /*Used to format RAISERROR messages in some places*/
+		@sql_select NVARCHAR(MAX) = N'', /*Used to hold SELECT statements for dynamic SQL*/
+		@sql_where NVARCHAR(MAX) = N'', /*Used to hold WHERE clause for dynamic SQL*/
+		@duration_filter_ms DECIMAL(38,4) = (@DurationFilter * 1000.), /*We accept Duration in seconds, but we filter in milliseconds (this is grandfathered from sp_BlitzCache)*/
+		@execution_threshold INT = 1000, /*Threshold at which we consider a query to be frequently executed*/
+        @ctp_threshold_pct TINYINT = 10, /*Percentage of CTFP at which we consider a query to be near parallel*/
+        @long_running_query_warning_seconds BIGINT = 300 * 1000, /*Number of seconds (converted to milliseconds) at which a query is considered long running*/
+		@memory_grant_warning_percent INT = 10, /*Percent of memory grant used compared to what's granted; used to trigger unused memory grant warning*/
+		@ctp INT, /*Holds the CTFP value for the server*/
+		@min_memory_per_query INT, /*Holds the server configuration value for min memory per query*/
+		@cr NVARCHAR(1) = NCHAR(13), /*Special character*/
+		@lf NVARCHAR(1) = NCHAR(10), /*Special character*/
+		@tab NVARCHAR(1) = NCHAR(9), /*Special character*/
+		@error_severity INT, /*Holds error info for try/catch blocks*/
+		@error_state INT, /*Holds error info for try/catch blocks*/
+		@sp_params NVARCHAR(MAX) = N'@sp_Top INT, @sp_StartDate DATETIME2, @sp_EndDate DATETIME2, @sp_MinimumExecutionCount INT, @sp_MinDuration INT, @sp_StoredProcName NVARCHAR(128), @sp_PlanIdFilter INT, @sp_QueryIdFilter INT', /*Holds parameters used in dynamic SQL*/
+		@is_azure_db BIT = 0, /*Are we using Azure? I'm not. You might be. That's cool.*/
+		@compatibility_level TINYINT = 0, /*Some functionality (T-SQL) isn't available in lower compat levels. We can use this to weed out those issues as we go.*/
 		@log_size_mb DECIMAL(38,2) = 0,
-		@avg_tempdb_data_file DECIMAL(38,2) = 0;
+		@avg_tempdb_data_file DECIMAL(38,2) = 0,
+		@edition NVARCHAR(128), /*Used to check if we are on Azure or not*/
+		@major_version NVARCHAR(128), /*Used to see what checks we can do*/
+		@engine_edition INT, /*Used to check which Azure we are on*/
+		@current_database_compatibility_level INT; /*Used to check which Azure we are on*/
 
-/*Grabs CTFP setting*/
+/*Grabs cost threshold for parallelism setting*/
 SELECT  @ctp = NULLIF(CAST(value AS INT), 0)
 FROM    sys.configurations
 WHERE   name = N'cost threshold for parallelism'
@@ -98,10 +102,22 @@ FROM   sys.configurations AS c
 WHERE  c.name = N'min memory per query (KB)'
 OPTION (RECOMPILE);
 
+/*Assigns various repeated SERVERPROPERTY calls to variables*/
+SELECT
+	@edition = CONVERT(NVARCHAR(128), SERVERPROPERTY ('EDITION')),
+	@major_version = PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4),
+	@engine_edition = CONVERT(INT, SERVERPROPERTY ('ENGINEEDITION'));
+
+/*Grabs current database's compatibility level*/
+SELECT @current_database_compatibility_level = [compatibility_level]
+FROM sys.databases
+WHERE [name] = DB_NAME()
+OPTION (RECOMPILE);
+
 /*Check if this is Azure first*/
-IF (SELECT CONVERT(NVARCHAR(128), SERVERPROPERTY ('EDITION'))) <> 'SQL Azure'
+IF @edition <> 'SQL Azure'
     BEGIN 
-        /*Grabs log size for datbase*/
+        /*Grabs log size for database*/
         SELECT @log_size_mb = AVG(((mf.size * 8) / 1024.))
         FROM sys.master_files AS mf
         WHERE mf.database_id = DB_ID(@DatabaseName)
@@ -243,12 +259,22 @@ IF @Help = 1
 			N'0',
 			N'When set to 1, more checks are done. Examples: many to many merge joins, row goals, adaptive joins, stats info, bad scans and plan forcing, computed columns that reference scalar UDFs.'
 	UNION ALL
+	SELECT N'@Version',
+			N'VARCHAR(30)',
+			N'NULL',
+			N'OUTPUT parameter holding version number.'
+	UNION ALL
+	SELECT N'@VersionDate',
+			N'DATETIME',
+			N'NULL',
+			N'OUTPUT parameter holding version date.'
+	UNION ALL
 	SELECT N'@VersionCheckMode',
 			N'BIT',
 			N'0',
 			N'Outputs the version number and date.'
 
-		/* Column definitions */
+		/*Column definitions*/
 	SELECT 'database_name'                                            AS [Column Name],
 	       'NVARCHAR(258)'                                            AS [Data Type],
 	       'The name of the database where the plan was encountered.' AS [Column Description]
@@ -307,7 +333,7 @@ IF @Help = 1
 	UNION ALL
 	SELECT 'implicit_conversion_info',
 	       'XML',
-	       'Information about the implicit conversion warnings,if any, retrieved from the query plan.'
+	       'Information about the implicit conversion warnings, if any, retrieved from the query plan.'
 	UNION ALL
 	SELECT 'cached_execution_parameters',
 	       'XML',
@@ -323,7 +349,7 @@ IF @Help = 1
 	UNION ALL
 	SELECT 'total_cpu_time',
 	       'BIGINT',
-	       'Total CPU time, reported in milliseconds, that was consumed by all executions of this query.'
+	       'Total CPU time, reported in milliseconds, consumed by all executions of this query.'
 	UNION ALL
 	SELECT 'avg_cpu_time ',
 	       'BIGINT',
@@ -416,13 +442,13 @@ IF @Help = 1
 
 END;
 
-/*Making sure your version is copasetic*/
-IF  ( (SELECT CONVERT(NVARCHAR(128), SERVERPROPERTY ('EDITION'))) = 'SQL Azure' )
+/*Making sure your version is copacetic*/
+IF  ( @edition = 'SQL Azure' )
 	BEGIN
 		SET @is_azure_db = 1;
 
-		IF	(	(SELECT SERVERPROPERTY ('ENGINEEDITION')) NOT IN (5,8)
-			OR	(SELECT [compatibility_level] FROM sys.databases WHERE [name] = DB_NAME()) < 130 
+		IF	(	@engine_edition NOT IN (5,8)
+			OR	@current_database_compatibility_level < 130 
 			)
 		BEGIN
 			SELECT @msg = N'Sorry, sp_BlitzQueryStore doesn''t work on Azure Data Warehouse, or Azure Databases with DB compatibility < 130.' + REPLICATE(CHAR(13), 7933);
@@ -430,7 +456,7 @@ IF  ( (SELECT CONVERT(NVARCHAR(128), SERVERPROPERTY ('EDITION'))) = 'SQL Azure' 
 			RETURN;
 		END;
 	END;
-ELSE IF  ( (SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4) ) < 13 )
+ELSE IF  ( @major_version < 13 )
 	BEGIN
 		SELECT @msg = N'Sorry, sp_BlitzQueryStore doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933);
 		PRINT @msg;
@@ -454,7 +480,7 @@ IF  (	SELECT COUNT(*)
 /*Making sure your databases are using QDS.*/
 RAISERROR('Checking database validity', 0, 1) WITH NOWAIT;
 
-IF (@is_azure_db = 1 AND SERVERPROPERTY ('ENGINEEDITION') <> 8)
+IF (@is_azure_db = 1 AND @engine_edition <> 8)
 	SET @DatabaseName = DB_NAME();
 ELSE
 BEGIN	
@@ -521,9 +547,7 @@ IF ( @Top IS NULL )
        SET @Top = 3;
    END;
 
-/*
-This section determines if you have the Query Store wait stats DMV
-*/
+/*This section determines if you have the Query Store wait stats DMV*/
 
 RAISERROR('Checking for query_store_wait_stats', 0, 1) WITH NOWAIT;
 
@@ -537,14 +561,12 @@ EXEC sys.sp_executesql @ws_sql, @ws_params, @i_out = @ws_out OUTPUT;
 SELECT @waitstats = CASE @ws_out WHEN 0 THEN 0 ELSE 1 END;
 
 SET @msg = N'Wait stats DMV ' + CASE @waitstats 
-									WHEN 0 THEN N' does not exist, skipping.'
-									WHEN 1 THEN N' exists, will analyze.'
+									WHEN 0 THEN N'does not exist, skipping.'
+									WHEN 1 THEN N'exists, will analyze.'
 							   END;
 RAISERROR(@msg, 0, 1) WITH NOWAIT;
 
-/*
-This section determines if you have some additional columns present in 2017, in case they get back ported.
-*/
+/*This section determines if you have some additional columns present in 2017+, in case they get back ported.*/
 
 RAISERROR('Checking for new columns in query_store_runtime_stats', 0, 1) WITH NOWAIT;
 
@@ -574,14 +596,12 @@ EXEC sys.sp_executesql @nc_sql, @ws_params, @i_out = @nc_out OUTPUT;
 SELECT @new_columns = CASE @nc_out WHEN 12 THEN 1 ELSE 0 END;
 
 SET @msg = N'New query_store_runtime_stats columns ' + CASE @new_columns 
-									WHEN 0 THEN N' do not exist, skipping.'
-									WHEN 1 THEN N' exist, will analyze.'
+									WHEN 0 THEN N'do not exist, skipping.'
+									WHEN 1 THEN N'exist, will analyze.'
 							   END;
 RAISERROR(@msg, 0, 1) WITH NOWAIT;
 
-/*
-This section determines if Parameter Sensitive Plan Optimization is enabled on SQL Server 2022+.
-*/
+/*This section determines if Parameter Sensitive Plan Optimization is enabled on SQL Server 2022+.*/
 
 RAISERROR('Checking for Parameter Sensitive Plan Optimization ', 0, 1) WITH NOWAIT;
 
@@ -597,19 +617,15 @@ EXEC sys.sp_executesql @pspo_sql, @pspo_params, @i_out = @pspo_out OUTPUT;
 SET @pspo_enabled = CASE WHEN @pspo_out = 1 THEN 1 ELSE 0 END;
 
 SET @msg = N'Parameter Sensitive Plan Optimization ' + CASE @pspo_enabled 
-									WHEN 0 THEN N' not enabled, skipping.'
-									WHEN 1 THEN N' enabled, will analyze.'
+									WHEN 0 THEN N'not enabled, skipping.'
+									WHEN 1 THEN N'enabled, will analyze.'
 							   END;
 RAISERROR(@msg, 0, 1) WITH NOWAIT;
  
-/*
-These are the temp tables we use
-*/
+/*These are the temp tables we use*/
 
 
-/*
-This one holds the grouped data that helps use figure out which periods to examine
-*/
+/*This one holds the grouped data that helps use figure out which periods to examine*/
 
 RAISERROR(N'Creating temp tables', 0, 1) WITH NOWAIT;
 
@@ -642,9 +658,7 @@ CREATE TABLE #grouped_interval
 );
 
 
-/*
-These are the plans we focus on based on what we find in the grouped intervals
-*/
+/*These are the plans we focus on based on what we find in the grouped intervals*/
 DROP TABLE IF EXISTS #working_plans;
 
 CREATE TABLE #working_plans
@@ -656,9 +670,7 @@ CREATE TABLE #working_plans
 );
 
 
-/*
-These are the gathered metrics we get from query store to generate some warnings and help you find your worst offenders
-*/
+/*These are the gathered metrics we get from query store to generate some warnings and help you find your worst offenders*/
 DROP TABLE IF EXISTS #working_metrics;
 
 CREATE TABLE #working_metrics 
@@ -727,7 +739,7 @@ CREATE TABLE #working_metrics
 	last_rowcount DECIMAL(38,2),
 	min_rowcount DECIMAL(38,2),
 	max_rowcount  DECIMAL(38,2),
-	/*These are 2017 only, AFAIK*/
+	/*These are 2017+ only, AFAIK*/
 	avg_num_physical_io_reads DECIMAL(38,2),
 	last_num_physical_io_reads DECIMAL(38,2),
 	min_num_physical_io_reads DECIMAL(38,2),
@@ -764,9 +776,7 @@ CREATE TABLE #working_metrics
 );
 
 
-/*
-This is where we store some additional metrics, along with the query plan and text
-*/
+/*This is where we store some additional metrics, along with the query plan and text*/
 DROP TABLE IF EXISTS #working_plan_text;
 
 CREATE TABLE #working_plan_text 
@@ -807,9 +817,7 @@ CREATE TABLE #working_plan_text
 ); 
 
 
-/*
-This is where we store warnings that we generate from the XML and metrics
-*/
+/*This is where we store warnings that we generate from the XML and metrics*/
 DROP TABLE IF EXISTS #working_warnings;
 
 CREATE TABLE #working_warnings 
@@ -912,6 +920,7 @@ CREATE TABLE #working_warnings
 );
 
 
+/*This is where we store some wait metrics*/
 DROP TABLE IF EXISTS #working_wait_stats;
 
 CREATE TABLE #working_wait_stats
@@ -950,13 +959,11 @@ CREATE TABLE #working_wait_stats
 								WHEN 22 THEN N'SE_REPL_%, REPL_%, HADR_% (but not HADR_THROTTLE_LOG_RATE_GOVERNOR), PWAIT_HADR_%, REPLICA_WRITES, FCB_REPLICA_WRITE, FCB_REPLICA_READ, PWAIT_HADRSIM'
 								WHEN 23 THEN N'LOG_RATE_GOVERNOR, POOL_LOG_RATE_GOVERNOR, HADR_THROTTLE_LOG_RATE_GOVERNOR, INSTANCE_LOG_RATE_GOVERNOR'
 							END,
-    INDEX wws_ix_ids CLUSTERED ( plan_id)
+    INDEX wws_ix_ids CLUSTERED (plan_id)
 );
 
 
-/*
-The next three tables hold plan XML parsed out to different degrees 
-*/
+/*The next seven tables hold plan XML parsed out to different degrees*/
 DROP TABLE IF EXISTS #statements;
 
 CREATE TABLE #statements 
@@ -1044,7 +1051,7 @@ CREATE TABLE #trace_flags
 	INDEX tf_ix_ids CLUSTERED (sql_handle)
 );
 
-
+/*This is where we store the user-facing meaning of each check*/
 DROP TABLE IF EXISTS #warning_results;	
 
 CREATE TABLE #warning_results 
@@ -1058,7 +1065,8 @@ CREATE TABLE #warning_results
     Details NVARCHAR(4000)
 );
 
-/*These next three tables hold information about implicit conversion and cached parameters */
+
+/*These next three tables hold information about implicit conversion and cached parameters*/
 DROP TABLE IF EXISTS #stored_proc_info;	
 
 CREATE TABLE #stored_proc_info
@@ -1110,9 +1118,8 @@ CREATE TABLE #conversion_info
 	INDEX cif_ix_ids CLUSTERED (sql_handle, query_hash)
 );
 
-/* These tables support the Missing Index details clickable*/
 
-
+/*These tables support the Missing Index details clickable*/
 DROP TABLE IF EXISTS #missing_index_xml;
 
 CREATE TABLE #missing_index_xml
@@ -1253,8 +1260,8 @@ CREATE TABLE #index_spool_ugly
 
 /*Sets up WHERE clause that gets used quite a bit*/
 
---Date stuff
---If they're both NULL, we'll just look at the last 7 days
+/*Date stuff*/
+/*If they're both NULL, we'll just look at the last 7 days*/
 IF (@StartDate IS NULL AND @EndDate IS NULL)
 	BEGIN
 	RAISERROR(N'@StartDate and @EndDate are NULL, checking last 7 days', 0, 1) WITH NOWAIT;
@@ -1262,7 +1269,7 @@ IF (@StartDate IS NULL AND @EndDate IS NULL)
 					  ';
 	END;
 
---Hey, that's nice of me
+/*Hey, that's nice of me*/
 IF @StartDate IS NOT NULL
 	BEGIN 
 	RAISERROR(N'Setting start date filter', 0, 1) WITH NOWAIT;
@@ -1270,7 +1277,7 @@ IF @StartDate IS NOT NULL
 					   ';
 	END; 
 
---Alright, sensible
+/*Alright, sensible*/
 IF @EndDate IS NOT NULL 
 	BEGIN 
 	RAISERROR(N'Setting end date filter', 0, 1) WITH NOWAIT;
@@ -1278,7 +1285,7 @@ IF @EndDate IS NOT NULL
 					   ';
     END;
 
---C'mon, why would you do that?
+/*C'mon, why would you do that?*/
 IF (@StartDate IS NULL AND @EndDate IS NOT NULL)
 	BEGIN 
 	RAISERROR(N'Setting reasonable start date filter', 0, 1) WITH NOWAIT;
@@ -1286,7 +1293,7 @@ IF (@StartDate IS NULL AND @EndDate IS NOT NULL)
 					   ';
     END;
 
---Jeez, abusive
+/*Jeez, abusive*/
 IF (@StartDate IS NOT NULL AND @EndDate IS NULL)
 	BEGIN 
 	RAISERROR(N'Setting reasonable end date filter', 0, 1) WITH NOWAIT;
@@ -1294,7 +1301,7 @@ IF (@StartDate IS NOT NULL AND @EndDate IS NULL)
 					   ';
     END;
 
---I care about minimum execution counts
+/*I care about minimum execution counts*/
 IF @MinimumExecutionCount IS NOT NULL 
 	BEGIN 
 	RAISERROR(N'Setting execution filter', 0, 1) WITH NOWAIT;
@@ -1302,7 +1309,7 @@ IF @MinimumExecutionCount IS NOT NULL
 					   ';
     END;
 
---You care about stored proc names
+/*You care about stored proc names*/
 IF @StoredProcName IS NOT NULL 
 	BEGIN
 
@@ -1333,7 +1340,7 @@ IF @StoredProcName IS NOT NULL
 		END
     END;
 
---I will always love you, but hopefully this query will eventually end
+/*I will always love you, but hopefully this query will eventually end*/
 IF @DurationFilter IS NOT NULL
     BEGIN 
 	RAISERROR(N'Setting duration filter', 0, 1) WITH NOWAIT;
@@ -1341,7 +1348,7 @@ IF @DurationFilter IS NOT NULL
 					    '; 
 	END; 
 
---I don't know why you'd go looking for failed queries, but hey
+/*I don't know why you'd go looking for failed queries, but hey*/
 IF (@Failed = 0 OR @Failed IS NULL)
     BEGIN 
 	RAISERROR(N'Setting failed query filter to 0', 0, 1) WITH NOWAIT;
@@ -1438,7 +1445,6 @@ By default, it looks at queries:
 	That have a query plan (some won't, if nested level is > 128, along with other reasons)
 	And haven't failed
 	This stuff, along with some other options, will be configurable in the stored proc
-
 */
 
 IF @sql_where IS NOT NULL
@@ -2384,7 +2390,6 @@ END;
 This rolls up the different patterns we find before deduplicating.
 
 The point of this is so we know if a query was gathered by one or more of the search queries
-
 */
 
 RAISERROR(N'Updating patterns', 0, 1) WITH NOWAIT;
@@ -2407,9 +2412,7 @@ AND wp.query_id = patterns.query_id
 OPTION (RECOMPILE);
 
 
-/*
-This dedupes our results so we hopefully don't double-work the same plan
-*/
+/*This dedupes our results so we hopefully don't double-work the same plan*/
 
 RAISERROR(N'Deduplicating gathered plans', 0, 1) WITH NOWAIT;
 
@@ -2425,9 +2428,7 @@ SET @msg = N'Removed ' + CONVERT(NVARCHAR(10), @@ROWCOUNT) + N' duplicate plan_i
 RAISERROR(@msg, 0, 1) WITH NOWAIT;
 
 
-/*
-This gathers data for the #working_metrics table
-*/
+/*This gathers data for the #working_metrics table*/
 
 
 RAISERROR(N'Collecting worker metrics', 0, 1) WITH NOWAIT;
@@ -2554,7 +2555,7 @@ INSERT #working_metrics WITH (TABLOCK)
 		  last_logical_io_writes, min_logical_io_writes, max_logical_io_writes, avg_physical_io_reads, last_physical_io_reads, min_physical_io_reads, 
 		  max_physical_io_reads, avg_clr_time, last_clr_time, min_clr_time, max_clr_time, avg_dop, last_dop, min_dop, max_dop, avg_query_max_used_memory, 
 		  last_query_max_used_memory, min_query_max_used_memory, max_query_max_used_memory, avg_rowcount, last_rowcount, min_rowcount, max_rowcount,
-		  /* 2017 only columns */
+		  /*2017+ only columns*/
 		  avg_num_physical_io_reads, last_num_physical_io_reads, min_num_physical_io_reads, max_num_physical_io_reads,
 		  avg_log_bytes_used, last_log_bytes_used, min_log_bytes_used, max_log_bytes_used,
 		  avg_tempdb_space_used, last_tempdb_space_used, min_tempdb_space_used, max_tempdb_space_used )
@@ -2614,9 +2615,7 @@ SET @sql_select += N'
 
 EXEC sys.sp_executesql  @stmt = @sql_select;
 
-/*
-This gathers data for the #working_plan_text table
-*/
+/*This gathers data for the #working_plan_text table*/
 
 
 RAISERROR(N'Gathering working plans', 0, 1) WITH NOWAIT;
@@ -2672,9 +2671,7 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 
 
 
-/*
-This gets us context settings for our queries and adds it to the #working_plan_text table
-*/
+/*This gets us context settings for our queries and adds it to the #working_plan_text table*/
 
 RAISERROR(N'Gathering context settings', 0, 1) WITH NOWAIT;
 
@@ -2834,9 +2831,7 @@ IF (@SkipXML = 0)
 BEGIN TRY 
 BEGIN
 
-/*
-This sets up the #working_warnings table with the IDs we're interested in so we can tie warnings back to them 
-*/
+/*This sets up the #working_warnings table with the IDs we're interested in so we can tie warnings back to them*/
 
 RAISERROR(N'Populate working warnings table with gathered plans', 0, 1) WITH NOWAIT;
 
@@ -2945,9 +2940,7 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 						@params = @sp_params,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName, @sp_PlanIdFilter = @PlanIdFilter, @sp_QueryIdFilter = @QueryIdFilter;
 
-/*
-This looks for forced plans
-*/
+/*This looks for forced plans*/
 
 RAISERROR(N'Checking for forced plans', 0, 1) WITH NOWAIT;
 
@@ -2961,9 +2954,7 @@ ON ww.plan_id = wp.plan_id
 OPTION (RECOMPILE);
 
 
-/*
-This looks for forced parameterization
-*/
+/*This looks for forced parameterization*/
 
 RAISERROR(N'Checking for forced parameterization', 0, 1) WITH NOWAIT;
 
@@ -2977,9 +2968,7 @@ ON ww.plan_id = wm.plan_id
 OPTION (RECOMPILE);
 
 
-/*
-This looks for unparameterized queries
-*/
+/*This looks for unparameterized queries*/
 
 RAISERROR(N'Checking for unparameterized plans', 0, 1) WITH NOWAIT;
 
@@ -2994,9 +2983,7 @@ ON ww.plan_id = wm.plan_id
 OPTION (RECOMPILE);
 
 
-/*
-This looks for cursors
-*/
+/*This looks for cursors*/
 
 RAISERROR(N'Checking for cursors', 0, 1) WITH NOWAIT;
 UPDATE ww
@@ -3019,9 +3006,7 @@ WHERE ww.query_hash = 0x0000000000000000
 OR wp.query_plan_hash = 0x0000000000000000
 OPTION (RECOMPILE);
 
-/*
-This looks for parallel plans
-*/
+/*This looks for parallel plans*/
 UPDATE ww
 SET    ww.is_parallel = 1
 FROM   #working_warnings AS ww
@@ -3042,7 +3027,7 @@ JOIN #working_plan_text AS wpt
 ON w.plan_id = wpt.plan_id
 AND w.query_id = wpt.query_id
 /*PLEASE DON'T TELL ANYONE I DID THIS*/
-WHERE PARSENAME(wpt.engine_version, 4) < PARSENAME(CONVERT(VARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)
+WHERE PARSENAME(wpt.engine_version, 4) < @major_version
 OPTION (RECOMPILE);
 /*NO SERIOUSLY THIS IS A HORRIBLE IDEA*/
 
@@ -3081,9 +3066,7 @@ OPTION (RECOMPILE);
 
 
 
-/*
-This parses the XML from our top plans into smaller chunks for easier consumption
-*/
+/*This parses the XML from our top plans into smaller chunks for easier consumption*/
 
 RAISERROR(N'Begin XML nodes parsing', 0, 1) WITH NOWAIT;
 
@@ -3126,7 +3109,7 @@ FROM    #query_plan qp
 OPTION (RECOMPILE);
 
 
--- statement level checks
+/*Statement-level checks*/
 
 RAISERROR(N'Performing compile timeout checks', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
@@ -3712,8 +3695,8 @@ OPTION (RECOMPILE);
 END;
 
 
-IF (PARSENAME(CONVERT(VARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)) >= 14
-OR ((PARSENAME(CONVERT(VARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)) = 13
+IF @major_version >= 14
+OR (@major_version = 13
 	AND PARSENAME(CONVERT(VARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 2) >= 5026)
 
 BEGIN
@@ -3756,7 +3739,7 @@ OPTION (RECOMPILE);
 END;
 
 
-IF (PARSENAME(CONVERT(VARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)) >= 14
+IF @major_version >= 14
 	AND @ExpertMode > 0
 BEGIN
 RAISERROR(N'Checking for Adaptive Joins', 0, 1) WITH NOWAIT;
@@ -4496,7 +4479,7 @@ OPTION (RECOMPILE);
 
 
 RAISERROR('Populating Warnings column', 0, 1) WITH NOWAIT;
-/* Populate warnings */
+/*Populate warnings*/
 UPDATE b
 SET    b.warnings = SUBSTRING(
                   CASE WHEN b.warning_no_join_predicate = 1 THEN ', No Join Predicate' ELSE '' END +
@@ -4823,7 +4806,7 @@ IF (@ExportToExcel = 0 AND @HideSummary = 0 AND @SkipXML = 0)
 BEGIN
         RAISERROR('Building query plan summary data.', 0, 1) WITH NOWAIT;
 
-        /* Build summary data */
+        /*Build summary data*/
         IF EXISTS (SELECT 1/0
                    FROM   #working_warnings
                    WHERE frequent_execution = 1
@@ -4852,7 +4835,7 @@ BEGIN
                     'https://www.brentozar.com/blitzcache/parameter-sniffing/',
                     'There are signs of parameter sniffing (wide variance in rows return or time to execute). Investigate query patterns and tune code appropriately.') ;
 
-        /* Forced execution plans */
+        /*Forced execution plans*/
         IF EXISTS (SELECT 1/0
                    FROM   #working_warnings
                    WHERE  is_forced_plan = 1
@@ -5635,21 +5618,19 @@ BEGIN
                      'This query has a Switch operator in it!',
                      'https://www.sql.kiwi/2013/06/hello-operator-my-switch-is-bored.html',
                      'You should email this query plan to Paul: SQLkiwi at gmail dot com') ;
-					 
-					 						 					
-				
-				INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-				SELECT 				
-				999,
-				200,
-				'Database Level Statistics',
-				'The database ' + sa.[database] + ' last had a stats update on '  + CONVERT(NVARCHAR(10), CONVERT(DATE, MAX(sa.last_update))) + ' and has ' + CONVERT(NVARCHAR(10), AVG(sa.modification_count)) + ' modifications on average.' AS Finding,
-				'https://www.brentozar.com/blitzcache/stale-statistics/' AS URL,
-				'Consider updating statistics more frequently,' AS Details
-				FROM #stats_agg AS sa
-				GROUP BY sa.[database]
-				HAVING MAX(sa.last_update) <= DATEADD(DAY, -7, SYSDATETIME())
-				AND AVG(sa.modification_count) >= 100000;
+					 				
+			INSERT INTO #warning_results (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+			SELECT 				
+			999,
+			200,
+			'Database Level Statistics',
+			'The database ' + sa.[database] + ' last had a stats update on '  + CONVERT(NVARCHAR(10), CONVERT(DATE, MAX(sa.last_update))) + ' and has ' + CONVERT(NVARCHAR(10), AVG(sa.modification_count)) + ' modifications on average.' AS Finding,
+			'https://www.brentozar.com/blitzcache/stale-statistics/' AS URL,
+			'Consider updating statistics more frequently,' AS Details
+			FROM #stats_agg AS sa
+			GROUP BY sa.[database]
+			HAVING MAX(sa.last_update) <= DATEADD(DAY, -7, SYSDATETIME())
+			AND AVG(sa.modification_count) >= 100000;
 
 		
         IF EXISTS (SELECT 1/0
@@ -5666,9 +5647,7 @@ BEGIN
                     'You have the following Global Trace Flags enabled: ' + (SELECT TOP 1 tf.global_trace_flags FROM #trace_flags AS tf WHERE tf.global_trace_flags IS NOT NULL)) ;
 
 
-			/*
-			Return worsts
-			*/
+			/*Return worsts*/
 			WITH worsts AS (
 			SELECT gi.flat_date,
 			       gi.start_range,
@@ -5919,7 +5898,7 @@ BEGIN
 
 RAISERROR(N'Returning debugging data from temp tables', 0, 1) WITH NOWAIT;
 
---Table content debugging
+/*Table content debugging*/
 
 SELECT '#working_metrics' AS table_name, *
 FROM #working_metrics AS wm
@@ -6030,40 +6009,40 @@ END CATCH;
 /*
 Ways to run this thing
 
---Debug
+/*Debug*/
 EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Debug = 1
 
---Get the top 1
+/*Get the top 1*/
 EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @Debug = 1
 
---Use a StartDate												 
+/*Use a StartDate*/
 EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @StartDate = '20170527'
 				
---Use an EndDate												 
+/*Use an EndDate*/
 EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @EndDate = '20170527'
 				
---Use Both												 
+/*Use Both*/
 EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @StartDate = '20170526', @EndDate = '20170527'
 
---Set a minimum execution count												 
+/*Set a minimum execution count*/
 EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @MinimumExecutionCount = 10
 
---Set a duration minimum
+/*Set a duration minimum*/
 EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @DurationFilter = 5
 
---Look for a stored procedure name (that doesn't exist!)
+/*Look for a stored procedure name (that doesn't exist!)*/
 EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @StoredProcName = 'blah'
 
---Look for a stored procedure name that does (at least On My Computer®)
+/*Look for a stored procedure name that does (at least On My Computer®)*/
 EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @StoredProcName = 'UserReportExtended'
 
---Look for failed queries
+/*Look for failed queries*/
 EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @Top = 1, @Failed = 1
 
---Filter by plan_id
+/*Filter by plan_id*/
 EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @PlanIdFilter = 3356
 
---Filter by query_id
+/*Filter by query_id*/
 EXEC sp_BlitzQueryStore @DatabaseName = 'StackOverflow', @QueryIdFilter = 2958
 
 */
