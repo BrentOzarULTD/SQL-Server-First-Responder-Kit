@@ -473,7 +473,7 @@ IF @Help = 1
 	UNION ALL
 	SELECT N'@Version',
 			N'VARCHAR(30)',
-			N'OUTPUT parameter holding version number'
+			N'OUTPUT parameter holding version number.'
 	
 	UNION ALL
 	SELECT N'@VersionDate',
