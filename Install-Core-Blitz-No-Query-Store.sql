@@ -21538,7 +21538,8 @@ BEGIN TRY
 			--This change was made because on a table with lots of paritions, the OUTER APPLY was crazy slow.
 
 			-- get relevant columns from sys.dm_db_partition_stats, sys.partitions and sys.objects 
-			DROP TABLE if exists #dm_db_partition_stats_etc
+			IF OBJECT_ID('tempdb..#dm_db_partition_stats_etc') IS NOT NULL
+               DROP TABLE #dm_db_partition_stats_etc
 			create table #dm_db_partition_stats_etc
 			(
 				database_id smallint not null
@@ -21556,7 +21557,8 @@ BEGIN TRY
 			)
 
 			-- get relevant info from sys.dm_db_index_operational_stats
-			drop TABLE if exists #dm_db_index_operational_stats
+			IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
+               DROP TABLE #dm_db_index_operational_stats
 			create table #dm_db_index_operational_stats
 			(
 				database_id smallint not null
