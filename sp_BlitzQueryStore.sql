@@ -1119,7 +1119,7 @@ CREATE TABLE #conversion_info
 );
 
 
-/*These tables support the Missing Index details clickable*/
+/*These tables make the Missing Index details clickable*/
 DROP TABLE IF EXISTS #missing_index_xml;
 
 CREATE TABLE #missing_index_xml
