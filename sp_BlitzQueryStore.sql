@@ -625,7 +625,7 @@ RAISERROR(@msg, 0, 1) WITH NOWAIT;
 /*These are the temp tables we use*/
 
 
-/*This one holds the grouped data that helps use figure out which periods to examine*/
+/*This one holds the grouped data that helps us figure out which periods to examine*/
 
 RAISERROR(N'Creating temp tables', 0, 1) WITH NOWAIT;
 
