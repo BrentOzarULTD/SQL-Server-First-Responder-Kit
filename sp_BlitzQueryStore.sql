@@ -10,11 +10,11 @@ GO
 
 DECLARE @msg NVARCHAR(MAX) = N'';
 
-	-- Must be a compatible, on-prem version of SQL (2016+)
+	/*Must be a compatible, on-prem version of SQL (2016+) or...*/
 IF  (	(SELECT CONVERT(NVARCHAR(128), SERVERPROPERTY ('EDITION'))) <> 'SQL Azure' 
 	AND (SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)) < 13 
 	)
-	-- or Azure Database (not Azure Data Warehouse), running at database compat level 130+
+	/*...Azure Database (not Azure Data Warehouse), running at database compat level 130+*/
 OR	(	(SELECT CONVERT(NVARCHAR(128), SERVERPROPERTY ('EDITION'))) = 'SQL Azure'
 	AND (SELECT SERVERPROPERTY ('ENGINEEDITION')) NOT IN (5,8)
 	AND (SELECT [compatibility_level] FROM sys.databases WHERE [name] = DB_NAME()) < 130
@@ -679,7 +679,7 @@ CREATE TABLE #working_metrics
 	plan_id BIGINT,
     query_id BIGINT,
     query_id_all_plan_ids VARCHAR(8000),
-	/*these columns are from query_store_query*/
+	/*These columns are from query_store_query*/
 	proc_or_function_name NVARCHAR(258),
 	batch_sql_handle VARBINARY(64),
 	query_hash BINARY(8),
@@ -4620,12 +4620,12 @@ CASE WHEN b.count_executions < 2 THEN 'Too few executions to compare (< 2).'
 				CASE WHEN b.min_dop <> b.max_dop THEN ', Serial sometimes' ELSE '' END +
 				CASE WHEN b.min_dop <> b.max_dop AND b.last_dop = 1  THEN ', Serial last run' ELSE '' END +
 				CASE WHEN b.min_dop <> b.max_dop AND b.last_dop > 1 THEN ', Parallel last run' ELSE '' END +
-				/*tempdb*/
+				/*Space in tempdb*/
 				CASE WHEN b.min_tempdb_space_used * 100 < b.avg_tempdb_space_used THEN ', Low tempdb sometimes' ELSE '' END +
 				CASE WHEN b.max_tempdb_space_used > b.avg_tempdb_space_used * 100 THEN ', High tempdb sometimes' ELSE '' END +
 				CASE WHEN b.last_tempdb_space_used * 100 < b.avg_tempdb_space_used  THEN ', Low tempdb run' ELSE '' END +
 				CASE WHEN b.last_tempdb_space_used > b.avg_tempdb_space_used * 100 THEN ', High tempdb last run' ELSE '' END +
-				/*tlog*/
+				/*Transaction log*/
 				CASE WHEN b.min_log_bytes_used * 100 < b.avg_log_bytes_used THEN ', Low log use sometimes' ELSE '' END +
 				CASE WHEN b.max_log_bytes_used > b.avg_log_bytes_used * 100 THEN ', High log use sometimes' ELSE '' END +
 				CASE WHEN b.last_log_bytes_used * 100 < b.avg_log_bytes_used  THEN ', Low log use run' ELSE '' END +
@@ -5679,7 +5679,7 @@ BEGIN
 						WHEN DATEPART(HOUR, gi.end_range) > 12 THEN CONVERT(NVARCHAR(3),  DATEPART(HOUR, gi.end_range) -12) + 'pm '
 						END AS worst_end_time
 			FROM   #grouped_interval AS gi
-			), /*averages*/
+			), /*Averages*/
 				duration_worst AS (
 			SELECT TOP 1 'Your worst avg duration range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
@@ -5724,7 +5724,7 @@ BEGIN
 			SELECT TOP 1 'Your worst avg tempdb range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_avg_tempdb_space DESC
-				)/*maxes*/, 
+				)/*Maxes*/, 
 				max_duration_worst AS (
 			SELECT TOP 1 'Your worst max duration range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
@@ -5766,7 +5766,7 @@ BEGIN
 			ORDER BY worsts.total_max_tempdb_space DESC
 				)
 			INSERT #warning_results ( CheckID, Priority, FindingsGroup, Finding, URL, Details )
-			/*averages*/
+			/*Averages*/
             SELECT 1002, 255, 'Worsts', 'Worst Avg Duration', 'N/A', duration_worst.msg
 			FROM duration_worst
 			UNION ALL
@@ -5794,7 +5794,7 @@ BEGIN
 			SELECT 1002, 255, 'Worsts', 'Worst Avg tempdb', 'N/A', tempdb_worst.msg
 			FROM tempdb_worst
             UNION ALL
-            /*maxes*/
+            /*Maxes*/
             SELECT 1002, 255, 'Worsts', 'Worst Max Duration', 'N/A', max_duration_worst.msg
 			FROM max_duration_worst
 			UNION ALL
