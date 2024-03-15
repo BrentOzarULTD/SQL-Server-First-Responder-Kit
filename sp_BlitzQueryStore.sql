@@ -3022,6 +3022,9 @@ OPTION (RECOMPILE);
 /*
 This looks for parallel plans
 */
+
+RAISERROR(N'Checking for parallel plans', 0, 1) WITH NOWAIT;
+
 UPDATE ww
 SET    ww.is_parallel = 1
 FROM   #working_warnings AS ww
@@ -3808,7 +3811,7 @@ OPTION (RECOMPILE);
 
 
 RAISERROR(N'Trace flag checks', 0, 1) WITH NOWAIT;
-;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 , tf_pretty AS (
 SELECT  qp.sql_handle,
 		q.n.value('@Value', 'INT') AS trace_flag,
@@ -3927,278 +3930,279 @@ JOIN    #working_warnings AS b
     ON b.query_hash = d.query_hash
 OPTION ( RECOMPILE );
 
+/*Start implicit conversion and parameter info*/
 
-        RAISERROR(N'Getting information about implicit conversions and stored proc parameters', 0, 1) WITH NOWAIT;
+	RAISERROR(N'Getting information about implicit conversions and stored proc parameters', 0, 1) WITH NOWAIT;
 
-		RAISERROR(N'Getting variable info', 0, 1) WITH NOWAIT;
-		WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
-		INSERT #variable_info ( query_hash, sql_handle, proc_name, variable_name, variable_datatype, compile_time_value )
-		SELECT      DISTINCT
-		            qp.query_hash,
-		            qp.sql_handle,
-		            b.proc_or_function_name AS proc_name,
-		            q.n.value('@Column', 'NVARCHAR(258)') AS variable_name,
-		            q.n.value('@ParameterDataType', 'NVARCHAR(258)') AS variable_datatype,
-		            q.n.value('@ParameterCompiledValue', 'NVARCHAR(258)') AS compile_time_value
-		FROM        #query_plan AS qp
-           JOIN     #working_warnings AS b
-           ON (b.query_hash = qp.query_hash AND b.proc_or_function_name = 'adhoc')
-		   OR (b.sql_handle = qp.sql_handle AND b.proc_or_function_name <> 'adhoc')
-		CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:ParameterList/p:ColumnReference') AS q(n)
-		OPTION (RECOMPILE);
+	RAISERROR(N'Getting variable info', 0, 1) WITH NOWAIT;
+	WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+	INSERT #variable_info ( query_hash, sql_handle, proc_name, variable_name, variable_datatype, compile_time_value )
+	SELECT      DISTINCT
+				qp.query_hash,
+				qp.sql_handle,
+				b.proc_or_function_name AS proc_name,
+				q.n.value('@Column', 'NVARCHAR(258)') AS variable_name,
+				q.n.value('@ParameterDataType', 'NVARCHAR(258)') AS variable_datatype,
+				q.n.value('@ParameterCompiledValue', 'NVARCHAR(258)') AS compile_time_value
+	FROM        #query_plan AS qp
+	   JOIN     #working_warnings AS b
+	   ON (b.query_hash = qp.query_hash AND b.proc_or_function_name = 'adhoc')
+	   OR (b.sql_handle = qp.sql_handle AND b.proc_or_function_name <> 'adhoc')
+	CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:ParameterList/p:ColumnReference') AS q(n)
+	OPTION (RECOMPILE);
 
-		RAISERROR(N'Getting conversion info', 0, 1) WITH NOWAIT;
-		WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
-		INSERT #conversion_info ( query_hash, sql_handle, proc_name, expression )
-		SELECT      DISTINCT
-		            qp.query_hash,
-		            qp.sql_handle,
-		            b.proc_or_function_name AS proc_name,
-		            qq.c.value('@Expression', 'NVARCHAR(4000)') AS expression
-		FROM        #query_plan AS qp
-		   JOIN     #working_warnings AS b
-           ON (b.query_hash = qp.query_hash AND b.proc_or_function_name = 'adhoc')
-		   OR (b.sql_handle = qp.sql_handle AND b.proc_or_function_name <> 'adhoc')
-		CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:Warnings/p:PlanAffectingConvert') AS qq(c)
-		WHERE       qq.c.exist('@ConvertIssue[.="Seek Plan"]') = 1
-		            AND b.implicit_conversions = 1
-		OPTION (RECOMPILE);
+	RAISERROR(N'Getting conversion info', 0, 1) WITH NOWAIT;
+	WITH XMLNAMESPACES ( 'http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p )
+	INSERT #conversion_info ( query_hash, sql_handle, proc_name, expression )
+	SELECT      DISTINCT
+				qp.query_hash,
+				qp.sql_handle,
+				b.proc_or_function_name AS proc_name,
+				qq.c.value('@Expression', 'NVARCHAR(4000)') AS expression
+	FROM        #query_plan AS qp
+	   JOIN     #working_warnings AS b
+	   ON (b.query_hash = qp.query_hash AND b.proc_or_function_name = 'adhoc')
+	   OR (b.sql_handle = qp.sql_handle AND b.proc_or_function_name <> 'adhoc')
+	CROSS APPLY qp.query_plan.nodes('//p:QueryPlan/p:Warnings/p:PlanAffectingConvert') AS qq(c)
+	WHERE       qq.c.exist('@ConvertIssue[.="Seek Plan"]') = 1
+				AND b.implicit_conversions = 1
+	OPTION (RECOMPILE);
 
-		RAISERROR(N'Parsing conversion info', 0, 1) WITH NOWAIT;
-		INSERT #stored_proc_info ( sql_handle, query_hash, proc_name, variable_name, variable_datatype, converted_column_name, column_name, converted_to, compile_time_value )
-		SELECT ci.sql_handle,
-		       ci.query_hash,
-		       ci.proc_name,
-		       CASE WHEN ci.at_charindex > 0
-		                 AND ci.bracket_charindex > 0 
-					THEN SUBSTRING(ci.expression, ci.at_charindex, ci.bracket_charindex)
-		            ELSE N'**no_variable**'
-		       END AS variable_name,
-			   N'**no_variable**' AS variable_datatype,
-		       CASE WHEN ci.at_charindex = 0
-		                 AND ci.comma_charindex > 0
-		                 AND ci.second_comma_charindex > 0 
-					THEN SUBSTRING(ci.expression, ci.comma_charindex, ci.second_comma_charindex)
-		            ELSE N'**no_column**'
-		       END AS converted_column_name,
-		       CASE WHEN ci.at_charindex = 0
-		                 AND ci.equal_charindex > 0 
-						 AND ci.convert_implicit_charindex = 0
-					THEN SUBSTRING(ci.expression, ci.equal_charindex, 4000)
-					WHEN ci.at_charindex = 0
-		                 AND (ci.equal_charindex -1) > 0 
-						 AND ci.convert_implicit_charindex > 0
-					THEN SUBSTRING(ci.expression, 0, ci.equal_charindex -1)
-		            WHEN ci.at_charindex > 0
-		                 AND ci.comma_charindex > 0
-		                 AND ci.second_comma_charindex > 0 
-					THEN SUBSTRING(ci.expression, ci.comma_charindex, ci.second_comma_charindex)
-		            ELSE N'**no_column **'
-		       END AS column_name,
-		       CASE WHEN ci.paren_charindex > 0
-		                 AND ci.comma_paren_charindex > 0 
-					THEN SUBSTRING(ci.expression, ci.paren_charindex, ci.comma_paren_charindex)
-		       END AS converted_to,
-		       CASE WHEN ci.at_charindex = 0
-		                 AND ci.convert_implicit_charindex = 0
-		                 AND ci.proc_name = 'Statement' 
-					THEN SUBSTRING(ci.expression, ci.equal_charindex, 4000)
-		            ELSE '**idk_man**'
-		       END AS compile_time_value
-		FROM   #conversion_info AS ci
-		OPTION (RECOMPILE);
+	RAISERROR(N'Parsing conversion info', 0, 1) WITH NOWAIT;
+	INSERT #stored_proc_info ( sql_handle, query_hash, proc_name, variable_name, variable_datatype, converted_column_name, column_name, converted_to, compile_time_value )
+	SELECT ci.sql_handle,
+		   ci.query_hash,
+		   ci.proc_name,
+		   CASE WHEN ci.at_charindex > 0
+					 AND ci.bracket_charindex > 0 
+				THEN SUBSTRING(ci.expression, ci.at_charindex, ci.bracket_charindex)
+				ELSE N'**no_variable**'
+		   END AS variable_name,
+		   N'**no_variable**' AS variable_datatype,
+		   CASE WHEN ci.at_charindex = 0
+					 AND ci.comma_charindex > 0
+					 AND ci.second_comma_charindex > 0 
+				THEN SUBSTRING(ci.expression, ci.comma_charindex, ci.second_comma_charindex)
+				ELSE N'**no_column**'
+		   END AS converted_column_name,
+		   CASE WHEN ci.at_charindex = 0
+					 AND ci.equal_charindex > 0 
+					 AND ci.convert_implicit_charindex = 0
+				THEN SUBSTRING(ci.expression, ci.equal_charindex, 4000)
+				WHEN ci.at_charindex = 0
+					 AND (ci.equal_charindex -1) > 0 
+					 AND ci.convert_implicit_charindex > 0
+				THEN SUBSTRING(ci.expression, 0, ci.equal_charindex -1)
+				WHEN ci.at_charindex > 0
+					 AND ci.comma_charindex > 0
+					 AND ci.second_comma_charindex > 0 
+				THEN SUBSTRING(ci.expression, ci.comma_charindex, ci.second_comma_charindex)
+				ELSE N'**no_column **'
+		   END AS column_name,
+		   CASE WHEN ci.paren_charindex > 0
+					 AND ci.comma_paren_charindex > 0 
+				THEN SUBSTRING(ci.expression, ci.paren_charindex, ci.comma_paren_charindex)
+		   END AS converted_to,
+		   CASE WHEN ci.at_charindex = 0
+					 AND ci.convert_implicit_charindex = 0
+					 AND ci.proc_name = 'Statement' 
+				THEN SUBSTRING(ci.expression, ci.equal_charindex, 4000)
+				ELSE '**idk_man**'
+		   END AS compile_time_value
+	FROM   #conversion_info AS ci
+	OPTION (RECOMPILE);
 
-		RAISERROR(N'Updating variables inserted procs', 0, 1) WITH NOWAIT;
-		UPDATE sp
-		SET sp.variable_datatype = vi.variable_datatype,
-			sp.compile_time_value = vi.compile_time_value
+	RAISERROR(N'Updating variables inserted procs', 0, 1) WITH NOWAIT;
+	UPDATE sp
+	SET sp.variable_datatype = vi.variable_datatype,
+		sp.compile_time_value = vi.compile_time_value
+	FROM   #stored_proc_info AS sp
+	JOIN #variable_info AS vi
+	ON (sp.proc_name = 'adhoc' AND sp.query_hash = vi.query_hash)
+	OR 	(sp.proc_name <> 'adhoc' AND sp.sql_handle = vi.sql_handle)
+	AND sp.variable_name = vi.variable_name
+	OPTION (RECOMPILE);
+	
+	
+	RAISERROR(N'Inserting variables for other procs', 0, 1) WITH NOWAIT;
+	INSERT #stored_proc_info 
+			( sql_handle, query_hash, variable_name, variable_datatype, compile_time_value, proc_name )
+	SELECT vi.sql_handle, vi.query_hash, vi.variable_name, vi.variable_datatype, vi.compile_time_value, vi.proc_name
+	FROM #variable_info AS vi
+	WHERE NOT EXISTS
+	(
+		SELECT * 
 		FROM   #stored_proc_info AS sp
-		JOIN #variable_info AS vi
-		ON (sp.proc_name = 'adhoc' AND sp.query_hash = vi.query_hash)
+		WHERE (sp.proc_name = 'adhoc' AND sp.query_hash = vi.query_hash)
 		OR 	(sp.proc_name <> 'adhoc' AND sp.sql_handle = vi.sql_handle)
-		AND sp.variable_name = vi.variable_name
-		OPTION (RECOMPILE);
-		
-		
-		RAISERROR(N'Inserting variables for other procs', 0, 1) WITH NOWAIT;
-		INSERT #stored_proc_info 
-				( sql_handle, query_hash, variable_name, variable_datatype, compile_time_value, proc_name )
-		SELECT vi.sql_handle, vi.query_hash, vi.variable_name, vi.variable_datatype, vi.compile_time_value, vi.proc_name
-		FROM #variable_info AS vi
-		WHERE NOT EXISTS
-		(
-			SELECT * 
-			FROM   #stored_proc_info AS sp
-			WHERE (sp.proc_name = 'adhoc' AND sp.query_hash = vi.query_hash)
-			OR 	(sp.proc_name <> 'adhoc' AND sp.sql_handle = vi.sql_handle)
-		)
-		OPTION (RECOMPILE);
-		
-		RAISERROR(N'Updating procs', 0, 1) WITH NOWAIT;
-		UPDATE s
-		SET    s.variable_datatype = CASE WHEN s.variable_datatype LIKE '%(%)%' 
-                                          THEN LEFT(s.variable_datatype, CHARINDEX('(', s.variable_datatype) - 1)
-										  ELSE s.variable_datatype
-		                             END,
-		       s.converted_to = CASE WHEN s.converted_to LIKE '%(%)%' 
-                                     THEN LEFT(s.converted_to, CHARINDEX('(', s.converted_to) - 1)
-		                             ELSE s.converted_to
-		                        END,
-			   s.compile_time_value = CASE WHEN s.compile_time_value LIKE '%(%)%' 
-                                           THEN SUBSTRING(s.compile_time_value, 
-														  CHARINDEX('(', s.compile_time_value) + 1,
-														  CHARINDEX(')', s.compile_time_value) - 1 - CHARINDEX('(', s.compile_time_value)
-														  )
-											WHEN variable_datatype NOT IN ('bit', 'tinyint', 'smallint', 'int', 'bigint') 
-												AND s.variable_datatype NOT LIKE '%binary%' 
-												AND s.compile_time_value NOT LIKE 'N''%'''
-												AND s.compile_time_value NOT LIKE '''%''' 
-                                                AND s.compile_time_value <> s.column_name
-                                                AND s.compile_time_value <> '**idk_man**'
-                                                THEN QUOTENAME(compile_time_value, '''')
-									ELSE s.compile_time_value 
-									  END
-		FROM   #stored_proc_info AS s
-		OPTION (RECOMPILE);
+	)
+	OPTION (RECOMPILE);
+	
+	RAISERROR(N'Updating procs', 0, 1) WITH NOWAIT;
+	UPDATE s
+	SET    s.variable_datatype = CASE WHEN s.variable_datatype LIKE '%(%)%' 
+									  THEN LEFT(s.variable_datatype, CHARINDEX('(', s.variable_datatype) - 1)
+									  ELSE s.variable_datatype
+								 END,
+		   s.converted_to = CASE WHEN s.converted_to LIKE '%(%)%' 
+								 THEN LEFT(s.converted_to, CHARINDEX('(', s.converted_to) - 1)
+								 ELSE s.converted_to
+							END,
+		   s.compile_time_value = CASE WHEN s.compile_time_value LIKE '%(%)%' 
+									   THEN SUBSTRING(s.compile_time_value, 
+													  CHARINDEX('(', s.compile_time_value) + 1,
+													  CHARINDEX(')', s.compile_time_value) - 1 - CHARINDEX('(', s.compile_time_value)
+													  )
+										WHEN variable_datatype NOT IN ('bit', 'tinyint', 'smallint', 'int', 'bigint') 
+											AND s.variable_datatype NOT LIKE '%binary%' 
+											AND s.compile_time_value NOT LIKE 'N''%'''
+											AND s.compile_time_value NOT LIKE '''%''' 
+											AND s.compile_time_value <> s.column_name
+											AND s.compile_time_value <> '**idk_man**'
+											THEN QUOTENAME(compile_time_value, '''')
+								ELSE s.compile_time_value 
+								  END
+	FROM   #stored_proc_info AS s
+	OPTION (RECOMPILE);
 
-		
-		RAISERROR(N'Updating SET options', 0, 1) WITH NOWAIT;
-		WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-		UPDATE s
-		SET set_options = set_options.ansi_set_options
-		FROM #stored_proc_info AS s
-		JOIN (
-				SELECT  x.sql_handle,
-						N'SET ANSI_NULLS ' + CASE WHEN [ANSI_NULLS] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
-						N'SET ANSI_PADDING ' + CASE WHEN [ANSI_PADDING] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
-						N'SET ANSI_WARNINGS ' + CASE WHEN [ANSI_WARNINGS] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
-						N'SET ARITHABORT ' + CASE WHEN [ARITHABORT] = 'true' THEN N'ON ' ELSE N' OFF ' END + NCHAR(10) +
-						N'SET CONCAT_NULL_YIELDS_NULL ' + CASE WHEN [CONCAT_NULL_YIELDS_NULL] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
-						N'SET NUMERIC_ROUNDABORT ' + CASE WHEN [NUMERIC_ROUNDABORT] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
-						N'SET QUOTED_IDENTIFIER ' + CASE WHEN [QUOTED_IDENTIFIER] = 'true' THEN N'ON ' ELSE N'OFF ' + NCHAR(10) END AS [ansi_set_options]
-				FROM (
-					SELECT
-						s.sql_handle,
-						so.o.value('@ANSI_NULLS', 'NVARCHAR(20)') AS [ANSI_NULLS],
-						so.o.value('@ANSI_PADDING', 'NVARCHAR(20)') AS [ANSI_PADDING],
-						so.o.value('@ANSI_WARNINGS', 'NVARCHAR(20)') AS [ANSI_WARNINGS],
-						so.o.value('@ARITHABORT', 'NVARCHAR(20)') AS [ARITHABORT],
-						so.o.value('@CONCAT_NULL_YIELDS_NULL', 'NVARCHAR(20)') AS [CONCAT_NULL_YIELDS_NULL],
-						so.o.value('@NUMERIC_ROUNDABORT', 'NVARCHAR(20)') AS [NUMERIC_ROUNDABORT],
-						so.o.value('@QUOTED_IDENTIFIER', 'NVARCHAR(20)') AS [QUOTED_IDENTIFIER]
-					FROM #statements AS s
-					CROSS APPLY s.statement.nodes('//p:StatementSetOptions') AS so(o)
-				   ) AS x
-		) AS set_options ON set_options.sql_handle = s.sql_handle
-		OPTION(RECOMPILE);
+	
+	RAISERROR(N'Updating SET options', 0, 1) WITH NOWAIT;
+	WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+	UPDATE s
+	SET set_options = set_options.ansi_set_options
+	FROM #stored_proc_info AS s
+	JOIN (
+			SELECT  x.sql_handle,
+					N'SET ANSI_NULLS ' + CASE WHEN [ANSI_NULLS] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
+					N'SET ANSI_PADDING ' + CASE WHEN [ANSI_PADDING] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
+					N'SET ANSI_WARNINGS ' + CASE WHEN [ANSI_WARNINGS] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
+					N'SET ARITHABORT ' + CASE WHEN [ARITHABORT] = 'true' THEN N'ON ' ELSE N' OFF ' END + NCHAR(10) +
+					N'SET CONCAT_NULL_YIELDS_NULL ' + CASE WHEN [CONCAT_NULL_YIELDS_NULL] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
+					N'SET NUMERIC_ROUNDABORT ' + CASE WHEN [NUMERIC_ROUNDABORT] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
+					N'SET QUOTED_IDENTIFIER ' + CASE WHEN [QUOTED_IDENTIFIER] = 'true' THEN N'ON ' ELSE N'OFF ' + NCHAR(10) END AS [ansi_set_options]
+			FROM (
+				SELECT
+					s.sql_handle,
+					so.o.value('@ANSI_NULLS', 'NVARCHAR(20)') AS [ANSI_NULLS],
+					so.o.value('@ANSI_PADDING', 'NVARCHAR(20)') AS [ANSI_PADDING],
+					so.o.value('@ANSI_WARNINGS', 'NVARCHAR(20)') AS [ANSI_WARNINGS],
+					so.o.value('@ARITHABORT', 'NVARCHAR(20)') AS [ARITHABORT],
+					so.o.value('@CONCAT_NULL_YIELDS_NULL', 'NVARCHAR(20)') AS [CONCAT_NULL_YIELDS_NULL],
+					so.o.value('@NUMERIC_ROUNDABORT', 'NVARCHAR(20)') AS [NUMERIC_ROUNDABORT],
+					so.o.value('@QUOTED_IDENTIFIER', 'NVARCHAR(20)') AS [QUOTED_IDENTIFIER]
+				FROM #statements AS s
+				CROSS APPLY s.statement.nodes('//p:StatementSetOptions') AS so(o)
+			   ) AS x
+	) AS set_options ON set_options.sql_handle = s.sql_handle
+	OPTION(RECOMPILE);
 
 
-		RAISERROR(N'Updating conversion XML', 0, 1) WITH NOWAIT;
-		WITH precheck AS (
-		SELECT spi.sql_handle,
-			   spi.proc_name,
-					(SELECT CASE WHEN spi.proc_name <> 'Statement' 
-						   THEN N'The stored procedure ' + spi.proc_name 
-						   ELSE N'This ad hoc statement' 
-					  END
-					+ N' had the following implicit conversions: '
-					+ CHAR(10)
-					+ STUFF((
-						SELECT DISTINCT 
-								@cr + @lf
-								+ CASE WHEN spi2.variable_name <> N'**no_variable**'
-									   THEN N'The variable '
-									   WHEN spi2.variable_name = N'**no_variable**' AND (spi2.column_name = spi2.converted_column_name OR spi2.column_name LIKE '%CONVERT_IMPLICIT%')
-									   THEN N'The compiled value '
-									   WHEN spi2.column_name LIKE '%Expr%'
-									   THEN 'The expression '
-									   ELSE N'The column '
-								  END 
-								+ CASE WHEN spi2.variable_name <> N'**no_variable**'
-									   THEN spi2.variable_name
-									   WHEN spi2.variable_name = N'**no_variable**' AND (spi2.column_name = spi2.converted_column_name OR spi2.column_name LIKE '%CONVERT_IMPLICIT%')
-									   THEN spi2.compile_time_value
-		
-									   ELSE spi2.column_name
-								  END 
-								+ N' has a data type of '
-								+ CASE WHEN spi2.variable_datatype = N'**no_variable**' THEN spi2.converted_to
-									   ELSE spi2.variable_datatype 
-								  END
-								+ N' which caused implicit conversion on the column '
-								+ CASE WHEN spi2.column_name LIKE N'%CONVERT_IMPLICIT%'
-									   THEN spi2.converted_column_name
-									   WHEN spi2.column_name = N'**no_column**'
-									   THEN spi2.converted_column_name
-									   WHEN spi2.converted_column_name = N'**no_column**'
-									   THEN spi2.column_name
-									   WHEN spi2.column_name <> spi2.converted_column_name
-									   THEN spi2.converted_column_name
-									   ELSE spi2.column_name
-								  END
-								+ CASE WHEN spi2.variable_name = N'**no_variable**' AND (spi2.column_name = spi2.converted_column_name OR spi2.column_name LIKE '%CONVERT_IMPLICIT%')
-									   THEN N''
-									   WHEN spi2.column_name LIKE '%Expr%'
-									   THEN N''
-									   WHEN spi2.compile_time_value NOT IN ('**declared in proc**', '**idk_man**')
-									   AND spi2.compile_time_value <> spi2.column_name
-									   THEN ' with the value ' + RTRIM(spi2.compile_time_value)
-									ELSE N''
-								 END 
-								+ '.'
-						FROM #stored_proc_info AS spi2
-						WHERE spi.sql_handle = spi2.sql_handle
-						FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
-					AS [processing-instruction(ClickMe)] FOR XML PATH(''), TYPE )
-					AS implicit_conversion_info
-		FROM #stored_proc_info AS spi
-		GROUP BY spi.sql_handle, spi.proc_name
-		)
-		UPDATE b
-        SET    b.implicit_conversion_info = pk.implicit_conversion_info
-        FROM   #working_warnings AS b
-        JOIN   precheck AS pk
-        ON pk.sql_handle = b.sql_handle
-        OPTION (RECOMPILE);
+	RAISERROR(N'Updating conversion XML', 0, 1) WITH NOWAIT;
+	WITH precheck AS (
+	SELECT spi.sql_handle,
+		   spi.proc_name,
+				(SELECT CASE WHEN spi.proc_name <> 'Statement' 
+					   THEN N'The stored procedure ' + spi.proc_name 
+					   ELSE N'This ad hoc statement' 
+				  END
+				+ N' had the following implicit conversions: '
+				+ CHAR(10)
+				+ STUFF((
+					SELECT DISTINCT 
+							@cr + @lf
+							+ CASE WHEN spi2.variable_name <> N'**no_variable**'
+								   THEN N'The variable '
+								   WHEN spi2.variable_name = N'**no_variable**' AND (spi2.column_name = spi2.converted_column_name OR spi2.column_name LIKE '%CONVERT_IMPLICIT%')
+								   THEN N'The compiled value '
+								   WHEN spi2.column_name LIKE '%Expr%'
+								   THEN 'The expression '
+								   ELSE N'The column '
+							  END 
+							+ CASE WHEN spi2.variable_name <> N'**no_variable**'
+								   THEN spi2.variable_name
+								   WHEN spi2.variable_name = N'**no_variable**' AND (spi2.column_name = spi2.converted_column_name OR spi2.column_name LIKE '%CONVERT_IMPLICIT%')
+								   THEN spi2.compile_time_value
+	
+								   ELSE spi2.column_name
+							  END 
+							+ N' has a data type of '
+							+ CASE WHEN spi2.variable_datatype = N'**no_variable**' THEN spi2.converted_to
+								   ELSE spi2.variable_datatype 
+							  END
+							+ N' which caused implicit conversion on the column '
+							+ CASE WHEN spi2.column_name LIKE N'%CONVERT_IMPLICIT%'
+								   THEN spi2.converted_column_name
+								   WHEN spi2.column_name = N'**no_column**'
+								   THEN spi2.converted_column_name
+								   WHEN spi2.converted_column_name = N'**no_column**'
+								   THEN spi2.column_name
+								   WHEN spi2.column_name <> spi2.converted_column_name
+								   THEN spi2.converted_column_name
+								   ELSE spi2.column_name
+							  END
+							+ CASE WHEN spi2.variable_name = N'**no_variable**' AND (spi2.column_name = spi2.converted_column_name OR spi2.column_name LIKE '%CONVERT_IMPLICIT%')
+								   THEN N''
+								   WHEN spi2.column_name LIKE '%Expr%'
+								   THEN N''
+								   WHEN spi2.compile_time_value NOT IN ('**declared in proc**', '**idk_man**')
+								   AND spi2.compile_time_value <> spi2.column_name
+								   THEN ' with the value ' + RTRIM(spi2.compile_time_value)
+								ELSE N''
+							 END 
+							+ '.'
+					FROM #stored_proc_info AS spi2
+					WHERE spi.sql_handle = spi2.sql_handle
+					FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
+				AS [processing-instruction(ClickMe)] FOR XML PATH(''), TYPE )
+				AS implicit_conversion_info
+	FROM #stored_proc_info AS spi
+	GROUP BY spi.sql_handle, spi.proc_name
+	)
+	UPDATE b
+	SET    b.implicit_conversion_info = pk.implicit_conversion_info
+	FROM   #working_warnings AS b
+	JOIN   precheck AS pk
+	ON pk.sql_handle = b.sql_handle
+	OPTION (RECOMPILE);
 
-		RAISERROR(N'Updating cached parameter XML for procs', 0, 1) WITH NOWAIT;
-		WITH precheck AS (
-		SELECT spi.sql_handle,
-			   spi.proc_name,
-			   (SELECT set_options
-					+ @cr + @lf
-					+ @cr + @lf
-					+ N'EXEC ' 
-					+ spi.proc_name 
-					+ N' '
-					+ STUFF((
-						SELECT DISTINCT N', ' 
-								+ CASE WHEN spi2.variable_name <> N'**no_variable**' AND spi2.compile_time_value <> N'**idk_man**'
-										THEN spi2.variable_name + N' = '
-										ELSE @cr + @lf + N' We could not find any cached parameter values for this stored proc. ' 
-								  END
-								+ CASE WHEN spi2.variable_name = N'**no_variable**' OR spi2.compile_time_value = N'**idk_man**'
-									   THEN @cr + @lf + N' Possible reasons include declared variables inside the procedure, recompile hints, etc. '
-									   WHEN spi2.compile_time_value = N'NULL' 
-									   THEN spi2.compile_time_value 
-									   ELSE RTRIM(spi2.compile_time_value)
-								  END
-						FROM #stored_proc_info AS spi2
-						WHERE spi.sql_handle = spi2.sql_handle
-						AND spi2.proc_name <> N'Statement'
-						FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
-					AS [processing-instruction(ClickMe)] FOR XML PATH(''), TYPE )
-					AS cached_execution_parameters
-		FROM #stored_proc_info AS spi
-		GROUP BY spi.sql_handle, spi.proc_name, set_options
-		) 
-		UPDATE b
-		SET b.cached_execution_parameters = pk.cached_execution_parameters
-        FROM   #working_warnings AS b
-        JOIN   precheck AS pk
-        ON pk.sql_handle = b.sql_handle
-		WHERE b.proc_or_function_name <> N'Statement'
-        OPTION (RECOMPILE);
+	RAISERROR(N'Updating cached parameter XML for procs', 0, 1) WITH NOWAIT;
+	WITH precheck AS (
+	SELECT spi.sql_handle,
+		   spi.proc_name,
+		   (SELECT set_options
+				+ @cr + @lf
+				+ @cr + @lf
+				+ N'EXEC ' 
+				+ spi.proc_name 
+				+ N' '
+				+ STUFF((
+					SELECT DISTINCT N', ' 
+							+ CASE WHEN spi2.variable_name <> N'**no_variable**' AND spi2.compile_time_value <> N'**idk_man**'
+									THEN spi2.variable_name + N' = '
+									ELSE @cr + @lf + N' We could not find any cached parameter values for this stored proc. ' 
+							  END
+							+ CASE WHEN spi2.variable_name = N'**no_variable**' OR spi2.compile_time_value = N'**idk_man**'
+								   THEN @cr + @lf + N' Possible reasons include declared variables inside the procedure, recompile hints, etc. '
+								   WHEN spi2.compile_time_value = N'NULL' 
+								   THEN spi2.compile_time_value 
+								   ELSE RTRIM(spi2.compile_time_value)
+							  END
+					FROM #stored_proc_info AS spi2
+					WHERE spi.sql_handle = spi2.sql_handle
+					AND spi2.proc_name <> N'Statement'
+					FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
+				AS [processing-instruction(ClickMe)] FOR XML PATH(''), TYPE )
+				AS cached_execution_parameters
+	FROM #stored_proc_info AS spi
+	GROUP BY spi.sql_handle, spi.proc_name, set_options
+	) 
+	UPDATE b
+	SET b.cached_execution_parameters = pk.cached_execution_parameters
+	FROM   #working_warnings AS b
+	JOIN   precheck AS pk
+	ON pk.sql_handle = b.sql_handle
+	WHERE b.proc_or_function_name <> N'Statement'
+	OPTION (RECOMPILE);
 
 
 	RAISERROR(N'Updating cached parameter XML for statements', 0, 1) WITH NOWAIT;
@@ -4243,20 +4247,20 @@ OPTION ( RECOMPILE );
     OPTION (RECOMPILE);
 
 
-RAISERROR(N'Filling in implicit conversion info', 0, 1) WITH NOWAIT;
-UPDATE b
-SET    b.implicit_conversion_info = CASE WHEN b.implicit_conversion_info IS NULL 
-									OR CONVERT(NVARCHAR(MAX), b.implicit_conversion_info) = N''
-									THEN N'<?NoNeedToClickMe -- N/A --?>'
-                                    ELSE b.implicit_conversion_info
-                                    END,
-       b.cached_execution_parameters = CASE WHEN b.cached_execution_parameters IS NULL 
-									   OR CONVERT(NVARCHAR(MAX), b.cached_execution_parameters) = N''
-									   THEN N'<?NoNeedToClickMe -- N/A --?>'
-                                       ELSE b.cached_execution_parameters
-                                       END
-FROM   #working_warnings AS b
-OPTION (RECOMPILE);
+	RAISERROR(N'Filling in implicit conversion info', 0, 1) WITH NOWAIT;
+	UPDATE b
+	SET    b.implicit_conversion_info = CASE WHEN b.implicit_conversion_info IS NULL 
+										OR CONVERT(NVARCHAR(MAX), b.implicit_conversion_info) = N''
+										THEN N'<?NoNeedToClickMe -- N/A --?>'
+	                                    ELSE b.implicit_conversion_info
+	                                    END,
+	       b.cached_execution_parameters = CASE WHEN b.cached_execution_parameters IS NULL 
+										   OR CONVERT(NVARCHAR(MAX), b.cached_execution_parameters) = N''
+										   THEN N'<?NoNeedToClickMe -- N/A --?>'
+	                                       ELSE b.cached_execution_parameters
+	                                       END
+	FROM   #working_warnings AS b
+	OPTION (RECOMPILE);
 
 /*End implicit conversion and parameter info*/
 
@@ -4451,15 +4455,15 @@ IF EXISTS ( SELECT 1/0
 		ON m.sql_handle = ww.sql_handle
 		OPTION (RECOMPILE);
 
-	RAISERROR(N'Filling in missing index blanks', 0, 1) WITH NOWAIT;
-	UPDATE ww
-	SET ww.missing_indexes = 
-		CASE WHEN ww.missing_indexes IS NULL 
-			 THEN '<?NoNeedToClickMe -- N/A --?>' 
-			 ELSE ww.missing_indexes 
-		END
-	FROM #working_warnings AS ww
-	OPTION (RECOMPILE);
+		RAISERROR(N'Filling in missing index blanks', 0, 1) WITH NOWAIT;
+		UPDATE ww
+		SET ww.missing_indexes = 
+			CASE WHEN ww.missing_indexes IS NULL 
+				 THEN '<?NoNeedToClickMe -- N/A --?>' 
+				 ELSE ww.missing_indexes 
+			END
+		FROM #working_warnings AS ww
+		OPTION (RECOMPILE);
 
 END
 /*End Missing Index*/
