@@ -3045,7 +3045,7 @@ ON ww.plan_id = wm.plan_id
    AND wm.count_compiles > (wm.count_executions * 2)
 OPTION (RECOMPILE);
 
-/*Plans that compile 2x more than they execute*/
+/*Plans that take more than 5 seconds to bind, compile, or optimize*/
 
 RAISERROR(N'Checking for plans that take more than 5 seconds to bind, compile, or optimize', 0, 1) WITH NOWAIT;
 
