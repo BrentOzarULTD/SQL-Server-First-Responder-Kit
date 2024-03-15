@@ -5621,7 +5621,7 @@ BEGIN
                      'Non-SARGable queries',
                      'Queries may be using',
                      'https://www.brentozar.com/blitzcache/non-sargable-predicates/',
-					 'Occurs when join inputs aren''t known to be unique. Can be really bad when parallel.');
+					 'Occurs when predicates cannot be used for index seeks. Causes all kinds of bad side effects.');
 					
         IF EXISTS (SELECT 1/0
                     FROM   #working_warnings p
