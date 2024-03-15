@@ -4901,7 +4901,7 @@ BEGIN
                     'Cursors',
                     'Dynamic Cursors',
                     'https://www.brentozar.com/blitzcache/cursors-found-slow-queries/',
-                    'Dynamic Cursors inhibit parallelism!.');
+                    'Dynamic Cursors inhibit parallelism!');
 
 		IF EXISTS (SELECT 1/0
                    FROM   #working_warnings
@@ -4914,7 +4914,7 @@ BEGIN
                     'Cursors',
                     'Fast Forward Cursors',
                     'https://www.brentozar.com/blitzcache/cursors-found-slow-queries/',
-                    'Fast forward cursors inhibit parallelism!.');
+                    'Fast forward cursors inhibit parallelism!');
 					
         IF EXISTS (SELECT 1/0
                    FROM   #working_warnings
