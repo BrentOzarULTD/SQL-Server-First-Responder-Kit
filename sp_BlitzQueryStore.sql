@@ -3701,7 +3701,7 @@ OR (@major_version = 13
 
 BEGIN
 
-RAISERROR(N'Beginning 2017 and 2016 SP2 specfic checks', 0, 1) WITH NOWAIT;
+RAISERROR(N'Beginning 2017 and 2016 SP2 specific checks', 0, 1) WITH NOWAIT;
 
 IF @ExpertMode > 0
 BEGIN
