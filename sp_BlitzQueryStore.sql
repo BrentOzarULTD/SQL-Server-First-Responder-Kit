@@ -5670,13 +5670,13 @@ BEGIN
                    gi.total_max_log_bytes_mb, 
                    gi.total_max_tempdb_space,
 				   CONVERT(NVARCHAR(20), gi.flat_date) AS worst_date,
-				   CASE WHEN DATEPART(HOUR, gi.start_range) = 0 THEN ' midnight '
-						WHEN DATEPART(HOUR, gi.start_range) <= 12 THEN CONVERT(NVARCHAR(3), DATEPART(HOUR, gi.start_range)) + 'am '
-						WHEN DATEPART(HOUR, gi.start_range) > 12 THEN CONVERT(NVARCHAR(3), DATEPART(HOUR, gi.start_range) -12) + 'pm '
+				   CASE WHEN DATEPART(HOUR, gi.start_range) = 0 THEN 'midnight'
+						WHEN DATEPART(HOUR, gi.start_range) <= 12 THEN CONVERT(NVARCHAR(3), DATEPART(HOUR, gi.start_range)) + 'am'
+						WHEN DATEPART(HOUR, gi.start_range) > 12 THEN CONVERT(NVARCHAR(3), DATEPART(HOUR, gi.start_range) -12) + 'pm'
 						END AS worst_start_time,
-				   CASE WHEN DATEPART(HOUR, gi.end_range) = 0 THEN ' midnight '
-						WHEN DATEPART(HOUR, gi.end_range) <= 12 THEN CONVERT(NVARCHAR(3), DATEPART(HOUR, gi.end_range)) + 'am '
-						WHEN DATEPART(HOUR, gi.end_range) > 12 THEN CONVERT(NVARCHAR(3),  DATEPART(HOUR, gi.end_range) -12) + 'pm '
+				   CASE WHEN DATEPART(HOUR, gi.end_range) = 0 THEN 'midnight'
+						WHEN DATEPART(HOUR, gi.end_range) <= 12 THEN CONVERT(NVARCHAR(3), DATEPART(HOUR, gi.end_range)) + 'am'
+						WHEN DATEPART(HOUR, gi.end_range) > 12 THEN CONVERT(NVARCHAR(3),  DATEPART(HOUR, gi.end_range) -12) + 'pm'
 						END AS worst_end_time
 			FROM   #grouped_interval AS gi
 			), /*Averages*/
