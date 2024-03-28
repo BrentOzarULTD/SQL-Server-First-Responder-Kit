@@ -42,6 +42,8 @@ Note that if you're not ready to get started coding in the next week, or if you 
 
 We're not picky at all about style, but a few things to know:
 
+Don't touch the files that start with Install, like Install-All-Scripts.sql. Those are dynamically generated. You only have to touch the ones that start with sp_.
+
 Your code needs to compile & run on all currently supported versions of SQL Server. It's okay if functionality degrades, like if not all features are available, but at minimum the code has to compile and run.
 
 Your code must handle:

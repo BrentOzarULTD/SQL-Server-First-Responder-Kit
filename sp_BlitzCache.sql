@@ -281,7 +281,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.18', @VersionDate = '20231222';
+SELECT @Version = '8.19', @VersionDate = '20240222';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -468,7 +468,7 @@ IF @Help = 1
 	UNION ALL
 	SELECT N'@MinutesBack',
 			N'INT',
-			N'How many minutes back to begin plan cache analysis. If you put in a positive number, we''ll flip it to negtive.';
+			N'How many minutes back to begin plan cache analysis. If you put in a positive number, we''ll flip it to negative.';
 
 
 	/* Column definitions */

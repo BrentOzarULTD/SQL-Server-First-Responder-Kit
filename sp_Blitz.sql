@@ -38,7 +38,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.18', @VersionDate = '20231222';
+	SELECT @Version = '8.19', @VersionDate = '20240222';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -659,7 +659,7 @@ AS
 		SELECT
 		    v.*
 		FROM (VALUES(NULL, 211, NULL)) AS v (DatabaseName, CheckID, ServerName) /*xp_regread*/
-		WHERE @SkipXPRegRead = 1;
+		WHERE @sa = 0;
 
 		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
 		SELECT
@@ -878,6 +878,8 @@ AS
 						INSERT INTO #SkipChecks (CheckID, DatabaseName) VALUES (80, 'model');  /* Max file size set */
 						INSERT INTO #SkipChecks (CheckID, DatabaseName) VALUES (80, 'msdb');  /* Max file size set */
 						INSERT INTO #SkipChecks (CheckID, DatabaseName) VALUES (80, 'tempdb');  /* Max file size set */
+						INSERT INTO #SkipChecks (CheckID) VALUES (224); /* CheckID 224 - Performance - SSRS/SSAS/SSIS Installed */
+						INSERT INTO #SkipChecks (CheckID) VALUES (92); /* CheckID 92 - drive space */
 			            INSERT  INTO #BlitzResults
 			            ( CheckID ,
 				            Priority ,
@@ -1198,7 +1200,7 @@ AS
 		IF @BringThePain = 0 AND 50 <= (SELECT COUNT(*) FROM sys.databases) AND @CheckUserDatabaseObjects = 1
 			BEGIN
 			SET @CheckUserDatabaseObjects = 0;
-			PRINT 'Running sp_Blitz @CheckUserDatabaseObjects = 1 on a server with 50+ databases may cause temporary insanity for the server and/or user.';
+			PRINT 'Running sp_Blitz @CheckUserDatabaseObjects = 1 on a server with 50+ databases may cause temporary problems for the server and/or user.';
 			PRINT 'If you''re sure you want to do this, run again with the parameter @BringThePain = 1.';
 			INSERT  INTO #BlitzResults
 			( CheckID ,
@@ -1557,10 +1559,8 @@ AS
 				end of the stored proc, where we start doing things like checking
 				the plan cache, but those aren't as cleanly commented.
 
-				If you'd like to contribute your own check, use one of the check
-				formats shown above and email it to Help@BrentOzar.com. You don't
-				have to pick a CheckID or a link - we'll take care of that when we
-				test and publish the code. Thanks!
+				To contribute your own checks or fix bugs, learn more here:
+				https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/blob/main/CONTRIBUTING.md
 				*/
 
 				IF NOT EXISTS ( SELECT  1

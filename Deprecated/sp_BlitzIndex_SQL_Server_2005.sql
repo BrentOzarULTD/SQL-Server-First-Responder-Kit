@@ -43,7 +43,7 @@ Known limitations of this version:
  --		Example 1: index creates use ONLINE=? instead of ONLINE=ON / ONLINE=OFF. This is because it's important for the user to understand if it's going to be offline and not just run a script.
  --		Example 2: they do not include all the options the index may have been created with (padding, compression filegroup/partition scheme etc.)
  --		(The compression and filegroup index create syntax isn't trivial because it's set at the partition level and isn't trivial to code. Two people have voted for wanting it so far.)
- - Doesn't advise you about data modeling for clustered indexes and primary keys (primarily looks for signs of insanity.)
+ - Doesn't advise you about data modeling for clustered indexes and primary keys (primarily looks for signs of problems.)
  - Found something? Let us know at help@brentozar.com.
 
  Thanks for using sp_BlitzIndex(TM)!
