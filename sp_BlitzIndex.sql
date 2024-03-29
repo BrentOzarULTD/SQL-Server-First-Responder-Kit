@@ -6036,52 +6036,77 @@ BEGIN
 						WHEN i.index_definition = '[HEAP]' THEN N''
 					    ELSE N'--' + ict.create_tsql END AS [Create TSQL], 
 					1 AS [Display Order]
+            INTO #Mode2Temp
 			FROM    #IndexSanity AS i --left join here so we don't lose disabled nc indexes
-					LEFT JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
-                    LEFT JOIN #IndexCreateTsql AS ict ON i.index_sanity_id = ict.index_sanity_id
-			ORDER BY    /* Shout out to DHutmacher */
-						/*DESC*/
-						CASE WHEN @SortOrder = N'rows' AND @SortDirection = N'desc' THEN sz.total_rows ELSE NULL END DESC,
-						CASE WHEN @SortOrder = N'reserved_mb' AND @SortDirection = N'desc' THEN sz.total_reserved_MB ELSE NULL END DESC,
-						CASE WHEN @SortOrder = N'size' AND @SortDirection = N'desc' THEN sz.total_reserved_MB ELSE NULL END DESC,
-						CASE WHEN @SortOrder = N'reserved_lob_mb' AND @SortDirection = N'desc' THEN sz.total_reserved_LOB_MB ELSE NULL END DESC,
-						CASE WHEN @SortOrder = N'lob' AND @SortDirection = N'desc' THEN sz.total_reserved_LOB_MB ELSE NULL END DESC,
-						CASE WHEN @SortOrder = N'total_row_lock_wait_in_ms' AND @SortDirection = N'desc' THEN COALESCE(sz.total_row_lock_wait_in_ms,0) ELSE NULL END DESC,
-						CASE WHEN @SortOrder = N'total_page_lock_wait_in_ms' AND @SortDirection = N'desc' THEN COALESCE(sz.total_page_lock_wait_in_ms,0) ELSE NULL END DESC,
-						CASE WHEN @SortOrder = N'lock_time' AND @SortDirection = N'desc' THEN (COALESCE(sz.total_row_lock_wait_in_ms,0) + COALESCE(sz.total_page_lock_wait_in_ms,0)) ELSE NULL END DESC,
-						CASE WHEN @SortOrder = N'total_reads' AND @SortDirection = N'desc' THEN total_reads ELSE NULL END DESC,
-						CASE WHEN @SortOrder = N'reads' AND @SortDirection = N'desc' THEN total_reads ELSE NULL END DESC,
-						CASE WHEN @SortOrder = N'user_updates' AND @SortDirection = N'desc' THEN user_updates ELSE NULL END DESC,
-						CASE WHEN @SortOrder = N'writes' AND @SortDirection = N'desc' THEN user_updates ELSE NULL END DESC,
-						CASE WHEN @SortOrder = N'reads_per_write' AND @SortDirection = N'desc' THEN reads_per_write ELSE NULL END DESC,
-						CASE WHEN @SortOrder = N'ratio' AND @SortDirection = N'desc' THEN reads_per_write ELSE NULL END DESC,
-						CASE WHEN @SortOrder = N'forward_fetches' AND @SortDirection = N'desc' THEN sz.total_forwarded_fetch_count ELSE NULL END DESC,
-						CASE WHEN @SortOrder = N'fetches' AND @SortDirection = N'desc' THEN sz.total_forwarded_fetch_count ELSE NULL END DESC,
-						CASE WHEN @SortOrder = N'create_date' AND @SortDirection = N'desc' THEN CONVERT(DATETIME, i.create_date) ELSE NULL END DESC,
-						CASE WHEN @SortOrder = N'modify_date' AND @SortDirection = N'desc' THEN CONVERT(DATETIME, i.modify_date) ELSE NULL END DESC,
-						/*ASC*/
-						CASE WHEN @SortOrder = N'rows' AND @SortDirection = N'asc' THEN sz.total_rows ELSE NULL END ASC,
-						CASE WHEN @SortOrder = N'reserved_mb' AND @SortDirection = N'asc' THEN sz.total_reserved_MB ELSE NULL END ASC,
-						CASE WHEN @SortOrder = N'size' AND @SortDirection = N'asc' THEN sz.total_reserved_MB ELSE NULL END ASC,
-						CASE WHEN @SortOrder = N'reserved_lob_mb' AND @SortDirection = N'asc' THEN sz.total_reserved_LOB_MB ELSE NULL END ASC,
-						CASE WHEN @SortOrder = N'lob' AND @SortDirection = N'asc' THEN sz.total_reserved_LOB_MB ELSE NULL END ASC,
-						CASE WHEN @SortOrder = N'total_row_lock_wait_in_ms' AND @SortDirection = N'asc' THEN COALESCE(sz.total_row_lock_wait_in_ms,0) ELSE NULL END ASC,
-						CASE WHEN @SortOrder = N'total_page_lock_wait_in_ms' AND @SortDirection = N'asc' THEN COALESCE(sz.total_page_lock_wait_in_ms,0) ELSE NULL END ASC,
-						CASE WHEN @SortOrder = N'lock_time' AND @SortDirection = N'asc' THEN (COALESCE(sz.total_row_lock_wait_in_ms,0) + COALESCE(sz.total_page_lock_wait_in_ms,0)) ELSE NULL END ASC,
-						CASE WHEN @SortOrder = N'total_reads' AND @SortDirection = N'asc' THEN total_reads ELSE NULL END ASC,
-						CASE WHEN @SortOrder = N'reads' AND @SortDirection = N'asc' THEN total_reads ELSE NULL END ASC,
-						CASE WHEN @SortOrder = N'user_updates' AND @SortDirection = N'asc' THEN user_updates ELSE NULL END ASC,
-						CASE WHEN @SortOrder = N'writes' AND @SortDirection = N'asc' THEN user_updates ELSE NULL END ASC,
-						CASE WHEN @SortOrder = N'reads_per_write' AND @SortDirection = N'asc' THEN reads_per_write ELSE NULL END ASC,
-						CASE WHEN @SortOrder = N'ratio' AND @SortDirection = N'asc' THEN reads_per_write ELSE NULL END ASC,
-						CASE WHEN @SortOrder = N'forward_fetches' AND @SortDirection = N'asc' THEN sz.total_forwarded_fetch_count ELSE NULL END ASC,
-						CASE WHEN @SortOrder = N'fetches' AND @SortDirection = N'asc' THEN sz.total_forwarded_fetch_count ELSE NULL END ASC,
-						CASE WHEN @SortOrder = N'create_date' AND @SortDirection = N'asc' THEN CONVERT(DATETIME, i.create_date) ELSE NULL END ASC,
-						CASE WHEN @SortOrder = N'modify_date' AND @SortDirection = N'asc' THEN CONVERT(DATETIME, i.modify_date) ELSE NULL END ASC,
-				i.[database_name], [Schema Name], [Object Name], [Index ID]
-			OPTION (RECOMPILE);
-  		END;
+			LEFT JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
+            LEFT JOIN #IndexCreateTsql AS ict ON i.index_sanity_id = ict.index_sanity_id
+			OPTION(RECOMPILE);
 
+			IF @@ROWCOUNT > 0
+            BEGIN
+			    SELECT
+			        sz.*
+			    FROM #Mode2Temp AS sz
+			    ORDER BY    /* Shout out to DHutmacher */
+			    			/*DESC*/
+			    			CASE WHEN @SortOrder = N'rows' AND @SortDirection = N'desc' THEN sz.[Rows] ELSE NULL END DESC,
+			    			CASE WHEN @SortOrder = N'reserved_mb' AND @SortDirection = N'desc' THEN sz.[Reserved MB] ELSE NULL END DESC,
+			    			CASE WHEN @SortOrder = N'size' AND @SortDirection = N'desc' THEN sz.[Reserved MB] ELSE NULL END DESC,
+			    			CASE WHEN @SortOrder = N'reserved_lob_mb' AND @SortDirection = N'desc' THEN sz.[Reserved LOB MB] ELSE NULL END DESC,
+			    			CASE WHEN @SortOrder = N'lob' AND @SortDirection = N'desc' THEN sz.[Reserved LOB MB] ELSE NULL END DESC,
+			    			CASE WHEN @SortOrder = N'total_row_lock_wait_in_ms' AND @SortDirection = N'desc' THEN COALESCE(sz.[Row Lock Wait ms],0) ELSE NULL END DESC,
+			    			CASE WHEN @SortOrder = N'total_page_lock_wait_in_ms' AND @SortDirection = N'desc' THEN COALESCE(sz.[Page Lock Wait ms],0) ELSE NULL END DESC,
+			    			CASE WHEN @SortOrder = N'lock_time' AND @SortDirection = N'desc' THEN (COALESCE(sz.[Row Lock Wait ms],0) + COALESCE(sz.[Page Lock Wait ms],0)) ELSE NULL END DESC,
+			    			CASE WHEN @SortOrder = N'total_reads' AND @SortDirection = N'desc' THEN [Total Reads] ELSE NULL END DESC,
+			    			CASE WHEN @SortOrder = N'reads' AND @SortDirection = N'desc' THEN [Total Reads] ELSE NULL END DESC,
+			    			CASE WHEN @SortOrder = N'user_updates' AND @SortDirection = N'desc' THEN [User Updates] ELSE NULL END DESC,
+			    			CASE WHEN @SortOrder = N'writes' AND @SortDirection = N'desc' THEN [User Updates] ELSE NULL END DESC,
+			    			CASE WHEN @SortOrder = N'reads_per_write' AND @SortDirection = N'desc' THEN [Reads Per Write] ELSE NULL END DESC,
+			    			CASE WHEN @SortOrder = N'ratio' AND @SortDirection = N'desc' THEN [Reads Per Write] ELSE NULL END DESC,
+			    			CASE WHEN @SortOrder = N'forward_fetches' AND @SortDirection = N'desc' THEN sz.[Forwarded Fetches] ELSE NULL END DESC,
+			    			CASE WHEN @SortOrder = N'fetches' AND @SortDirection = N'desc' THEN sz.[Forwarded Fetches] ELSE NULL END DESC,
+			    			CASE WHEN @SortOrder = N'create_date' AND @SortDirection = N'desc' THEN CONVERT(DATETIME, sz.[Create Date]) ELSE NULL END DESC,
+			    			CASE WHEN @SortOrder = N'modify_date' AND @SortDirection = N'desc' THEN CONVERT(DATETIME, sz.[Modify Date]) ELSE NULL END DESC,
+			    			/*ASC*/
+			    			CASE WHEN @SortOrder = N'rows' AND @SortDirection = N'asc' THEN sz.[Rows] ELSE NULL END ASC,
+			    			CASE WHEN @SortOrder = N'reserved_mb' AND @SortDirection = N'asc' THEN sz.[Reserved MB] ELSE NULL END ASC,
+			    			CASE WHEN @SortOrder = N'size' AND @SortDirection = N'asc' THEN sz.[Reserved MB] ELSE NULL END ASC,
+			    			CASE WHEN @SortOrder = N'reserved_lob_mb' AND @SortDirection = N'asc' THEN sz.[Reserved LOB MB] ELSE NULL END ASC,
+			    			CASE WHEN @SortOrder = N'lob' AND @SortDirection = N'asc' THEN sz.[Reserved LOB MB] ELSE NULL END ASC,
+			    			CASE WHEN @SortOrder = N'total_row_lock_wait_in_ms' AND @SortDirection = N'asc' THEN COALESCE(sz.[Row Lock Wait ms],0) ELSE NULL END ASC,
+			    			CASE WHEN @SortOrder = N'total_page_lock_wait_in_ms' AND @SortDirection = N'asc' THEN COALESCE(sz.[Page Lock Wait ms],0) ELSE NULL END ASC,
+			    			CASE WHEN @SortOrder = N'lock_time' AND @SortDirection = N'asc' THEN (COALESCE(sz.[Row Lock Wait ms],0) + COALESCE(sz.[Page Lock Wait ms],0)) ELSE NULL END ASC,
+			    			CASE WHEN @SortOrder = N'total_reads' AND @SortDirection = N'asc' THEN [Total Reads] ELSE NULL END ASC,
+			    			CASE WHEN @SortOrder = N'reads' AND @SortDirection = N'asc' THEN [Total Reads] ELSE NULL END ASC,
+			    			CASE WHEN @SortOrder = N'user_updates' AND @SortDirection = N'asc' THEN [User Updates] ELSE NULL END ASC,
+			    			CASE WHEN @SortOrder = N'writes' AND @SortDirection = N'asc' THEN [User Updates] ELSE NULL END ASC,
+			    			CASE WHEN @SortOrder = N'reads_per_write' AND @SortDirection = N'asc' THEN [Reads Per Write] ELSE NULL END ASC,
+			    			CASE WHEN @SortOrder = N'ratio' AND @SortDirection = N'asc' THEN [Reads Per Write] ELSE NULL END ASC,
+			    			CASE WHEN @SortOrder = N'forward_fetches' AND @SortDirection = N'asc' THEN sz.[Forwarded Fetches] ELSE NULL END ASC,
+			    			CASE WHEN @SortOrder = N'fetches' AND @SortDirection = N'asc' THEN sz.[Forwarded Fetches] ELSE NULL END ASC,
+			    			CASE WHEN @SortOrder = N'create_date' AND @SortDirection = N'asc' THEN CONVERT(DATETIME, sz.[Create Date]) ELSE NULL END ASC,
+			    			CASE WHEN @SortOrder = N'modify_date' AND @SortDirection = N'asc' THEN CONVERT(DATETIME, sz.[Modify Date]) ELSE NULL END ASC,
+			    	sz.[Database Name], [Schema Name], [Object Name], [Index ID]
+			    OPTION (RECOMPILE);
+			END
+			ELSE
+			BEGIN
+    			SELECT
+				    DatabaseDetails =
+					    N'Database ' +
+						ISNULL(@DatabaseName, DB_NAME()) +
+						N' has ' +
+						ISNULL(RTRIM(@Rowcount), 0) +
+						N' partitions.',
+					BringThePain =
+					    CASE
+						    WHEN @BringThePain IN (0, 1) AND ISNULL(@Rowcount, 0) = 0
+							THEN N'Check the database name, it looks like nothing is here.'
+							WHEN @BringThePain = 0 AND ISNULL(@Rowcount, 0) > 0
+							THEN N'Please re-run with @BringThePain = 1'
+						END;
+			END
+  		END;
     END; /* End @Mode=2 (index detail)*/
 
 
