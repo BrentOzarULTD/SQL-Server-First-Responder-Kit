@@ -1776,7 +1776,8 @@ BEGIN TRY
 		END; --End Check For @SkipPartitions = 0
 
 
-
+		IF @Mode NOT IN(1, 2)
+		BEGIN
         RAISERROR (N'Inserting data into #MissingIndexes',0,1) WITH NOWAIT;
         SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
 
@@ -1927,6 +1928,7 @@ BEGIN TRY
                                     inequality_columns, included_columns, equality_columns_with_data_type, inequality_columns_with_data_type, 
                                     included_columns_with_data_type, sample_query_plan)
         EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
+		END;
 
         SET @dsql = N'
             SELECT DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
@@ -1994,7 +1996,8 @@ BEGIN TRY
                                 [update_referential_action_desc], [delete_referential_action_desc] )
                 EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
 
-
+		IF @Mode NOT IN(1, 2)
+		BEGIN
         SET @dsql = N'
                 SELECT 
                     DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
@@ -2033,7 +2036,7 @@ BEGIN TRY
         IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
 
-        RAISERROR (N'Inserting data into #ForeignKeys',0,1) WITH NOWAIT;
+        RAISERROR (N'Inserting data into #UnindexedForeignKeys',0,1) WITH NOWAIT;
         IF @Debug = 1
             BEGIN
                 PRINT SUBSTRING(@dsql, 0, 4000);
@@ -2064,8 +2067,11 @@ BEGIN TRY
             @dsql,
             N'@i_DatabaseName sysname',
             @DatabaseName;
+		END;
 
 
+		IF @Mode NOT IN(1, 2)
+		BEGIN
 		IF @SkipStatistics = 0 /* AND DB_NAME() = @DatabaseName /* Can only get stats in the current database - see https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1947 */ */
 			BEGIN
 		IF  ((PARSENAME(@SQLServerProductVersion, 4) >= 12)
@@ -2223,9 +2229,11 @@ BEGIN TRY
 			
 			EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
 			END;
-
+			END;
 			END;
 
+		IF @Mode NOT IN(1, 2)
+		BEGIN
 			IF  (PARSENAME(@SQLServerProductVersion, 4) >= 10)
 			BEGIN
 			RAISERROR (N'Gathering Computed Column Info.',0,1) WITH NOWAIT;
@@ -2259,9 +2267,11 @@ BEGIN TRY
 			        ( database_id, [database_name], table_name, schema_name, column_name, is_nullable, definition, 
 					  uses_database_collation, is_persisted, is_computed, is_function, column_definition )			
 			EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
+			END;
+            END;
 
-			END; 
-			
+		IF @Mode NOT IN(1, 2)
+		BEGIN
 			RAISERROR (N'Gathering Trace Flag Information',0,1) WITH NOWAIT;
 			INSERT #TraceStatus
 			EXEC ('DBCC TRACESTATUS(-1) WITH NO_INFOMSGS');			
@@ -2306,6 +2316,7 @@ BEGIN TRY
 									 history_table_name, start_column_name, end_column_name, period_name )
 					
 			EXEC sp_executesql @dsql;
+        END;
 
              SET @dsql=N'SELECT DB_ID(@i_DatabaseName) AS [database_id], 
              				   @i_DatabaseName AS database_name,
@@ -2332,6 +2343,8 @@ BEGIN TRY
              EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
 
 
+		IF @Mode NOT IN(1, 2)
+		BEGIN
             SET @dsql=N'SELECT DB_ID(@i_DatabaseName) AS [database_id], 
              				   @i_DatabaseName AS database_name,
                                s.name AS missing_schema_name,
@@ -2361,9 +2374,8 @@ BEGIN TRY
 
                 INSERT #FilteredIndexes ( database_id, database_name, schema_name, table_name, index_name, column_name )
                 EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
-
-
     END;
+	END;
 			
 END;                    
 END TRY
