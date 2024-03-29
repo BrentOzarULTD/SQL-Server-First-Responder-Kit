@@ -1781,70 +1781,179 @@ BEGIN TRY
         SET @dsql=N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;'
 
 
-		SET @dsql = @dsql + 'WITH ColumnNamesWithDataTypes AS(SELECT id.index_handle,id.object_id,cn.IndexColumnType,STUFF((SELECT '', '' + cn_inner.ColumnName + '' '' +
-			N'' {'' + CASE	 WHEN ty.name IN ( ''varchar'', ''char'' ) THEN ty.name + ''('' + CASE WHEN co.max_length = -1 THEN ''max'' ELSE CAST(co.max_length AS VARCHAR(25)) END + '')''
-								WHEN ty.name IN ( ''nvarchar'', ''nchar'' ) THEN ty.name + ''('' + CASE WHEN co.max_length = -1 THEN ''max'' ELSE CAST(co.max_length / 2 AS VARCHAR(25)) END + '')''
-								WHEN ty.name IN ( ''decimal'', ''numeric'' ) THEN ty.name + ''('' + CAST(co.precision AS VARCHAR(25)) + '', '' + CAST(co.scale AS VARCHAR(25)) + '')''
-								WHEN ty.name IN ( ''datetime2'' ) THEN ty.name + ''('' + CAST(co.scale AS VARCHAR(25)) + '')''
-								ELSE ty.name END + ''}''
-				FROM	' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_details AS id_inner
-				CROSS APPLY(
-					SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Equality'' AS IndexColumnType
-					FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE((SELECT CAST(id_inner.equality_columns AS nvarchar(max)) FOR XML PATH('''')), N'','', N''</x><x>'') + N''</x>''))) x(n)
-					CROSS APPLY n.nodes(''x'') node(v)
-				UNION ALL
-					SELECT	LTRIM(RTRIM(v.value(N''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Inequality'' AS IndexColumnType
-					FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE((SELECT CAST(id_inner.inequality_columns AS nvarchar(max)) FOR XML PATH('''')), N'','', N''</x><x>'') + N''</x>''))) x(n)
-					CROSS APPLY n.nodes(''x'') node(v)
-				UNION ALL
-					SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Included'' AS IndexColumnType
-					FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE((SELECT CAST(id_inner.included_columns AS nvarchar(max)) FOR XML PATH('''')), N'','', N''</x><x>'') + N''</x>''))) x(n)
-					CROSS APPLY n.nodes(''x'') node(v)
-			)AS cn_inner'
-		+ /*split the string otherwise dsql cuts some of it out*/
-		'		JOIN	' + QUOTENAME(@DatabaseName) + N'.sys.columns AS co ON co.object_id = id_inner.object_id AND ''['' + co.name + '']'' = cn_inner.ColumnName
-				JOIN	' + QUOTENAME(@DatabaseName) + N'.sys.types AS ty ON ty.user_type_id = co.user_type_id 
+		SET @dsql = @dsql + '
+WITH 
+    ColumnNamesWithDataTypes AS
+(
+    SELECT 
+        id.index_handle,
+        id.object_id,
+        cn.IndexColumnType,
+        STUFF
+        (
+            (
+                SELECT 
+                    '', '' + 
+                    cn_inner.ColumnName + 
+                    '' '' +
+                    N'' {'' + 
+                        CASE     
+                            WHEN ty.name IN (''varchar'', ''char'') 
+                            THEN ty.name + 
+                                 ''('' + 
+                                 CASE 
+                                     WHEN co.max_length = -1 
+                                     THEN ''max'' 
+                                     ELSE CAST(co.max_length AS VARCHAR(25)) 
+                                 END + 
+                                 '')''
+                            WHEN ty.name IN (''nvarchar'', ''nchar'') 
+                            THEN ty.name + 
+                                 ''('' + 
+                                 CASE 
+                                     WHEN co.max_length = -1 
+                                     THEN ''max'' 
+                                     ELSE CAST(co.max_length / 2 AS VARCHAR(25)) 
+                                 END + 
+                                 '')''
+                            WHEN ty.name IN (''decimal'', ''numeric'') 
+                            THEN ty.name + 
+                                 ''('' + 
+                                 CAST(co.precision AS VARCHAR(25)) + 
+                                 '', '' + 
+                                 CAST(co.scale AS VARCHAR(25)) + 
+                                 '')''
+                            WHEN ty.name IN (''datetime2'') 
+                            THEN ty.name + 
+                                 ''('' + 
+                                 CAST(co.scale AS VARCHAR(25)) + 
+                                 '')''
+                            ELSE ty.name END + ''}''
+                FROM ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_details AS id_inner
+                CROSS APPLY
+                (
+                    SELECT    
+                        LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, 
+                        ''Equality'' AS IndexColumnType
+                    FROM 
+                    (
+                        VALUES 
+                            (CONVERT(XML, N''<x>'' + REPLACE((SELECT CAST(id_inner.equality_columns AS nvarchar(max)) FOR XML PATH('''')), N'','', N''</x><x>'') + N''</x>''))
+                    ) x (n)
+                    CROSS APPLY n.nodes(''x'') node(v)
+                UNION ALL
+                    SELECT    
+                        LTRIM(RTRIM(v.value(N''(./text())[1]'', ''varchar(max)''))) AS ColumnName, 
+                        ''Inequality'' AS IndexColumnType
+                    FROM
+                    (
+                        VALUES 
+                            (CONVERT(XML, N''<x>'' + REPLACE((SELECT CAST(id_inner.inequality_columns AS nvarchar(max)) FOR XML PATH('''')), N'','', N''</x><x>'') + N''</x>''))
+                    ) x (n)
+                    CROSS APPLY n.nodes(''x'') node(v)
+                UNION ALL
+                    SELECT    
+                        LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, 
+                        ''Included'' AS IndexColumnType
+                    FROM    
+                    (
+                        VALUES (CONVERT(XML, N''<x>'' + REPLACE((SELECT CAST(id_inner.included_columns AS nvarchar(max)) FOR XML PATH('''')), N'','', N''</x><x>'') + N''</x>''))
+                    ) x (n)
+                    CROSS APPLY n.nodes(''x'') node(v)
+                ) AS cn_inner        
+                JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns AS co 
+                  ON   co.object_id = id_inner.object_id 
+                  AND ''['' + co.name + '']'' = cn_inner.ColumnName
+                JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.types AS ty 
+                  ON ty.user_type_id = co.user_type_id 
                 WHERE id_inner.index_handle = id.index_handle
-				AND	id_inner.object_id = id.object_id
-				AND cn_inner.IndexColumnType = cn.IndexColumnType
-				FOR XML PATH('''')
-			 ),1,1,'''') AS ReplaceColumnNames
-            FROM ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_details AS id
-           CROSS APPLY(
-						SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Equality'' AS IndexColumnType
-						FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE((SELECT CAST(id.equality_columns AS nvarchar(max)) FOR XML PATH('''')), N'','', N''</x><x>'') + N''</x>''))) x(n)
-						CROSS APPLY n.nodes(''x'') node(v)
-				    UNION ALL
-						SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Inequality'' AS IndexColumnType
-						FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE((SELECT CAST(id.inequality_columns AS nvarchar(max)) FOR XML PATH('''')), N'','', N''</x><x>'') + N''</x>''))) x(n)
-						CROSS APPLY n.nodes(''x'') node(v)
-				    UNION ALL
-						SELECT	LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, ''Included'' AS IndexColumnType
-						FROM	(VALUES (CONVERT(XML, N''<x>'' + REPLACE((SELECT CAST(id.included_columns AS nvarchar(max)) FOR XML PATH('''')), N'','', N''</x><x>'') + N''</x>''))) x(n)
-						CROSS APPLY n.nodes(''x'') node(v)
-					)AS cn
-				GROUP BY	id.index_handle,id.object_id,cn.IndexColumnType
-				)
-                SELECT  id.database_id, id.object_id, @i_DatabaseName, sc.[name], so.[name], id.statement , gs.avg_total_user_cost, 
-                        gs.avg_user_impact, gs.user_seeks, gs.user_scans, gs.unique_compiles, id.equality_columns, id.inequality_columns, id.included_columns,
-				(
-                    SELECT ColumnNamesWithDataTypes.ReplaceColumnNames 
-                    FROM ColumnNamesWithDataTypes WHERE ColumnNamesWithDataTypes.index_handle = id.index_handle
-                    AND ColumnNamesWithDataTypes.object_id = id.object_id
-                    AND ColumnNamesWithDataTypes.IndexColumnType = ''Equality''
-                ) AS equality_columns_with_data_type
-                ,(
-                    SELECT ColumnNamesWithDataTypes.ReplaceColumnNames 
-                    FROM ColumnNamesWithDataTypes WHERE ColumnNamesWithDataTypes.index_handle = id.index_handle
-                    AND ColumnNamesWithDataTypes.object_id = id.object_id
-                    AND ColumnNamesWithDataTypes.IndexColumnType = ''Inequality''
-                ) AS inequality_columns_with_data_type
-                ,(
-                    SELECT ColumnNamesWithDataTypes.ReplaceColumnNames 
-                    FROM ColumnNamesWithDataTypes WHERE ColumnNamesWithDataTypes.index_handle = id.index_handle
-                    AND ColumnNamesWithDataTypes.object_id = id.object_id
-                    AND ColumnNamesWithDataTypes.IndexColumnType = ''Included''
-                ) AS included_columns_with_data_type '
+                AND   id_inner.object_id = id.object_id
+                AND   cn_inner.IndexColumnType = cn.IndexColumnType
+                FOR XML PATH('''')
+                ),
+                1,
+                1,
+                ''''
+             ) AS ReplaceColumnNames
+           FROM ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_details AS id
+           CROSS APPLY
+           (
+               SELECT    
+                   LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, 
+                   ''Equality'' AS IndexColumnType
+               FROM
+               (
+                   VALUES (CONVERT(XML, N''<x>'' + REPLACE((SELECT CAST(id.equality_columns AS nvarchar(max)) FOR XML PATH('''')), N'','', N''</x><x>'') + N''</x>''))
+               ) x (n)
+               CROSS APPLY n.nodes(''x'') node(v)
+               UNION ALL
+               SELECT    
+                   LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, 
+                   ''Inequality'' AS IndexColumnType
+               FROM
+               (
+                   VALUES (CONVERT(XML, N''<x>'' + REPLACE((SELECT CAST(id.inequality_columns AS nvarchar(max)) FOR XML PATH('''')), N'','', N''</x><x>'') + N''</x>''))
+               ) x (n)
+               CROSS APPLY n.nodes(''x'') node(v)
+               UNION ALL
+               SELECT
+                   LTRIM(RTRIM(v.value(''(./text())[1]'', ''varchar(max)''))) AS ColumnName, 
+                   ''Included'' AS IndexColumnType
+               FROM
+               (
+                   VALUES (CONVERT(XML, N''<x>'' + REPLACE((SELECT CAST(id.included_columns AS nvarchar(max)) FOR XML PATH('''')), N'','', N''</x><x>'') + N''</x>''))
+               ) x (n)
+               CROSS APPLY n.nodes(''x'') node(v)
+           )AS cn
+           GROUP BY    
+               id.index_handle,
+               id.object_id,
+               cn.IndexColumnType
+)
+SELECT
+    *
+INTO #ColumnNamesWithDataTypes
+FROM ColumnNamesWithDataTypes
+OPTION(RECOMPILE);
+
+SELECT  
+    id.database_id, 
+    id.object_id, 
+    @i_DatabaseName, 
+    sc.[name], 
+    so.[name], 
+    id.statement, 
+    gs.avg_total_user_cost, 
+    gs.avg_user_impact, 
+    gs.user_seeks, 
+    gs.user_scans, 
+    gs.unique_compiles, 
+    id.equality_columns, 
+    id.inequality_columns, 
+    id.included_columns,
+    (
+        SELECT 
+            ColumnNamesWithDataTypes.ReplaceColumnNames 
+        FROM #ColumnNamesWithDataTypes ColumnNamesWithDataTypes 
+        WHERE ColumnNamesWithDataTypes.index_handle = id.index_handle
+        AND   ColumnNamesWithDataTypes.object_id = id.object_id
+        AND   ColumnNamesWithDataTypes.IndexColumnType = ''Equality''
+    ) AS equality_columns_with_data_type,
+    (
+        SELECT 
+            ColumnNamesWithDataTypes.ReplaceColumnNames 
+        FROM #ColumnNamesWithDataTypes ColumnNamesWithDataTypes 
+        WHERE ColumnNamesWithDataTypes.index_handle = id.index_handle
+        AND   ColumnNamesWithDataTypes.object_id = id.object_id
+        AND   ColumnNamesWithDataTypes.IndexColumnType = ''Inequality''
+    ) AS inequality_columns_with_data_type,
+    (
+        SELECT ColumnNamesWithDataTypes.ReplaceColumnNames 
+        FROM #ColumnNamesWithDataTypes ColumnNamesWithDataTypes 
+        WHERE ColumnNamesWithDataTypes.index_handle = id.index_handle
+        AND ColumnNamesWithDataTypes.object_id = id.object_id
+        AND ColumnNamesWithDataTypes.IndexColumnType = ''Included''
+    ) AS included_columns_with_data_type,';
 
 		/* Get the sample query plan if it's available, and if there are less than 1,000 rows in the DMV: */
         IF NOT EXISTS
@@ -1854,8 +1963,9 @@ BEGIN TRY
 			FROM sys.all_objects AS o
 			WHERE o.name = 'dm_db_missing_index_group_stats_query'
 	    )
-            SELECT
-                @dsql += N' , NULL AS sample_query_plan '
+        SELECT
+            @dsql += N'
+    NULL AS sample_query_plan'
         ELSE
 		BEGIN
             /* The DMV is only supposed to have 600 rows in it. If it's got more,
@@ -1866,46 +1976,56 @@ BEGIN TRY
 
             IF @MissingIndexPlans > 1000
                 BEGIN
-                SELECT @dsql += N' , NULL AS sample_query_plan /* Over 1000 plans found, skipping */ ';
+                SELECT @dsql += N'
+    NULL AS sample_query_plan /* Over 1000 plans found, skipping */';
                 RAISERROR (N'Over 1000 plans found in sys.dm_db_missing_index_group_stats_query - your SQL Server is hitting a bug: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/3085',0,1) WITH NOWAIT;
                 END
             ELSE
                 SELECT
                     @dsql += N'
-                , sample_query_plan =
-                (
-                    SELECT TOP (1)
-                        p.query_plan
-                    FROM sys.dm_db_missing_index_group_stats gs 
-                    CROSS APPLY
-                    (
-                        SELECT TOP (1)
-                            s.plan_handle
-                        FROM ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_group_stats_query q 
-                        INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_exec_query_stats s
-                            ON q.query_plan_hash = s.query_plan_hash
-                        WHERE gs.group_handle = q.group_handle 
-                        ORDER BY (q.user_seeks + q.user_scans) DESC, s.total_logical_reads DESC
-                    ) q2
-                    CROSS APPLY sys.dm_exec_query_plan(q2.plan_handle) p
-                    WHERE ig.index_group_handle = gs.group_handle
-                ) '
+    sample_query_plan =
+    (
+        SELECT TOP (1)
+            p.query_plan
+        FROM sys.dm_db_missing_index_group_stats gs 
+        CROSS APPLY
+        (
+            SELECT TOP (1)
+                s.plan_handle
+            FROM ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_group_stats_query q 
+            INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_exec_query_stats s
+              ON q.query_plan_hash = s.query_plan_hash
+            WHERE gs.group_handle = q.group_handle 
+            ORDER BY 
+                (q.user_seeks + q.user_scans) DESC, 
+                s.total_logical_reads DESC
+        ) q2
+        CROSS APPLY sys.dm_exec_query_plan(q2.plan_handle) p
+        WHERE ig.index_group_handle = gs.group_handle
+    )'
 		END
         
         
 
-		SET @dsql = @dsql + N'FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_groups ig
-                        JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_details id ON ig.index_handle = id.index_handle
-                        JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_group_stats gs ON ig.index_group_handle = gs.group_handle
-                        JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects so on 
-                            id.object_id=so.object_id
-                        JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas sc on 
-                            so.schema_id=sc.schema_id
-                WHERE    id.database_id = ' + CAST(@DatabaseID AS NVARCHAR(30)) + '
-                ' + CASE WHEN @ObjectID IS NULL THEN N'' 
-                    ELSE N'and id.object_id=' + CAST(@ObjectID AS NVARCHAR(30)) 
-                END +
-        N'OPTION (RECOMPILE);';
+		SET @dsql = @dsql + N'
+FROM ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_groups ig
+JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_details id 
+  ON ig.index_handle = id.index_handle
+JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_group_stats gs 
+  ON ig.index_group_handle = gs.group_handle
+JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects so 
+  ON id.object_id=so.object_id
+JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas sc 
+  ON so.schema_id=sc.schema_id
+WHERE id.database_id = ' + CAST(@DatabaseID AS NVARCHAR(30)) +
+CASE
+    WHEN @ObjectID IS NULL
+	THEN N'' 
+    ELSE N'
+AND   id.object_id = ' + CAST(@ObjectID AS NVARCHAR(30)) 
+END +
+N'
+OPTION (RECOMPILE);';
 
         IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
