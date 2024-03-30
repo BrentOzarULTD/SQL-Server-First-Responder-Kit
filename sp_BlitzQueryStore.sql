@@ -3022,6 +3022,9 @@ OPTION (RECOMPILE);
 /*
 This looks for parallel plans
 */
+
+RAISERROR(N'Checking for parallel plans', 0, 1) WITH NOWAIT;
+
 UPDATE ww
 SET    ww.is_parallel = 1
 FROM   #working_warnings AS ww
