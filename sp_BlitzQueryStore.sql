@@ -31,18 +31,18 @@ GO
 
 ALTER PROCEDURE dbo.sp_BlitzQueryStore
     @Help BIT = 0,
-    @DatabaseName NVARCHAR(128) = NULL ,
+    @DatabaseName NVARCHAR(128) = NULL,
     @Top INT = 3,
 	@StartDate DATETIME2 = NULL,
 	@EndDate DATETIME2 = NULL,
     @MinimumExecutionCount INT = NULL,
-    @DurationFilter DECIMAL(38,4) = NULL ,
+    @DurationFilter DECIMAL(38,4) = NULL,
     @StoredProcName NVARCHAR(128) = NULL,
 	@Failed BIT = 0,
 	@PlanIdFilter INT = NULL,
 	@QueryIdFilter INT = NULL,
     @ExportToExcel BIT = 0,
-    @HideSummary BIT = 0 ,
+    @HideSummary BIT = 0,
 	@SkipXML BIT = 0,
 	@Debug BIT = 0,
 	@ExpertMode BIT = 0,
@@ -307,7 +307,7 @@ IF @Help = 1
 	UNION ALL
 	SELECT 'implicit_conversion_info',
 	       'XML',
-	       'Information about the implicit conversion warnings,if any, retrieved from the query plan.'
+	       'Information about the implicit conversion warnings, if any, retrieved from the query plan.'
 	UNION ALL
 	SELECT 'cached_execution_parameters',
 	       'XML',
@@ -323,7 +323,7 @@ IF @Help = 1
 	UNION ALL
 	SELECT 'total_cpu_time',
 	       'BIGINT',
-	       'Total CPU time, reported in milliseconds, that was consumed by all executions of this query.'
+	       'Total CPU time, reported in milliseconds, consumed by all executions of this query.'
 	UNION ALL
 	SELECT 'avg_cpu_time ',
 	       'BIGINT',
@@ -416,7 +416,7 @@ IF @Help = 1
 
 END;
 
-/*Making sure your version is copasetic*/
+/*Making sure your version is copacetic*/
 IF  ( (SELECT CONVERT(NVARCHAR(128), SERVERPROPERTY ('EDITION'))) = 'SQL Azure' )
 	BEGIN
 		SET @is_azure_db = 1;
@@ -512,7 +512,7 @@ SELECT @compatibility_level = d.compatibility_level
 FROM sys.databases AS d
 WHERE d.name = @DatabaseName;
 
-RAISERROR('The @DatabaseName you specified ([%s])is running in compatibility level ([%d]).', 0, 1, @DatabaseName, @compatibility_level) WITH NOWAIT;
+RAISERROR('The @DatabaseName you specified ([%s]) is running in compatibility level ([%d]).', 0, 1, @DatabaseName, @compatibility_level) WITH NOWAIT;
 
 
 /*Making sure top is set to something if NULL*/
@@ -537,8 +537,8 @@ EXEC sys.sp_executesql @ws_sql, @ws_params, @i_out = @ws_out OUTPUT;
 SELECT @waitstats = CASE @ws_out WHEN 0 THEN 0 ELSE 1 END;
 
 SET @msg = N'Wait stats DMV ' + CASE @waitstats 
-									WHEN 0 THEN N' does not exist, skipping.'
-									WHEN 1 THEN N' exists, will analyze.'
+									WHEN 0 THEN N'does not exist, skipping.'
+									WHEN 1 THEN N'exists, will analyze.'
 							   END;
 RAISERROR(@msg, 0, 1) WITH NOWAIT;
 
@@ -574,8 +574,8 @@ EXEC sys.sp_executesql @nc_sql, @ws_params, @i_out = @nc_out OUTPUT;
 SELECT @new_columns = CASE @nc_out WHEN 12 THEN 1 ELSE 0 END;
 
 SET @msg = N'New query_store_runtime_stats columns ' + CASE @new_columns 
-									WHEN 0 THEN N' do not exist, skipping.'
-									WHEN 1 THEN N' exist, will analyze.'
+									WHEN 0 THEN N'do not exist, skipping.'
+									WHEN 1 THEN N'exist, will analyze.'
 							   END;
 RAISERROR(@msg, 0, 1) WITH NOWAIT;
 
@@ -597,8 +597,8 @@ EXEC sys.sp_executesql @pspo_sql, @pspo_params, @i_out = @pspo_out OUTPUT;
 SET @pspo_enabled = CASE WHEN @pspo_out = 1 THEN 1 ELSE 0 END;
 
 SET @msg = N'Parameter Sensitive Plan Optimization ' + CASE @pspo_enabled 
-									WHEN 0 THEN N' not enabled, skipping.'
-									WHEN 1 THEN N' enabled, will analyze.'
+									WHEN 0 THEN N'not enabled, skipping.'
+									WHEN 1 THEN N'enabled, will analyze.'
 							   END;
 RAISERROR(@msg, 0, 1) WITH NOWAIT;
  
@@ -950,7 +950,7 @@ CREATE TABLE #working_wait_stats
 								WHEN 22 THEN N'SE_REPL_%, REPL_%, HADR_% (but not HADR_THROTTLE_LOG_RATE_GOVERNOR), PWAIT_HADR_%, REPLICA_WRITES, FCB_REPLICA_WRITE, FCB_REPLICA_READ, PWAIT_HADRSIM'
 								WHEN 23 THEN N'LOG_RATE_GOVERNOR, POOL_LOG_RATE_GOVERNOR, HADR_THROTTLE_LOG_RATE_GOVERNOR, INSTANCE_LOG_RATE_GOVERNOR'
 							END,
-    INDEX wws_ix_ids CLUSTERED ( plan_id)
+    INDEX wws_ix_ids CLUSTERED (plan_id)
 );
 
 
@@ -3718,7 +3718,7 @@ OR ((PARSENAME(CONVERT(VARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)) = 1
 
 BEGIN
 
-RAISERROR(N'Beginning 2017 and 2016 SP2 specfic checks', 0, 1) WITH NOWAIT;
+RAISERROR(N'Beginning 2017 and 2016 SP2 specific checks', 0, 1) WITH NOWAIT;
 
 IF @ExpertMode > 0
 BEGIN
@@ -4918,7 +4918,7 @@ BEGIN
                     'Cursors',
                     'Dynamic Cursors',
                     'https://www.brentozar.com/blitzcache/cursors-found-slow-queries/',
-                    'Dynamic Cursors inhibit parallelism!.');
+                    'Dynamic Cursors inhibit parallelism!');
 
 		IF EXISTS (SELECT 1/0
                    FROM   #working_warnings
@@ -4931,7 +4931,7 @@ BEGIN
                     'Cursors',
                     'Fast Forward Cursors',
                     'https://www.brentozar.com/blitzcache/cursors-found-slow-queries/',
-                    'Fast forward cursors inhibit parallelism!.');
+                    'Fast forward cursors inhibit parallelism!');
 					
         IF EXISTS (SELECT 1/0
                    FROM   #working_warnings
@@ -5245,7 +5245,7 @@ BEGIN
                     'Compute Scalar That References A CLR Function',
                     'This could be trouble if your CLR functions perform data access',
                     'https://www.brentozar.com/blitzcache/compute-scalar-functions/',
-                    'May force queries to run serially, run at least once per row, and may result in poor cardinlity estimates.') ;
+                    'May force queries to run serially, run at least once per row, and may result in poor cardinality estimates.') ;
 
 
         IF EXISTS (SELECT 1/0
@@ -5691,13 +5691,13 @@ BEGIN
                    gi.total_max_log_bytes_mb, 
                    gi.total_max_tempdb_space,
 				   CONVERT(NVARCHAR(20), gi.flat_date) AS worst_date,
-				   CASE WHEN DATEPART(HOUR, gi.start_range) = 0 THEN ' midnight '
-						WHEN DATEPART(HOUR, gi.start_range) <= 12 THEN CONVERT(NVARCHAR(3), DATEPART(HOUR, gi.start_range)) + 'am '
-						WHEN DATEPART(HOUR, gi.start_range) > 12 THEN CONVERT(NVARCHAR(3), DATEPART(HOUR, gi.start_range) -12) + 'pm '
+				   CASE WHEN DATEPART(HOUR, gi.start_range) = 0 THEN 'midnight'
+						WHEN DATEPART(HOUR, gi.start_range) <= 12 THEN CONVERT(NVARCHAR(3), DATEPART(HOUR, gi.start_range)) + 'am'
+						WHEN DATEPART(HOUR, gi.start_range) > 12 THEN CONVERT(NVARCHAR(3), DATEPART(HOUR, gi.start_range) -12) + 'pm'
 						END AS worst_start_time,
-				   CASE WHEN DATEPART(HOUR, gi.end_range) = 0 THEN ' midnight '
-						WHEN DATEPART(HOUR, gi.end_range) <= 12 THEN CONVERT(NVARCHAR(3), DATEPART(HOUR, gi.end_range)) + 'am '
-						WHEN DATEPART(HOUR, gi.end_range) > 12 THEN CONVERT(NVARCHAR(3),  DATEPART(HOUR, gi.end_range) -12) + 'pm '
+				   CASE WHEN DATEPART(HOUR, gi.end_range) = 0 THEN 'midnight'
+						WHEN DATEPART(HOUR, gi.end_range) <= 12 THEN CONVERT(NVARCHAR(3), DATEPART(HOUR, gi.end_range)) + 'am'
+						WHEN DATEPART(HOUR, gi.end_range) > 12 THEN CONVERT(NVARCHAR(3),  DATEPART(HOUR, gi.end_range) -12) + 'pm'
 						END AS worst_end_time
 			FROM   #grouped_interval AS gi
 			), /*averages*/
