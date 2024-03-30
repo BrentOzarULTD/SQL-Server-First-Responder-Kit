@@ -5663,7 +5663,7 @@ BEGIN
                     'Global Trace Flags Enabled',
                     'You have Global Trace Flags enabled on your server',
                     'https://www.brentozar.com/blitz/trace-flags-enabled-globally/',
-                    'You have the following Global Trace Flags enabled: ' + (SELECT TOP 1 tf.global_trace_flags FROM #trace_flags AS tf WHERE tf.global_trace_flags IS NOT NULL)) ;
+                    'You have the following Global Trace Flags enabled: ' + (SELECT TOP (1) tf.global_trace_flags FROM #trace_flags AS tf WHERE tf.global_trace_flags IS NOT NULL)) ;
 
 
 			/*
