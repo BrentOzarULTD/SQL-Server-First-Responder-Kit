@@ -84,7 +84,11 @@ DECLARE /*Variables for the variable Gods*/
 		@is_azure_db BIT = 0, --Are we using Azure? I'm not. You might be. That's cool.
 		@compatibility_level TINYINT = 0, --Some functionality (T-SQL) isn't available in lower compat levels. We can use this to weed out those issues as we go.
 		@log_size_mb DECIMAL(38,2) = 0,
-		@avg_tempdb_data_file DECIMAL(38,2) = 0;
+		@avg_tempdb_data_file DECIMAL(38,2) = 0,
+		@edition NVARCHAR(128), /*Used to check if we are on Azure or not*/
+		@major_version NVARCHAR(128), /*Used to see what checks we can do*/
+		@engine_edition INT, /*Used to check which Azure we are on*/
+		@current_database_compatibility_level INT; /*Used to check which Azure we are on*/
 
 /*Grabs CTFP setting*/
 SELECT  @ctp = NULLIF(CAST(value AS INT), 0)
@@ -98,8 +102,20 @@ FROM   sys.configurations AS c
 WHERE  c.name = N'min memory per query (KB)'
 OPTION (RECOMPILE);
 
+/*Assigns various repeated SERVERPROPERTY calls to variables*/
+SELECT
+	@edition = CONVERT(NVARCHAR(128), SERVERPROPERTY ('EDITION')),
+	@major_version = PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4),
+	@engine_edition = CONVERT(INT, SERVERPROPERTY ('ENGINEEDITION'));
+
+/*Grabs current database's compatibility level*/
+SELECT @current_database_compatibility_level = [compatibility_level]
+FROM sys.databases
+WHERE [name] = DB_NAME()
+OPTION (RECOMPILE);
+
 /*Check if this is Azure first*/
-IF (SELECT CONVERT(NVARCHAR(128), SERVERPROPERTY ('EDITION'))) <> 'SQL Azure'
+IF @edition <> 'SQL Azure'
     BEGIN 
         /*Grabs log size for datbase*/
         SELECT @log_size_mb = AVG(((mf.size * 8) / 1024.))
@@ -417,12 +433,12 @@ IF @Help = 1
 END;
 
 /*Making sure your version is copasetic*/
-IF  ( (SELECT CONVERT(NVARCHAR(128), SERVERPROPERTY ('EDITION'))) = 'SQL Azure' )
+IF  ( @edition = 'SQL Azure' )
 	BEGIN
 		SET @is_azure_db = 1;
 
-		IF	(	(SELECT SERVERPROPERTY ('ENGINEEDITION')) NOT IN (5,8)
-			OR	(SELECT [compatibility_level] FROM sys.databases WHERE [name] = DB_NAME()) < 130 
+		IF	(	@engine_edition NOT IN (5,8)
+			OR	@current_database_compatibility_level < 130 
 			)
 		BEGIN
 			SELECT @msg = N'Sorry, sp_BlitzQueryStore doesn''t work on Azure Data Warehouse, or Azure Databases with DB compatibility < 130.' + REPLICATE(CHAR(13), 7933);
@@ -430,7 +446,7 @@ IF  ( (SELECT CONVERT(NVARCHAR(128), SERVERPROPERTY ('EDITION'))) = 'SQL Azure' 
 			RETURN;
 		END;
 	END;
-ELSE IF  ( (SELECT PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4) ) < 13 )
+ELSE IF  (  @major_version < 13 )
 	BEGIN
 		SELECT @msg = N'Sorry, sp_BlitzQueryStore doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933);
 		PRINT @msg;
@@ -454,7 +470,7 @@ IF  (	SELECT COUNT(*)
 /*Making sure your databases are using QDS.*/
 RAISERROR('Checking database validity', 0, 1) WITH NOWAIT;
 
-IF (@is_azure_db = 1 AND SERVERPROPERTY ('ENGINEEDITION') <> 8)
+IF (@is_azure_db = 1 AND @engine_edition <> 8)
 	SET @DatabaseName = DB_NAME();
 ELSE
 BEGIN	
@@ -3042,7 +3058,7 @@ JOIN #working_plan_text AS wpt
 ON w.plan_id = wpt.plan_id
 AND w.query_id = wpt.query_id
 /*PLEASE DON'T TELL ANYONE I DID THIS*/
-WHERE PARSENAME(wpt.engine_version, 4) < PARSENAME(CONVERT(VARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)
+WHERE PARSENAME(wpt.engine_version, 4) < @major_version
 OPTION (RECOMPILE);
 /*NO SERIOUSLY THIS IS A HORRIBLE IDEA*/
 
@@ -3712,8 +3728,8 @@ OPTION (RECOMPILE);
 END;
 
 
-IF (PARSENAME(CONVERT(VARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)) >= 14
-OR ((PARSENAME(CONVERT(VARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)) = 13
+IF @major_version >= 14
+OR (@major_version = 13
 	AND PARSENAME(CONVERT(VARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 2) >= 5026)
 
 BEGIN
@@ -3756,7 +3772,7 @@ OPTION (RECOMPILE);
 END;
 
 
-IF (PARSENAME(CONVERT(VARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 4)) >= 14
+IF @major_version >= 14
 	AND @ExpertMode > 0
 BEGIN
 RAISERROR(N'Checking for Adaptive Joins', 0, 1) WITH NOWAIT;
