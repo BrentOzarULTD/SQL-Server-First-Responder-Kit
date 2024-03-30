@@ -1110,7 +1110,7 @@ CREATE TABLE #conversion_info
 	INDEX cif_ix_ids CLUSTERED (sql_handle, query_hash)
 );
 
-/* These tables support the Missing Index details clickable*/
+/* These tables make the Missing Index details clickable*/
 
 
 DROP TABLE IF EXISTS #missing_index_xml;
