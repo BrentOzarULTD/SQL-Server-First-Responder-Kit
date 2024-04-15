@@ -1555,7 +1555,7 @@ RAISERROR(N'Gathering longest duration plans', 0, 1) WITH NOWAIT;
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 WITH duration_max
-AS ( SELECT   TOP 1 
+AS ( SELECT   TOP (1) 
               gi.start_range,
               gi.end_range
      FROM     #grouped_interval AS gi
@@ -1602,7 +1602,7 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 WITH duration_max
-AS ( SELECT   TOP 1 
+AS ( SELECT   TOP (1) 
               gi.start_range,
               gi.end_range
      FROM     #grouped_interval AS gi
@@ -1653,7 +1653,7 @@ RAISERROR(N'Gathering highest cpu plans', 0, 1) WITH NOWAIT;
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 WITH cpu_max
-AS ( SELECT   TOP 1 
+AS ( SELECT   TOP (1) 
               gi.start_range,
               gi.end_range
      FROM     #grouped_interval AS gi
@@ -1700,7 +1700,7 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 WITH cpu_max
-AS ( SELECT   TOP 1 
+AS ( SELECT   TOP (1) 
               gi.start_range,
               gi.end_range
      FROM     #grouped_interval AS gi
@@ -1751,7 +1751,7 @@ RAISERROR(N'Gathering highest logical read plans', 0, 1) WITH NOWAIT;
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 WITH logical_reads_max
-AS ( SELECT   TOP 1 
+AS ( SELECT   TOP (1) 
               gi.start_range,
               gi.end_range
      FROM     #grouped_interval AS gi
@@ -1798,7 +1798,7 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 WITH logical_reads_max
-AS ( SELECT   TOP 1 
+AS ( SELECT   TOP (1) 
               gi.start_range,
               gi.end_range
      FROM     #grouped_interval AS gi
@@ -1849,7 +1849,7 @@ RAISERROR(N'Gathering highest physical read plans', 0, 1) WITH NOWAIT;
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 WITH physical_read_max
-AS ( SELECT   TOP 1 
+AS ( SELECT   TOP (1) 
               gi.start_range,
               gi.end_range
      FROM     #grouped_interval AS gi
@@ -1896,7 +1896,7 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 WITH physical_read_max
-AS ( SELECT   TOP 1 
+AS ( SELECT   TOP (1) 
               gi.start_range,
               gi.end_range
      FROM     #grouped_interval AS gi
@@ -1947,7 +1947,7 @@ RAISERROR(N'Gathering highest write plans', 0, 1) WITH NOWAIT;
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 WITH logical_writes_max
-AS ( SELECT   TOP 1 
+AS ( SELECT   TOP (1) 
               gi.start_range,
               gi.end_range
      FROM     #grouped_interval AS gi
@@ -1994,7 +1994,7 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 WITH logical_writes_max
-AS ( SELECT   TOP 1 
+AS ( SELECT   TOP (1) 
               gi.start_range,
               gi.end_range
      FROM     #grouped_interval AS gi
@@ -2045,7 +2045,7 @@ RAISERROR(N'Gathering highest memory use plans', 0, 1) WITH NOWAIT;
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 WITH memory_max
-AS ( SELECT   TOP 1 
+AS ( SELECT   TOP (1) 
               gi.start_range,
               gi.end_range
      FROM     #grouped_interval AS gi
@@ -2091,7 +2091,7 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 WITH memory_max
-AS ( SELECT   TOP 1 
+AS ( SELECT   TOP (1) 
               gi.start_range,
               gi.end_range
      FROM     #grouped_interval AS gi
@@ -2142,7 +2142,7 @@ RAISERROR(N'Gathering highest row count plans', 0, 1) WITH NOWAIT;
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 WITH rowcount_max
-AS ( SELECT   TOP 1 
+AS ( SELECT   TOP (1) 
               gi.start_range,
               gi.end_range
      FROM     #grouped_interval AS gi
@@ -2198,7 +2198,7 @@ RAISERROR(N'Gathering highest log byte use plans', 0, 1) WITH NOWAIT;
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 WITH rowcount_max
-AS ( SELECT   TOP 1 
+AS ( SELECT   TOP (1) 
               gi.start_range,
               gi.end_range
      FROM     #grouped_interval AS gi
@@ -2246,7 +2246,7 @@ RAISERROR(N'Gathering highest log byte use plans', 0, 1) WITH NOWAIT;
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 WITH rowcount_max
-AS ( SELECT   TOP 1 
+AS ( SELECT   TOP (1) 
               gi.start_range,
               gi.end_range
      FROM     #grouped_interval AS gi
@@ -2297,7 +2297,7 @@ RAISERROR(N'Gathering highest tempdb use plans', 0, 1) WITH NOWAIT;
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 WITH rowcount_max
-AS ( SELECT   TOP 1 
+AS ( SELECT   TOP (1) 
               gi.start_range,
               gi.end_range
      FROM     #grouped_interval AS gi
@@ -2343,7 +2343,7 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
 WITH rowcount_max
-AS ( SELECT   TOP 1 
+AS ( SELECT   TOP (1) 
               gi.start_range,
               gi.end_range
      FROM     #grouped_interval AS gi
@@ -2794,7 +2794,7 @@ IF @waitstats = 1
 		FROM #working_plan_text AS wpt
 		JOIN (
 			SELECT wws.plan_id,
-				   top_three_waits = STUFF((SELECT TOP 3 N', ' + wws2.wait_category_desc + N' (' + CONVERT(NVARCHAR(20), SUM(CONVERT(BIGINT, wws2.avg_query_wait_time_ms))) + N' ms) '
+				   top_three_waits = STUFF((SELECT TOP (3) N', ' + wws2.wait_category_desc + N' (' + CONVERT(NVARCHAR(20), SUM(CONVERT(BIGINT, wws2.avg_query_wait_time_ms))) + N' ms) '
 												FROM #working_wait_stats AS wws2
 												WHERE wws.plan_id = wws2.plan_id
 												GROUP BY wws2.wait_category_desc
@@ -5701,7 +5701,7 @@ BEGIN
                     'Global Trace Flags Enabled',
                     'You have Global Trace Flags enabled on your server',
                     'https://www.brentozar.com/blitz/trace-flags-enabled-globally/',
-                    'You have the following Global Trace Flags enabled: ' + (SELECT TOP 1 tf.global_trace_flags FROM #trace_flags AS tf WHERE tf.global_trace_flags IS NOT NULL)) ;
+                    'You have the following Global Trace Flags enabled: ' + (SELECT TOP (1) tf.global_trace_flags FROM #trace_flags AS tf WHERE tf.global_trace_flags IS NOT NULL)) ;
 
 
 			/*
@@ -5740,87 +5740,87 @@ BEGIN
 			FROM   #grouped_interval AS gi
 			), /*averages*/
 				duration_worst AS (
-			SELECT TOP 1 'Your worst avg duration range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP (1) 'Your worst avg duration range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_avg_duration_ms DESC
 				), 
 				cpu_worst AS (
-			SELECT TOP 1 'Your worst avg cpu range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP (1) 'Your worst avg cpu range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_avg_cpu_time_ms DESC
 				), 
 				logical_reads_worst AS (
-			SELECT TOP 1 'Your worst avg logical read range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP (1) 'Your worst avg logical read range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_avg_logical_io_reads_mb DESC
 				), 
 				physical_reads_worst AS (
-			SELECT TOP 1 'Your worst avg physical read range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP (1) 'Your worst avg physical read range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_avg_physical_io_reads_mb DESC
 				), 
 				logical_writes_worst AS (
-			SELECT TOP 1 'Your worst avg logical write range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP (1) 'Your worst avg logical write range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_avg_logical_io_writes_mb DESC
 				), 
 				memory_worst AS (
-			SELECT TOP 1 'Your worst avg memory range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP (1) 'Your worst avg memory range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_avg_query_max_used_memory_mb DESC
 				), 
 				rowcount_worst AS (
-			SELECT TOP 1 'Your worst avg row count range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP (1) 'Your worst avg row count range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_rowcount DESC
 				), 
 				logbytes_worst AS (
-			SELECT TOP 1 'Your worst avg log bytes range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP (1) 'Your worst avg log bytes range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_avg_log_bytes_mb DESC
 				), 
 				tempdb_worst AS (
-			SELECT TOP 1 'Your worst avg tempdb range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP (1) 'Your worst avg tempdb range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_avg_tempdb_space DESC
 				)/*maxes*/, 
 				max_duration_worst AS (
-			SELECT TOP 1 'Your worst max duration range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP (1) 'Your worst max duration range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_max_duration_ms DESC
 				), 
 				max_cpu_worst AS (
-			SELECT TOP 1 'Your worst max cpu range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP (1) 'Your worst max cpu range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_max_cpu_time_ms DESC
 				), 
 				max_logical_reads_worst AS (
-			SELECT TOP 1 'Your worst max logical read range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP (1) 'Your worst max logical read range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_max_logical_io_reads_mb DESC
 				), 
 				max_physical_reads_worst AS (
-			SELECT TOP 1 'Your worst max physical read range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP (1) 'Your worst max physical read range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_max_physical_io_reads_mb DESC
 				), 
 				max_logical_writes_worst AS (
-			SELECT TOP 1 'Your worst max logical write range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP (1) 'Your worst max logical write range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_max_logical_io_writes_mb DESC
 				), 
 				max_memory_worst AS (
-			SELECT TOP 1 'Your worst max memory range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP (1) 'Your worst max memory range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_max_query_max_used_memory_mb DESC
 				), 
 				max_logbytes_worst AS (
-			SELECT TOP 1 'Your worst max log bytes range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP (1) 'Your worst max log bytes range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_max_log_bytes_mb DESC
 				), 
 				max_tempdb_worst AS (
-			SELECT TOP 1 'Your worst max tempdb range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
+			SELECT TOP (1) 'Your worst max tempdb range was on ' + worsts.worst_date + ' between ' + worsts.worst_start_time + ' and ' + worsts.worst_end_time + '.' AS msg
 			FROM worsts
 			ORDER BY worsts.total_max_tempdb_space DESC
 				)
