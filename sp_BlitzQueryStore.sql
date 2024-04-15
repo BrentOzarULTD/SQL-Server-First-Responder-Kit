@@ -453,7 +453,7 @@ IF  (	SELECT COUNT(*)
 		WHERE d.is_query_store_on = 1
 		AND d.user_access_desc='MULTI_USER'
 		AND d.state_desc = 'ONLINE'
-		AND d.name NOT IN ('master', 'model', 'msdb', 'tempdb', '32767') 
+		AND d.name NOT IN ('master', 'tempdb', '32767') 
 		AND d.is_distributor = 0 ) = 0
 	BEGIN
 		SELECT @msg = N'You don''t currently have any databases with Query Store enabled.' + REPLICATE(CHAR(13), 7933);
