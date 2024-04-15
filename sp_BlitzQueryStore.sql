@@ -4708,7 +4708,13 @@ JOIN #working_metrics AS wm
 	ON wpt.plan_id = wm.plan_id
 	AND wpt.query_id = wm.query_id
 )
-SELECT *
+SELECT x.database_name, x.query_cost, x.plan_id, x.query_id, x.query_id_all_plan_ids, x.query_sql_text, x.proc_or_function_name, x.query_plan_xml, x.warnings, x.pattern,
+	   x.parameter_sniffing_symptoms, x.top_three_waits, x.missing_indexes, x.implicit_conversion_info, x.cached_execution_parameters, x.count_executions, x.count_compiles, x.total_cpu_time, x.avg_cpu_time,
+	   x.total_duration, x.avg_duration, x.total_logical_io_reads, x.avg_logical_io_reads,
+	   x.total_physical_io_reads, x.avg_physical_io_reads, x.total_logical_io_writes, x.avg_logical_io_writes, x.total_rowcount, x.avg_rowcount,
+	   x.total_query_max_used_memory, x.avg_query_max_used_memory, x.total_tempdb_space_used, x.avg_tempdb_space_used,
+	   x.total_log_bytes_used, x.avg_log_bytes_used, x.total_num_physical_io_reads, x.avg_num_physical_io_reads,
+	   x.first_execution_time, x.last_execution_time, x.last_force_failure_reason_desc, x.context_settings
 FROM x
 WHERE x.rn = 1
 ORDER BY x.last_execution_time
@@ -4738,7 +4744,14 @@ JOIN #working_metrics AS wm
 	ON wpt.plan_id = wm.plan_id
 	AND wpt.query_id = wm.query_id
 )
-SELECT *
+SELECT x.database_name, x.query_cost, x.plan_id, x.query_id, x.query_id_all_plan_ids, x.query_sql_text, x.proc_or_function_name, x.query_plan_xml, x.warnings, x.pattern,
+	   x.parameter_sniffing_symptoms, x.last_force_failure_reason_desc, x.top_three_waits, x.missing_indexes, x.implicit_conversion_info, x.cached_execution_parameters,
+	   x.count_executions, x.count_compiles, x.total_cpu_time, x.avg_cpu_time,
+	   x.total_duration, x.avg_duration, x.total_logical_io_reads, x.avg_logical_io_reads,
+	   x.total_physical_io_reads, x.avg_physical_io_reads, x.total_logical_io_writes, x.avg_logical_io_writes, x.total_rowcount, x.avg_rowcount,
+	   x.total_query_max_used_memory, x.avg_query_max_used_memory, x.total_tempdb_space_used, x.avg_tempdb_space_used,
+	   x.total_log_bytes_used, x.avg_log_bytes_used, x.total_num_physical_io_reads, x.avg_num_physical_io_reads,
+	   x.first_execution_time, x.last_execution_time, x.context_settings
 FROM x
 WHERE x.rn = 1
 ORDER BY x.last_execution_time
@@ -4771,7 +4784,13 @@ JOIN #working_metrics AS wm
 	ON wpt.plan_id = wm.plan_id
 	AND wpt.query_id = wm.query_id
 )
-SELECT *
+SELECT x.database_name, x.query_cost, x.plan_id, x.query_id, x.query_id_all_plan_ids, x.query_sql_text, x.proc_or_function_name, x.warnings, x.pattern, 
+	   x.parameter_sniffing_symptoms, x.last_force_failure_reason_desc, x.top_three_waits, x.count_executions, x.count_compiles, x.total_cpu_time, x.avg_cpu_time,
+	   x.total_duration, x.avg_duration, x.total_logical_io_reads, x.avg_logical_io_reads,
+	   x.total_physical_io_reads, x.avg_physical_io_reads, x.total_logical_io_writes, x.avg_logical_io_writes, x.total_rowcount, x.avg_rowcount,
+	   x.total_query_max_used_memory, x.avg_query_max_used_memory, x.total_tempdb_space_used, x.avg_tempdb_space_used,
+	   x.total_log_bytes_used, x.avg_log_bytes_used, x.total_num_physical_io_reads, x.avg_num_physical_io_reads,
+	   x.first_execution_time, x.last_execution_time, x.context_settings
 FROM x
 WHERE x.rn = 1
 ORDER BY x.last_execution_time
@@ -4797,7 +4816,13 @@ JOIN #working_metrics AS wm
 	ON wpt.plan_id = wm.plan_id
 	AND wpt.query_id = wm.query_id
 )
-SELECT *
+SELECT x.database_name, x.plan_id, x.query_id, x.query_id_all_plan_ids, x.query_sql_text, x.query_plan_xml, x.pattern, 
+	   x.parameter_sniffing_symptoms, x.top_three_waits, x.count_executions, x.count_compiles, x.total_cpu_time, x.avg_cpu_time,
+	   x.total_duration, x.avg_duration, x.total_logical_io_reads, x.avg_logical_io_reads,
+	   x.total_physical_io_reads, x.avg_physical_io_reads, x.total_logical_io_writes, x.avg_logical_io_writes, x.total_rowcount, x.avg_rowcount,
+	   x.total_query_max_used_memory, x.avg_query_max_used_memory, x.total_tempdb_space_used, x.avg_tempdb_space_used,
+	   x.total_log_bytes_used, x.avg_log_bytes_used, x.total_num_physical_io_reads, x.avg_num_physical_io_reads,
+	   x.first_execution_time, x.last_execution_time, x.last_force_failure_reason_desc, x.context_settings
 FROM x
 WHERE x.rn = 1
 ORDER BY x.last_execution_time
