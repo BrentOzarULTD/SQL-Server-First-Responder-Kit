@@ -3197,8 +3197,10 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         'Garbage Collection in Progress' AS Finding,
         'https://www.brentozar.com/go/garbage/' AS URL,
         CAST(ps.value_delta AS NVARCHAR(50)) + ' rows processed (from SQL Server YYYY XTP Garbage Collection:Rows processed/sec counter)'  + @LineFeed 
-            + 'This can happen due to memory pressure (causing In-Memory OLTP to shrink its footprint) or' + @LineFeed
-            + 'due to transactional workloads that constantly insert/delete data.' AS Details,
+            + 'This can happen for a few reasons: ' + @LineFeed
+            + 'Memory-Optimized TempDB, or ' + @LineFeed
+            + 'transactional workloads that constantly insert/delete data in In-Memory OLTP tables, or ' + @LineFeed
+            + 'memory pressure (causing In-Memory OLTP to shrink its footprint) or' AS Details,
         'Sadly, you cannot choose when garbage collection occurs. This is one of the many gotchas of Hekaton. Learn more: http://nedotter.com/archive/2016/04/row-version-lifecycle-for-in-memory-oltp/' AS HowToStopIt
     FROM #PerfmonStats ps
         INNER JOIN #PerfmonStats psComp ON psComp.Pass = 2 AND psComp.object_name LIKE '%XTP Garbage Collection' AND psComp.counter_name = 'Rows processed/sec' AND psComp.value_delta > 100
