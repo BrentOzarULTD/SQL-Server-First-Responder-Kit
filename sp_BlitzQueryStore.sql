@@ -243,6 +243,16 @@ IF @Help = 1
 			N'0',
 			N'When set to 1, more checks are done. Examples: many to many merge joins, row goals, adaptive joins, stats info, bad scans and plan forcing, computed columns that reference scalar UDFs.'
 	UNION ALL
+	SELECT N'@Version',
+			N'VARCHAR(30)',
+			N'NULL',
+			N'OUTPUT parameter holding version number.'
+	UNION ALL
+	SELECT N'@VersionDate',
+			N'DATETIME',
+			N'NULL',
+			N'OUTPUT parameter holding version date.'
+	UNION ALL
 	SELECT N'@VersionCheckMode',
 			N'BIT',
 			N'0',
