@@ -922,6 +922,7 @@ CREATE TABLE #working_warnings
 );
 
 
+/*This is where we store some wait metrics*/
 DROP TABLE IF EXISTS #working_wait_stats;
 
 CREATE TABLE #working_wait_stats
@@ -964,9 +965,7 @@ CREATE TABLE #working_wait_stats
 );
 
 
-/*
-The next three tables hold plan XML parsed out to different degrees 
-*/
+/*The next seven tables hold plan XML parsed out to different degrees*/
 DROP TABLE IF EXISTS #statements;
 
 CREATE TABLE #statements 
@@ -1055,6 +1054,7 @@ CREATE TABLE #trace_flags
 );
 
 
+/*This is where we store the user-facing meaning of each check*/
 DROP TABLE IF EXISTS #warning_results;	
 
 CREATE TABLE #warning_results 
@@ -1120,7 +1120,7 @@ CREATE TABLE #conversion_info
 	INDEX cif_ix_ids CLUSTERED (sql_handle, query_hash)
 );
 
-/* These tables support the Missing Index details clickable*/
+/* These tables make the Missing Index details clickable*/
 
 
 DROP TABLE IF EXISTS #missing_index_xml;
