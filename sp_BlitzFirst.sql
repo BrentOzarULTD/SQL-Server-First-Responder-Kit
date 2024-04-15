@@ -228,7 +228,11 @@ IF @LogMessage IS NOT NULL
     END;
 
 IF @SinceStartup = 1
-    SELECT @Seconds = 0, @ExpertMode = 1;
+    BEGIN
+    SET @Seconds = 0
+    IF @ExpertMode = 0
+        SET @ExpertMode = 1
+    END;
 
 
 IF @OutputType = 'SCHEMA'
@@ -3302,7 +3306,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':SQL Statistics','SQL Re-Compilations/sec', NULL);
 
     /* Server Info - SQL Compilations/sec - CheckID 25 */
-    IF @ExpertMode = 1
+    IF @ExpertMode >= 1
 	BEGIN
 		IF (@Debug = 1)
 		BEGIN
@@ -3325,7 +3329,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 	END
 
     /* Server Info - SQL Re-Compilations/sec - CheckID 26 */
-    IF @ExpertMode = 1
+    IF @ExpertMode >= 1
 	BEGIN
 		IF (@Debug = 1)
 		BEGIN
@@ -4674,7 +4678,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     ID,
 					CAST(Details AS NVARCHAR(4000));
         END;
-        ELSE IF @ExpertMode = 1 AND @OutputType <> 'NONE' AND @OutputResultSets LIKE N'%Findings%'
+        ELSE IF @ExpertMode >= 1 AND @OutputType <> 'NONE' AND @OutputResultSets LIKE N'%Findings%'
         BEGIN
             IF @SinceStartup = 0
                 SELECT  r.[Priority] ,
