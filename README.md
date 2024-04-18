@@ -329,6 +329,7 @@ Parameters you can use:
 
 Known issues:
 
+* In Azure SQL DB, Microsoft doesn't seem to be running system health sessions for you. If you get the error "A session with the name system_health does not exist or is not currently active", you'll need to start your own Extended Events session to capture deadlocks. We don't have documentation on that, unfortunately, but we'd love to get help from someone else writing that!
 * If your database has periods in the name, the deadlock report itself doesn't report the database name correctly. [More info in closed issue 2452.](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2452)
 
 
