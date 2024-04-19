@@ -1444,7 +1444,9 @@ BEGIN TRY
 			--This change was made because on a table with lots of paritions, the OUTER APPLY was crazy slow.
 
 			-- get relevant columns from sys.dm_db_partition_stats, sys.partitions and sys.objects 
-			DROP TABLE if exists #dm_db_partition_stats_etc
+			IF OBJECT_ID('tempdb..#dm_db_partition_stats_etc') IS NOT NULL
+				DROP TABLE #dm_db_partition_stats_etc;
+
 			create table #dm_db_partition_stats_etc
 			(
 				database_id smallint not null
@@ -1462,7 +1464,8 @@ BEGIN TRY
 			)
 
 			-- get relevant info from sys.dm_db_index_operational_stats
-			drop TABLE if exists #dm_db_index_operational_stats
+			IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
+				DROP TABLE #dm_db_index_operational_stats;
 			create table #dm_db_index_operational_stats
 			(
 				database_id smallint not null
@@ -1542,8 +1545,10 @@ BEGIN TRY
 								le.lock_escalation_desc,
                             ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc ' END + N'
 			ORDER BY ps.object_id,  ps.index_id, ps.partition_number
-            /*OPTION    ( RECOMPILE );*/
-            OPTION    ( RECOMPILE , min_grant_percent = 1);
+	        OPTION    ( RECOMPILE ' + 
+			CASE WHEN (PARSENAME(@SQLServerProductVersion, 4) ) > 12 THEN N', min_grant_percent = 1 '
+				ELSE N' '
+			END + N');
 
             SET @d = CONVERT(VARCHAR(19), GETDATE(), 121)
             RAISERROR (N''start getting data into #dm_db_index_operational_stats at %s.'',0,1, @d) WITH NOWAIT;
@@ -1582,8 +1587,10 @@ BEGIN TRY
             select os.database_id
                  , os.object_id
                  , os.index_id
-                 , os.partition_number
-                 , os.hobt_id
+                 , os.partition_number ' + 
+				CASE WHEN (PARSENAME(@SQLServerProductVersion, 4) ) > 12 THEN N', os.hobt_id '
+					ELSE N', NULL AS hobt_id '
+				END + N'
                  , os.leaf_insert_count
                  , os.leaf_delete_count
                  , os.leaf_update_count
@@ -1607,7 +1614,10 @@ BEGIN TRY
                  , os.page_io_latch_wait_count
                  , os.page_io_latch_wait_in_ms
                 from ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_index_operational_stats('+ CAST(@DatabaseID AS NVARCHAR(10)) +', NULL, NULL,NULL) AS os 
-                OPTION    ( RECOMPILE , min_grant_percent = 1);
+	            OPTION    ( RECOMPILE ' + 
+				CASE WHEN (PARSENAME(@SQLServerProductVersion, 4) ) > 12 THEN N', min_grant_percent = 1 '
+					ELSE N' '
+				END + N');
 
                 SET @d = CONVERT(VARCHAR(19), GETDATE(), 121)
                 RAISERROR (N''finished getting data into #dm_db_index_operational_stats at %s.'',0,1, @d) WITH NOWAIT;
