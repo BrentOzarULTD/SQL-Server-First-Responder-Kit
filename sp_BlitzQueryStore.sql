@@ -2193,7 +2193,7 @@ RAISERROR(N'Gathering new 2017 new column info...', 0, 1) WITH NOWAIT;
 
 /*Get highest log byte count plans*/
 
-RAISERROR(N'Gathering highest log byte use plans', 0, 1) WITH NOWAIT;
+RAISERROR(N'Gathering highest log byte use plans by average log bytes mb', 0, 1) WITH NOWAIT;
 
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
@@ -2241,7 +2241,7 @@ EXEC sys.sp_executesql  @stmt = @sql_select,
 						@params = @sp_params,
 						@sp_Top = @Top, @sp_StartDate = @StartDate, @sp_EndDate = @EndDate, @sp_MinimumExecutionCount = @MinimumExecutionCount, @sp_MinDuration = @duration_filter_ms, @sp_StoredProcName = @StoredProcName, @sp_PlanIdFilter = @PlanIdFilter, @sp_QueryIdFilter = @QueryIdFilter;
 
-RAISERROR(N'Gathering highest log byte use plans', 0, 1) WITH NOWAIT;
+RAISERROR(N'Gathering highest log byte use plans by max log bytes mb', 0, 1) WITH NOWAIT;
 
 SET @sql_select = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;';
 SET @sql_select += N'
