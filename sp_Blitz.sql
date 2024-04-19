@@ -5019,8 +5019,8 @@ IF @ProductVersionMajor >= 10
 							258 AS [CheckID] ,
 							1 AS [Priority] ,
 							'Security' AS [FindingsGroup] ,
-							'SQL Server is running under the '+ [service_account] +' account' AS [Finding] ,
-							'https://www.brentozar.com/go/setup' AS [URL] ,
+							'Dangerous Service Account' AS [Finding] ,
+							'https://vladdba.com/SQLServerSvcAccount' AS [URL] ,
 							'SQL Server''s service account is '+ [service_account] 
 							+' - meaning that anyone who can use xp_cmdshell can do absolutely anything on the host.'  AS [Details]
 						  FROM
@@ -5056,8 +5056,8 @@ IF @ProductVersionMajor >= 10
 							259 AS [CheckID] ,
 							1 AS [Priority] ,
 							'Security' AS [FindingsGroup] ,
-							'SQL Server Agent is running under the '+ [service_account] +' account' AS [Finding] ,
-							'https://www.brentozar.com/go/setup' AS [URL] ,
+							'Dangerous Service Account' AS [Finding] ,
+							'https://vladdba.com/SQLServerSvcAccount' AS [URL] ,
 							'SQL Server Agent''s service account is '+ [service_account] 
 							+' - meaning that anyone who can create and run jobs can do absolutely anything on the host.'  AS [Details]
 						  FROM
@@ -9667,8 +9667,8 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								    				 260 AS CheckID
 								    				,1 AS Priority
 								    				,'Security' AS FindingsGroup
-								    				,'SQL Server''s service account is a local admin' AS Finding
-								    				,'https://www.brentozar.com/go/setup' AS URL
+								    				,'Dangerous Service Account' AS Finding
+								    				,'https://vladdba.com/SQLServerSvcAccount' AS URL
 								    				,'SQL Server''s service account is a member of the local Administrators group - meaning that anyone who can use xp_cmdshell can do anything on the host.' as Details
 								    									    		
 								    END;
@@ -9713,8 +9713,8 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								    		    		 261 AS CheckID
 								    		    		,1 AS Priority
 								    		    		,'Security' AS FindingsGroup
-								    		    		,'SQL Server Agent''s service account is a local admin' AS Finding
-								    		    		,'https://www.brentozar.com/go/setup' AS URL
+									    				,'Dangerous Service Account' AS Finding
+									    				,'https://vladdba.com/SQLServerSvcAccount' AS URL
 								    		    		,'SQL Server Agent''s service account is a member of the local Administrators group - meaning that anyone who can create and run jobs can do anything on the host.' as Details
 								    									    		
 								        END;
@@ -9746,8 +9746,8 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								    		    		 261 AS CheckID
 								    		    		,1 AS Priority
 								    		    		,'Security' AS FindingsGroup
-								    		    		,'SQL Server Agent''s service account is a local admin' AS Finding
-								    		    		,'https://www.brentozar.com/go/setup' AS URL
+									    				,'Dangerous Service Account' AS Finding
+									    				,'https://vladdba.com/SQLServerSvcAccount' AS URL
 								    		    		,'SQL Server Agent''s service account is a member of the local Administrators group - meaning that anyone who can create and run jobs can do anything on the host.' as Details
 								    									    		
 								        END;
