@@ -143,7 +143,9 @@ DECLARE @StringToExecute NVARCHAR(MAX),
 	@dm_exec_query_statistics_xml BIT = 0,
 	@total_cpu_usage BIT = 0,
 	@get_thread_time_ms NVARCHAR(MAX) = N'',
-	@thread_time_ms FLOAT = 0;
+	@thread_time_ms FLOAT = 0,
+	@logical_processors INT = 0,
+	@max_worker_threads INT = 0;
 
 /* Sanitize our inputs */
 SELECT
@@ -307,6 +309,10 @@ BEGIN
                 @FinishSampleTime = DATEADD(ss, @Seconds, SYSDATETIMEOFFSET()),
                 @FinishSampleTimeWaitFor = DATEADD(ss, @Seconds, GETDATE());
 
+
+	SELECT @logical_processors = COUNT(*)
+		FROM sys.dm_os_schedulers
+		WHERE status = 'VISIBLE ONLINE';
 
     IF EXISTS
 	   (
@@ -2580,6 +2586,35 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 						FOR XML PATH(''));
 
 	END
+
+    /* Potential Upcoming Problems - High Number of Connections - CheckID 49 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 49',10,1) WITH NOWAIT;
+	END
+	IF CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) LIKE '%64%' AND SERVERPROPERTY('EngineEdition') <> 5
+		BEGIN
+		IF @logical_processors <= 4
+			SET @max_worker_threads = 512;
+		ELSE IF @logical_processors > 64 AND 
+			((@v = 13 AND @build >= 5026) OR @v >= 14)
+			SET @max_worker_threads = 512 + ((@logical_processors - 4) * 32)
+		ELSE
+			SET @max_worker_threads = 512 + ((@logical_processors - 4) * 16)
+
+		IF @max_worker_threads > 0
+			BEGIN
+				INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+				SELECT 49 AS CheckID,
+					210 AS Priority,
+					'Potential Upcoming Problems' AS FindingGroup,
+					'High Number of Connections' AS Finding,
+					'https://www.brentozar.com/archive/2014/05/connections-slow-sql-server-threadpool/' AS URL,
+					'There are ' + CAST(SUM(1) AS VARCHAR(20)) + ' open connections, which would lead to ' + @LineFeed + 'worker thread exhaustion and THREADPOOL waits' + @LineFeed + 'if they all ran queries at the same time.' AS Details
+			FROM sys.dm_exec_connections c
+			HAVING SUM(1) > @max_worker_threads;
+			END
+		END
 
 	RAISERROR('Finished running investigatory queries',10,1) WITH NOWAIT;
 
