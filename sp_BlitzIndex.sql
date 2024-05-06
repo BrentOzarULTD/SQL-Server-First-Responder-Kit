@@ -913,8 +913,8 @@ BEGIN TRY
 			          0 , 
 		              @ScriptVersionName,
                       CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16), GETDATE(), 121) END, 
-                      N'From Your Community Volunteers',   
 					  N'http://FirstResponderKit.org',
+                      N'From Your Community Volunteers',   
                       N'',
                       N'',
 					  N''
@@ -925,9 +925,9 @@ BEGIN TRY
 			          0, 
 		              N'You''re trying to run sp_BlitzIndex on a server with ' + CAST(@NumDatabases AS NVARCHAR(8)) + N' databases. ',
                       N'Running sp_BlitzIndex on a server with 50+ databases may cause temporary problems for the server and/or user.',
-				      N'If you''re sure you want to do this, run again with the parameter @BringThePain = 1.',
-                      'http://FirstResponderKit.org', 
 					  '', 
+                      'http://FirstResponderKit.org', 
+				      N'If you''re sure you want to do this, run again with the parameter @BringThePain = 1.',
 					  '', 
 					  '', 
 					  ''
