@@ -1329,7 +1329,7 @@ BEGIN TRY
                         si.index_id, 
                         si.type,
                         @i_DatabaseName AS database_name, 
-                        COALESCE(sc.NAME, ''Unknown'') AS [schema_name],
+                        COALESCE(sc.name, ''Unknown'') AS [schema_name],
                         COALESCE(so.name, ''Unknown'') AS [object_name], 
                         COALESCE(si.name, ''Unknown'') AS [index_name],
                         CASE    WHEN so.[type] = CAST(''V'' AS CHAR(2)) THEN 1 ELSE 0 END, 
