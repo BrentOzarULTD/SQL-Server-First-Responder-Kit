@@ -38,7 +38,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.19', @VersionDate = '20240222';
+	SELECT @Version = '8.20', @VersionDate = '20240522';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -10321,7 +10321,7 @@ AS
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
-SELECT @Version = '8.19', @VersionDate = '20240222';
+SELECT @Version = '8.20', @VersionDate = '20240522';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -11199,7 +11199,7 @@ AS
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.19', @VersionDate = '20240222';
+	SELECT @Version = '8.20', @VersionDate = '20240522';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -12981,7 +12981,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.19', @VersionDate = '20240222';
+SELECT @Version = '8.20', @VersionDate = '20240522';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -20355,7 +20355,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.19', @VersionDate = '20240222';
+SELECT @Version = '8.20', @VersionDate = '20240522';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -21136,7 +21136,7 @@ IF @GetAllDatabases = 1
         IF EXISTS (SELECT * FROM sys.all_objects o INNER JOIN sys.all_columns c ON o.object_id = c.object_id AND o.name = 'dm_hadr_availability_replica_states' AND c.name = 'role_desc')
             BEGIN
             SET @dsql = N'UPDATE #DatabaseList SET secondary_role_allow_connections_desc = ''NO'' WHERE DatabaseName IN (
-                        SELECT d.name 
+                        SELECT DB_NAME(d.database_id)
                         FROM sys.dm_hadr_availability_replica_states rs
                         INNER JOIN sys.databases d ON rs.replica_id = d.replica_id
                         INNER JOIN sys.availability_replicas r ON rs.replica_id = r.replica_id
@@ -21201,7 +21201,7 @@ ELSE
                     ELSE @DatabaseName END;
                END;
 
-SET @NumDatabases = (SELECT COUNT(*) FROM #DatabaseList AS D LEFT OUTER JOIN #Ignore_Databases AS I ON D.DatabaseName = I.DatabaseName WHERE I.DatabaseName IS NULL);
+SET @NumDatabases = (SELECT COUNT(*) FROM #DatabaseList AS D LEFT OUTER JOIN #Ignore_Databases AS I ON D.DatabaseName = I.DatabaseName WHERE I.DatabaseName IS NULL AND ISNULL(D.secondary_role_allow_connections_desc, 'YES') != 'NO');
 SET @msg = N'Number of databases to examine: ' + CAST(@NumDatabases AS NVARCHAR(50));
 RAISERROR (@msg,0,1) WITH NOWAIT;
 
@@ -21220,8 +21220,8 @@ BEGIN TRY
 			          0 , 
 		              @ScriptVersionName,
                       CASE WHEN @GetAllDatabases = 1 THEN N'All Databases' ELSE N'Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16), GETDATE(), 121) END, 
-                      N'From Your Community Volunteers',   
 					  N'http://FirstResponderKit.org',
+                      N'From Your Community Volunteers',   
                       N'',
                       N'',
 					  N''
@@ -21232,9 +21232,9 @@ BEGIN TRY
 			          0, 
 		              N'You''re trying to run sp_BlitzIndex on a server with ' + CAST(@NumDatabases AS NVARCHAR(8)) + N' databases. ',
                       N'Running sp_BlitzIndex on a server with 50+ databases may cause temporary problems for the server and/or user.',
-				      N'If you''re sure you want to do this, run again with the parameter @BringThePain = 1.',
-                      'http://FirstResponderKit.org', 
 					  '', 
+                      'http://FirstResponderKit.org', 
+				      N'If you''re sure you want to do this, run again with the parameter @BringThePain = 1.',
 					  '', 
 					  '', 
 					  ''
@@ -21636,7 +21636,7 @@ BEGIN TRY
                         si.index_id, 
                         si.type,
                         @i_DatabaseName AS database_name, 
-                        COALESCE(sc.NAME, ''Unknown'') AS [schema_name],
+                        COALESCE(sc.name, ''Unknown'') AS [schema_name],
                         COALESCE(so.name, ''Unknown'') AS [object_name], 
                         COALESCE(si.name, ''Unknown'') AS [index_name],
                         CASE    WHEN so.[type] = CAST(''V'' AS CHAR(2)) THEN 1 ELSE 0 END, 
@@ -21748,7 +21748,7 @@ BEGIN TRY
 			RAISERROR (N'Preferring non-2012 syntax with LEFT JOIN to sys.dm_db_index_operational_stats',0,1) WITH NOWAIT;
 
             --NOTE: If you want to use the newer syntax for 2012+, you'll have to change 2147483647 to 11 on line ~819
-			--This change was made because on a table with lots of paritions, the OUTER APPLY was crazy slow.
+			--This change was made because on a table with lots of partitions, the OUTER APPLY was crazy slow.
 
 			-- get relevant columns from sys.dm_db_partition_stats, sys.partitions and sys.objects 
 			IF OBJECT_ID('tempdb..#dm_db_partition_stats_etc') IS NOT NULL
@@ -21934,7 +21934,7 @@ BEGIN TRY
         BEGIN
         RAISERROR (N'Using 2012 syntax to query sys.dm_db_index_operational_stats',0,1) WITH NOWAIT;
 		--This is the syntax that will be used if you change 2147483647 to 11 on line ~819.
-		--If you have a lot of paritions and this suddenly starts running for a long time, change it back.
+		--If you have a lot of partitions and this suddenly starts running for a long time, change it back.
          SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                         SELECT  ' + CAST(@DatabaseID AS NVARCHAR(10)) + N' AS database_id,
                                 ps.object_id, 
@@ -25584,7 +25584,7 @@ BEGIN
 		FROM #TemporalTables AS t
 		OPTION    ( RECOMPILE );
 
-		RAISERROR(N'check_id 121: Optimized For Sequental Keys.', 0,1) WITH NOWAIT;
+		RAISERROR(N'check_id 121: Optimized For Sequential Keys.', 0,1) WITH NOWAIT;
         INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
 
@@ -25867,9 +25867,9 @@ BEGIN
 									[table_nc_index_ratio] NUMERIC(29,1),
 									[heap_count] INT,
 									[heap_gb] NUMERIC(29,1),
-									[partioned_table_count] INT,
-									[partioned_nc_count] INT,
-									[partioned_gb] NUMERIC(29,1),
+									[partitioned_table_count] INT,
+									[partitioned_nc_count] INT,
+									[partitioned_gb] NUMERIC(29,1),
 									[filtered_index_count] INT,
 									[indexed_view_count] INT,
 									[max_table_row_count] INT,
@@ -25932,9 +25932,9 @@ BEGIN
 								[table_nc_index_ratio],
 								[heap_count],
 								[heap_gb],
-								[partioned_table_count],
-								[partioned_nc_count],
-								[partioned_gb],
+								[partitioned_table_count],
+								[partitioned_nc_count],
+								[partitioned_gb],
 								[filtered_index_count],
 								[indexed_view_count],
 								[max_table_row_count],
@@ -26843,7 +26843,7 @@ BEGIN
     SET XACT_ABORT OFF;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-    SELECT @Version = '8.19', @VersionDate = '20240222';
+    SELECT @Version = '8.20', @VersionDate = '20240522';
 
     IF @VersionCheckMode = 1
     BEGIN
@@ -30974,7 +30974,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.19', @VersionDate = '20240222';
+	SELECT @Version = '8.20', @VersionDate = '20240522';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -32327,6 +32327,16 @@ EXEC sp_executesql @StringToExecute,
 
 END
 GO 
+IF OBJECT_ID('dbo.CommandExecute') IS NULL
+BEGIN
+	PRINT 'sp_DatabaseRestore is about to install, but you have not yet installed the Ola Hallengren maintenance scripts.'
+	PRINT 'sp_DatabaseRestore will still install, but to use that stored proc, you will need to install this:'
+	PRINT 'https://ola.hallengren.com'
+	PRINT 'You will see a bunch of warnings below because the Ola scripts are not installed yet, and that is okay:'
+END
+GO
+
+
 IF OBJECT_ID('dbo.sp_DatabaseRestore') IS NULL
 	EXEC ('CREATE PROCEDURE dbo.sp_DatabaseRestore AS RETURN 0;');
 GO
@@ -32376,7 +32386,7 @@ SET STATISTICS XML OFF;
 
 /*Versioning details*/
 
-SELECT @Version = '8.19', @VersionDate = '20240222';
+SELECT @Version = '8.20', @VersionDate = '20240522';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -34045,7 +34055,7 @@ BEGIN
   SET NOCOUNT ON;
   SET STATISTICS XML OFF;
 
-  SELECT @Version = '8.19', @VersionDate = '20240222';
+  SELECT @Version = '8.20', @VersionDate = '20240522';
   
   IF(@VersionCheckMode = 1)
   BEGIN
@@ -34407,6 +34417,8 @@ DELETE FROM dbo.SqlServerVersions;
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
+    (16, 4125, 'CU13', 'https://support.microsoft.com/en-us/help/5036432', '2024-05-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 13'),
+    (16, 4115, 'CU12', 'https://support.microsoft.com/en-us/help/5033663', '2024-03-14', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 12'),
     (16, 4105, 'CU11', 'https://support.microsoft.com/en-us/help/5032679', '2024-01-11', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 11'),
     (16, 4100, 'CU10 GDR', 'https://support.microsoft.com/en-us/help/5033592', '2024-01-09', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 10 GDR'),
     (16, 4095, 'CU10', 'https://support.microsoft.com/en-us/help/5031778', '2023-11-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 10'),
@@ -34421,6 +34433,7 @@ VALUES
     (16, 4003, 'CU1', 'https://support.microsoft.com/en-us/help/5022375', '2023-02-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 1'),
     (16, 1050, 'RTM GDR', 'https://support.microsoft.com/kb/5021522', '2023-02-14', '2028-01-11', '2033-01-11', 'SQL Server 2022 GDR', 'RTM'),
     (16, 1000, 'RTM', '', '2022-11-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'RTM'),
+    (15, 4365, 'CU26', 'https://support.microsoft.com/kb/5035123', '2024-04-11', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 26'),
     (15, 4355, 'CU25', 'https://support.microsoft.com/kb/5033688', '2024-02-15', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 25'),
     (15, 4345, 'CU24', 'https://support.microsoft.com/kb/5031908', '2023-12-14', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 24'),
     (15, 4335, 'CU23', 'https://support.microsoft.com/kb/5030333', '2023-10-12', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 23'),
@@ -34849,7 +34862,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.19', @VersionDate = '20240222';
+SELECT @Version = '8.20', @VersionDate = '20240522';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -34945,7 +34958,9 @@ DECLARE @StringToExecute NVARCHAR(MAX),
 	@dm_exec_query_statistics_xml BIT = 0,
 	@total_cpu_usage BIT = 0,
 	@get_thread_time_ms NVARCHAR(MAX) = N'',
-	@thread_time_ms FLOAT = 0;
+	@thread_time_ms FLOAT = 0,
+	@logical_processors INT = 0,
+	@max_worker_threads INT = 0;
 
 /* Sanitize our inputs */
 SELECT
@@ -35083,16 +35098,23 @@ BEGIN
 
     /* Set start/finish times AFTER sp_BlitzWho runs. For more info: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2244 */
     IF @Seconds = 0 AND SERVERPROPERTY('EngineEdition') = 5 /*SERVERPROPERTY('Edition') = 'SQL Azure'*/
-        WITH WaitTimes AS (
-            SELECT wait_type, wait_time_ms,
-                NTILE(3) OVER(ORDER BY wait_time_ms) AS grouper
-                FROM sys.dm_os_wait_stats w
-                WHERE wait_type IN ('DIRTY_PAGE_POLL','HADR_FILESTREAM_IOMGR_IOCOMPLETION','LAZYWRITER_SLEEP',
-                                    'LOGMGR_QUEUE','REQUEST_FOR_DEADLOCK_SEARCH','XE_TIMER_EVENT')
-        )
-        SELECT @StartSampleTime = DATEADD(mi, AVG(-wait_time_ms / 1000 / 60), SYSDATETIMEOFFSET()), @FinishSampleTime = SYSDATETIMEOFFSET()
-            FROM WaitTimes
-            WHERE grouper = 2;
+		BEGIN
+		/* Use the most accurate (but undocumented) DMV if it's available: */
+		IF EXISTS(SELECT * FROM sys.all_columns ac WHERE ac.object_id = OBJECT_ID('sys.dm_cloud_database_epoch') AND ac.name = 'last_role_transition_time')
+			SELECT @StartSampleTime = DATEADD(MINUTE,DATEDIFF(MINUTE, GETDATE(), GETUTCDATE()),last_role_transition_time) , @FinishSampleTime = SYSDATETIMEOFFSET()
+				FROM sys.dm_cloud_database_epoch;
+		ELSE
+			WITH WaitTimes AS (
+				SELECT wait_type, wait_time_ms,
+					NTILE(3) OVER(ORDER BY wait_time_ms) AS grouper
+					FROM sys.dm_os_wait_stats w
+					WHERE wait_type IN ('DIRTY_PAGE_POLL','HADR_FILESTREAM_IOMGR_IOCOMPLETION','LAZYWRITER_SLEEP',
+										'LOGMGR_QUEUE','REQUEST_FOR_DEADLOCK_SEARCH','XE_TIMER_EVENT')
+			)
+			SELECT @StartSampleTime = DATEADD(mi, AVG(-wait_time_ms / 1000 / 60), SYSDATETIMEOFFSET()), @FinishSampleTime = SYSDATETIMEOFFSET()
+				FROM WaitTimes
+				WHERE grouper = 2;
+		END
     ELSE IF @Seconds = 0 AND SERVERPROPERTY('EngineEdition') <> 5 /*SERVERPROPERTY('Edition') <> 'SQL Azure'*/
         SELECT @StartSampleTime = DATEADD(MINUTE,DATEDIFF(MINUTE, GETDATE(), GETUTCDATE()),create_date) , @FinishSampleTime = SYSDATETIMEOFFSET()
             FROM sys.databases
@@ -35102,6 +35124,10 @@ BEGIN
                 @FinishSampleTime = DATEADD(ss, @Seconds, SYSDATETIMEOFFSET()),
                 @FinishSampleTimeWaitFor = DATEADD(ss, @Seconds, GETDATE());
 
+
+	SELECT @logical_processors = COUNT(*)
+		FROM sys.dm_os_schedulers
+		WHERE status = 'VISIBLE ONLINE';
 
     IF EXISTS
 	   (
@@ -37376,6 +37402,35 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 	END
 
+    /* Potential Upcoming Problems - High Number of Connections - CheckID 49 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 49',10,1) WITH NOWAIT;
+	END
+	IF CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) LIKE '%64%' AND SERVERPROPERTY('EngineEdition') <> 5
+		BEGIN
+		IF @logical_processors <= 4
+			SET @max_worker_threads = 512;
+		ELSE IF @logical_processors > 64 AND 
+			((@v = 13 AND @build >= 5026) OR @v >= 14)
+			SET @max_worker_threads = 512 + ((@logical_processors - 4) * 32)
+		ELSE
+			SET @max_worker_threads = 512 + ((@logical_processors - 4) * 16)
+
+		IF @max_worker_threads > 0
+			BEGIN
+				INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+				SELECT 49 AS CheckID,
+					210 AS Priority,
+					'Potential Upcoming Problems' AS FindingGroup,
+					'High Number of Connections' AS Finding,
+					'https://www.brentozar.com/archive/2014/05/connections-slow-sql-server-threadpool/' AS URL,
+					'There are ' + CAST(SUM(1) AS VARCHAR(20)) + ' open connections, which would lead to ' + @LineFeed + 'worker thread exhaustion and THREADPOOL waits' + @LineFeed + 'if they all ran queries at the same time.' AS Details
+			FROM sys.dm_exec_connections c
+			HAVING SUM(1) > @max_worker_threads;
+			END
+		END
+
 	RAISERROR('Finished running investigatory queries',10,1) WITH NOWAIT;
 
 
@@ -37750,7 +37805,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         'Wait Stats' AS FindingGroup,
         wNow.wait_type AS Finding, /* IF YOU CHANGE THIS, STUFF WILL BREAK. Other checks look for wait type names in the Finding field. See checks 11, 12 as example. */
         N'https://www.sqlskills.com/help/waits/' + LOWER(wNow.wait_type) + '/' AS URL,
-        'For ' + CAST(((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS NVARCHAR(100)) + ' seconds over the last ' + CASE @Seconds WHEN 0 THEN (CAST(DATEDIFF(dd,@StartSampleTime,@FinishSampleTime) AS NVARCHAR(10)) + ' days') ELSE (CAST(@Seconds AS NVARCHAR(10)) + ' seconds') END + ', SQL Server was waiting on this particular bottleneck.' + @LineFeed + @LineFeed AS Details,
+        'For ' + CAST(((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS NVARCHAR(100)) + ' seconds over the last ' + CASE @Seconds WHEN 0 THEN (CAST(DATEDIFF(dd,@StartSampleTime,@FinishSampleTime) AS NVARCHAR(10)) + ' days') ELSE (CAST(DATEDIFF(ss, wBase.SampleTime, wNow.SampleTime) AS NVARCHAR(10)) + ' seconds') END + ', SQL Server was waiting on this particular bottleneck.' + @LineFeed + @LineFeed AS Details,
         'See the URL for more details on how to mitigate this wait type.' AS HowToStopIt,
         ((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS DetailsInt
     FROM #WaitStats wNow
@@ -37770,7 +37825,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         'Server Performance' AS FindingGroup,
         'Poison Wait Detected: ' + wNow.wait_type AS Finding,
         N'https://www.brentozar.com/go/poison/#' + wNow.wait_type AS URL,
-        'For ' + CAST(((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS NVARCHAR(100)) + ' seconds over the last ' + CASE @Seconds WHEN 0 THEN (CAST(DATEDIFF(dd,@StartSampleTime,@FinishSampleTime) AS NVARCHAR(10)) + ' days') ELSE (CAST(@Seconds AS NVARCHAR(10)) + ' seconds') END + ', SQL Server was waiting on this particular bottleneck.' + @LineFeed + @LineFeed AS Details,
+        'For ' + CAST(((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS NVARCHAR(100)) + ' seconds over the last ' + CASE @Seconds WHEN 0 THEN (CAST(DATEDIFF(dd,@StartSampleTime,@FinishSampleTime) AS NVARCHAR(10)) + ' days') ELSE (CAST(DATEDIFF(ss, wBase.SampleTime, wNow.SampleTime) AS NVARCHAR(10)) + ' seconds') END + ', SQL Server was waiting on this particular bottleneck.' + @LineFeed + @LineFeed AS Details,
         'See the URL for more details on how to mitigate this wait type.' AS HowToStopIt,
         ((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS DetailsInt
     FROM #WaitStats wNow
