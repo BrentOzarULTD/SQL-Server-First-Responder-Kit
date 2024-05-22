@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 47
-If you want to add a new check, start at 48
+CURRENT HIGH CHECKID: 49
+If you want to add a new check, start at 50.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|---------------------------------|---------------------------------------|-------------------------------------------------|----------|
@@ -47,6 +47,7 @@ If you want to add a new check, start at 48
 | 100 | Query Problems | Skewed Parallelism | https://www.brentozar.com/go/skewedup | 43 |
 | 100 | Query Problems | Query with a memory grant exceeding @MemoryGrantThresholdPct | https://www.brentozar.com/memory-grants-sql-servers-public-toilet/ | 46 |
 | 200 | Wait Stats | (One per wait type) | https://www.brentozar.com/sql/wait-stats/#(waittype) | 6 |
+| 210 | Potential Upcoming Problems | High Number of Connections |https://www.brentozar.com/archive/2014/05/connections-slow-sql-server-threadpool/ | 49 |
 | 210 | Query Stats | Plan Cache Analysis Skipped | https://www.brentozar.com/go/topqueries | 18 |
 | 210 | Query Stats | Top Resource-Intensive Queries | https://www.brentozar.com/go/topqueries | 17 |
 | 250 | Server Info | Batch Requests per Second | https://www.brentozar.com/go/measure | 19 |
@@ -57,3 +58,4 @@ If you want to add a new check, start at 48
 | 251 | Server Info | Database Count |  | 22 |
 | 251 | Server Info | Database Size, Total GB |  | 21 |
 | 251 | Server Info | Memory Grant/Workspace info |  | 40 |
+| 254 | Informational | Thread Time Inaccurate |  | 48 |

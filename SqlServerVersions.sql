@@ -41,6 +41,8 @@ DELETE FROM dbo.SqlServerVersions;
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
+    (16, 4125, 'CU13', 'https://support.microsoft.com/en-us/help/5036432', '2024-05-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 13'),
+    (16, 4115, 'CU12', 'https://support.microsoft.com/en-us/help/5033663', '2024-03-14', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 12'),
     (16, 4105, 'CU11', 'https://support.microsoft.com/en-us/help/5032679', '2024-01-11', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 11'),
     (16, 4100, 'CU10 GDR', 'https://support.microsoft.com/en-us/help/5033592', '2024-01-09', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 10 GDR'),
     (16, 4095, 'CU10', 'https://support.microsoft.com/en-us/help/5031778', '2023-11-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 10'),
@@ -55,7 +57,8 @@ VALUES
     (16, 4003, 'CU1', 'https://support.microsoft.com/en-us/help/5022375', '2023-02-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 1'),
     (16, 1050, 'RTM GDR', 'https://support.microsoft.com/kb/5021522', '2023-02-14', '2028-01-11', '2033-01-11', 'SQL Server 2022 GDR', 'RTM'),
     (16, 1000, 'RTM', '', '2022-11-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'RTM'),
-    (15, 4355, 'CU25', 'https://support.microsoft.com/kb/5033688', '2023-02-15', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 25'),
+    (15, 4365, 'CU26', 'https://support.microsoft.com/kb/5035123', '2024-04-11', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 26'),
+    (15, 4355, 'CU25', 'https://support.microsoft.com/kb/5033688', '2024-02-15', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 25'),
     (15, 4345, 'CU24', 'https://support.microsoft.com/kb/5031908', '2023-12-14', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 24'),
     (15, 4335, 'CU23', 'https://support.microsoft.com/kb/5030333', '2023-10-12', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 23'),
     (15, 4322, 'CU22', 'https://support.microsoft.com/kb/5027702', '2023-08-14', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 22'),

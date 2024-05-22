@@ -38,7 +38,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.19', @VersionDate = '20240222';
+	SELECT @Version = '8.20', @VersionDate = '20240522';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -880,6 +880,10 @@ AS
 						INSERT INTO #SkipChecks (CheckID, DatabaseName) VALUES (80, 'tempdb');  /* Max file size set */
 						INSERT INTO #SkipChecks (CheckID) VALUES (224); /* CheckID 224 - Performance - SSRS/SSAS/SSIS Installed */
 						INSERT INTO #SkipChecks (CheckID) VALUES (92); /* CheckID 92 - drive space */
+						INSERT INTO #SkipChecks (CheckID) VALUES (258);/* CheckID 258 - Security - SQL Server service is running as LocalSystem or NT AUTHORITY\SYSTEM */
+						INSERT INTO #SkipChecks (CheckID) VALUES (259);/* CheckID 259 - Security - SQL Server Agent service is running as LocalSystem or NT AUTHORITY\SYSTEM */
+						INSERT INTO #SkipChecks (CheckID) VALUES (260); /* CheckID 260 - Security - SQL Server service account is member of Administrators */
+						INSERT INTO #SkipChecks (CheckID) VALUES (261); /*CheckID 261 - Security - SQL Server Agent service account is member of Administrators */
 			            INSERT  INTO #BlitzResults
 			            ( CheckID ,
 				            Priority ,
@@ -1559,10 +1563,8 @@ AS
 				end of the stored proc, where we start doing things like checking
 				the plan cache, but those aren't as cleanly commented.
 
-				If you'd like to contribute your own check, use one of the check
-				formats shown above and email it to Help@BrentOzar.com. You don't
-				have to pick a CheckID or a link - we'll take care of that when we
-				test and publish the code. Thanks!
+				To contribute your own checks or fix bugs, learn more here:
+				https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/blob/main/CONTRIBUTING.md
 				*/
 
 				IF NOT EXISTS ( SELECT  1
@@ -4991,6 +4993,78 @@ IF @ProductVersionMajor >= 10
 						  AND [servicename] LIKE 'SQL Server Agent%'
 						  AND CAST(SERVERPROPERTY('Edition') AS VARCHAR(1000)) NOT LIKE '%xpress%';
 
+					END;
+				END;
+/* CheckID 258 - Security - SQL Server Service is running as LocalSystem or NT AUTHORITY\SYSTEM */
+IF @ProductVersionMajor >= 10 
+			   AND NOT EXISTS ( SELECT  1
+							    FROM    #SkipChecks
+							    WHERE   DatabaseName IS NULL AND CheckID = 258 )
+				BEGIN
+				IF EXISTS ( SELECT  1
+							FROM    sys.all_objects
+							WHERE   [name] = 'dm_server_services' )
+					BEGIN
+						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 258) WITH NOWAIT;
+						
+						  INSERT    INTO [#BlitzResults]
+									( [CheckID] ,
+									  [Priority] ,
+									  [FindingsGroup] ,
+									  [Finding] ,
+									  [URL] ,
+									  [Details] )
+
+							SELECT
+							258 AS [CheckID] ,
+							1 AS [Priority] ,
+							'Security' AS [FindingsGroup] ,
+							'Dangerous Service Account' AS [Finding] ,
+							'https://vladdba.com/SQLServerSvcAccount' AS [URL] ,
+							'SQL Server''s service account is '+ [service_account] 
+							+' - meaning that anyone who can use xp_cmdshell can do absolutely anything on the host.'  AS [Details]
+						  FROM
+							[sys].[dm_server_services]
+						  WHERE ([service_account] = 'LocalSystem'
+						    OR LOWER([service_account]) = 'nt authority\system')
+						  AND [servicename] LIKE 'SQL Server%'
+						  AND [servicename] NOT LIKE 'SQL Server Agent%';
+					END;
+				END;
+
+/* CheckID 259 - Security - SQL Server Agent Service is running as LocalSystem or NT AUTHORITY\SYSTEM */
+IF @ProductVersionMajor >= 10 
+			   AND NOT EXISTS ( SELECT  1
+							    FROM    #SkipChecks
+							    WHERE   DatabaseName IS NULL AND CheckID = 259 )
+				BEGIN
+				IF EXISTS ( SELECT  1
+							FROM    sys.all_objects
+							WHERE   [name] = 'dm_server_services' )
+					BEGIN
+						  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 259) WITH NOWAIT;
+						
+						  INSERT    INTO [#BlitzResults]
+									( [CheckID] ,
+									  [Priority] ,
+									  [FindingsGroup] ,
+									  [Finding] ,
+									  [URL] ,
+									  [Details] )
+
+							SELECT
+							259 AS [CheckID] ,
+							1 AS [Priority] ,
+							'Security' AS [FindingsGroup] ,
+							'Dangerous Service Account' AS [Finding] ,
+							'https://vladdba.com/SQLServerSvcAccount' AS [URL] ,
+							'SQL Server Agent''s service account is '+ [service_account] 
+							+' - meaning that anyone who can create and run jobs can do absolutely anything on the host.'  AS [Details]
+						  FROM
+							[sys].[dm_server_services]
+						  WHERE ([service_account] = 'LocalSystem'
+						    OR LOWER([service_account]) = 'nt authority\system')
+						  AND [servicename] LIKE 'SQL Server Agent%';
 					END;
 				END;
 
@@ -9557,6 +9631,130 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 
                             END;
 
+                        /* CheckID 260 - Security - SQL Server service account is member of Administrators */
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 260 ) AND @ProductVersionMajor >= 10 
+							BEGIN
+                                
+								IF (SELECT value_in_use FROM  sys.configurations WHERE [name] = 'xp_cmdshell') = 1
+								AND EXISTS ( SELECT  1 FROM    sys.all_objects	WHERE   [name] = 'dm_server_services' )
+                                BEGIN
+								    IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 260) WITH NOWAIT;
+                                    IF OBJECT_ID('tempdb..#localadmins') IS NOT NULL DROP TABLE #localadmins;
+                                    CREATE TABLE #localadmins (cmdshell_output NVARCHAR(1000));
+                                    
+                                    INSERT INTO #localadmins
+                                    EXEC /**/xp_cmdshell/**/ N'net localgroup administrators' /* added comments around command since some firewalls block this string TL 20210221 */
+                                    
+                                    IF EXISTS (SELECT 1 
+                                                FROM #localadmins 
+                                                WHERE LOWER(cmdshell_output) = ( SELECT LOWER([service_account])
+												                                 FROM   [sys].[dm_server_services]
+												                                 WHERE  [servicename] LIKE 'SQL Server%'
+												                                   AND [servicename] NOT LIKE 'SQL Server Agent%'
+												                                   AND [servicename] NOT LIKE 'SQL Server Launchpad%'))
+                                    BEGIN
+								    INSERT  INTO #BlitzResults
+								    		( CheckID ,
+								    		  Priority ,
+								    		  FindingsGroup ,
+								    		  Finding ,
+								    		  URL ,
+								    		  Details
+								    		)
+								    		SELECT
+								    				 260 AS CheckID
+								    				,1 AS Priority
+								    				,'Security' AS FindingsGroup
+								    				,'Dangerous Service Account' AS Finding
+								    				,'https://vladdba.com/SQLServerSvcAccount' AS URL
+								    				,'SQL Server''s service account is a member of the local Administrators group - meaning that anyone who can use xp_cmdshell can do anything on the host.' as Details
+								    									    		
+								    END;
+								    
+                                 END;
+                            END;
+
+                        /* CheckID 261 - Security - SQL Server Agent service account is member of Administrators */
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 261 ) AND @ProductVersionMajor >= 10 
+							BEGIN
+								
+								IF (SELECT value_in_use FROM  sys.configurations WHERE [name] = 'xp_cmdshell') = 1
+								AND EXISTS ( SELECT  1 FROM    sys.all_objects	WHERE   [name] = 'dm_server_services' )
+                                BEGIN
+                                    IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 261) WITH NOWAIT;
+									/*If this table exists and CheckId 260 was not skipped, then we're piggybacking off of 260's results */
+                                    IF OBJECT_ID('tempdb..#localadmins') IS NOT NULL 
+									   AND NOT EXISTS ( SELECT  1
+										                FROM    #SkipChecks
+										                WHERE   DatabaseName IS NULL AND CheckID = 260 )
+                                    BEGIN 
+									    IF @Debug IN (1, 2) RAISERROR('CheckId [%d] - found #localadmins table from CheckID 260 - no need to call xp_cmdshell again', 0, 1, 261) WITH NOWAIT;
+                                    
+                                        IF EXISTS (SELECT 1 
+                                                    FROM #localadmins 
+                                                    WHERE LOWER(cmdshell_output) = ( SELECT LOWER([service_account])
+												                                     FROM   [sys].[dm_server_services]
+												                                     WHERE  [servicename] LIKE 'SQL Server Agent%'
+												                                       AND [servicename] NOT LIKE 'SQL Server Launchpad%'))
+                                        BEGIN
+								        INSERT  INTO #BlitzResults
+								    		    ( CheckID ,
+								    		      Priority ,
+								    		      FindingsGroup ,
+								    		      Finding ,
+								    		      URL ,
+								    		      Details
+								    		    )
+								    		    SELECT
+								    		    		 261 AS CheckID
+								    		    		,1 AS Priority
+								    		    		,'Security' AS FindingsGroup
+									    				,'Dangerous Service Account' AS Finding
+									    				,'https://vladdba.com/SQLServerSvcAccount' AS URL
+								    		    		,'SQL Server Agent''s service account is a member of the local Administrators group - meaning that anyone who can create and run jobs can do anything on the host.' as Details
+								    									    		
+								        END;
+								    END; /*piggyback*/
+									ELSE /*can't piggyback*/
+									BEGIN
+									    /*had to use a different table name because SQL Server/SSMS complains when parsing that the table still exists when it gets to the create part*/
+									    IF OBJECT_ID('tempdb..#localadminsag') IS NOT NULL DROP TABLE #localadminsag;
+									    CREATE TABLE #localadminsag (cmdshell_output NVARCHAR(1000));
+										INSERT INTO #localadmins
+										EXEC /**/xp_cmdshell/**/ N'net localgroup administrators' /* added comments around command since some firewalls block this string TL 20210221 */
+                                    
+										IF EXISTS (SELECT 1 
+                                                FROM #localadmins 
+                                                WHERE LOWER(cmdshell_output) = ( SELECT LOWER([service_account])
+												                                 FROM   [sys].[dm_server_services]
+												                                 WHERE  [servicename] LIKE 'SQL Server Agent%'
+												                                   AND [servicename] NOT LIKE 'SQL Server Launchpad%'))
+										BEGIN
+								        INSERT  INTO #BlitzResults
+								    		    ( CheckID ,
+								    		      Priority ,
+								    		      FindingsGroup ,
+								    		      Finding ,
+								    		      URL ,
+								    		      Details
+								    		    )
+								    		    SELECT
+								    		    		 261 AS CheckID
+								    		    		,1 AS Priority
+								    		    		,'Security' AS FindingsGroup
+									    				,'Dangerous Service Account' AS Finding
+									    				,'https://vladdba.com/SQLServerSvcAccount' AS URL
+								    		    		,'SQL Server Agent''s service account is a member of the local Administrators group - meaning that anyone who can create and run jobs can do anything on the host.' as Details
+								    									    		
+								        END;
+
+									END;/*can't piggyback*/
+                                 END;
+                            END; /* CheckID 261 */
 
 					END; /* IF @CheckServerInfo = 1 */
 			END; /* IF ( ( SERVERPROPERTY('ServerName') NOT IN ( SELECT ServerName */

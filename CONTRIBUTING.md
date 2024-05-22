@@ -22,7 +22,7 @@ If you can't find a similar issue, go ahead and open your own. Include as much d
 
 Open source is community-built software. Anyone is welcome to build things that would help make their job easier.
 
-Open source isn't free development, though. Working on these scripts is hard work: they have to work on case-sensitive instances, and on all supported versions of SQL Server (currently 2008 through 2017.) If you just waltz in and say, "Someone please bake me a cake," you're probably not going to get a cake.
+Open source isn't free development, though. Working on these scripts is hard work: they have to work on case-sensitive instances, and on all versions of SQL Server that Microsoft currently supports. If you just waltz in and say, "Someone please bake me a cake," you're probably not going to get a cake.
 
 If you want something, you're going to either need to build it yourself, or convince someone else to devote their free time to your feature request. You can do that by sponsoring development (offering to hire a developer to build it for you), or getting people excited enough that they volunteer to build it for you.
 

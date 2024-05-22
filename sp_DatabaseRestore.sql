@@ -1,3 +1,13 @@
+IF OBJECT_ID('dbo.CommandExecute') IS NULL
+BEGIN
+	PRINT 'sp_DatabaseRestore is about to install, but you have not yet installed the Ola Hallengren maintenance scripts.'
+	PRINT 'sp_DatabaseRestore will still install, but to use that stored proc, you will need to install this:'
+	PRINT 'https://ola.hallengren.com'
+	PRINT 'You will see a bunch of warnings below because the Ola scripts are not installed yet, and that is okay:'
+END
+GO
+
+
 IF OBJECT_ID('dbo.sp_DatabaseRestore') IS NULL
 	EXEC ('CREATE PROCEDURE dbo.sp_DatabaseRestore AS RETURN 0;');
 GO
@@ -47,7 +57,7 @@ SET STATISTICS XML OFF;
 
 /*Versioning details*/
 
-SELECT @Version = '8.19', @VersionDate = '20240222';
+SELECT @Version = '8.20', @VersionDate = '20240522';
 
 IF(@VersionCheckMode = 1)
 BEGIN
