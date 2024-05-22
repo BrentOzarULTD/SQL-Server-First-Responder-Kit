@@ -829,7 +829,7 @@ IF @GetAllDatabases = 1
         IF EXISTS (SELECT * FROM sys.all_objects o INNER JOIN sys.all_columns c ON o.object_id = c.object_id AND o.name = 'dm_hadr_availability_replica_states' AND c.name = 'role_desc')
             BEGIN
             SET @dsql = N'UPDATE #DatabaseList SET secondary_role_allow_connections_desc = ''NO'' WHERE DatabaseName IN (
-                        SELECT d.name 
+                        SELECT DB_NAME(d.database_id)
                         FROM sys.dm_hadr_availability_replica_states rs
                         INNER JOIN sys.databases d ON rs.replica_id = d.replica_id
                         INNER JOIN sys.availability_replicas r ON rs.replica_id = r.replica_id
