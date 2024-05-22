@@ -1441,7 +1441,7 @@ BEGIN TRY
 			RAISERROR (N'Preferring non-2012 syntax with LEFT JOIN to sys.dm_db_index_operational_stats',0,1) WITH NOWAIT;
 
             --NOTE: If you want to use the newer syntax for 2012+, you'll have to change 2147483647 to 11 on line ~819
-			--This change was made because on a table with lots of paritions, the OUTER APPLY was crazy slow.
+			--This change was made because on a table with lots of partitions, the OUTER APPLY was crazy slow.
 
 			-- get relevant columns from sys.dm_db_partition_stats, sys.partitions and sys.objects 
 			IF OBJECT_ID('tempdb..#dm_db_partition_stats_etc') IS NOT NULL
@@ -1627,7 +1627,7 @@ BEGIN TRY
         BEGIN
         RAISERROR (N'Using 2012 syntax to query sys.dm_db_index_operational_stats',0,1) WITH NOWAIT;
 		--This is the syntax that will be used if you change 2147483647 to 11 on line ~819.
-		--If you have a lot of paritions and this suddenly starts running for a long time, change it back.
+		--If you have a lot of partitions and this suddenly starts running for a long time, change it back.
          SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                         SELECT  ' + CAST(@DatabaseID AS NVARCHAR(10)) + N' AS database_id,
                                 ps.object_id, 
@@ -5277,7 +5277,7 @@ BEGIN
 		FROM #TemporalTables AS t
 		OPTION    ( RECOMPILE );
 
-		RAISERROR(N'check_id 121: Optimized For Sequental Keys.', 0,1) WITH NOWAIT;
+		RAISERROR(N'check_id 121: Optimized For Sequential Keys.', 0,1) WITH NOWAIT;
         INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
 
@@ -5560,9 +5560,9 @@ BEGIN
 									[table_nc_index_ratio] NUMERIC(29,1),
 									[heap_count] INT,
 									[heap_gb] NUMERIC(29,1),
-									[partioned_table_count] INT,
-									[partioned_nc_count] INT,
-									[partioned_gb] NUMERIC(29,1),
+									[partitioned_table_count] INT,
+									[partitioned_nc_count] INT,
+									[partitioned_gb] NUMERIC(29,1),
 									[filtered_index_count] INT,
 									[indexed_view_count] INT,
 									[max_table_row_count] INT,
@@ -5625,9 +5625,9 @@ BEGIN
 								[table_nc_index_ratio],
 								[heap_count],
 								[heap_gb],
-								[partioned_table_count],
-								[partioned_nc_count],
-								[partioned_gb],
+								[partitioned_table_count],
+								[partitioned_nc_count],
+								[partitioned_gb],
 								[filtered_index_count],
 								[indexed_view_count],
 								[max_table_row_count],
