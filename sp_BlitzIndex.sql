@@ -894,7 +894,7 @@ ELSE
                     ELSE @DatabaseName END;
                END;
 
-SET @NumDatabases = (SELECT COUNT(*) FROM #DatabaseList AS D LEFT OUTER JOIN #Ignore_Databases AS I ON D.DatabaseName = I.DatabaseName WHERE I.DatabaseName IS NULL);
+SET @NumDatabases = (SELECT COUNT(*) FROM #DatabaseList AS D LEFT OUTER JOIN #Ignore_Databases AS I ON D.DatabaseName = I.DatabaseName WHERE I.DatabaseName IS NULL AND ISNULL(D.secondary_role_allow_connections_desc, 'YES') != 'NO');
 SET @msg = N'Number of databases to examine: ' + CAST(@NumDatabases AS NVARCHAR(50));
 RAISERROR (@msg,0,1) WITH NOWAIT;
 
