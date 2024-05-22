@@ -2502,8 +2502,13 @@ OPTION (RECOMPILE);';
                                               AND    ic.object_id = sed.referenced_id )
                         OPTION(RECOMPILE);'
 
-                INSERT #FilteredIndexes ( database_id, database_name, schema_name, table_name, index_name, column_name )
-                EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
+				BEGIN TRY
+					INSERT #FilteredIndexes ( database_id, database_name, schema_name, table_name, index_name, column_name )
+					EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
+				END TRY
+				BEGIN CATCH
+					RAISERROR (N'Skipping #FilteredIndexes population due to error, typically low permissions.', 0,1) WITH NOWAIT;
+				END CATCH
     END;
 	END;
 			
