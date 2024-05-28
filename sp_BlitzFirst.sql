@@ -47,7 +47,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.19', @VersionDate = '20240222';
+SELECT @Version = '8.20', @VersionDate = '20240522';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -143,7 +143,9 @@ DECLARE @StringToExecute NVARCHAR(MAX),
 	@dm_exec_query_statistics_xml BIT = 0,
 	@total_cpu_usage BIT = 0,
 	@get_thread_time_ms NVARCHAR(MAX) = N'',
-	@thread_time_ms FLOAT = 0;
+	@thread_time_ms FLOAT = 0,
+	@logical_processors INT = 0,
+	@max_worker_threads INT = 0;
 
 /* Sanitize our inputs */
 SELECT
@@ -228,7 +230,11 @@ IF @LogMessage IS NOT NULL
     END;
 
 IF @SinceStartup = 1
-    SELECT @Seconds = 0, @ExpertMode = 1;
+    BEGIN
+    SET @Seconds = 0
+    IF @ExpertMode = 0
+        SET @ExpertMode = 1
+    END;
 
 
 IF @OutputType = 'SCHEMA'
@@ -277,16 +283,23 @@ BEGIN
 
     /* Set start/finish times AFTER sp_BlitzWho runs. For more info: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2244 */
     IF @Seconds = 0 AND SERVERPROPERTY('EngineEdition') = 5 /*SERVERPROPERTY('Edition') = 'SQL Azure'*/
-        WITH WaitTimes AS (
-            SELECT wait_type, wait_time_ms,
-                NTILE(3) OVER(ORDER BY wait_time_ms) AS grouper
-                FROM sys.dm_os_wait_stats w
-                WHERE wait_type IN ('DIRTY_PAGE_POLL','HADR_FILESTREAM_IOMGR_IOCOMPLETION','LAZYWRITER_SLEEP',
-                                    'LOGMGR_QUEUE','REQUEST_FOR_DEADLOCK_SEARCH','XE_TIMER_EVENT')
-        )
-        SELECT @StartSampleTime = DATEADD(mi, AVG(-wait_time_ms / 1000 / 60), SYSDATETIMEOFFSET()), @FinishSampleTime = SYSDATETIMEOFFSET()
-            FROM WaitTimes
-            WHERE grouper = 2;
+		BEGIN
+		/* Use the most accurate (but undocumented) DMV if it's available: */
+		IF EXISTS(SELECT * FROM sys.all_columns ac WHERE ac.object_id = OBJECT_ID('sys.dm_cloud_database_epoch') AND ac.name = 'last_role_transition_time')
+			SELECT @StartSampleTime = DATEADD(MINUTE,DATEDIFF(MINUTE, GETDATE(), GETUTCDATE()),last_role_transition_time) , @FinishSampleTime = SYSDATETIMEOFFSET()
+				FROM sys.dm_cloud_database_epoch;
+		ELSE
+			WITH WaitTimes AS (
+				SELECT wait_type, wait_time_ms,
+					NTILE(3) OVER(ORDER BY wait_time_ms) AS grouper
+					FROM sys.dm_os_wait_stats w
+					WHERE wait_type IN ('DIRTY_PAGE_POLL','HADR_FILESTREAM_IOMGR_IOCOMPLETION','LAZYWRITER_SLEEP',
+										'LOGMGR_QUEUE','REQUEST_FOR_DEADLOCK_SEARCH','XE_TIMER_EVENT')
+			)
+			SELECT @StartSampleTime = DATEADD(mi, AVG(-wait_time_ms / 1000 / 60), SYSDATETIMEOFFSET()), @FinishSampleTime = SYSDATETIMEOFFSET()
+				FROM WaitTimes
+				WHERE grouper = 2;
+		END
     ELSE IF @Seconds = 0 AND SERVERPROPERTY('EngineEdition') <> 5 /*SERVERPROPERTY('Edition') <> 'SQL Azure'*/
         SELECT @StartSampleTime = DATEADD(MINUTE,DATEDIFF(MINUTE, GETDATE(), GETUTCDATE()),create_date) , @FinishSampleTime = SYSDATETIMEOFFSET()
             FROM sys.databases
@@ -296,6 +309,10 @@ BEGIN
                 @FinishSampleTime = DATEADD(ss, @Seconds, SYSDATETIMEOFFSET()),
                 @FinishSampleTimeWaitFor = DATEADD(ss, @Seconds, GETDATE());
 
+
+	SELECT @logical_processors = COUNT(*)
+		FROM sys.dm_os_schedulers
+		WHERE status = 'VISIBLE ONLINE';
 
     IF EXISTS
 	   (
@@ -2570,6 +2587,35 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 	END
 
+    /* Potential Upcoming Problems - High Number of Connections - CheckID 49 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 49',10,1) WITH NOWAIT;
+	END
+	IF CAST(SERVERPROPERTY('edition') AS VARCHAR(100)) LIKE '%64%' AND SERVERPROPERTY('EngineEdition') <> 5
+		BEGIN
+		IF @logical_processors <= 4
+			SET @max_worker_threads = 512;
+		ELSE IF @logical_processors > 64 AND 
+			((@v = 13 AND @build >= 5026) OR @v >= 14)
+			SET @max_worker_threads = 512 + ((@logical_processors - 4) * 32)
+		ELSE
+			SET @max_worker_threads = 512 + ((@logical_processors - 4) * 16)
+
+		IF @max_worker_threads > 0
+			BEGIN
+				INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+				SELECT 49 AS CheckID,
+					210 AS Priority,
+					'Potential Upcoming Problems' AS FindingGroup,
+					'High Number of Connections' AS Finding,
+					'https://www.brentozar.com/archive/2014/05/connections-slow-sql-server-threadpool/' AS URL,
+					'There are ' + CAST(SUM(1) AS VARCHAR(20)) + ' open connections, which would lead to ' + @LineFeed + 'worker thread exhaustion and THREADPOOL waits' + @LineFeed + 'if they all ran queries at the same time.' AS Details
+			FROM sys.dm_exec_connections c
+			HAVING SUM(1) > @max_worker_threads;
+			END
+		END
+
 	RAISERROR('Finished running investigatory queries',10,1) WITH NOWAIT;
 
 
@@ -2944,7 +2990,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         'Wait Stats' AS FindingGroup,
         wNow.wait_type AS Finding, /* IF YOU CHANGE THIS, STUFF WILL BREAK. Other checks look for wait type names in the Finding field. See checks 11, 12 as example. */
         N'https://www.sqlskills.com/help/waits/' + LOWER(wNow.wait_type) + '/' AS URL,
-        'For ' + CAST(((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS NVARCHAR(100)) + ' seconds over the last ' + CASE @Seconds WHEN 0 THEN (CAST(DATEDIFF(dd,@StartSampleTime,@FinishSampleTime) AS NVARCHAR(10)) + ' days') ELSE (CAST(@Seconds AS NVARCHAR(10)) + ' seconds') END + ', SQL Server was waiting on this particular bottleneck.' + @LineFeed + @LineFeed AS Details,
+        'For ' + CAST(((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS NVARCHAR(100)) + ' seconds over the last ' + CASE @Seconds WHEN 0 THEN (CAST(DATEDIFF(dd,@StartSampleTime,@FinishSampleTime) AS NVARCHAR(10)) + ' days') ELSE (CAST(DATEDIFF(ss, wBase.SampleTime, wNow.SampleTime) AS NVARCHAR(10)) + ' seconds') END + ', SQL Server was waiting on this particular bottleneck.' + @LineFeed + @LineFeed AS Details,
         'See the URL for more details on how to mitigate this wait type.' AS HowToStopIt,
         ((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS DetailsInt
     FROM #WaitStats wNow
@@ -2964,7 +3010,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         'Server Performance' AS FindingGroup,
         'Poison Wait Detected: ' + wNow.wait_type AS Finding,
         N'https://www.brentozar.com/go/poison/#' + wNow.wait_type AS URL,
-        'For ' + CAST(((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS NVARCHAR(100)) + ' seconds over the last ' + CASE @Seconds WHEN 0 THEN (CAST(DATEDIFF(dd,@StartSampleTime,@FinishSampleTime) AS NVARCHAR(10)) + ' days') ELSE (CAST(@Seconds AS NVARCHAR(10)) + ' seconds') END + ', SQL Server was waiting on this particular bottleneck.' + @LineFeed + @LineFeed AS Details,
+        'For ' + CAST(((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS NVARCHAR(100)) + ' seconds over the last ' + CASE @Seconds WHEN 0 THEN (CAST(DATEDIFF(dd,@StartSampleTime,@FinishSampleTime) AS NVARCHAR(10)) + ' days') ELSE (CAST(DATEDIFF(ss, wBase.SampleTime, wNow.SampleTime) AS NVARCHAR(10)) + ' seconds') END + ', SQL Server was waiting on this particular bottleneck.' + @LineFeed + @LineFeed AS Details,
         'See the URL for more details on how to mitigate this wait type.' AS HowToStopIt,
         ((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms,0)) / 1000) AS DetailsInt
     FROM #WaitStats wNow
@@ -2986,7 +3032,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			50 AS Priority,
 			'Server Performance' AS FindingGroup,
 			'Slow Data File Reads' AS Finding,
-			'https://www.brentozar.com/go/slow/' AS URL,
+			'https://www.brentozar.com/blitz/slow-storage-reads-writes/' AS URL,
 			'Your server is experiencing PAGEIOLATCH% waits due to slow data file reads. This file is one of the reasons why.' + @LineFeed
 				+ 'File: ' + fNow.PhysicalName + @LineFeed
 				+ 'Number of reads during the sample: ' + CAST((fNow.num_of_reads - fBase.num_of_reads) AS NVARCHAR(20)) + @LineFeed
@@ -3016,7 +3062,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			50 AS Priority,
 			'Server Performance' AS FindingGroup,
 			'Slow Log File Writes' AS Finding,
-			'https://www.brentozar.com/go/slow/' AS URL,
+			'https://www.brentozar.com/blitz/slow-storage-reads-writes/' AS URL,
 			'Your server is experiencing WRITELOG waits due to slow log file writes. This file is one of the reasons why.' + @LineFeed
 				+ 'File: ' + fNow.PhysicalName + @LineFeed
 				+ 'Number of writes during the sample: ' + CAST((fNow.num_of_writes - fBase.num_of_writes) AS NVARCHAR(20)) + @LineFeed
@@ -3193,8 +3239,10 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         'Garbage Collection in Progress' AS Finding,
         'https://www.brentozar.com/go/garbage/' AS URL,
         CAST(ps.value_delta AS NVARCHAR(50)) + ' rows processed (from SQL Server YYYY XTP Garbage Collection:Rows processed/sec counter)'  + @LineFeed 
-            + 'This can happen due to memory pressure (causing In-Memory OLTP to shrink its footprint) or' + @LineFeed
-            + 'due to transactional workloads that constantly insert/delete data.' AS Details,
+            + 'This can happen for a few reasons: ' + @LineFeed
+            + 'Memory-Optimized TempDB, or ' + @LineFeed
+            + 'transactional workloads that constantly insert/delete data in In-Memory OLTP tables, or ' + @LineFeed
+            + 'memory pressure (causing In-Memory OLTP to shrink its footprint) or' AS Details,
         'Sadly, you cannot choose when garbage collection occurs. This is one of the many gotchas of Hekaton. Learn more: http://nedotter.com/archive/2016/04/row-version-lifecycle-for-in-memory-oltp/' AS HowToStopIt
     FROM #PerfmonStats ps
         INNER JOIN #PerfmonStats psComp ON psComp.Pass = 2 AND psComp.object_name LIKE '%XTP Garbage Collection' AND psComp.counter_name = 'Rows processed/sec' AND psComp.value_delta > 100
@@ -3302,7 +3350,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         INSERT INTO #PerfmonCounters ([object_name],[counter_name],[instance_name]) VALUES (@ServiceName + ':SQL Statistics','SQL Re-Compilations/sec', NULL);
 
     /* Server Info - SQL Compilations/sec - CheckID 25 */
-    IF @ExpertMode = 1
+    IF @ExpertMode >= 1
 	BEGIN
 		IF (@Debug = 1)
 		BEGIN
@@ -3325,7 +3373,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 	END
 
     /* Server Info - SQL Re-Compilations/sec - CheckID 26 */
-    IF @ExpertMode = 1
+    IF @ExpertMode >= 1
 	BEGIN
 		IF (@Debug = 1)
 		BEGIN
@@ -4674,7 +4722,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     ID,
 					CAST(Details AS NVARCHAR(4000));
         END;
-        ELSE IF @ExpertMode = 1 AND @OutputType <> 'NONE' AND @OutputResultSets LIKE N'%Findings%'
+        ELSE IF @ExpertMode >= 1 AND @OutputType <> 'NONE' AND @OutputResultSets LIKE N'%Findings%'
         BEGIN
             IF @SinceStartup = 0
                 SELECT  r.[Priority] ,
@@ -4911,7 +4959,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
               INNER JOIN #QueryStats qsFirst ON qsNow.[sql_handle] = qsFirst.[sql_handle] AND qsNow.statement_start_offset = qsFirst.statement_start_offset AND qsNow.statement_end_offset = qsFirst.statement_end_offset AND qsNow.plan_generation_num = qsFirst.plan_generation_num AND qsNow.plan_handle = qsFirst.plan_handle AND qsFirst.Pass = 1
             WHERE qsNow.Pass = 2;
 			END;
-			ELSE
+			ELSE IF @OutputResultSets LIKE N'%BlitzCache%'
 			BEGIN
 			SELECT 'Plan Cache' AS [Pattern], 'Plan cache not analyzed' AS [Finding], 'Use @CheckProcedureCache = 1 or run sp_BlitzCache for more analysis' AS [More Info], CONVERT(XML, @StockDetailsHeader + 'firstresponderkit.org' + @StockDetailsFooter) AS [Details];
 			END;
