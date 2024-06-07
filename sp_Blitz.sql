@@ -4344,6 +4344,32 @@ AS
                                     ORDER BY v.MinorVersionNumber DESC;
 							END;		
 
+                        /* Performance - Very High Query Store Memory Usage */
+                        IF NOT EXISTS ( SELECT  1
+				                        FROM    #SkipChecks
+				                        WHERE   DatabaseName IS NULL AND CheckID = 262 )
+							AND  @ProductVersionMajor > 12 /* The relevant rows only exists in versions that support Query Store */
+	                        BEGIN
+		
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 262) WITH NOWAIT;
+								
+								SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+			                        SELECT 262 AS CheckID,
+					                        50 AS Priority,
+					                        ''Performance'' AS FindingsGroup,
+					                        ''Very High Query Store Memory Usage'' AS Finding,
+					                        '''' AS URL,
+								            ''Query Store is using more than 1 GB of memory. This is a lot for a lightweight monitoring tool. Check your Query Store configuration.'' AS Details
+			                        FROM sys.dm_os_memory_clerks
+									WHERE type IN (''CACHESTORE_QDSRUNTIMESTATS'', ''MEMORYCLERK_QUERYDISKSTORE'', ''MEMORYCLERK_QUERYDISKSTORE_HASHMAP'', ''MEMORYCLERK_QUERYDISKSTORE_STATS'', ''USERSTORE_QDSSTMT'')
+									HAVING SUM(pages_kb / 1024.0 / 1024.0) > 1.0';
+		
+								IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
+								IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
+								
+								EXECUTE(@StringToExecute);
+	                        END;
+
                         /* Performance - High Memory Use for In-Memory OLTP (Hekaton) */
                         IF NOT EXISTS ( SELECT  1
 				                        FROM    #SkipChecks
