@@ -6781,7 +6781,7 @@ IF @ProductVersionMajor >= 10
 		                              200,
 		                              ''Performance'',
 		                              ''Query Store Effectively Disabled'',
-		                              ''https://learn.microsoft.com/en-us/sql/relational-databases/performance/best-practice-with-the-query-store?view=sql-server-ver16#Verify'',
+		                              ''https://learn.microsoft.com/en-us/sql/relational-databases/performance/best-practice-with-the-query-store#Verify'',
 		                              (''Query Store is not in a state where it is writing, so it is effectively disabled. Check your Query Store settings.'')
 		                              FROM [?].sys.database_query_store_options
 									  WHERE desired_state <> 0
@@ -6812,7 +6812,7 @@ IF @ProductVersionMajor >= 10
 		                              200,
 		                              ''Performance'',
 		                              ''Undesired Query Store State'',
-		                              ''https://learn.microsoft.com/en-us/sql/relational-databases/performance/best-practice-with-the-query-store?view=sql-server-ver16#Verify'',
+		                              ''https://learn.microsoft.com/en-us/sql/relational-databases/performance/best-practice-with-the-query-store#Verify'',
 		                              (''You have asked for Query Store to be in '' + desired_state_desc + '' mode, but it is in '' + actual_state_desc + '' mode.'')
 		                              FROM [?].sys.database_query_store_options
 									  WHERE desired_state <> 0
