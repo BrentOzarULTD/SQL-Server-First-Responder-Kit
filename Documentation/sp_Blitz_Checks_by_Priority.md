@@ -248,6 +248,7 @@ If you want to add a new one, start at 263.
 | 200 | Performance | Old Compatibility Level | https://www.BrentOzar.com/go/compatlevel | 62 |
 | 200 | Performance | Query Store Disabled | https://www.BrentOzar.com/go/querystore | 163 |
 | 200 | Performance | Query Store Effectively Disabled | https://learn.microsoft.com/en-us/sql/relational-databases/performance/best-practice-with-the-query-store?view=sql-server-ver16#Verify | 262 |
+| 200 | Performance | Undesired Query Store State | https://learn.microsoft.com/en-us/sql/relational-databases/performance/best-practice-with-the-query-store?view=sql-server-ver16#Verify | 263 |
 | 200 | Performance | Snapshot Backups Occurring | https://www.BrentOzar.com/go/snaps | 178 |
 | 200 | Performance | User-Created Statistics In Place | https://www.BrentOzar.com/go/userstats | 122 |
 | 200 | Performance | SSAS/SSIS/SSRS Installed | https://www.BrentOzar.com/go/services | 224 |
