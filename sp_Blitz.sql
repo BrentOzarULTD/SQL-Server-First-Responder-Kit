@@ -6758,6 +6758,67 @@ IF @ProductVersionMajor >= 10
 									  AND N''?'' NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'') OPTION (RECOMPILE)';
 							END;
 
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 262 )
+                            AND EXISTS(SELECT * FROM sys.all_objects WHERE name = 'database_query_store_options')
+							BEGIN
+
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 262) WITH NOWAIT;
+
+								EXEC dbo.sp_MSforeachdb 'USE [?];
+                                        SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+			                            INSERT INTO #BlitzResults
+			                            (CheckID,
+			                            DatabaseName,
+			                            Priority,
+			                            FindingsGroup,
+			                            Finding,
+			                            URL,
+			                            Details)
+		                              SELECT TOP 1 262,
+		                              N''?'',
+		                              200,
+		                              ''Performance'',
+		                              ''Query Store Effectively Disabled'',
+		                              ''https://learn.microsoft.com/en-us/sql/relational-databases/performance/best-practice-with-the-query-store?view=sql-server-ver16#Verify'',
+		                              (''Query Store is not in a state where it is writing, so it is effectively disabled. Check your Query Store settings.'')
+		                              FROM [?].sys.database_query_store_options
+									  WHERE desired_state <> 0
+									  AND actual_state <> 2
+									  OPTION (RECOMPILE)';
+							END;
+
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 263 )
+                            AND EXISTS(SELECT * FROM sys.all_objects WHERE name = 'database_query_store_options')
+							BEGIN
+
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 263) WITH NOWAIT;
+
+								EXEC dbo.sp_MSforeachdb 'USE [?];
+                                        SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+			                            INSERT INTO #BlitzResults
+			                            (CheckID,
+			                            DatabaseName,
+			                            Priority,
+			                            FindingsGroup,
+			                            Finding,
+			                            URL,
+			                            Details)
+		                              SELECT TOP 1 263,
+		                              N''?'',
+		                              200,
+		                              ''Performance'',
+		                              ''Undesired Query Store State'',
+		                              ''https://learn.microsoft.com/en-us/sql/relational-databases/performance/best-practice-with-the-query-store?view=sql-server-ver16#Verify'',
+		                              (''You have asked for Query Store to be in '' + desired_state_desc + '' mode, but it is in '' + actual_state_desc + '' mode.'')
+		                              FROM [?].sys.database_query_store_options
+									  WHERE desired_state <> 0
+									  AND desired_state <> actual_state 
+									  OPTION (RECOMPILE)';
+							END;
 						
 						IF @ProductVersionMajor = 13 AND @ProductVersionMinor < 2149 --2016 CU1 has the fix in it
 							AND NOT EXISTS ( SELECT  1
