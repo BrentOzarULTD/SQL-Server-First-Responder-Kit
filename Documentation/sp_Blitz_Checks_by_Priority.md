@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 261.
-If you want to add a new one, start at 262.
+CURRENT HIGH CHECKID: 262.
+If you want to add a new one, start at 263.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
@@ -247,6 +247,7 @@ If you want to add a new one, start at 262.
 | 200 | Performance | Non-Dynamic Memory | https://www.BrentOzar.com/go/memory | 190 |
 | 200 | Performance | Old Compatibility Level | https://www.BrentOzar.com/go/compatlevel | 62 |
 | 200 | Performance | Query Store Disabled | https://www.BrentOzar.com/go/querystore | 163 |
+| 200 | Performance | Query Store Effectively Disabled | https://learn.microsoft.com/en-us/sql/relational-databases/performance/best-practice-with-the-query-store?view=sql-server-ver16#Verify | 262 |
 | 200 | Performance | Snapshot Backups Occurring | https://www.BrentOzar.com/go/snaps | 178 |
 | 200 | Performance | User-Created Statistics In Place | https://www.BrentOzar.com/go/userstats | 122 |
 | 200 | Performance | SSAS/SSIS/SSRS Installed | https://www.BrentOzar.com/go/services | 224 |
