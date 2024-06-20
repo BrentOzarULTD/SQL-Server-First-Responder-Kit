@@ -9,6 +9,7 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 CURRENT HIGH CHECKID: 264.
 If you want to add a new one, start at 265.
 
+
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
 | 0 | Outdated sp_Blitz | sp_Blitz is Over 6 Months Old | https://www.BrentOzar.com/blitz/ | 155 |
@@ -247,6 +248,7 @@ If you want to add a new one, start at 265.
 | 200 | Performance | Non-Dynamic Memory | https://www.BrentOzar.com/go/memory | 190 |
 | 200 | Performance | Old Compatibility Level | https://www.BrentOzar.com/go/compatlevel | 62 |
 | 200 | Performance | Query Store Disabled | https://www.BrentOzar.com/go/querystore | 163 |
+| 200 | Performance | Query Store Wait Stats Disabled | https://www.sqlskills.com/blogs/erin/query-store-settings/ | 262 |
 | 200 | Performance | Query Store Effectively Disabled | https://learn.microsoft.com/en-us/sql/relational-databases/performance/best-practice-with-the-query-store#Verify | 263 |
 | 200 | Performance | Undesired Query Store State | https://learn.microsoft.com/en-us/sql/relational-databases/performance/best-practice-with-the-query-store#Verify | 264 |
 | 200 | Performance | Snapshot Backups Occurring | https://www.BrentOzar.com/go/snaps | 178 |

@@ -155,6 +155,7 @@ AS
 			,@MinServerMemory bigint
 			,@MaxServerMemory bigint
 			,@ColumnStoreIndexesInUse bit
+		    ,@QueryStoreInUse bit
 			,@TraceFileIssue bit
 			-- Flag for Windows OS to help with Linux support
 			,@IsWindowsOperatingSystem BIT
@@ -6760,10 +6761,42 @@ IF @ProductVersionMajor >= 10
 
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 262 )
+                            AND EXISTS(SELECT * FROM sys.all_objects WHERE name = 'database_query_store_options')
+							AND  @ProductVersionMajor > 13 /* The relevant column only exists in 2017+ */
+							BEGIN
+
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 262) WITH NOWAIT;
+
+								EXEC dbo.sp_MSforeachdb 'USE [?];
+                                        SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+			                            INSERT INTO #BlitzResults
+			                            (CheckID,
+			                            DatabaseName,
+			                            Priority,
+			                            FindingsGroup,
+			                            Finding,
+			                            URL,
+			                            Details)
+		                              SELECT TOP 1 262,
+		                              N''?'',
+		                              200,
+		                              ''Performance'',
+		                              ''Query Store Wait Stats Disabled'',
+		                              ''https://www.sqlskills.com/blogs/erin/query-store-settings/'',
+		                              (''The new SQL Server 2017 Query Store feature for tracking wait stats has not been enabled on this database. It is very useful for tracking wait stats at a query level.'')
+		                              FROM [?].sys.database_query_store_options
+									  WHERE desired_state <> 0
+									  AND wait_stats_capture_mode = 0
+									  OPTION (RECOMPILE)';
+							END;
+                    
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 263 )
                             AND EXISTS(SELECT * FROM sys.all_objects WHERE name = 'database_query_store_options')
 							BEGIN
-
+              
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 263) WITH NOWAIT;
 
 								EXEC dbo.sp_MSforeachdb 'USE [?];
@@ -7648,6 +7681,20 @@ IF @ProductVersionMajor >= 10
 								IF EXISTS (SELECT * FROM #TemporaryDatabaseResults) SET @ColumnStoreIndexesInUse = 1;
 					        END;
 
+						/* Check if Query Store is in use - for Github issue #3527 */
+				        IF NOT EXISTS ( SELECT  1
+								        FROM    #SkipChecks
+								        WHERE   DatabaseName IS NULL AND CheckID = 74 ) /* Trace flags */
+							AND  @ProductVersionMajor > 12 /* The relevant column only exists in versions that support Query store */
+					        BEGIN
+								TRUNCATE TABLE #TemporaryDatabaseResults;
+						
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 74) WITH NOWAIT;
+								
+								EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; IF EXISTS(SELECT * FROM sys.databases WHERE is_query_store_on = 1) INSERT INTO #TemporaryDatabaseResults (DatabaseName, Finding) VALUES (DB_NAME(), ''Yup'') OPTION (RECOMPILE);';
+								IF EXISTS (SELECT * FROM #TemporaryDatabaseResults) SET @QueryStoreInUse = 1;
+					        END;
+
 						/* Non-Default Database Scoped Config - Github issue #598 */
 				        IF EXISTS ( SELECT * FROM sys.all_objects WHERE [name] = 'database_scoped_configurations' )
 					        BEGIN
@@ -8415,6 +8462,7 @@ IF @ProductVersionMajor >= 10
 										'Informational' AS FindingsGroup ,
 										'Trace Flag On' AS Finding ,
 										CASE WHEN [T].[TraceFlag] = '834'  AND @ColumnStoreIndexesInUse = 1 THEN 'https://support.microsoft.com/en-us/kb/3210239'
+											 WHEN [T].[TraceFlag] IN ('7745', '7752') THEN 'https://www.sqlskills.com/blogs/erin/query-store-trace-flags/'
 											 ELSE'https://www.BrentOzar.com/go/traceflags/' END AS URL ,
 										'Trace flag ' +
 										CASE WHEN [T].[TraceFlag] = '652'  THEN '652 enabled globally, which disables pre-fetching during index scans. This is usually a very bad idea.'
@@ -8433,6 +8481,13 @@ IF @ProductVersionMajor >= 10
 											 WHEN [T].[TraceFlag] = '3226' THEN '3226 enabled globally, which keeps the event log clean by not reporting successful backups.'
 											 WHEN [T].[TraceFlag] = '3505' THEN '3505 enabled globally, which disables Checkpoints. This is usually a very bad idea.'
 											 WHEN [T].[TraceFlag] = '4199' THEN '4199 enabled globally, which enables non-default Query Optimizer fixes, changing query plans from the default behaviors.'
+											 WHEN [T].[TraceFlag] = '7745' AND  @ProductVersionMajor > 12 AND @QueryStoreInUse = 1 THEN '7745 enabled globally, which makes shutdowns/failovers quicker by not waiting for Query Store to flush to disk. This good idea loses you the non-flushed Query Store data.'
+											 WHEN [T].[TraceFlag] = '7745' AND  @ProductVersionMajor > 12 THEN '7745 enabled globally, which is for Query Store. None of your databases have Query Store enabled, so why do you have this turned on?'
+											 WHEN [T].[TraceFlag] = '7745' AND  @ProductVersionMajor <= 12 THEN '7745 enabled globally, which is for Query Store. Query Store does not exist on your SQL Server version, so why do you have this turned on?'
+											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor > 14 THEN '7752 enabled globally, which is for Query Store. However, it has no effect in your SQL Server version. Consider turning it off.'
+											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor > 12 AND @QueryStoreInUse = 1 THEN '7752 enabled globally, which stops queries needing to wait on Query Store loading up after database recovery.'
+											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor > 12 THEN '7752 enabled globally, which is for Query Store. None of your databases have Query Store enabled, so why do you have this turned on?'
+											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor <= 12 THEN '7752 enabled globally, which is for Query Store. Query Store does not exist on your SQL Server version, so why do you have this turned on?'
 											 WHEN [T].[TraceFlag] = '8048' THEN '8048 enabled globally, which tries to reduce CMEMTHREAD waits on servers with a lot of logical processors.'
 											 WHEN [T].[TraceFlag] = '8017' AND (CAST(SERVERPROPERTY('Edition') AS NVARCHAR(1000)) LIKE N'%Express%') THEN '8017 is enabled globally, but this is the default for Express Edition.'
                                              WHEN [T].[TraceFlag] = '8017' AND (CAST(SERVERPROPERTY('Edition') AS NVARCHAR(1000)) NOT LIKE N'%Express%') THEN '8017 is enabled globally, which disables the creation of schedulers for all logical processors.'
