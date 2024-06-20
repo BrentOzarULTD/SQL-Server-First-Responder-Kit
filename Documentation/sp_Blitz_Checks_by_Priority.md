@@ -9,7 +9,6 @@ If you want to change anything about a check - the priority, finding, URL, or ID
 CURRENT HIGH CHECKID: 264.
 If you want to add a new one, start at 265.
 
-
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
 | 0 | Outdated sp_Blitz | sp_Blitz is Over 6 Months Old | https://www.BrentOzar.com/blitz/ | 155 |
