@@ -6760,37 +6760,6 @@ IF @ProductVersionMajor >= 10
 
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 262 )
-                            AND EXISTS(SELECT * FROM sys.all_objects WHERE name = 'database_query_store_options')
-							BEGIN
-
-								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 262) WITH NOWAIT;
-
-								EXEC dbo.sp_MSforeachdb 'USE [?];
-                                        SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-			                            INSERT INTO #BlitzResults
-			                            (CheckID,
-			                            DatabaseName,
-			                            Priority,
-			                            FindingsGroup,
-			                            Finding,
-			                            URL,
-			                            Details)
-		                              SELECT TOP 1 262,
-		                              N''?'',
-		                              200,
-		                              ''Performance'',
-		                              ''Query Store Effectively Disabled'',
-		                              ''https://learn.microsoft.com/en-us/sql/relational-databases/performance/best-practice-with-the-query-store#Verify'',
-		                              (''Query Store is not in a state where it is writing, so it is effectively disabled. Check your Query Store settings.'')
-		                              FROM [?].sys.database_query_store_options
-									  WHERE desired_state <> 0
-									  AND actual_state <> 2
-									  OPTION (RECOMPILE)';
-							END;
-
-						IF NOT EXISTS ( SELECT  1
-										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 263 )
                             AND EXISTS(SELECT * FROM sys.all_objects WHERE name = 'database_query_store_options')
 							BEGIN
@@ -6808,6 +6777,37 @@ IF @ProductVersionMajor >= 10
 			                            URL,
 			                            Details)
 		                              SELECT TOP 1 263,
+		                              N''?'',
+		                              200,
+		                              ''Performance'',
+		                              ''Query Store Effectively Disabled'',
+		                              ''https://learn.microsoft.com/en-us/sql/relational-databases/performance/best-practice-with-the-query-store#Verify'',
+		                              (''Query Store is not in a state where it is writing, so it is effectively disabled. Check your Query Store settings.'')
+		                              FROM [?].sys.database_query_store_options
+									  WHERE desired_state <> 0
+									  AND actual_state <> 2
+									  OPTION (RECOMPILE)';
+							END;
+
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 264 )
+                            AND EXISTS(SELECT * FROM sys.all_objects WHERE name = 'database_query_store_options')
+							BEGIN
+
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 264) WITH NOWAIT;
+
+								EXEC dbo.sp_MSforeachdb 'USE [?];
+                                        SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+			                            INSERT INTO #BlitzResults
+			                            (CheckID,
+			                            DatabaseName,
+			                            Priority,
+			                            FindingsGroup,
+			                            Finding,
+			                            URL,
+			                            Details)
+		                              SELECT TOP 1 264,
 		                              N''?'',
 		                              200,
 		                              ''Performance'',
