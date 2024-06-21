@@ -153,7 +153,7 @@ If you want to add a new one, start at 263.
 | 200 | Informational | Tables in the Master Database | https://www.BrentOzar.com/go/mastuser | 27 |
 | 200 | Informational | Tables in the Model Database | https://www.BrentOzar.com/go/model | 29 |
 | 200 | Informational | Tables in the MSDB Database | https://www.BrentOzar.com/go/msdbuser | 28 |
-| 200 | Informational | TraceFlag On | https://www.BrentOzar.com/go/traceflags/ | 74 |
+| 200 | Informational | Trace Flag On / Recommended Trace Flag Off | https://www.BrentOzar.com/go/traceflags/ | 74 |
 | 200 | Licensing | Enterprise Edition Features In Use | https://www.BrentOzar.com/go/ee | 33 |
 | 200 | Licensing | Non-Production License | https://www.BrentOzar.com/go/licensing | 173 |
 | 200 | Monitoring | Agent Jobs Without Failure Emails | https://www.BrentOzar.com/go/alerts | 94 |
