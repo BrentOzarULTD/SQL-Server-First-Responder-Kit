@@ -6814,7 +6814,7 @@ IF @ProductVersionMajor >= 10
 		                              ''Performance'',
 		                              ''Query Store Unusually Configured'',
 		                              ''https://www.sqlskills.com/blogs/erin/query-store-best-practices/'',
-		                              (''The '' query_capture_mode_desc + '' query capture mode '' +
+		                              (''The '' + query_capture_mode_desc + '' query capture mode '' +
 											CASE query_capture_mode_desc WHEN
 												''ALL'' THEN '' captures more data than you will probably use. If your workload is heavily ad-hoc, then it can also cause Query Store to capture so much that it turns itself off.''
 												''NONE'' THEN '' stops Query Store capturing data for new queries.''
