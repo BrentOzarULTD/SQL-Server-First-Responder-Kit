@@ -6816,10 +6816,10 @@ IF @ProductVersionMajor >= 10
 		                              ''https://www.sqlskills.com/blogs/erin/query-store-best-practices/'',
 		                              (''The '' + query_capture_mode_desc + '' query capture mode '' +
 											CASE query_capture_mode_desc
-												WHEN ''ALL'' THEN '' captures more data than you will probably use. If your workload is heavily ad-hoc, then it can also cause Query Store to capture so much that it turns itself off.''
-												WHEN ''NONE'' THEN '' stops Query Store capturing data for new queries.''
-												WHEN ''CUSTOM'' THEN '' suggests that somebody has gone out of their way to only capture exactly what they want.''
-											ELSE '' is not documented.'' END)
+												WHEN ''ALL'' THEN ''captures more data than you will probably use. If your workload is heavily ad-hoc, then it can also cause Query Store to capture so much that it turns itself off.''
+												WHEN ''NONE'' THEN ''stops Query Store capturing data for new queries.''
+												WHEN ''CUSTOM'' THEN ''suggests that somebody has gone out of their way to only capture exactly what they want.''
+											ELSE ''is not documented.'' END)
 		                              FROM [?].sys.database_query_store_options
 									  WHERE desired_state <> 0 /* No point in checking this if Query Store is off. */
 									  AND query_capture_mode_desc <> ''AUTO''
