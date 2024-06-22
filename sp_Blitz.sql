@@ -6790,7 +6790,42 @@ IF @ProductVersionMajor >= 10
 									  AND wait_stats_capture_mode = 0 
 									  OPTION (RECOMPILE)';
 							END;
-						
+
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 265 )
+  			                AND EXISTS(SELECT * FROM sys.all_objects WHERE name = 'database_query_store_options')
+							BEGIN
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 265) WITH NOWAIT;
+
+								EXEC dbo.sp_MSforeachdb 'USE [?];
+                                        SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+			                            INSERT INTO #BlitzResults
+			                            (CheckID,
+			                            DatabaseName,
+			                            Priority,
+			                            FindingsGroup,
+			                            Finding,
+			                            URL,
+			                            Details)
+		                              SELECT TOP 1 265,
+		                              N''?'',
+		                              200,
+		                              ''Performance'',
+		                              ''Query Store Unusually Configured'',
+		                              ''https://www.sqlskills.com/blogs/erin/query-store-best-practices/'',
+		                              (''The '' query_capture_mode_desc + '' query capture mode '' +
+											CASE query_capture_mode_desc WHEN
+												''ALL'' THEN '' captures more data than you will probably use. If your workload is heavily ad-hoc, then it can also cause Query Store to capture so much that it turns itself off.''
+												''NONE'' THEN '' stops Query Store capturing data for new queries.''
+												''CUSTOM'' THEN '' suggests that somebody has gone out of their way to only capture exactly what they want.''
+											ELSE '' is not documented.'')
+		                              FROM [?].sys.database_query_store_options
+									  WHERE desired_state <> 0 /* No point in checking this if Query Store is off. */
+									  AND query_capture_mode_desc <> ''AUTO''
+									  OPTION (RECOMPILE)';
+							END;
+
 						IF @ProductVersionMajor = 13 AND @ProductVersionMinor < 2149 --2016 CU1 has the fix in it
 							AND NOT EXISTS ( SELECT  1
 											 FROM    #SkipChecks
