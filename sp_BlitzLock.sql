@@ -18,7 +18,8 @@ ALTER PROCEDURE
     @EventSessionName sysname = N'system_health',
     @TargetSessionType sysname = NULL,
     @VictimsOnly bit = 0,
-    @Debug bit = 0,
+	@DeadlockType nvarchar(20) = NULL,
+	@Debug bit = 0,
     @Help bit = 0,
     @Version varchar(30) = NULL OUTPUT,
     @VersionDate datetime = NULL OUTPUT,
@@ -198,7 +199,7 @@ BEGIN
         @StartDateOriginal datetime = @StartDate,
         @EndDateOriginal datetime = @EndDate,
         @StartDateUTC datetime,
-        @EndDateUTC datetime;
+        @EndDateUTC datetime;;
 
     /*Temporary objects used in the procedure*/
     DECLARE
@@ -708,50 +709,63 @@ BEGIN
         END CATCH;
     END;
 
+	IF @DeadlockType IS NOT NULL
+	BEGIN
+	    SELECT
+		    @DeadlockType =
+			    CASE
+				    WHEN LOWER(@DeadlockType) LIKE 'regular%'
+					THEN N'Regular Deadlock'
+					WHEN LOWER(@DeadlockType) LIKE N'parallel%'
+					THEN N'Parallel Deadlock'
+				    ELSE NULL
+				END;
+	END;
+
     /*If @TargetSessionType, we need to figure out if it's ring buffer or event file*/
     /*Azure has differently named views, so  we need to separate. Thanks, Azure.*/
 
-        IF
-        (
-                @Azure = 0
-            AND @TargetSessionType IS NULL
-        )
-        BEGIN
-        RAISERROR('@TargetSessionType is NULL, assigning for non-Azure instance', 0, 1) WITH NOWAIT;
+    IF
+    (
+            @Azure = 0
+        AND @TargetSessionType IS NULL
+    )
+    BEGIN
+    RAISERROR('@TargetSessionType is NULL, assigning for non-Azure instance', 0, 1) WITH NOWAIT;
 
-            SELECT TOP (1)
-                @TargetSessionType = t.target_name
-            FROM sys.dm_xe_sessions AS s
-            JOIN sys.dm_xe_session_targets AS t
-              ON s.address = t.event_session_address
-            WHERE s.name = @EventSessionName
-            AND   t.target_name IN (N'event_file', N'ring_buffer')
-            ORDER BY t.target_name
-            OPTION(RECOMPILE);
+        SELECT TOP (1)
+            @TargetSessionType = t.target_name
+        FROM sys.dm_xe_sessions AS s
+        JOIN sys.dm_xe_session_targets AS t
+          ON s.address = t.event_session_address
+        WHERE s.name = @EventSessionName
+        AND   t.target_name IN (N'event_file', N'ring_buffer')
+        ORDER BY t.target_name
+        OPTION(RECOMPILE);
 
-        RAISERROR('@TargetSessionType assigned as %s for non-Azure', 0, 1, @TargetSessionType) WITH NOWAIT;
-        END;
+    RAISERROR('@TargetSessionType assigned as %s for non-Azure', 0, 1, @TargetSessionType) WITH NOWAIT;
+    END;
 
-        IF
-        (
-                @Azure = 1
-            AND @TargetSessionType IS NULL
-        )
-        BEGIN
-        RAISERROR('@TargetSessionType is NULL, assigning for Azure instance', 0, 1) WITH NOWAIT;
+    IF
+    (
+            @Azure = 1
+        AND @TargetSessionType IS NULL
+    )
+    BEGIN
+    RAISERROR('@TargetSessionType is NULL, assigning for Azure instance', 0, 1) WITH NOWAIT;
 
-            SELECT TOP (1)
-                @TargetSessionType = t.target_name
-            FROM sys.dm_xe_database_sessions AS s
-            JOIN sys.dm_xe_database_session_targets AS t
-              ON s.address = t.event_session_address
-            WHERE s.name = @EventSessionName
-            AND   t.target_name IN (N'event_file', N'ring_buffer')
-            ORDER BY t.target_name
-            OPTION(RECOMPILE);
+        SELECT TOP (1)
+            @TargetSessionType = t.target_name
+        FROM sys.dm_xe_database_sessions AS s
+        JOIN sys.dm_xe_database_session_targets AS t
+          ON s.address = t.event_session_address
+        WHERE s.name = @EventSessionName
+        AND   t.target_name IN (N'event_file', N'ring_buffer')
+        ORDER BY t.target_name
+        OPTION(RECOMPILE);
 
-        RAISERROR('@TargetSessionType assigned as %s for Azure', 0, 1, @TargetSessionType) WITH NOWAIT;
-        END;
+    RAISERROR('@TargetSessionType assigned as %s for Azure', 0, 1, @TargetSessionType) WITH NOWAIT;
+    END;
 
 
     /*The system health stuff gets handled different from user extended events.*/
@@ -3449,7 +3463,8 @@ BEGIN
             AND (d.client_app = @AppName OR @AppName IS NULL)
             AND (d.host_name = @HostName OR @HostName IS NULL)
             AND (d.login_name = @LoginName OR @LoginName IS NULL)
-            OPTION (RECOMPILE, LOOP JOIN, HASH JOIN);
+			AND (d.deadlock_type = @DeadlockType OR @DeadlockType IS NULL)
+			OPTION (RECOMPILE, LOOP JOIN, HASH JOIN);
 
             UPDATE d
                 SET d.inputbuf =
@@ -4063,6 +4078,8 @@ BEGIN
                 @TargetSessionType,
             VictimsOnly =
                 @VictimsOnly,
+			DeadlockType =
+			    @DeadlockType,
             Debug =
                 @Debug,
             Help =

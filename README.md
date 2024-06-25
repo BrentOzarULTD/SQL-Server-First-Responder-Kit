@@ -25,7 +25,6 @@ Navigation
    - [sp_BlitzAnalysis: Query sp_BlitzFirst output tables](#sp_blitzanalysis-query-sp_BlitzFirst-output-tables) 
  - Backups and Restores:
    - [sp_BlitzBackups: How Much Data Could You Lose](#sp_blitzbackups-how-much-data-could-you-lose)  
-   - [sp_AllNightLog: Back Up Faster to Lose Less Data](#sp_allnightlog-back-up-faster-to-lose-less-data)  
    - [sp_DatabaseRestore: Easier Multi-File Restores](#sp_databaserestore-easier-multi-file-restores)  
  - [Parameters Common to Many of the Stored Procedures](#parameters-common-to-many-of-the-stored-procedures)
  - [License MIT](#license)
@@ -42,7 +41,7 @@ To install, [download the latest release ZIP](https://github.com/BrentOzarULTD/S
 The First Responder Kit runs on:
 
 * SQL Server on Windows - all versions that Microsoft supports. For end of support dates, check out the "Support Ends" column at https://sqlserverupdates.com.
-* SQL Server on Linux - yes, fully supported except sp_AllNightLog and sp_DatabaseRestore, which require xp_cmdshell, which Microsoft doesn't provide on Linux.
+* SQL Server on Linux - yes, fully supported except sp_DatabaseRestore, which require xp_cmdshell, which Microsoft doesn't provide on Linux.
 * Amazon RDS SQL Server - fully supported.
 * Azure SQL DB - not supported. Some of the procedures work, but some don't, and Microsoft has a tendency to change DMVs in Azure without warning, so we don't put any effort into supporting it. If it works, great! If not, any changes to make it work would be on you. [See the contributing.md file](CONTRIBUTING.md) for how to do that.
 
@@ -275,7 +274,6 @@ sp_BlitzIndex focuses on mainstream index types. Other index types have varying 
 
 * Fully supported: rowstore indexes, columnstore indexes, temporal tables.
 * Columnstore indexes: fully supported. Key columns are shown as includes rather than keys since they're not in a specific order.
-* In-Memory OLTP (Hekaton): unsupported. These objects show up in the results, but for more info, you'll want to use sp_BlitzInMemoryOLTP instead.
 * Graph tables: unsupported. These objects show up in the results, but we don't do anything special with 'em, like call out that they're graph tables.
 * Spatial indexes: unsupported. We call out that they're spatial, but we don't do any special handling for them.
 * XML indexes: unsupported. These objects show up in the results, but we don't include the index's columns or sizes.
