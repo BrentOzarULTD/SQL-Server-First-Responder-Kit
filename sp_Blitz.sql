@@ -6787,7 +6787,69 @@ IF @ProductVersionMajor >= 10
 		                              (''The new SQL Server 2017 Query Store feature for tracking wait stats has not been enabled on this database. It is very useful for tracking wait stats at a query level.'')
 		                              FROM [?].sys.database_query_store_options
 									  WHERE desired_state <> 0
-									  AND wait_stats_capture_mode = 0 
+									  AND wait_stats_capture_mode = 0
+									  OPTION (RECOMPILE)';
+							END;
+                    
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 263 )
+                            AND EXISTS(SELECT * FROM sys.all_objects WHERE name = 'database_query_store_options')
+							BEGIN
+              
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 263) WITH NOWAIT;
+
+								EXEC dbo.sp_MSforeachdb 'USE [?];
+                                        SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+			                            INSERT INTO #BlitzResults
+			                            (CheckID,
+			                            DatabaseName,
+			                            Priority,
+			                            FindingsGroup,
+			                            Finding,
+			                            URL,
+			                            Details)
+		                              SELECT TOP 1 263,
+		                              N''?'',
+		                              200,
+		                              ''Performance'',
+		                              ''Query Store Effectively Disabled'',
+		                              ''https://learn.microsoft.com/en-us/sql/relational-databases/performance/best-practice-with-the-query-store#Verify'',
+		                              (''Query Store is not in a state where it is writing, so it is effectively disabled. Check your Query Store settings.'')
+		                              FROM [?].sys.database_query_store_options
+									  WHERE desired_state <> 0
+									  AND actual_state <> 2
+									  OPTION (RECOMPILE)';
+							END;
+
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 264 )
+                            AND EXISTS(SELECT * FROM sys.all_objects WHERE name = 'database_query_store_options')
+							BEGIN
+
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 264) WITH NOWAIT;
+
+								EXEC dbo.sp_MSforeachdb 'USE [?];
+                                        SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+			                            INSERT INTO #BlitzResults
+			                            (CheckID,
+			                            DatabaseName,
+			                            Priority,
+			                            FindingsGroup,
+			                            Finding,
+			                            URL,
+			                            Details)
+		                              SELECT TOP 1 264,
+		                              N''?'',
+		                              200,
+		                              ''Performance'',
+		                              ''Undesired Query Store State'',
+		                              ''https://learn.microsoft.com/en-us/sql/relational-databases/performance/best-practice-with-the-query-store#Verify'',
+		                              (''You have asked for Query Store to be in '' + desired_state_desc + '' mode, but it is in '' + actual_state_desc + '' mode.'')
+		                              FROM [?].sys.database_query_store_options
+									  WHERE desired_state <> 0
+									  AND desired_state <> actual_state 
 									  OPTION (RECOMPILE)';
 							END;
 						
@@ -8419,7 +8481,7 @@ IF @ProductVersionMajor >= 10
 											 WHEN [T].[TraceFlag] = '3226' THEN '3226 enabled globally, which keeps the event log clean by not reporting successful backups.'
 											 WHEN [T].[TraceFlag] = '3505' THEN '3505 enabled globally, which disables Checkpoints. This is usually a very bad idea.'
 											 WHEN [T].[TraceFlag] = '4199' THEN '4199 enabled globally, which enables non-default Query Optimizer fixes, changing query plans from the default behaviors.'
-											 WHEN [T].[TraceFlag] = '7745' AND  @ProductVersionMajor > 12 AND @QueryStoreInUse = 1 THEN '7745 enabled globally, which makes shutdowns/failovers quicker by not waiting for Query Store to flush to disk. This good idea loses you the non-flused Query Store data.'
+											 WHEN [T].[TraceFlag] = '7745' AND  @ProductVersionMajor > 12 AND @QueryStoreInUse = 1 THEN '7745 enabled globally, which makes shutdowns/failovers quicker by not waiting for Query Store to flush to disk. This good idea loses you the non-flushed Query Store data.'
 											 WHEN [T].[TraceFlag] = '7745' AND  @ProductVersionMajor > 12 THEN '7745 enabled globally, which is for Query Store. None of your databases have Query Store enabled, so why do you have this turned on?'
 											 WHEN [T].[TraceFlag] = '7745' AND  @ProductVersionMajor <= 12 THEN '7745 enabled globally, which is for Query Store. Query Store does not exist on your SQL Server version, so why do you have this turned on?'
 											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor > 14 THEN '7752 enabled globally, which is for Query Store. However, it has no effect in your SQL Server version. Consider turning it off.'
