@@ -57,6 +57,7 @@ VALUES
     (16, 4003, 'CU1', 'https://support.microsoft.com/en-us/help/5022375', '2023-02-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 1'),
     (16, 1050, 'RTM GDR', 'https://support.microsoft.com/kb/5021522', '2023-02-14', '2028-01-11', '2033-01-11', 'SQL Server 2022 GDR', 'RTM'),
     (16, 1000, 'RTM', '', '2022-11-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'RTM'),
+    (15, 4375, 'CU27', 'https://support.microsoft.com/kb/5037331', '2024-06-14', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 27'),
     (15, 4365, 'CU26', 'https://support.microsoft.com/kb/5035123', '2024-04-11', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 26'),
     (15, 4355, 'CU25', 'https://support.microsoft.com/kb/5033688', '2024-02-15', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 25'),
     (15, 4345, 'CU24', 'https://support.microsoft.com/kb/5031908', '2023-12-14', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 24'),

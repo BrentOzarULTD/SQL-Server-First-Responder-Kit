@@ -38,7 +38,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.20', @VersionDate = '20240522';
+	SELECT @Version = '8.21', @VersionDate = '20240701';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -155,6 +155,7 @@ AS
 			,@MinServerMemory bigint
 			,@MaxServerMemory bigint
 			,@ColumnStoreIndexesInUse bit
+		    ,@QueryStoreInUse bit
 			,@TraceFileIssue bit
 			-- Flag for Windows OS to help with Linux support
 			,@IsWindowsOperatingSystem BIT
@@ -6758,6 +6759,99 @@ IF @ProductVersionMajor >= 10
 									  AND N''?'' NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'') OPTION (RECOMPILE)';
 							END;
 
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 262 )
+                            AND EXISTS(SELECT * FROM sys.all_objects WHERE name = 'database_query_store_options')
+							AND  @ProductVersionMajor > 13 /* The relevant column only exists in 2017+ */
+							BEGIN
+
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 262) WITH NOWAIT;
+
+								EXEC dbo.sp_MSforeachdb 'USE [?];
+                                        SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+			                            INSERT INTO #BlitzResults
+			                            (CheckID,
+			                            DatabaseName,
+			                            Priority,
+			                            FindingsGroup,
+			                            Finding,
+			                            URL,
+			                            Details)
+		                              SELECT TOP 1 262,
+		                              N''?'',
+		                              200,
+		                              ''Performance'',
+		                              ''Query Store Wait Stats Disabled'',
+		                              ''https://www.sqlskills.com/blogs/erin/query-store-settings/'',
+		                              (''The new SQL Server 2017 Query Store feature for tracking wait stats has not been enabled on this database. It is very useful for tracking wait stats at a query level.'')
+		                              FROM [?].sys.database_query_store_options
+									  WHERE desired_state <> 0
+									  AND wait_stats_capture_mode = 0
+									  OPTION (RECOMPILE)';
+							END;
+                    
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 263 )
+                            AND EXISTS(SELECT * FROM sys.all_objects WHERE name = 'database_query_store_options')
+							BEGIN
+              
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 263) WITH NOWAIT;
+
+								EXEC dbo.sp_MSforeachdb 'USE [?];
+                                        SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+			                            INSERT INTO #BlitzResults
+			                            (CheckID,
+			                            DatabaseName,
+			                            Priority,
+			                            FindingsGroup,
+			                            Finding,
+			                            URL,
+			                            Details)
+		                              SELECT TOP 1 263,
+		                              N''?'',
+		                              200,
+		                              ''Performance'',
+		                              ''Query Store Effectively Disabled'',
+		                              ''https://learn.microsoft.com/en-us/sql/relational-databases/performance/best-practice-with-the-query-store#Verify'',
+		                              (''Query Store is not in a state where it is writing, so it is effectively disabled. Check your Query Store settings.'')
+		                              FROM [?].sys.database_query_store_options
+									  WHERE desired_state <> 0
+									  AND actual_state <> 2
+									  OPTION (RECOMPILE)';
+							END;
+
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 264 )
+                            AND EXISTS(SELECT * FROM sys.all_objects WHERE name = 'database_query_store_options')
+							BEGIN
+
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 264) WITH NOWAIT;
+
+								EXEC dbo.sp_MSforeachdb 'USE [?];
+                                        SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+			                            INSERT INTO #BlitzResults
+			                            (CheckID,
+			                            DatabaseName,
+			                            Priority,
+			                            FindingsGroup,
+			                            Finding,
+			                            URL,
+			                            Details)
+		                              SELECT TOP 1 264,
+		                              N''?'',
+		                              200,
+		                              ''Performance'',
+		                              ''Undesired Query Store State'',
+		                              ''https://learn.microsoft.com/en-us/sql/relational-databases/performance/best-practice-with-the-query-store#Verify'',
+		                              (''You have asked for Query Store to be in '' + desired_state_desc + '' mode, but it is in '' + actual_state_desc + '' mode.'')
+		                              FROM [?].sys.database_query_store_options
+									  WHERE desired_state <> 0
+									  AND desired_state <> actual_state 
+									  OPTION (RECOMPILE)';
+							END;
 						
 						IF @ProductVersionMajor = 13 AND @ProductVersionMinor < 2149 --2016 CU1 has the fix in it
 							AND NOT EXISTS ( SELECT  1
@@ -7587,6 +7681,20 @@ IF @ProductVersionMajor >= 10
 								IF EXISTS (SELECT * FROM #TemporaryDatabaseResults) SET @ColumnStoreIndexesInUse = 1;
 					        END;
 
+						/* Check if Query Store is in use - for Github issue #3527 */
+				        IF NOT EXISTS ( SELECT  1
+								        FROM    #SkipChecks
+								        WHERE   DatabaseName IS NULL AND CheckID = 74 ) /* Trace flags */
+							AND  @ProductVersionMajor > 12 /* The relevant column only exists in versions that support Query store */
+					        BEGIN
+								TRUNCATE TABLE #TemporaryDatabaseResults;
+						
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 74) WITH NOWAIT;
+								
+								EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; IF EXISTS(SELECT * FROM sys.databases WHERE is_query_store_on = 1) INSERT INTO #TemporaryDatabaseResults (DatabaseName, Finding) VALUES (DB_NAME(), ''Yup'') OPTION (RECOMPILE);';
+								IF EXISTS (SELECT * FROM #TemporaryDatabaseResults) SET @QueryStoreInUse = 1;
+					        END;
+
 						/* Non-Default Database Scoped Config - Github issue #598 */
 				        IF EXISTS ( SELECT * FROM sys.all_objects WHERE [name] = 'database_scoped_configurations' )
 					        BEGIN
@@ -8354,6 +8462,7 @@ IF @ProductVersionMajor >= 10
 										'Informational' AS FindingsGroup ,
 										'Trace Flag On' AS Finding ,
 										CASE WHEN [T].[TraceFlag] = '834'  AND @ColumnStoreIndexesInUse = 1 THEN 'https://support.microsoft.com/en-us/kb/3210239'
+											 WHEN [T].[TraceFlag] IN ('7745', '7752') THEN 'https://www.sqlskills.com/blogs/erin/query-store-trace-flags/'
 											 ELSE'https://www.BrentOzar.com/go/traceflags/' END AS URL ,
 										'Trace flag ' +
 										CASE WHEN [T].[TraceFlag] = '652'  THEN '652 enabled globally, which disables pre-fetching during index scans. This is usually a very bad idea.'
@@ -8372,6 +8481,13 @@ IF @ProductVersionMajor >= 10
 											 WHEN [T].[TraceFlag] = '3226' THEN '3226 enabled globally, which keeps the event log clean by not reporting successful backups.'
 											 WHEN [T].[TraceFlag] = '3505' THEN '3505 enabled globally, which disables Checkpoints. This is usually a very bad idea.'
 											 WHEN [T].[TraceFlag] = '4199' THEN '4199 enabled globally, which enables non-default Query Optimizer fixes, changing query plans from the default behaviors.'
+											 WHEN [T].[TraceFlag] = '7745' AND  @ProductVersionMajor > 12 AND @QueryStoreInUse = 1 THEN '7745 enabled globally, which makes shutdowns/failovers quicker by not waiting for Query Store to flush to disk. This good idea loses you the non-flushed Query Store data.'
+											 WHEN [T].[TraceFlag] = '7745' AND  @ProductVersionMajor > 12 THEN '7745 enabled globally, which is for Query Store. None of your databases have Query Store enabled, so why do you have this turned on?'
+											 WHEN [T].[TraceFlag] = '7745' AND  @ProductVersionMajor <= 12 THEN '7745 enabled globally, which is for Query Store. Query Store does not exist on your SQL Server version, so why do you have this turned on?'
+											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor > 14 THEN '7752 enabled globally, which is for Query Store. However, it has no effect in your SQL Server version. Consider turning it off.'
+											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor > 12 AND @QueryStoreInUse = 1 THEN '7752 enabled globally, which stops queries needing to wait on Query Store loading up after database recovery.'
+											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor > 12 THEN '7752 enabled globally, which is for Query Store. None of your databases have Query Store enabled, so why do you have this turned on?'
+											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor <= 12 THEN '7752 enabled globally, which is for Query Store. Query Store does not exist on your SQL Server version, so why do you have this turned on?'
 											 WHEN [T].[TraceFlag] = '8048' THEN '8048 enabled globally, which tries to reduce CMEMTHREAD waits on servers with a lot of logical processors.'
 											 WHEN [T].[TraceFlag] = '8017' AND (CAST(SERVERPROPERTY('Edition') AS NVARCHAR(1000)) LIKE N'%Express%') THEN '8017 is enabled globally, but this is the default for Express Edition.'
                                              WHEN [T].[TraceFlag] = '8017' AND (CAST(SERVERPROPERTY('Edition') AS NVARCHAR(1000)) NOT LIKE N'%Express%') THEN '8017 is enabled globally, which disables the creation of schedulers for all logical processors.'
@@ -10321,7 +10437,7 @@ AS
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
-SELECT @Version = '8.20', @VersionDate = '20240522';
+SELECT @Version = '8.21', @VersionDate = '20240701';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -11199,7 +11315,7 @@ AS
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.20', @VersionDate = '20240522';
+	SELECT @Version = '8.21', @VersionDate = '20240701';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -12981,7 +13097,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.20', @VersionDate = '20240522';
+SELECT @Version = '8.21', @VersionDate = '20240701';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -20355,7 +20471,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.20', @VersionDate = '20240522';
+SELECT @Version = '8.21', @VersionDate = '20240701';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -26830,6 +26946,7 @@ ALTER PROCEDURE
     @EventSessionName sysname = N'system_health',
     @TargetSessionType sysname = NULL,
     @VictimsOnly bit = 0,
+    @DeadlockType nvarchar(20) = NULL,
     @Debug bit = 0,
     @Help bit = 0,
     @Version varchar(30) = NULL OUTPUT,
@@ -26848,7 +26965,7 @@ BEGIN
     SET XACT_ABORT OFF;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-    SELECT @Version = '8.20', @VersionDate = '20240522';
+    SELECT @Version = '8.21', @VersionDate = '20240701';
 
     IF @VersionCheckMode = 1
     BEGIN
@@ -27010,7 +27127,7 @@ BEGIN
         @StartDateOriginal datetime = @StartDate,
         @EndDateOriginal datetime = @EndDate,
         @StartDateUTC datetime,
-        @EndDateUTC datetime;
+        @EndDateUTC datetime;;
 
     /*Temporary objects used in the procedure*/
     DECLARE
@@ -27520,50 +27637,63 @@ BEGIN
         END CATCH;
     END;
 
+    IF @DeadlockType IS NOT NULL
+    BEGIN
+        SELECT
+            @DeadlockType =
+                CASE
+                    WHEN LOWER(@DeadlockType) LIKE 'regular%'
+                    THEN N'Regular Deadlock'
+                    WHEN LOWER(@DeadlockType) LIKE N'parallel%'
+                    THEN N'Parallel Deadlock'
+                    ELSE NULL
+                END;
+    END;
+
     /*If @TargetSessionType, we need to figure out if it's ring buffer or event file*/
     /*Azure has differently named views, so  we need to separate. Thanks, Azure.*/
 
-        IF
-        (
-                @Azure = 0
-            AND @TargetSessionType IS NULL
-        )
-        BEGIN
-        RAISERROR('@TargetSessionType is NULL, assigning for non-Azure instance', 0, 1) WITH NOWAIT;
+    IF
+    (
+            @Azure = 0
+        AND @TargetSessionType IS NULL
+    )
+    BEGIN
+    RAISERROR('@TargetSessionType is NULL, assigning for non-Azure instance', 0, 1) WITH NOWAIT;
 
-            SELECT TOP (1)
-                @TargetSessionType = t.target_name
-            FROM sys.dm_xe_sessions AS s
-            JOIN sys.dm_xe_session_targets AS t
-              ON s.address = t.event_session_address
-            WHERE s.name = @EventSessionName
-            AND   t.target_name IN (N'event_file', N'ring_buffer')
-            ORDER BY t.target_name
-            OPTION(RECOMPILE);
+        SELECT TOP (1)
+            @TargetSessionType = t.target_name
+        FROM sys.dm_xe_sessions AS s
+        JOIN sys.dm_xe_session_targets AS t
+          ON s.address = t.event_session_address
+        WHERE s.name = @EventSessionName
+        AND   t.target_name IN (N'event_file', N'ring_buffer')
+        ORDER BY t.target_name
+        OPTION(RECOMPILE);
 
-        RAISERROR('@TargetSessionType assigned as %s for non-Azure', 0, 1, @TargetSessionType) WITH NOWAIT;
-        END;
+    RAISERROR('@TargetSessionType assigned as %s for non-Azure', 0, 1, @TargetSessionType) WITH NOWAIT;
+    END;
 
-        IF
-        (
-                @Azure = 1
-            AND @TargetSessionType IS NULL
-        )
-        BEGIN
-        RAISERROR('@TargetSessionType is NULL, assigning for Azure instance', 0, 1) WITH NOWAIT;
+    IF
+    (
+            @Azure = 1
+        AND @TargetSessionType IS NULL
+    )
+    BEGIN
+    RAISERROR('@TargetSessionType is NULL, assigning for Azure instance', 0, 1) WITH NOWAIT;
 
-            SELECT TOP (1)
-                @TargetSessionType = t.target_name
-            FROM sys.dm_xe_database_sessions AS s
-            JOIN sys.dm_xe_database_session_targets AS t
-              ON s.address = t.event_session_address
-            WHERE s.name = @EventSessionName
-            AND   t.target_name IN (N'event_file', N'ring_buffer')
-            ORDER BY t.target_name
-            OPTION(RECOMPILE);
+        SELECT TOP (1)
+            @TargetSessionType = t.target_name
+        FROM sys.dm_xe_database_sessions AS s
+        JOIN sys.dm_xe_database_session_targets AS t
+          ON s.address = t.event_session_address
+        WHERE s.name = @EventSessionName
+        AND   t.target_name IN (N'event_file', N'ring_buffer')
+        ORDER BY t.target_name
+        OPTION(RECOMPILE);
 
-        RAISERROR('@TargetSessionType assigned as %s for Azure', 0, 1, @TargetSessionType) WITH NOWAIT;
-        END;
+    RAISERROR('@TargetSessionType assigned as %s for Azure', 0, 1, @TargetSessionType) WITH NOWAIT;
+    END;
 
 
     /*The system health stuff gets handled different from user extended events.*/
@@ -30261,6 +30391,7 @@ BEGIN
             AND (d.client_app = @AppName OR @AppName IS NULL)
             AND (d.host_name = @HostName OR @HostName IS NULL)
             AND (d.login_name = @LoginName OR @LoginName IS NULL)
+            AND (d.deadlock_type = @DeadlockType OR @DeadlockType IS NULL)
             OPTION (RECOMPILE, LOOP JOIN, HASH JOIN);
 
             UPDATE d
@@ -30648,7 +30779,11 @@ BEGIN
                     deqs.max_reserved_threads,
                     deqs.min_used_threads,
                     deqs.max_used_threads,
-                    deqs.total_rows
+                    deqs.total_rows,
+                    max_worker_time_ms = 
+                        deqs.max_worker_time / 1000.,
+                    max_elapsed_time_ms = 
+                        deqs.max_elapsed_time / 1000.
                 INTO #dm_exec_query_stats
                 FROM sys.dm_exec_query_stats AS deqs
                 WHERE EXISTS
@@ -30680,8 +30815,10 @@ BEGIN
                     ap.executions_per_second,
                     ap.total_worker_time_ms,
                     ap.avg_worker_time_ms,
+                    ap.max_worker_time_ms,
                     ap.total_elapsed_time_ms,
                     ap.avg_elapsed_time_ms,
+                    ap.max_elapsed_time_ms,
                     ap.total_logical_reads_mb,
                     ap.total_physical_reads_mb,
                     ap.total_logical_writes_mb,
@@ -30724,7 +30861,9 @@ BEGIN
                         c.min_used_threads,
                         c.max_used_threads,
                         c.total_rows,
-                        c.query_plan
+                        c.query_plan,
+                        c.max_worker_time_ms,
+                        c.max_elapsed_time_ms
                     FROM #available_plans AS ap
                     OUTER APPLY
                     (
@@ -30875,6 +31014,8 @@ BEGIN
                 @TargetSessionType,
             VictimsOnly =
                 @VictimsOnly,
+            DeadlockType =
+                @DeadlockType,
             Debug =
                 @Debug,
             Help =
@@ -30979,7 +31120,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.20', @VersionDate = '20240522';
+	SELECT @Version = '8.21', @VersionDate = '20240701';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -32346,28 +32487,28 @@ IF OBJECT_ID('dbo.sp_DatabaseRestore') IS NULL
 	EXEC ('CREATE PROCEDURE dbo.sp_DatabaseRestore AS RETURN 0;');
 GO
 ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
-    @Database NVARCHAR(128) = NULL, 
-    @RestoreDatabaseName NVARCHAR(128) = NULL, 
-    @BackupPathFull NVARCHAR(260) = NULL, 
-    @BackupPathDiff NVARCHAR(260) = NULL, 
+    @Database NVARCHAR(128) = NULL,
+    @RestoreDatabaseName NVARCHAR(128) = NULL,
+    @BackupPathFull NVARCHAR(260) = NULL,
+    @BackupPathDiff NVARCHAR(260) = NULL,
     @BackupPathLog NVARCHAR(260) = NULL,
-    @MoveFiles BIT = 1, 
-    @MoveDataDrive NVARCHAR(260) = NULL, 
-    @MoveLogDrive NVARCHAR(260) = NULL, 
+    @MoveFiles BIT = 1,
+    @MoveDataDrive NVARCHAR(260) = NULL,
+    @MoveLogDrive NVARCHAR(260) = NULL,
     @MoveFilestreamDrive NVARCHAR(260) = NULL,
-    @MoveFullTextCatalogDrive NVARCHAR(260) = NULL, 
+    @MoveFullTextCatalogDrive NVARCHAR(260) = NULL,
     @BufferCount INT = NULL,
     @MaxTransferSize INT = NULL,
     @BlockSize INT = NULL,
-    @TestRestore BIT = 0, 
-    @RunCheckDB BIT = 0, 
+    @TestRestore BIT = 0,
+    @RunCheckDB BIT = 0,
     @RestoreDiff BIT = 0,
-    @ContinueLogs BIT = 0, 
+    @ContinueLogs BIT = 0,
     @StandbyMode BIT = 0,
     @StandbyUndoPath NVARCHAR(MAX) = NULL,
-    @RunRecovery BIT = 0, 
+    @RunRecovery BIT = 0,
     @ForceSimpleRecovery BIT = 0,
-    @ExistingDBAction tinyint = 0,
+    @ExistingDBAction TINYINT = 0,
     @StopAt NVARCHAR(14) = NULL,
     @OnlyLogsAfter NVARCHAR(14) = NULL,
     @SimpleFolderEnumeration BIT = 0,
@@ -32378,63 +32519,64 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @KeepCdc BIT = 0,
     @Execute CHAR(1) = Y,
     @FileExtensionDiff NVARCHAR(128) = NULL,
-    @Debug INT = 0, 
+    @Debug INT = 0,
     @Help BIT = 0,
     @Version     VARCHAR(30) = NULL OUTPUT,
     @VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0,
     @FileNamePrefix NVARCHAR(260) = NULL,
-	@RunStoredProcAfterRestore NVARCHAR(260) = NULL
+    @RunStoredProcAfterRestore NVARCHAR(260) = NULL,
+    @EnableBroker BIT = 0
 AS
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
 /*Versioning details*/
 
-SELECT @Version = '8.20', @VersionDate = '20240522';
+SELECT @Version = '8.21', @VersionDate = '20240701';
 
 IF(@VersionCheckMode = 1)
 BEGIN
 	RETURN;
 END;
 
- 
+
 IF @Help = 1
 BEGIN
 	PRINT '
 	/*
 		sp_DatabaseRestore from http://FirstResponderKit.org
-			
+
 		This script will restore a database from a given file path.
-		
+
 		To learn more, visit http://FirstResponderKit.org where you can download new
 		versions for free, watch training videos on how it works, get more info on
 		the findings, contribute your own code, and more.
-		
+
 		Known limitations of this version:
 			- Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
 			- Tastes awful with marmite.
-		
+
 		Unknown limitations of this version:
 			- None.  (If we knew them, they would be known. Duh.)
-		
+
 		    Changes - for the full list of improvements and fixes in this version, see:
 		    https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
-		
+
 		MIT License
-			
+
 		Copyright (c) Brent Ozar Unlimited
-		
+
 		Permission is hereby granted, free of charge, to any person obtaining a copy
 		of this software and associated documentation files (the "Software"), to deal
 		in the Software without restriction, including without limitation the rights
 		to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 		copies of the Software, and to permit persons to whom the Software is
 		furnished to do so, subject to the following conditions:
-		
+
 		The above copyright notice and this permission notice shall be included in all
 		copies or substantial portions of the Software.
-		
+
 		THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 		IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 		FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -32442,119 +32584,119 @@ BEGIN
 		LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 		OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 		SOFTWARE.
-		
+
 	*/
 	';
-		
+
 	PRINT '
 	/*
-	EXEC dbo.sp_DatabaseRestore 
-		@Database = ''LogShipMe'', 
-		@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'', 
-		@BackupPathLog = ''D:\Backup\SQL2016PROD1A\LogShipMe\LOG\'', 
-		@ContinueLogs = 0, 
+	EXEC dbo.sp_DatabaseRestore
+		@Database = ''LogShipMe'',
+		@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'',
+		@BackupPathLog = ''D:\Backup\SQL2016PROD1A\LogShipMe\LOG\'',
+		@ContinueLogs = 0,
 		@RunRecovery = 0;
-		
-	EXEC dbo.sp_DatabaseRestore 
-		@Database = ''LogShipMe'', 
-		@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'', 
-		@BackupPathLog = ''D:\Backup\SQL2016PROD1A\LogShipMe\LOG\'', 
-		@ContinueLogs = 1, 
+
+	EXEC dbo.sp_DatabaseRestore
+		@Database = ''LogShipMe'',
+		@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'',
+		@BackupPathLog = ''D:\Backup\SQL2016PROD1A\LogShipMe\LOG\'',
+		@ContinueLogs = 1,
 		@RunRecovery = 0;
-		
-	EXEC dbo.sp_DatabaseRestore 
-		@Database = ''LogShipMe'', 
-		@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'', 
-		@BackupPathLog = ''D:\Backup\SQL2016PROD1A\LogShipMe\LOG\'', 
-		@ContinueLogs = 1, 
+
+	EXEC dbo.sp_DatabaseRestore
+		@Database = ''LogShipMe'',
+		@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'',
+		@BackupPathLog = ''D:\Backup\SQL2016PROD1A\LogShipMe\LOG\'',
+		@ContinueLogs = 1,
 		@RunRecovery = 1;
-		
-	EXEC dbo.sp_DatabaseRestore 
-		@Database = ''LogShipMe'', 
-		@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'', 
-		@BackupPathLog = ''D:\Backup\SQL2016PROD1A\LogShipMe\LOG\'', 
-		@ContinueLogs = 0, 
+
+	EXEC dbo.sp_DatabaseRestore
+		@Database = ''LogShipMe'',
+		@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'',
+		@BackupPathLog = ''D:\Backup\SQL2016PROD1A\LogShipMe\LOG\'',
+		@ContinueLogs = 0,
 		@RunRecovery = 1;
-		
-	EXEC dbo.sp_DatabaseRestore 
-		@Database = ''LogShipMe'', 
-		@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'', 
+
+	EXEC dbo.sp_DatabaseRestore
+		@Database = ''LogShipMe'',
+		@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'',
 		@BackupPathDiff = ''D:\Backup\SQL2016PROD1A\LogShipMe\DIFF\'',
-		@BackupPathLog = ''D:\Backup\SQL2016PROD1A\LogShipMe\LOG\'', 
+		@BackupPathLog = ''D:\Backup\SQL2016PROD1A\LogShipMe\LOG\'',
 		@RestoreDiff = 1,
-		@ContinueLogs = 0, 
+		@ContinueLogs = 0,
 		@RunRecovery = 1;
-		 
-	EXEC dbo.sp_DatabaseRestore 
-		@Database = ''LogShipMe'', 
-		@BackupPathFull = ''\\StorageServer\LogShipMe\FULL\'', 
+
+	EXEC dbo.sp_DatabaseRestore
+		@Database = ''LogShipMe'',
+		@BackupPathFull = ''\\StorageServer\LogShipMe\FULL\'',
 		@BackupPathDiff = ''\\StorageServer\LogShipMe\DIFF\'',
-		@BackupPathLog = ''\\StorageServer\LogShipMe\LOG\'', 
+		@BackupPathLog = ''\\StorageServer\LogShipMe\LOG\'',
 		@RestoreDiff = 1,
-		@ContinueLogs = 0, 
+		@ContinueLogs = 0,
 		@RunRecovery = 1,
 		@TestRestore = 1,
 		@RunCheckDB = 1,
 		@Debug = 0;
 
-	EXEC dbo.sp_DatabaseRestore 
-		@Database = ''LogShipMe'', 
-		@BackupPathFull = ''\\StorageServer\LogShipMe\FULL\'', 
+	EXEC dbo.sp_DatabaseRestore
+		@Database = ''LogShipMe'',
+		@BackupPathFull = ''\\StorageServer\LogShipMe\FULL\'',
 		@BackupPathLog = ''\\StorageServer\LogShipMe\LOG\'',
 		@StandbyMode = 1,
 		@StandbyUndoPath = ''D:\Data\'',
-		@ContinueLogs = 1, 
+		@ContinueLogs = 1,
 		@RunRecovery = 0,
 		@Debug = 0;
 
 	--Restore just through the latest DIFF, ignoring logs, and using a custom ".dif" file extension
-	EXEC dbo.sp_DatabaseRestore 
-		@Database = ''LogShipMe'', 
-		@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'', 
+	EXEC dbo.sp_DatabaseRestore
+		@Database = ''LogShipMe'',
+		@BackupPathFull = ''D:\Backup\SQL2016PROD1A\LogShipMe\FULL\'',
 		@BackupPathDiff = ''D:\Backup\SQL2016PROD1A\LogShipMe\DIFF\'',
 		@RestoreDiff = 1,
 		@FileExtensionDiff = ''dif'',
-		@ContinueLogs = 0, 
+		@ContinueLogs = 0,
 		@RunRecovery = 1;
 
 	-- Restore from stripped backup set when multiple paths are used. This example will restore stripped full backup set along with stripped transactional logs set from multiple backup paths
-	EXEC dbo.sp_DatabaseRestore 
-		@Database = ''DBA'', 
-		@BackupPathFull = ''D:\Backup1\DBA\FULL,D:\Backup2\DBA\FULL'', 
-		@BackupPathLog = ''D:\Backup1\DBA\LOG,D:\Backup2\DBA\LOG'', 
+	EXEC dbo.sp_DatabaseRestore
+		@Database = ''DBA'',
+		@BackupPathFull = ''D:\Backup1\DBA\FULL,D:\Backup2\DBA\FULL'',
+		@BackupPathLog = ''D:\Backup1\DBA\LOG,D:\Backup2\DBA\LOG'',
 		@StandbyMode = 0,
-		@ContinueLogs = 1, 
+		@ContinueLogs = 1,
 		@RunRecovery = 0,
 		@Debug = 0;
-		
+
 	--This example will restore the latest differential backup, and stop transaction logs at the specified date time.  It will execute and print debug information.
-	EXEC dbo.sp_DatabaseRestore 
-		@Database = ''DBA'', 
-		@BackupPathFull = ''\\StorageServer\LogShipMe\FULL\'', 
+	EXEC dbo.sp_DatabaseRestore
+		@Database = ''DBA'',
+		@BackupPathFull = ''\\StorageServer\LogShipMe\FULL\'',
 		@BackupPathDiff = ''\\StorageServer\LogShipMe\DIFF\'',
-		@BackupPathLog = ''\\StorageServer\LogShipMe\LOG\'', 
+		@BackupPathLog = ''\\StorageServer\LogShipMe\LOG\'',
 		@RestoreDiff = 1,
-		@ContinueLogs = 0, 
+		@ContinueLogs = 0,
 		@RunRecovery = 1,
 		@StopAt = ''20170508201501'',
 		@Debug = 1;
 
 	--This example will NOT execute the restore.  Commands will be printed in a copy/paste ready format only
-	EXEC dbo.sp_DatabaseRestore 
-		@Database = ''DBA'', 
-		@BackupPathFull = ''\\StorageServer\LogShipMe\FULL\'', 
+	EXEC dbo.sp_DatabaseRestore
+		@Database = ''DBA'',
+		@BackupPathFull = ''\\StorageServer\LogShipMe\FULL\'',
 		@BackupPathDiff = ''\\StorageServer\LogShipMe\DIFF\'',
-		@BackupPathLog = ''\\StorageServer\LogShipMe\LOG\'', 
+		@BackupPathLog = ''\\StorageServer\LogShipMe\LOG\'',
 		@RestoreDiff = 1,
-		@ContinueLogs = 0, 
+		@ContinueLogs = 0,
 		@RunRecovery = 1,
 		@TestRestore = 1,
 		@RunCheckDB = 1,
 		@Debug = 0,
 		@Execute = ''N'';
 	';
-	
-    RETURN; 
+
+    RETURN;
 END;
 
 -- Get the SQL Server version number because the columns returned by RESTORE commands vary by version
@@ -32571,7 +32713,7 @@ BEGIN
     RETURN;
 END;
 
-BEGIN TRY 
+BEGIN TRY
 DECLARE @CurrentDatabaseContext AS VARCHAR(128) = (SELECT DB_NAME());
 DECLARE @CommandExecuteCheck VARCHAR(315)
 
@@ -32603,16 +32745,16 @@ DECLARE @cmd NVARCHAR(4000) = N'', --Holds xp_cmdshell command
 		@LogRestoreRanking INT = 1, --Holds Log iteration # when multiple paths & backup files are being stripped
 		@LogFirstLSN NUMERIC(25, 0), --Holds first LSN in log backup headers
 		@LogLastLSN NUMERIC(25, 0), --Holds last LSN in log backup headers
-		@LogLastNameInMsdbAS NVARCHAR(MAX) = N'', -- Holds last TRN file name already restored 
+		@LogLastNameInMsdbAS NVARCHAR(MAX) = N'', -- Holds last TRN file name already restored
 		@FileListParamSQL NVARCHAR(4000) = N'', --Holds INSERT list for #FileListParameters
 		@BackupParameters NVARCHAR(500) = N'', --Used to save BlockSize, MaxTransferSize and BufferCount
         @RestoreDatabaseID SMALLINT, --Holds DB_ID of @RestoreDatabaseName
-		@UnquotedRestoreDatabaseName nvarchar(128);   --Holds the unquoted @RestoreDatabaseName
+		@UnquotedRestoreDatabaseName NVARCHAR(128);   --Holds the unquoted @RestoreDatabaseName
 
 DECLARE @FileListSimple TABLE (
-    BackupFile NVARCHAR(255) NOT NULL, 
-    depth int NOT NULL, 
-    [file] int NOT NULL
+    BackupFile NVARCHAR(255) NOT NULL,
+    depth INT NOT NULL,
+    [file] INT NOT NULL
 );
 
 DECLARE @FileList TABLE (
@@ -32711,8 +32853,8 @@ CREATE TABLE #Headers
     KeyAlgorithm NVARCHAR(32),
     EncryptorThumbprint VARBINARY(20),
     EncryptorType NVARCHAR(32),
-	LastValidRestoreTime DATETIME, 
-	TimeZone NVARCHAR(32), 
+	LastValidRestoreTime DATETIME,
+	TimeZone NVARCHAR(32),
 	CompressionAlgorithm NVARCHAR(32),
     --
     -- Seq added to retain order by
@@ -32874,7 +33016,7 @@ SET @UnquotedRestoreDatabaseName = PARSENAME(@RestoreDatabaseName,1);
 IF NOT EXISTS (SELECT * FROM sys.configurations WHERE name = 'xp_cmdshell' AND value_in_use = 1)
     SET @SimpleFolderEnumeration = 1;
 
-SET @HeadersSQL = 
+SET @HeadersSQL =
 N'INSERT INTO #Headers WITH (TABLOCK)
   (BackupName, BackupDescription, BackupType, ExpirationDate, Compressed, Position, DeviceType, UserName, ServerName
   ,DatabaseName, DatabaseVersion, DatabaseCreationDate, BackupSize, FirstLSN, LastLSN, CheckpointLSN, DatabaseBackupLSN
@@ -32883,7 +33025,7 @@ N'INSERT INTO #Headers WITH (TABLOCK)
   ,RecoveryForkID, Collation, FamilyGUID, HasBulkLoggedData, IsSnapshot, IsReadOnly, IsSingleUser, HasBackupChecksums
   ,IsDamaged, BeginsLogChain, HasIncompleteMetaData, IsForceOffline, IsCopyOnly, FirstRecoveryForkID, ForkPointLSN
   ,RecoveryModel, DifferentialBaseLSN, DifferentialBaseGUID, BackupTypeDescription, BackupSetGUID, CompressedBackupSize';
-  
+
 IF @MajorVersion >= 11
   SET @HeadersSQL += NCHAR(13) + NCHAR(10) + N', Containment';
 
@@ -32900,7 +33042,7 @@ IF @BackupPathFull IS NOT NULL
 BEGIN
 	DECLARE @CurrentBackupPathFull NVARCHAR(255);
 
-	 -- Split CSV string logic has taken from Ola Hallengren's :) 
+	 -- Split CSV string logic has taken from Ola Hallengren's :)
 	WITH BackupPaths (
 	StartPosition, EndPosition, PathItem
 	)
@@ -32927,7 +33069,7 @@ BEGIN
 		IF @@rowcount = 0 BREAK;
 
 		IF @SimpleFolderEnumeration = 1
-		BEGIN    -- Get list of files 
+		BEGIN    -- Get list of files
 			INSERT INTO @FileListSimple (BackupFile, depth, [file]) EXEC master.sys.xp_dirtree @CurrentBackupPathFull, 1, 1;
 			INSERT @FileList (BackupPath,BackupFile) SELECT @CurrentBackupPathFull, BackupFile FROM @FileListSimple;
 			DELETE FROM @FileListSimple;
@@ -32939,12 +33081,12 @@ BEGIN
 			BEGIN
 				IF @cmd IS NULL PRINT '@cmd is NULL for @CurrentBackupPathFull';
 				PRINT @cmd;
-			END;  
+			END;
 			INSERT INTO @FileList (BackupFile) EXEC master.sys.xp_cmdshell @cmd;
 			UPDATE @FileList SET BackupPath = @CurrentBackupPathFull
 			WHERE BackupPath IS NULL;
 		END;
-    
+
 		IF @Debug = 1
 		BEGIN
 			SELECT BackupPath, BackupFile FROM @FileList;
@@ -32962,8 +33104,8 @@ BEGIN
 		BEGIN
 			/*Full Sanity check folders*/
 			IF (
-				SELECT COUNT(*) 
-				FROM @FileList AS fl 
+				SELECT COUNT(*)
+				FROM @FileList AS fl
 				WHERE fl.BackupFile = 'The system cannot find the path specified.'
 				OR fl.BackupFile = 'File Not Found'
 				) = 1
@@ -32972,8 +33114,8 @@ BEGIN
 				RETURN;
 			END;
 			IF (
-				SELECT COUNT(*) 
-				FROM @FileList AS fl 
+				SELECT COUNT(*)
+				FROM @FileList AS fl
 				WHERE fl.BackupFile = 'Access is denied.'
 				) = 1
 			BEGIN
@@ -32981,13 +33123,13 @@ BEGIN
 				RETURN;
 			END;
 			IF (
-				SELECT COUNT(*) 
-				FROM @FileList AS fl 
+				SELECT COUNT(*)
+				FROM @FileList AS fl
 				) = 1
-				AND 
+				AND
 				(
-				SELECT COUNT(*) 
-				FROM @FileList AS fl 							
+				SELECT COUNT(*)
+				FROM @FileList AS fl
 				WHERE fl.BackupFile IS NULL
 				) = 1
 				BEGIN
@@ -32995,8 +33137,8 @@ BEGIN
 					RETURN;
 				END
 			IF (
-				SELECT COUNT(*) 
-				FROM @FileList AS fl 
+				SELECT COUNT(*)
+				FROM @FileList AS fl
 				WHERE fl.BackupFile = 'The user name or password is incorrect.'
 				) = 1
 				BEGIN
@@ -33021,8 +33163,8 @@ BEGIN
 			AND	BackupFile LIKE N'%' + @Database + N'%'
 			AND	(REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 18 ), '_', '' ) > @StopAt);
 		END;
-	
-    -- Find latest full backup 
+
+    -- Find latest full backup
     SELECT @LastFullBackup = MAX(BackupFile)
     FROM @FileList
     WHERE BackupFile LIKE N'%.bak'
@@ -33051,11 +33193,11 @@ BEGIN
 	FROM @FileList
 	WHERE LEFT( BackupFile, LEN( BackupFile ) - PATINDEX( '%[_]%', REVERSE( BackupFile ) ) ) = LEFT( @LastFullBackup, LEN( @LastFullBackup ) - PATINDEX( '%[_]%', REVERSE( @LastFullBackup ) ) )
 	AND PATINDEX( '%[_]%', REVERSE( @LastFullBackup ) ) <= 7 -- there is a 1 or 2 digit index at the end of the string which indicates split backups. Ola only supports up to 64 file split.
-	ORDER BY REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) DESC; 
+	ORDER BY REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) DESC;
 
     -- File list can be obtained by running RESTORE FILELISTONLY of any file from the given BackupSet therefore we do not have to cater for split backups when building @FileListParamSQL
 
-    SET @FileListParamSQL = 
+    SET @FileListParamSQL =
       N'INSERT INTO #FileListParameters WITH (TABLOCK)
        (LogicalName, PhysicalName, Type, FileGroupName, Size, MaxSize, FileID, CreateLSN, DropLSN
        ,UniqueID, ReadOnlyLSN, ReadWriteLSN, BackupSizeInBytes, SourceBlockSize, FileGroupID, LogGroupGUID
@@ -33089,7 +33231,7 @@ BEGIN
 	    SELECT '@FileList' AS table_name, BackupPath, BackupFile FROM @FileList WHERE BackupFile IS NOT NULL;
     END
 
-    --get the backup completed data so we can apply tlogs from that point forwards                                                   
+    --get the backup completed data so we can apply tlogs from that point forwards
     SET @sql = REPLACE(@HeadersSQL, N'{Path}', @CurrentBackupPathFull + @LastFullBackup);
 
     IF @Debug = 1
@@ -33147,7 +33289,7 @@ BEGIN
 	    SELECT @MoveOption = @MoveOption + N', MOVE ''' + Files.LogicalName + N''' TO ''' + Files.TargetPhysicalName + ''''
 	    FROM Files
         WHERE Files.TargetPhysicalName <> Files.PhysicalName;
-		
+
 	    IF @Debug = 1 PRINT @MoveOption
     END;
 
@@ -33167,7 +33309,7 @@ BEGIN
 		        END;
 		        IF @Debug IN (0, 1) AND @Execute = 'Y'
 				BEGIN
-					IF DATABASEPROPERTYEX(@UnquotedRestoreDatabaseName,'STATUS') != 'RESTORING' 
+					IF DATABASEPROPERTYEX(@UnquotedRestoreDatabaseName,'STATUS') != 'RESTORING'
 					BEGIN
 						EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'ALTER DATABASE SINGLE_USER', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
 					END
@@ -33182,7 +33324,7 @@ BEGIN
             BEGIN
                 RAISERROR('Killing connections', 0, 1) WITH NOWAIT;
                 SET @sql = N'/* Kill connections */' + NCHAR(13);
-                SELECT 
+                SELECT
                     @sql = @sql + N'KILL ' + CAST(spid as nvarchar(5)) + N';' + NCHAR(13)
                 FROM
                     --database_ID was only added to sys.dm_exec_sessions in SQL Server 2012 but we need to support older
@@ -33200,7 +33342,7 @@ BEGIN
             IF @ExistingDBAction = 3
             BEGIN
                 RAISERROR('Dropping database', 0, 1) WITH NOWAIT;
-            
+
                 SET @sql = N'DROP DATABASE ' + @RestoreDatabaseName + NCHAR(13);
                 IF @Debug = 1 OR @Execute = 'N'
 		        BEGIN
@@ -33222,7 +33364,7 @@ BEGIN
 				END;
 		        IF @Debug IN (0, 1) AND @Execute = 'Y'
 				BEGIN
-					IF DATABASEPROPERTYEX(@UnquotedRestoreDatabaseName,'STATUS') != 'RESTORING' 
+					IF DATABASEPROPERTYEX(@UnquotedRestoreDatabaseName,'STATUS') != 'RESTORING'
 					BEGIN
 						EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'OFFLINE DATABASE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
 					END
@@ -33243,7 +33385,7 @@ BEGIN
     IF @ContinueLogs = 0
     BEGIN
 	    IF @Execute = 'Y' RAISERROR('@ContinueLogs set to 0', 0, 1) WITH NOWAIT;
-	
+
 	    /* now take split backups into account */
 	    IF (SELECT COUNT(*) FROM #SplitFullBackups) > 0
         BEGIN
@@ -33283,7 +33425,7 @@ BEGIN
 			IF @sql IS NULL PRINT '@sql is NULL for RESTORE DATABASE: @BackupPathFull, @LastFullBackup, @MoveOption';
 			PRINT @sql;
 		END;
-			
+
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
 			EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
 
@@ -33291,44 +33433,44 @@ BEGIN
 
 	    --setting the @BackupDateTime to a numeric string so that it can be used in comparisons
 		SET @BackupDateTime = REPLACE( RIGHT( REPLACE( @LastFullBackup, RIGHT( @LastFullBackup, PATINDEX( '%_[0-9][0-9]%', REVERSE( @LastFullBackup ) ) ), '' ), 16 ), '_', '' );
-	    
-		SELECT @FullLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM #Headers WHERE BackupType = 1;  
+
+		SELECT @FullLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) FROM #Headers WHERE BackupType = 1;
 		IF @Debug = 1
 		BEGIN
 			IF @BackupDateTime IS NULL PRINT '@BackupDateTime is NULL for REPLACE: @LastFullBackup';
 			PRINT @BackupDateTime;
-		END;                                            
-	    
+		END;
+
 	END;
     ELSE
 	BEGIN
-		
+
 		SELECT @DatabaseLastLSN = CAST(f.redo_start_lsn AS NUMERIC(25, 0))
 		FROM master.sys.databases d
 		JOIN master.sys.master_files f ON d.database_id = f.database_id
 		WHERE d.name = SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) - 2) AND f.file_id = 1;
-	
+
 	END;
 END;
 
 IF @BackupPathFull IS NULL AND @ContinueLogs = 1
 BEGIN
-		
+
 	SELECT @DatabaseLastLSN = CAST(f.redo_start_lsn AS NUMERIC(25, 0))
 	FROM master.sys.databases d
 	JOIN master.sys.master_files f ON d.database_id = f.database_id
 	WHERE d.name = SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) - 2) AND f.file_id = 1;
-	
+
 END;
 
 IF @BackupPathDiff IS NOT NULL
-BEGIN 
+BEGIN
     DELETE FROM @FileList;
     DELETE FROM @FileListSimple;
 	DELETE FROM @PathItem;
 
 	DECLARE @CurrentBackupPathDiff NVARCHAR(512);
-	-- Split CSV string logic has taken from Ola Hallengren's :) 
+	-- Split CSV string logic has taken from Ola Hallengren's :)
 	WITH BackupPaths (
 	StartPosition, EndPosition, PathItem
 	)
@@ -33355,7 +33497,7 @@ BEGIN
 		IF @@rowcount = 0 BREAK;
 
 		IF @SimpleFolderEnumeration = 1
-		BEGIN    -- Get list of files 
+		BEGIN    -- Get list of files
 			INSERT INTO @FileListSimple (BackupFile, depth, [file]) EXEC master.sys.xp_dirtree @CurrentBackupPathDiff, 1, 1;
 			INSERT @FileList (BackupPath,BackupFile) SELECT @CurrentBackupPathDiff, BackupFile FROM @FileListSimple;
 			DELETE FROM @FileListSimple;
@@ -33367,11 +33509,11 @@ BEGIN
 			BEGIN
 				IF @cmd IS NULL PRINT '@cmd is NULL for @CurrentBackupPathDiff';
 				PRINT @cmd;
-			END;  
+			END;
 			INSERT INTO @FileList (BackupFile) EXEC master.sys.xp_cmdshell @cmd;
 			UPDATE @FileList SET BackupPath = @CurrentBackupPathDiff WHERE BackupPath IS NULL;
 		END;
-    
+
 		IF @Debug = 1
 		BEGIN
 			SELECT BackupPath,BackupFile FROM @FileList WHERE BackupFile IS NOT NULL;
@@ -33380,8 +33522,8 @@ BEGIN
     BEGIN
         /*Full Sanity check folders*/
         IF (
-		    SELECT COUNT(*) 
-		    FROM @FileList AS fl 
+		    SELECT COUNT(*)
+		    FROM @FileList AS fl
 		    WHERE fl.BackupFile = 'The system cannot find the path specified.'
 		    ) = 1
 	    BEGIN
@@ -33389,8 +33531,8 @@ BEGIN
             RETURN;
 	    END;
 	    IF (
-		    SELECT COUNT(*) 
-		    FROM @FileList AS fl 
+		    SELECT COUNT(*)
+		    FROM @FileList AS fl
 		    WHERE fl.BackupFile = 'Access is denied.'
 		    ) = 1
 	    BEGIN
@@ -33398,8 +33540,8 @@ BEGIN
             RETURN;
 	    END;
 	    IF (
-		    SELECT COUNT(*) 
-		    FROM @FileList AS fl 
+		    SELECT COUNT(*)
+		    FROM @FileList AS fl
 		    WHERE fl.BackupFile = 'The user name or password is incorrect.'
 		    ) = 1
 		    BEGIN
@@ -33409,7 +33551,7 @@ BEGIN
     END;
 	END
     /*End folder sanity check*/
-    -- Find latest diff backup 
+    -- Find latest diff backup
 	IF @FileExtensionDiff IS NULL
 	BEGIN
 		IF @Execute = 'Y' OR @Debug = 1 RAISERROR('No @FileExtensionDiff given, assuming "bak".', 0, 1) WITH NOWAIT;
@@ -33425,7 +33567,7 @@ BEGIN
 	    (@StopAt IS NULL OR REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) <= @StopAt)
 	ORDER BY BackupFile DESC;
 
-	 -- Load FileList data into Temp Table sorted by DateTime Stamp desc 
+	 -- Load FileList data into Temp Table sorted by DateTime Stamp desc
 	 SELECT BackupPath, BackupFile INTO #SplitDiffBackups
 	 FROM @FileList
 	 WHERE LEFT( BackupFile, LEN( BackupFile ) - PATINDEX( '%[_]%', REVERSE( BackupFile ) ) ) = LEFT( @LastDiffBackup, LEN( @LastDiffBackup ) - PATINDEX( '%[_]%', REVERSE( @LastDiffBackup ) ) )
@@ -33462,49 +33604,49 @@ BEGIN
 			    END
 		    ELSE IF (SELECT COUNT(*) FROM #SplitDiffBackups) > 0
 				SET @sql = @sql + ', STANDBY = ''' + @StandbyUndoPath + @Database + 'Undo.ldf''' + NCHAR(13) + NCHAR(10);
-			ELSE 
+			ELSE
 			    SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + @BackupPathDiff + @LastDiffBackup + N''' WITH STANDBY = ''' + @StandbyUndoPath + @Database + 'Undo.ldf''' + @BackupParameters + @MoveOption + NCHAR(13) + NCHAR(10);
 	    END;
 		IF @Debug = 1 OR @Execute = 'N'
 		BEGIN
 			IF @sql IS NULL PRINT '@sql is NULL for RESTORE DATABASE: @BackupPathDiff, @LastDiffBackup';
 			PRINT @sql;
-		END;  
+		END;
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
 			EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'RESTORE DATABASE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
-		
-		--get the backup completed data so we can apply tlogs from that point forwards                                                   
+
+		--get the backup completed data so we can apply tlogs from that point forwards
 		SET @sql = REPLACE(@HeadersSQL, N'{Path}', @CurrentBackupPathDiff + @LastDiffBackup);
-		
+
 		IF @Debug = 1
 		BEGIN
 			IF @sql IS NULL PRINT '@sql is NULL for REPLACE: @CurrentBackupPathDiff, @LastDiffBackup';
 			PRINT @sql;
-		END;  
-		
+		END;
+
 		EXECUTE (@sql);
 		IF @Debug = 1
 		BEGIN
 			SELECT '#Headers' AS table_name, @LastDiffBackup AS DiffbackupFile, * FROM #Headers AS h WHERE h.BackupType = 5;
 		END
-		
-		--set the @BackupDateTime to the date time on the most recent differential	
+
+		--set the @BackupDateTime to the date time on the most recent differential
 		SET @BackupDateTime = ISNULL( @LastDiffBackupDateTime, @BackupDateTime );
 		IF @Debug = 1
 		BEGIN
 			IF @BackupDateTime IS NULL PRINT '@BackupDateTime is NULL for REPLACE: @LastDiffBackupDateTime';
 			PRINT @BackupDateTime;
-		END; 
+		END;
 		SELECT @DiffLastLSN = CAST(LastLSN AS NUMERIC(25, 0))
-		FROM #Headers 
-		WHERE BackupType = 5;                                                  
+		FROM #Headers
+		WHERE BackupType = 5;
 	END;
 
 	IF @DiffLastLSN IS NULL
 	BEGIN
 		SET @DiffLastLSN=@FullLastLSN
 	END
-END      
+END
 
 
 IF @BackupPathLog IS NOT NULL
@@ -33514,7 +33656,7 @@ BEGIN
 	DELETE FROM @PathItem;
 
 	DECLARE @CurrentBackupPathLog NVARCHAR(512);
-	-- Split CSV string logic has taken from Ola Hallengren's :) 
+	-- Split CSV string logic has taken from Ola Hallengren's :)
 	WITH BackupPaths (
 	StartPosition, EndPosition, PathItem
 	)
@@ -33540,7 +33682,7 @@ BEGIN
 		IF @@rowcount = 0 BREAK;
 
 		IF @SimpleFolderEnumeration = 1
-		BEGIN    -- Get list of files 
+		BEGIN    -- Get list of files
 			INSERT INTO @FileListSimple (BackupFile, depth, [file]) EXEC master.sys.xp_dirtree @BackupPathLog, 1, 1;
 			INSERT @FileList (BackupPath, BackupFile) SELECT @CurrentBackupPathLog, BackupFile FROM @FileListSimple;
 			DELETE FROM @FileListSimple;
@@ -33552,12 +33694,12 @@ BEGIN
 			BEGIN
 				IF @cmd IS NULL PRINT '@cmd is NULL for @CurrentBackupPathLog';
 				PRINT @cmd;
-			END;  
+			END;
 			INSERT INTO @FileList (BackupFile) EXEC master.sys.xp_cmdshell @cmd;
 			UPDATE @FileList SET BackupPath = @CurrentBackupPathLog
 			WHERE BackupPath IS NULL;
 		END;
-    
+
 		IF @SimpleFolderEnumeration = 1
 		BEGIN
 			/*Check what we can*/
@@ -33571,8 +33713,8 @@ BEGIN
 		BEGIN
 			/*Full Sanity check folders*/
 			IF (
-				SELECT COUNT(*) 
-				FROM @FileList AS fl 
+				SELECT COUNT(*)
+				FROM @FileList AS fl
 				WHERE fl.BackupFile = 'The system cannot find the path specified.'
 				OR fl.BackupFile = 'File Not Found'
 				) = 1
@@ -33582,8 +33724,8 @@ BEGIN
 			END;
 
 			IF (
-				SELECT COUNT(*) 
-				FROM @FileList AS fl 
+				SELECT COUNT(*)
+				FROM @FileList AS fl
 				WHERE fl.BackupFile = 'Access is denied.'
 				) = 1
 			BEGIN
@@ -33592,13 +33734,13 @@ BEGIN
 			END;
 
 			IF (
-				SELECT COUNT(*) 
-				FROM @FileList AS fl 
+				SELECT COUNT(*)
+				FROM @FileList AS fl
 				) = 1
-				AND 
+				AND
 				(
-				SELECT COUNT(*) 
-				FROM @FileList AS fl 							
+				SELECT COUNT(*)
+				FROM @FileList AS fl
 				WHERE fl.BackupFile IS NULL
 				) = 1
 				BEGIN
@@ -33607,8 +33749,8 @@ BEGIN
 				END
 
 			IF (
-				SELECT COUNT(*) 
-				FROM @FileList AS fl 
+				SELECT COUNT(*)
+				FROM @FileList AS fl
 				WHERE fl.BackupFile = 'The user name or password is incorrect.'
 				) = 1
 				BEGIN
@@ -33616,11 +33758,11 @@ BEGIN
 					RETURN;
 				END;
 		END;
-	END 
+	END
     /*End folder sanity check*/
 
 IF @Debug = 1
-BEGIN 
+BEGIN
 	SELECT * FROM @FileList WHERE BackupFile IS NOT NULL;
 END
 
@@ -33634,12 +33776,12 @@ BEGIN
 		WHERE physical_device_name like @BackupPathLog + '%'
 		AND rh.destination_database_name = @UnquotedRestoreDatabaseName
 		ORDER BY physical_device_name DESC
-	
+
 	IF @Debug = 1
 	BEGIN
 		SELECT 'Keeping LOG backups with name > : ' + @LogLastNameInMsdbAS
 	END
-	
+
 	DELETE fl
 	FROM @FileList AS fl
 	WHERE fl.BackupPath + fl.BackupFile <= @LogLastNameInMsdbAS
@@ -33649,20 +33791,20 @@ END
 
 IF (@OnlyLogsAfter IS NOT NULL)
 BEGIN
-	
+
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('@OnlyLogsAfter is NOT NULL, deleting from @FileList', 0, 1) WITH NOWAIT;
-	
+
     DELETE fl
 	FROM @FileList AS fl
 	WHERE BackupFile LIKE N'%.trn'
-	AND BackupFile LIKE N'%' + @Database + N'%' 
+	AND BackupFile LIKE N'%' + @Database + N'%'
 	AND REPLACE( RIGHT( REPLACE( fl.BackupFile, RIGHT( fl.BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( fl.BackupFile ) ) ), '' ), 16 ), '_', '' ) < @OnlyLogsAfter;
-	
+
 END
 
 -- Check for log backups
 IF(@BackupDateTime IS NOT NULL AND @BackupDateTime <> '')
-	BEGIN 
+	BEGIN
 		DELETE FROM @FileList
 		WHERE BackupFile LIKE N'%.trn'
 		AND BackupFile LIKE N'%' + @Database + N'%'
@@ -33687,7 +33829,7 @@ IF (@LogRecoveryOption = N'')
 
 IF (@StopAt IS NOT NULL)
 BEGIN
-	
+
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('@StopAt is NOT NULL, deleting from @FileList', 0, 1) WITH NOWAIT;
 
 	IF LEN(@StopAt) <> 14 OR PATINDEX('%[^0-9]%', @StopAt) > 0
@@ -33707,18 +33849,18 @@ BEGIN
 
 	IF @BackupDateTime = @StopAt
 	BEGIN
-		IF @Debug = 1 
+		IF @Debug = 1
 		BEGIN
 			RAISERROR('@StopAt is the end time of a FULL backup, no log files will be restored.', 0, 1) WITH NOWAIT;
 		END
 	END
 	ELSE
-	BEGIN 
+	BEGIN
 		DECLARE @ExtraLogFile NVARCHAR(255)
 		SELECT TOP 1 @ExtraLogFile = fl.BackupFile
 		FROM @FileList AS fl
 		WHERE BackupFile LIKE N'%.trn'
-		AND BackupFile LIKE N'%' + @Database + N'%' 
+		AND BackupFile LIKE N'%' + @Database + N'%'
 		AND REPLACE( RIGHT( REPLACE( fl.BackupFile, RIGHT( fl.BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( fl.BackupFile ) ) ), '' ), 16 ), '_', '' ) > @StopAt
 		ORDER BY BackupFile;
 	END
@@ -33736,11 +33878,11 @@ BEGIN
 		-- If this is a split backup, @ExtraLogFile contains only the first split backup file, either _1.trn or _01.trn
 		-- Change @ExtraLogFile to the max split backup file, then delete all log files greater than this
 		SET @ExtraLogFile = REPLACE(REPLACE(@ExtraLogFile, '_1.trn', '_9.trn'), '_01.trn', '_64.trn')
-		
+
 		DELETE fl
 		FROM @FileList AS fl
 		WHERE BackupFile LIKE N'%.trn'
-		AND BackupFile LIKE N'%' + @Database + N'%' 
+		AND BackupFile LIKE N'%' + @Database + N'%'
 		AND fl.BackupFile >	@ExtraLogFile
 	END
 END
@@ -33751,38 +33893,38 @@ SELECT BackupPath,BackupFile,DENSE_RANK() OVER (ORDER BY REPLACE( RIGHT( REPLACE
 FROM @FileList
 WHERE BackupFile IS NOT NULL;
 
--- Loop through all the files for the database  
+-- Loop through all the files for the database
 	WHILE 1 = 1
 		BEGIN
 
-			-- Get the TOP record to use in "Restore HeaderOnly/FileListOnly" statement   
+			-- Get the TOP record to use in "Restore HeaderOnly/FileListOnly" statement
 			SELECT TOP 1 @CurrentBackupPathLog = BackupPath, @BackupFile = BackupFile FROM #SplitLogBackups WHERE DenseRank = @LogRestoreRanking;
 			IF @@rowcount = 0 BREAK;
 
 			IF @i = 1
-			
+
 			BEGIN
 		    SET @sql = REPLACE(@HeadersSQL, N'{Path}', @CurrentBackupPathLog + @BackupFile);
-			
+
 				IF @Debug = 1
 				BEGIN
 					IF @sql IS NULL PRINT '@sql is NULL for REPLACE: @HeadersSQL, @CurrentBackupPathLog, @BackupFile';
 					PRINT @sql;
-				END; 
-			
+				END;
+
 			EXECUTE (@sql);
-				
-			SELECT TOP 1 @LogFirstLSN = CAST(FirstLSN AS NUMERIC(25, 0)), 
-				   @LogLastLSN = CAST(LastLSN AS NUMERIC(25, 0)) 
-			FROM #Headers 
+
+			SELECT TOP 1 @LogFirstLSN = CAST(FirstLSN AS NUMERIC(25, 0)),
+				   @LogLastLSN = CAST(LastLSN AS NUMERIC(25, 0))
+			FROM #Headers
 			WHERE BackupType = 2;
-		
+
 			IF (@ContinueLogs = 0 AND @LogFirstLSN <= @FullLastLSN AND @FullLastLSN <= @LogLastLSN AND @RestoreDiff = 0) OR (@ContinueLogs = 1 AND @LogFirstLSN <= @DatabaseLastLSN AND @DatabaseLastLSN < @LogLastLSN AND @RestoreDiff = 0)
 				SET @i = 2;
-			
+
 			IF (@ContinueLogs = 0 AND @LogFirstLSN <= @DiffLastLSN AND @DiffLastLSN <= @LogLastLSN AND @RestoreDiff = 1) OR (@ContinueLogs = 1 AND @LogFirstLSN <= @DatabaseLastLSN AND @DatabaseLastLSN < @LogLastLSN AND @RestoreDiff = 1)
 				SET @i = 2;
-				
+
 			DELETE FROM #Headers WHERE BackupType = 2;
 
 
@@ -33803,7 +33945,7 @@ WHERE BackupFile IS NOT NULL;
 					SET @sql = N'RESTORE LOG ' + @RestoreDatabaseName + N' FROM '
 							   + STUFF(
 									(SELECT CHAR( 10 ) + ',DISK=''' + BackupPath + BackupFile + ''''
-									 FROM #SplitLogBackups 
+									 FROM #SplitLogBackups
 									 WHERE DenseRank = @LogRestoreRanking
 									 ORDER BY BackupFile
 									 FOR XML PATH ('')),
@@ -33813,17 +33955,17 @@ WHERE BackupFile IS NOT NULL;
 				END;
 				ELSE
 				SET @sql = N'RESTORE LOG ' + @RestoreDatabaseName + N' FROM DISK = ''' + @CurrentBackupPathLog + @BackupFile + N''' WITH ' + @LogRecoveryOption + NCHAR(13) + NCHAR(10);
-				
+
 					IF @Debug = 1 OR @Execute = 'N'
 					BEGIN
 						IF @sql IS NULL PRINT '@sql is NULL for RESTORE LOG: @RestoreDatabaseName, @CurrentBackupPathLog, @BackupFile';
 						PRINT @sql;
-					END; 
-				
+					END;
+
 					IF @Debug IN (0, 1) AND @Execute = 'Y'
 						EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'RESTORE LOG', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
 			END;
-			
+
 			SET @LogRestoreRanking += 1;
 		END;
 
@@ -33834,13 +33976,16 @@ WHERE BackupFile IS NOT NULL;
 	END
 END
 
--- Put database in a useable state 
+-- Put database in a useable state
 IF @RunRecovery = 1
 	BEGIN
 		SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' WITH RECOVERY';
-		
+
 		IF @KeepCdc = 1
 			SET @sql = @sql + N', KEEP_CDC';
+
+		IF @EnableBroker = 1
+			SET @sql = @sql + N', ENABLE_BROKER';
 
 		SET @sql = @sql + NCHAR(13);
 
@@ -33848,7 +33993,7 @@ IF @RunRecovery = 1
 		BEGIN
 			IF @sql IS NULL PRINT '@sql is NULL for RESTORE DATABASE: @RestoreDatabaseName';
 			PRINT @sql;
-		END; 
+		END;
 
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
 			EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'RECOVER DATABASE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
@@ -33863,23 +34008,23 @@ IF @ForceSimpleRecovery = 1
 			BEGIN
 				IF @sql IS NULL PRINT '@sql is NULL for SET RECOVERY SIMPLE: @RestoreDatabaseName';
 				PRINT @sql;
-			END; 
+			END;
 
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
 			EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'SIMPLE LOGGING', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
-	END;	    
+	END;
 
  -- Run checkdb against this database
 IF @RunCheckDB = 1
 	BEGIN
 		SET @sql = N'DBCC CHECKDB (' + @RestoreDatabaseName + N') WITH NO_INFOMSGS, ALL_ERRORMSGS, DATA_PURITY;';
-			
+
 			IF @Debug = 1 OR @Execute = 'N'
 			BEGIN
 				IF @sql IS NULL PRINT '@sql is NULL for Run Integrity Check: @RestoreDatabaseName';
 				PRINT @sql;
-			END; 
-		
+			END;
+
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
 			EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master', @Command = @sql, @CommandType = 'DBCC CHECKDB', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
 	END;
@@ -33942,7 +34087,7 @@ IF @DatabaseOwner IS NOT NULL
 		END;
 
 -- Link a user entry in the sys.database_principals system catalog view in the restored database to a SQL Server login of the same name
-IF @FixOrphanUsers = 1 
+IF @FixOrphanUsers = 1
 	BEGIN
 		SET @sql = N'
 -- Fixup Orphan Users by setting database user sid to match login sid
@@ -33961,7 +34106,7 @@ SELECT ''ALTER USER ['' + d.name + ''] WITH LOGIN = ['' + d.name + '']; ''
 
 SELECT @FixOrphansSql = (SELECT SqlToExecute AS [text()] FROM @OrphanUsers FOR XML PATH (''''), TYPE).value(''text()[1]'',''NVARCHAR(MAX)'');
 
-IF @FixOrphansSql IS NULL 
+IF @FixOrphansSql IS NULL
 	PRINT ''No orphan users require a sid fixup.'';
 ELSE
 BEGIN
@@ -33977,7 +34122,7 @@ END;'
 
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
 			EXECUTE [dbo].[CommandExecute] @DatabaseContext = 'master', @Command = @sql, @CommandType = 'UPDATE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
-	END; 
+	END;
 
 IF @RunStoredProcAfterRestore IS NOT NULL AND LEN(LTRIM(@RunStoredProcAfterRestore)) > 0
 BEGIN
@@ -33989,7 +34134,7 @@ BEGIN
 		IF @sql IS NULL PRINT '@sql is NULL when building for @RunStoredProcAfterRestore'
 		PRINT @sql
 	END
-			
+
 	IF @RunRecovery = 0
 	BEGIN
 		PRINT 'Unable to run Run Stored Procedure After Restore as database is not recovered. Run command again with @RunRecovery = 1'
@@ -34005,13 +34150,13 @@ END
 IF @TestRestore = 1
 	BEGIN
 		SET @sql = N'DROP DATABASE ' + @RestoreDatabaseName + NCHAR(13);
-			
+
 			IF @Debug = 1 OR @Execute = 'N'
 			BEGIN
 				IF @sql IS NULL PRINT '@sql is NULL for DROP DATABASE: @RestoreDatabaseName';
 				PRINT @sql;
-			END; 
-		
+			END;
+
 		IF @Debug IN (0, 1) AND @Execute = 'Y'
 			EXECUTE @sql = [dbo].[CommandExecute] @DatabaseContext=N'master',@Command = @sql, @CommandType = 'DROP DATABASE', @Mode = 1, @DatabaseName = @UnquotedRestoreDatabaseName, @LogToTable = 'Y', @Execute = 'Y';
 
@@ -34060,7 +34205,7 @@ BEGIN
   SET NOCOUNT ON;
   SET STATISTICS XML OFF;
 
-  SELECT @Version = '8.20', @VersionDate = '20240522';
+  SELECT @Version = '8.21', @VersionDate = '20240701';
   
   IF(@VersionCheckMode = 1)
   BEGIN
@@ -34438,6 +34583,7 @@ VALUES
     (16, 4003, 'CU1', 'https://support.microsoft.com/en-us/help/5022375', '2023-02-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 1'),
     (16, 1050, 'RTM GDR', 'https://support.microsoft.com/kb/5021522', '2023-02-14', '2028-01-11', '2033-01-11', 'SQL Server 2022 GDR', 'RTM'),
     (16, 1000, 'RTM', '', '2022-11-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'RTM'),
+    (15, 4375, 'CU27', 'https://support.microsoft.com/kb/5037331', '2024-06-14', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 27'),
     (15, 4365, 'CU26', 'https://support.microsoft.com/kb/5035123', '2024-04-11', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 26'),
     (15, 4355, 'CU25', 'https://support.microsoft.com/kb/5033688', '2024-02-15', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 25'),
     (15, 4345, 'CU24', 'https://support.microsoft.com/kb/5031908', '2023-12-14', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 24'),
@@ -34867,7 +35013,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.20', @VersionDate = '20240522';
+SELECT @Version = '8.21', @VersionDate = '20240701';
 
 IF(@VersionCheckMode = 1)
 BEGIN
