@@ -37,7 +37,7 @@ AS
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
-SELECT @Version = '8.20', @VersionDate = '20240522';
+SELECT @Version = '8.21', @VersionDate = '20240701';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -1172,7 +1172,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.20', @VersionDate = '20240522';
+SELECT @Version = '8.21', @VersionDate = '20240701';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -8545,7 +8545,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.20', @VersionDate = '20240522';
+SELECT @Version = '8.21', @VersionDate = '20240701';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -13554,7 +13554,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.20', @VersionDate = '20240522';
+SELECT @Version = '8.21', @VersionDate = '20240701';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -20029,6 +20029,7 @@ ALTER PROCEDURE
     @EventSessionName sysname = N'system_health',
     @TargetSessionType sysname = NULL,
     @VictimsOnly bit = 0,
+    @DeadlockType nvarchar(20) = NULL,
     @Debug bit = 0,
     @Help bit = 0,
     @Version varchar(30) = NULL OUTPUT,
@@ -20047,7 +20048,7 @@ BEGIN
     SET XACT_ABORT OFF;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-    SELECT @Version = '8.20', @VersionDate = '20240522';
+    SELECT @Version = '8.21', @VersionDate = '20240701';
 
     IF @VersionCheckMode = 1
     BEGIN
@@ -20209,7 +20210,7 @@ BEGIN
         @StartDateOriginal datetime = @StartDate,
         @EndDateOriginal datetime = @EndDate,
         @StartDateUTC datetime,
-        @EndDateUTC datetime;
+        @EndDateUTC datetime;;
 
     /*Temporary objects used in the procedure*/
     DECLARE
@@ -20719,50 +20720,63 @@ BEGIN
         END CATCH;
     END;
 
+    IF @DeadlockType IS NOT NULL
+    BEGIN
+        SELECT
+            @DeadlockType =
+                CASE
+                    WHEN LOWER(@DeadlockType) LIKE 'regular%'
+                    THEN N'Regular Deadlock'
+                    WHEN LOWER(@DeadlockType) LIKE N'parallel%'
+                    THEN N'Parallel Deadlock'
+                    ELSE NULL
+                END;
+    END;
+
     /*If @TargetSessionType, we need to figure out if it's ring buffer or event file*/
     /*Azure has differently named views, so  we need to separate. Thanks, Azure.*/
 
-        IF
-        (
-                @Azure = 0
-            AND @TargetSessionType IS NULL
-        )
-        BEGIN
-        RAISERROR('@TargetSessionType is NULL, assigning for non-Azure instance', 0, 1) WITH NOWAIT;
+    IF
+    (
+            @Azure = 0
+        AND @TargetSessionType IS NULL
+    )
+    BEGIN
+    RAISERROR('@TargetSessionType is NULL, assigning for non-Azure instance', 0, 1) WITH NOWAIT;
 
-            SELECT TOP (1)
-                @TargetSessionType = t.target_name
-            FROM sys.dm_xe_sessions AS s
-            JOIN sys.dm_xe_session_targets AS t
-              ON s.address = t.event_session_address
-            WHERE s.name = @EventSessionName
-            AND   t.target_name IN (N'event_file', N'ring_buffer')
-            ORDER BY t.target_name
-            OPTION(RECOMPILE);
+        SELECT TOP (1)
+            @TargetSessionType = t.target_name
+        FROM sys.dm_xe_sessions AS s
+        JOIN sys.dm_xe_session_targets AS t
+          ON s.address = t.event_session_address
+        WHERE s.name = @EventSessionName
+        AND   t.target_name IN (N'event_file', N'ring_buffer')
+        ORDER BY t.target_name
+        OPTION(RECOMPILE);
 
-        RAISERROR('@TargetSessionType assigned as %s for non-Azure', 0, 1, @TargetSessionType) WITH NOWAIT;
-        END;
+    RAISERROR('@TargetSessionType assigned as %s for non-Azure', 0, 1, @TargetSessionType) WITH NOWAIT;
+    END;
 
-        IF
-        (
-                @Azure = 1
-            AND @TargetSessionType IS NULL
-        )
-        BEGIN
-        RAISERROR('@TargetSessionType is NULL, assigning for Azure instance', 0, 1) WITH NOWAIT;
+    IF
+    (
+            @Azure = 1
+        AND @TargetSessionType IS NULL
+    )
+    BEGIN
+    RAISERROR('@TargetSessionType is NULL, assigning for Azure instance', 0, 1) WITH NOWAIT;
 
-            SELECT TOP (1)
-                @TargetSessionType = t.target_name
-            FROM sys.dm_xe_database_sessions AS s
-            JOIN sys.dm_xe_database_session_targets AS t
-              ON s.address = t.event_session_address
-            WHERE s.name = @EventSessionName
-            AND   t.target_name IN (N'event_file', N'ring_buffer')
-            ORDER BY t.target_name
-            OPTION(RECOMPILE);
+        SELECT TOP (1)
+            @TargetSessionType = t.target_name
+        FROM sys.dm_xe_database_sessions AS s
+        JOIN sys.dm_xe_database_session_targets AS t
+          ON s.address = t.event_session_address
+        WHERE s.name = @EventSessionName
+        AND   t.target_name IN (N'event_file', N'ring_buffer')
+        ORDER BY t.target_name
+        OPTION(RECOMPILE);
 
-        RAISERROR('@TargetSessionType assigned as %s for Azure', 0, 1, @TargetSessionType) WITH NOWAIT;
-        END;
+    RAISERROR('@TargetSessionType assigned as %s for Azure', 0, 1, @TargetSessionType) WITH NOWAIT;
+    END;
 
 
     /*The system health stuff gets handled different from user extended events.*/
@@ -23460,6 +23474,7 @@ BEGIN
             AND (d.client_app = @AppName OR @AppName IS NULL)
             AND (d.host_name = @HostName OR @HostName IS NULL)
             AND (d.login_name = @LoginName OR @LoginName IS NULL)
+            AND (d.deadlock_type = @DeadlockType OR @DeadlockType IS NULL)
             OPTION (RECOMPILE, LOOP JOIN, HASH JOIN);
 
             UPDATE d
@@ -23847,7 +23862,11 @@ BEGIN
                     deqs.max_reserved_threads,
                     deqs.min_used_threads,
                     deqs.max_used_threads,
-                    deqs.total_rows
+                    deqs.total_rows,
+                    max_worker_time_ms = 
+                        deqs.max_worker_time / 1000.,
+                    max_elapsed_time_ms = 
+                        deqs.max_elapsed_time / 1000.
                 INTO #dm_exec_query_stats
                 FROM sys.dm_exec_query_stats AS deqs
                 WHERE EXISTS
@@ -23879,8 +23898,10 @@ BEGIN
                     ap.executions_per_second,
                     ap.total_worker_time_ms,
                     ap.avg_worker_time_ms,
+                    ap.max_worker_time_ms,
                     ap.total_elapsed_time_ms,
                     ap.avg_elapsed_time_ms,
+                    ap.max_elapsed_time_ms,
                     ap.total_logical_reads_mb,
                     ap.total_physical_reads_mb,
                     ap.total_logical_writes_mb,
@@ -23923,7 +23944,9 @@ BEGIN
                         c.min_used_threads,
                         c.max_used_threads,
                         c.total_rows,
-                        c.query_plan
+                        c.query_plan,
+                        c.max_worker_time_ms,
+                        c.max_elapsed_time_ms
                     FROM #available_plans AS ap
                     OUTER APPLY
                     (
@@ -24074,6 +24097,8 @@ BEGIN
                 @TargetSessionType,
             VictimsOnly =
                 @VictimsOnly,
+            DeadlockType =
+                @DeadlockType,
             Debug =
                 @Debug,
             Help =
@@ -24178,7 +24203,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.20', @VersionDate = '20240522';
+	SELECT @Version = '8.21', @VersionDate = '20240701';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
