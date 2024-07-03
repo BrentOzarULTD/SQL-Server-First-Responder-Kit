@@ -8490,11 +8490,11 @@ IF @ProductVersionMajor >= 10
 											 WHEN [T].[TraceFlag] = '3226' THEN '3226 enabled globally, which keeps the event log clean by not reporting successful backups.'
 											 WHEN [T].[TraceFlag] = '3505' THEN '3505 enabled globally, which disables Checkpoints. This is usually a very bad idea.'
 											 WHEN [T].[TraceFlag] = '4199' THEN '4199 enabled globally, which enables non-default Query Optimizer fixes, changing query plans from the default behaviors.'
-											 WHEN [T].[TraceFlag] = '7745' AND  @ProductVersionMajor > 12 AND @QueryStoreInUse = 1 THEN '7745 enabled globally, which makes shutdowns/failovers quicker by not waiting for Query Store to flush to disk. This good idea loses you the non-flushed Query Store data.'
+											 WHEN [T].[TraceFlag] = '7745' AND @QueryStoreInUse = 1 THEN '7745 enabled globally, which makes shutdowns/failovers quicker by not waiting for Query Store to flush to disk. This good idea loses you the non-flushed Query Store data.'
 											 WHEN [T].[TraceFlag] = '7745' AND  @ProductVersionMajor > 12 THEN '7745 enabled globally, which is for Query Store. None of your databases have Query Store enabled, so why do you have this turned on?'
 											 WHEN [T].[TraceFlag] = '7745' AND  @ProductVersionMajor <= 12 THEN '7745 enabled globally, which is for Query Store. Query Store does not exist on your SQL Server version, so why do you have this turned on?'
 											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor > 14 THEN '7752 enabled globally, which is for Query Store. However, it has no effect in your SQL Server version. Consider turning it off.'
-											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor > 12 AND @QueryStoreInUse = 1 THEN '7752 enabled globally, which stops queries needing to wait on Query Store loading up after database recovery.'
+											 WHEN [T].[TraceFlag] = '7752' AND @QueryStoreInUse = 1 THEN '7752 enabled globally, which stops queries needing to wait on Query Store loading up after database recovery.'
 											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor > 12 THEN '7752 enabled globally, which is for Query Store. None of your databases have Query Store enabled, so why do you have this turned on?'
 											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor <= 12 THEN '7752 enabled globally, which is for Query Store. Query Store does not exist on your SQL Server version, so why do you have this turned on?'
 											 WHEN [T].[TraceFlag] = '8048' THEN '8048 enabled globally, which tries to reduce CMEMTHREAD waits on servers with a lot of logical processors.'
@@ -8504,6 +8504,54 @@ IF @ProductVersionMajor >= 10
 											 ELSE [T].[TraceFlag] + ' is enabled globally.' END
 										AS Details
 								FROM    #TraceStatus T;
+
+
+						IF NOT EXISTS ( SELECT  1
+										FROM    #TraceStatus T
+										WHERE   [T].[TraceFlag] = '7745' )
+							AND @QueryStoreInUse = 1
+
+							BEGIN
+								INSERT  INTO #BlitzResults
+										( CheckID ,
+										  Priority ,
+										  FindingsGroup ,
+										  Finding ,
+										  URL ,
+										  Details
+										)
+										SELECT  74 AS CheckID ,
+												200 AS Priority ,
+												'Informational' AS FindingsGroup ,
+												'Recommended Trace Flag Off' AS Finding ,
+												'https://www.sqlskills.com/blogs/erin/query-store-trace-flags/' AS URL ,
+												'Trace Flag 7745 not enabled globally. It makes shutdowns/failovers quicker by not waiting for Query Store to flush to disk. It is recommended, but it loses you the non-flushed Query Store data.' AS Details				
+										FROM    #TraceStatus T
+							END;
+
+						IF NOT EXISTS ( SELECT  1
+										FROM    #TraceStatus T
+										WHERE   [T].[TraceFlag] = '7752' )
+							AND @ProductVersionMajor < 15
+							AND @QueryStoreInUse = 1
+
+							BEGIN
+								INSERT  INTO #BlitzResults
+										( CheckID ,
+										  Priority ,
+										  FindingsGroup ,
+										  Finding ,
+										  URL ,
+										  Details
+										)
+										SELECT  74 AS CheckID ,
+												200 AS Priority ,
+												'Informational' AS FindingsGroup ,
+												'Recommended Trace Flag Off' AS Finding ,
+												'https://www.sqlskills.com/blogs/erin/query-store-trace-flags/' AS URL ,
+												'Trace Flag 7752 not enabled globally. It stops queries needing to wait on Query Store loading up after database recovery. It is so recommended that it is enabled by default as of SQL Server 2019.' AS Details						
+										FROM    #TraceStatus T
+							END;
 					END;
 
             /* High CMEMTHREAD waits that could need trace flag 8048.
