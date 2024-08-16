@@ -1879,6 +1879,7 @@ WITH
                   ON ty.user_type_id = co.user_type_id 
                 WHERE id_inner.index_handle = id.index_handle
                 AND   id_inner.object_id = id.object_id
+				AND   id_inner.database_id = DB_ID(''' +  QUOTENAME(@DatabaseName) + N''')
                 AND   cn_inner.IndexColumnType = cn.IndexColumnType
                 FOR XML PATH('''')
                 ),
@@ -1916,6 +1917,7 @@ WITH
                ) x (n)
                CROSS APPLY n.nodes(''x'') node(v)
            )AS cn
+		   WHERE id.database_id = DB_ID(''' +  QUOTENAME(@DatabaseName) + N''')
            GROUP BY    
                id.index_handle,
                id.object_id,
