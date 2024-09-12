@@ -690,13 +690,15 @@ BEGIN
 		END;
 
     -- Find latest full backup
-    SELECT @LastFullBackup = MAX(BackupFile)
+    -- Get the TOP record to use in "Restore HeaderOnly/FileListOnly" statement as well as Non-Split Backups Restore Command
+    SELECT TOP 1 @LastFullBackup = BackupFile, @CurrentBackupPathFull = BackupPath
     FROM @FileList
     WHERE BackupFile LIKE N'%.bak'
         AND
         BackupFile LIKE N'%' + @Database + N'%'
 	    AND
-	    (@StopAt IS NULL OR REPLACE( RIGHT( REPLACE( @LastFullBackup, RIGHT( @LastFullBackup, PATINDEX( '%_[0-9][0-9]%', REVERSE( @LastFullBackup ) ) ), '' ), 16 ), '_', '' ) <= @StopAt);
+	    (@StopAt IS NULL OR REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) <= @StopAt)
+    ORDER BY BackupFile DESC;
 
     /*	To get all backups that belong to the same set we can do two things:
 		    1.	RESTORE HEADERONLY of ALL backup files in the folder and look for BackupSetGUID.
@@ -735,11 +737,6 @@ BEGIN
 
     SET @FileListParamSQL += N')' + NCHAR(13) + NCHAR(10);
     SET @FileListParamSQL += N'EXEC (''RESTORE FILELISTONLY FROM DISK=''''{Path}'''''')';
-
-	-- get the TOP record to use in "Restore HeaderOnly/FileListOnly" statement as well as Non-Split Backups Restore Command
-	SELECT TOP 1 @CurrentBackupPathFull = BackupPath, @LastFullBackup = BackupFile
-	FROM @FileList
-	ORDER BY REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) DESC;
 
     SET @sql = REPLACE(@FileListParamSQL, N'{Path}', @CurrentBackupPathFull + @LastFullBackup);
 
