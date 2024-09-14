@@ -136,7 +136,7 @@ VALUES
     (14, 1000, 'RTM ', '', '2017-10-02', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM '),
     /*2016*/
     (13, 7040, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/en-us/help/5042209', '2024-09-10', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
-    (13, 7037, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/en-us/help/5040944', '2023-07-09', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
+    (13, 7037, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/en-us/help/5040944', '2024-07-09', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
     (13, 7029, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/en-us/help/5029187', '2023-10-10', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
     (13, 7024, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/en-us/help/5021128', '2023-02-14', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
     (13, 7016, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/en-us/help/5015371', '2022-06-14', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
