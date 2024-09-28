@@ -217,6 +217,9 @@ IF OBJECT_ID('tempdb..#IndexColumns') IS NOT NULL
 
 IF OBJECT_ID('tempdb..#MissingIndexes') IS NOT NULL 
     DROP TABLE #MissingIndexes;
+	
+IF OBJECT_ID('tempdb..#MissingIndexesFinalResult') IS NOT NULL 
+    DROP TABLE #MissingIndexesFinalResult;	
 
 IF OBJECT_ID('tempdb..#ForeignKeys') IS NOT NULL 
     DROP TABLE #ForeignKeys;
@@ -3068,7 +3071,18 @@ BEGIN
             drop_tsql AS [Drop TSQL]
     FROM table_mode_cte
     ORDER BY display_order ASC, key_column_names ASC
-    OPTION    ( RECOMPILE );                        
+    OPTION    ( RECOMPILE );
+
+	CREATE TABLE #MissingIndexesFinalResult
+		(
+			[Finding] NVARCHAR(50),
+			[URL] NVARCHAR(500),
+			[Estimated Benefit] NVARCHAR(200),
+			[Missing Index request] NVARCHAR(200),
+			[Estimated Impact] NVARCHAR(200),
+			[Create TSQL] NVARCHAR(MAX),
+			[Sample Query Plan] XML
+		)	
 
     IF (SELECT TOP 1 [object_id] FROM    #MissingIndexes mi) IS NOT NULL
     BEGIN;
@@ -3081,6 +3095,8 @@ BEGIN
 						FROM #IndexSanity AS i
 						GROUP BY i.database_id, i.schema_name, i.object_id
 						)
+						
+		INSERT INTO #MissingIndexesFinalResult						
         SELECT  N'Missing index.' AS Finding ,
                 N'https://www.brentozar.com/go/Indexaphobia' AS URL ,
                 mi.[statement] + 
@@ -3106,8 +3122,15 @@ BEGIN
         ORDER BY magic_benefit_number DESC
         OPTION    ( RECOMPILE );
     END;       
-    ELSE     
-    SELECT 'No missing indexes.' AS finding;
+	
+    IF (SELECT COUNT(*) FROM #MissingIndexesFinalResult) > 0
+		BEGIN
+			SELECT * FROM #MissingIndexesFinalResult;
+		END
+	ELSE
+		BEGIN
+			SELECT 'No missing indexes.' AS Finding;
+		END
 
     SELECT   
         column_name AS [Column Name],
