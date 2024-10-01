@@ -334,18 +334,15 @@ AS
 			    END CATCH;
 			END; /*Need execute on sp_validatelogins*/
             
-            IF ISNULL(@SkipGetAlertInfo, 0) != 1 /*If @SkipGetAlertInfo hasn't been set to 1 by the caller*/
-			BEGIN
-			    BEGIN TRY
-			        /* Try to fill the table for check 73 */
-					INSERT INTO #AlertInfo
-                    EXEC [master].[dbo].[sp_MSgetalertinfo] @includeaddresses = 0;
-			
-			    	SET @SkipGetAlertInfo = 0; /*We can execute sp_MSgetalertinfo*/
-			    END TRY
-			    BEGIN CATCH
-			    	SET @SkipGetAlertInfo = 1; /*We have don't have execute rights or sp_MSgetalertinfo throws an error so skip it*/
-			    END CATCH;
+			IF NOT EXISTS
+            (
+                SELECT
+                    1/0
+                FROM fn_my_permissions(N'[master].[dbo].[sp_MSgetalertinfo]', N'OBJECT') AS fmp
+                WHERE fmp.permission_name = N'EXECUTE'
+            )
+            BEGIN
+			    SET @SkipGetAlertInfo = 1;
 			END; /*Need execute on sp_MSgetalertinfo*/
 
 			IF ISNULL(@SkipModel, 0) != 1 /*If @SkipModel hasn't been set to 1 by the caller*/
@@ -6107,7 +6104,7 @@ IF @ProductVersionMajor >= 10
 		IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 191 )
-			AND (SELECT COUNT(*) FROM sys.master_files WHERE database_id = 2) <> (SELECT COUNT(*) FROM tempdb.sys.database_files)
+			AND (SELECT COUNT(*) FROM sys.master_files WHERE database_id = 2) > (SELECT COUNT(*) FROM tempdb.sys.database_files)
 				BEGIN
 					
 					IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 191) WITH NOWAIT
@@ -8467,6 +8464,9 @@ IF @ProductVersionMajor >= 10
 					BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 73) WITH NOWAIT;
+
+						INSERT INTO #AlertInfo
+						EXEC [master].[dbo].[sp_MSgetalertinfo] @includeaddresses = 0;
 						
 						INSERT  INTO #BlitzResults
 								( CheckID ,
