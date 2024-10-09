@@ -6108,6 +6108,8 @@ IF @ProductVersionMajor >= 10
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 191 )
 			AND (SELECT COUNT(*) FROM sys.master_files WHERE database_id = 2) <> (SELECT COUNT(*) FROM tempdb.sys.database_files)
+			/* User may have no permissions to see tempdb files in sys.master_files. In that case count returned will be 0 and we want to skip the check */
+			AND (SELECT COUNT(*) FROM sys.master_files WHERE database_id = 2) <> 0
 				BEGIN
 					
 					IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 191) WITH NOWAIT
