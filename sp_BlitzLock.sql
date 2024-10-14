@@ -3675,8 +3675,9 @@ BEGIN
                 SET STATISTICS XML ON;
             END;
 
-            INSERT INTO
-                DeadLockTbl
+			SET @StringToExecute = N'
+
+				INSERT INTO ' + QUOTENAME(DB_NAME()) + N'..DeadLockTbl
             (
                 ServerName,
                 deadlock_type,
@@ -3720,7 +3721,8 @@ BEGIN
                 deadlock_graph
             )
             EXEC sys.sp_executesql
-                @deadlock_result;
+                @deadlock_result;'
+			EXEC sys.sp_executesql @StringToExecute, N'@deadlock_result NVARCHAR(MAX)', @deadlock_result;
 
             IF @Debug = 1
             BEGIN
@@ -3734,8 +3736,9 @@ BEGIN
             SET @d = CONVERT(varchar(40), GETDATE(), 109);
             RAISERROR('Findings to table %s', 0, 1, @d) WITH NOWAIT;
 
-            INSERT INTO
-                DeadlockFindings
+            SET @StringToExecute = N'
+
+				INSERT INTO ' + QUOTENAME(DB_NAME()) + N'..DeadlockFindings
             (
                 ServerName,
                 check_id,
@@ -3753,7 +3756,8 @@ BEGIN
                 df.finding
             FROM #deadlock_findings AS df
             ORDER BY df.check_id
-            OPTION(RECOMPILE);
+            OPTION(RECOMPILE);'
+			EXEC sys.sp_executesql @StringToExecute;
 
             RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
