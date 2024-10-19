@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 264.
-If you want to add a new one, start at 265.
+CURRENT HIGH CHECKID: 265.
+If you want to add a new one, start at 266.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
@@ -153,7 +153,7 @@ If you want to add a new one, start at 265.
 | 200 | Informational | Tables in the Master Database | https://www.BrentOzar.com/go/mastuser | 27 |
 | 200 | Informational | Tables in the Model Database | https://www.BrentOzar.com/go/model | 29 |
 | 200 | Informational | Tables in the MSDB Database | https://www.BrentOzar.com/go/msdbuser | 28 |
-| 200 | Informational | TraceFlag On | https://www.BrentOzar.com/go/traceflags/ | 74 |
+| 200 | Informational | TraceFlag On / Recommended Trace Flag Off | https://www.BrentOzar.com/go/traceflags/ | 74 |
 | 200 | Licensing | Enterprise Edition Features In Use | https://www.BrentOzar.com/go/ee | 33 |
 | 200 | Licensing | Non-Production License | https://www.BrentOzar.com/go/licensing | 173 |
 | 200 | Monitoring | Agent Jobs Without Failure Emails | https://www.BrentOzar.com/go/alerts | 94 |
@@ -250,6 +250,7 @@ If you want to add a new one, start at 265.
 | 200 | Performance | Query Store Wait Stats Disabled | https://www.sqlskills.com/blogs/erin/query-store-settings/ | 262 |
 | 200 | Performance | Query Store Effectively Disabled | https://learn.microsoft.com/en-us/sql/relational-databases/performance/best-practice-with-the-query-store#Verify | 263 |
 | 200 | Performance | Undesired Query Store State | https://learn.microsoft.com/en-us/sql/relational-databases/performance/best-practice-with-the-query-store#Verify | 264 |
+| 200 | Performance | Query Store Unusually Configured | https://www.sqlskills.com/blogs/erin/query-store-best-practices/ | 265 |
 | 200 | Performance | Snapshot Backups Occurring | https://www.BrentOzar.com/go/snaps | 178 |
 | 200 | Performance | User-Created Statistics In Place | https://www.BrentOzar.com/go/userstats | 122 |
 | 200 | Performance | SSAS/SSIS/SSRS Installed | https://www.BrentOzar.com/go/services | 224 |

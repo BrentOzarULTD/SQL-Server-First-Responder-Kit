@@ -37,7 +37,7 @@ BEGIN
     SET XACT_ABORT OFF;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-    SELECT @Version = '8.21', @VersionDate = '20240701';
+    SELECT @Version = '8.22', @VersionDate = '20241019';
 
     IF @VersionCheckMode = 1
     BEGIN
@@ -3675,8 +3675,9 @@ BEGIN
                 SET STATISTICS XML ON;
             END;
 
-            INSERT INTO
-                DeadLockTbl
+			SET @StringToExecute = N'
+
+				INSERT INTO ' + QUOTENAME(DB_NAME()) + N'..DeadLockTbl
             (
                 ServerName,
                 deadlock_type,
@@ -3720,7 +3721,8 @@ BEGIN
                 deadlock_graph
             )
             EXEC sys.sp_executesql
-                @deadlock_result;
+                @deadlock_result;'
+			EXEC sys.sp_executesql @StringToExecute, N'@deadlock_result NVARCHAR(MAX)', @deadlock_result;
 
             IF @Debug = 1
             BEGIN
@@ -3734,8 +3736,9 @@ BEGIN
             SET @d = CONVERT(varchar(40), GETDATE(), 109);
             RAISERROR('Findings to table %s', 0, 1, @d) WITH NOWAIT;
 
-            INSERT INTO
-                DeadlockFindings
+            SET @StringToExecute = N'
+
+				INSERT INTO ' + QUOTENAME(DB_NAME()) + N'..DeadlockFindings
             (
                 ServerName,
                 check_id,
@@ -3753,7 +3756,8 @@ BEGIN
                 df.finding
             FROM #deadlock_findings AS df
             ORDER BY df.check_id
-            OPTION(RECOMPILE);
+            OPTION(RECOMPILE);'
+			EXEC sys.sp_executesql @StringToExecute;
 
             RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
@@ -4049,17 +4053,23 @@ BEGIN
             FROM @sysAssObjId AS s
             OPTION(RECOMPILE);
 
+            IF OBJECT_ID('tempdb..#available_plans') IS NOT NULL
+            BEGIN
             SELECT
                 table_name = N'#available_plans',
                 *
             FROM #available_plans AS ap
             OPTION(RECOMPILE);
+            END;
 
+            IF OBJECT_ID('tempdb..#dm_exec_query_stats') IS NOT NULL
+            BEGIN    
             SELECT
                 table_name = N'#dm_exec_query_stats',
                 *
             FROM #dm_exec_query_stats
             OPTION(RECOMPILE);
+            END;
 
             SELECT
                 procedure_parameters =
