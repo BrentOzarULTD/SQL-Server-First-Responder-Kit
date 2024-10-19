@@ -38,7 +38,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.21', @VersionDate = '20240701';
+	SELECT @Version = '8.22', @VersionDate = '20241019';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -334,18 +334,15 @@ AS
 			    END CATCH;
 			END; /*Need execute on sp_validatelogins*/
             
-            IF ISNULL(@SkipGetAlertInfo, 0) != 1 /*If @SkipGetAlertInfo hasn't been set to 1 by the caller*/
-			BEGIN
-			    BEGIN TRY
-			        /* Try to fill the table for check 73 */
-					INSERT INTO #AlertInfo
-                    EXEC [master].[dbo].[sp_MSgetalertinfo] @includeaddresses = 0;
-			
-			    	SET @SkipGetAlertInfo = 0; /*We can execute sp_MSgetalertinfo*/
-			    END TRY
-			    BEGIN CATCH
-			    	SET @SkipGetAlertInfo = 1; /*We have don't have execute rights or sp_MSgetalertinfo throws an error so skip it*/
-			    END CATCH;
+			IF NOT EXISTS
+            (
+                SELECT
+                    1/0
+                FROM fn_my_permissions(N'[master].[dbo].[sp_MSgetalertinfo]', N'OBJECT') AS fmp
+                WHERE fmp.permission_name = N'EXECUTE'
+            )
+            BEGIN
+			    SET @SkipGetAlertInfo = 1;
 			END; /*Need execute on sp_MSgetalertinfo*/
 
 			IF ISNULL(@SkipModel, 0) != 1 /*If @SkipModel hasn't been set to 1 by the caller*/
@@ -1134,7 +1131,10 @@ AS
 		INSERT INTO #IgnorableWaits VALUES ('PARALLEL_REDO_WORKER_WAIT_WORK');
 		INSERT INTO #IgnorableWaits VALUES ('POPULATE_LOCK_ORDINALS');
 		INSERT INTO #IgnorableWaits VALUES ('PREEMPTIVE_HADR_LEASE_MECHANISM');
+		INSERT INTO #IgnorableWaits VALUES ('PREEMPTIVE_OS_FLUSHFILEBUFFERS');
 		INSERT INTO #IgnorableWaits VALUES ('PREEMPTIVE_SP_SERVER_DIAGNOSTICS');
+		INSERT INTO #IgnorableWaits VALUES ('PVS_PREALLOCATE');
+		INSERT INTO #IgnorableWaits VALUES ('PWAIT_EXTENSIBILITY_CLEANUP_TASK');
 		INSERT INTO #IgnorableWaits VALUES ('QDS_ASYNC_QUEUE');
 		INSERT INTO #IgnorableWaits VALUES ('QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP');
 		INSERT INTO #IgnorableWaits VALUES ('QDS_PERSIST_TASK_MAIN_LOOP_SLEEP');
@@ -1148,6 +1148,7 @@ AS
 		INSERT INTO #IgnorableWaits VALUES ('SQLTRACE_BUFFER_FLUSH');
 		INSERT INTO #IgnorableWaits VALUES ('SQLTRACE_INCREMENTAL_FLUSH_SLEEP');
 		INSERT INTO #IgnorableWaits VALUES ('UCS_SESSION_REGISTRATION');
+		INSERT INTO #IgnorableWaits VALUES ('VDI_CLIENT_OTHER');
 		INSERT INTO #IgnorableWaits VALUES ('WAIT_XTP_OFFLINE_CKPT_NEW_LOG');
 		INSERT INTO #IgnorableWaits VALUES ('WAITFOR');
 		INSERT INTO #IgnorableWaits VALUES ('XE_DISPATCHER_WAIT');
@@ -1836,9 +1837,18 @@ AS
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 2301) WITH NOWAIT;
 						
                         /*
-						#InvalidLogins is filled at the start during the permissions check
+						#InvalidLogins is filled at the start during the permissions check IF we are not sysadmin
+						filling it now if we are sysadmin
 						*/
-                        
+                        IF @sa = 1
+							BEGIN
+								INSERT INTO #InvalidLogins
+			    				(
+					    		[LoginSID]
+					    		,[LoginName]
+					    		)
+					    		EXEC sp_validatelogins;
+							END;
 						INSERT  INTO #BlitzResults
 								( CheckID ,
 								  Priority ,
@@ -6095,6 +6105,8 @@ IF @ProductVersionMajor >= 10
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 191 )
 			AND (SELECT COUNT(*) FROM sys.master_files WHERE database_id = 2) <> (SELECT COUNT(*) FROM tempdb.sys.database_files)
+			/* User may have no permissions to see tempdb files in sys.master_files. In that case count returned will be 0 and we want to skip the check */
+			AND (SELECT COUNT(*) FROM sys.master_files WHERE database_id = 2) <> 0
 				BEGIN
 					
 					IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 191) WITH NOWAIT
@@ -6850,6 +6862,41 @@ IF @ProductVersionMajor >= 10
 		                              FROM [?].sys.database_query_store_options
 									  WHERE desired_state <> 0
 									  AND desired_state <> actual_state 
+									  OPTION (RECOMPILE)';
+							END;
+
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 265 )
+  			                AND EXISTS(SELECT * FROM sys.all_objects WHERE name = 'database_query_store_options')
+							BEGIN
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 265) WITH NOWAIT;
+
+								EXEC dbo.sp_MSforeachdb 'USE [?];
+                                        SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+			                            INSERT INTO #BlitzResults
+			                            (CheckID,
+			                            DatabaseName,
+			                            Priority,
+			                            FindingsGroup,
+			                            Finding,
+			                            URL,
+			                            Details)
+		                              SELECT TOP 1 265,
+		                              N''?'',
+		                              200,
+		                              ''Performance'',
+		                              ''Query Store Unusually Configured'',
+		                              ''https://www.sqlskills.com/blogs/erin/query-store-best-practices/'',
+		                              (''The '' + query_capture_mode_desc + '' query capture mode '' +
+											CASE query_capture_mode_desc
+												WHEN ''ALL'' THEN ''captures more data than you will probably use. If your workload is heavily ad-hoc, then it can also cause Query Store to capture so much that it turns itself off.''
+												WHEN ''NONE'' THEN ''stops Query Store capturing data for new queries.''
+												WHEN ''CUSTOM'' THEN ''suggests that somebody has gone out of their way to only capture exactly what they want.''
+											ELSE ''is not documented.'' END)
+		                              FROM [?].sys.database_query_store_options
+									  WHERE desired_state <> 0 /* No point in checking this if Query Store is off. */
+									  AND query_capture_mode_desc <> ''AUTO''
 									  OPTION (RECOMPILE)';
 							END;
 						
@@ -8419,6 +8466,9 @@ IF @ProductVersionMajor >= 10
 					BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 73) WITH NOWAIT;
+
+						INSERT INTO #AlertInfo
+						EXEC [master].[dbo].[sp_MSgetalertinfo] @includeaddresses = 0;
 						
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -8481,11 +8531,11 @@ IF @ProductVersionMajor >= 10
 											 WHEN [T].[TraceFlag] = '3226' THEN '3226 enabled globally, which keeps the event log clean by not reporting successful backups.'
 											 WHEN [T].[TraceFlag] = '3505' THEN '3505 enabled globally, which disables Checkpoints. This is usually a very bad idea.'
 											 WHEN [T].[TraceFlag] = '4199' THEN '4199 enabled globally, which enables non-default Query Optimizer fixes, changing query plans from the default behaviors.'
-											 WHEN [T].[TraceFlag] = '7745' AND  @ProductVersionMajor > 12 AND @QueryStoreInUse = 1 THEN '7745 enabled globally, which makes shutdowns/failovers quicker by not waiting for Query Store to flush to disk. This good idea loses you the non-flushed Query Store data.'
+											 WHEN [T].[TraceFlag] = '7745' AND @QueryStoreInUse = 1 THEN '7745 enabled globally, which makes shutdowns/failovers quicker by not waiting for Query Store to flush to disk. This good idea loses you the non-flushed Query Store data.'
 											 WHEN [T].[TraceFlag] = '7745' AND  @ProductVersionMajor > 12 THEN '7745 enabled globally, which is for Query Store. None of your databases have Query Store enabled, so why do you have this turned on?'
 											 WHEN [T].[TraceFlag] = '7745' AND  @ProductVersionMajor <= 12 THEN '7745 enabled globally, which is for Query Store. Query Store does not exist on your SQL Server version, so why do you have this turned on?'
 											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor > 14 THEN '7752 enabled globally, which is for Query Store. However, it has no effect in your SQL Server version. Consider turning it off.'
-											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor > 12 AND @QueryStoreInUse = 1 THEN '7752 enabled globally, which stops queries needing to wait on Query Store loading up after database recovery.'
+											 WHEN [T].[TraceFlag] = '7752' AND @QueryStoreInUse = 1 THEN '7752 enabled globally, which stops queries needing to wait on Query Store loading up after database recovery.'
 											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor > 12 THEN '7752 enabled globally, which is for Query Store. None of your databases have Query Store enabled, so why do you have this turned on?'
 											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor <= 12 THEN '7752 enabled globally, which is for Query Store. Query Store does not exist on your SQL Server version, so why do you have this turned on?'
 											 WHEN [T].[TraceFlag] = '8048' THEN '8048 enabled globally, which tries to reduce CMEMTHREAD waits on servers with a lot of logical processors.'
@@ -8495,6 +8545,54 @@ IF @ProductVersionMajor >= 10
 											 ELSE [T].[TraceFlag] + ' is enabled globally.' END
 										AS Details
 								FROM    #TraceStatus T;
+
+
+						IF NOT EXISTS ( SELECT  1
+										FROM    #TraceStatus T
+										WHERE   [T].[TraceFlag] = '7745' )
+							AND @QueryStoreInUse = 1
+
+							BEGIN
+								INSERT  INTO #BlitzResults
+										( CheckID ,
+										  Priority ,
+										  FindingsGroup ,
+										  Finding ,
+										  URL ,
+										  Details
+										)
+										SELECT  74 AS CheckID ,
+												200 AS Priority ,
+												'Informational' AS FindingsGroup ,
+												'Recommended Trace Flag Off' AS Finding ,
+												'https://www.sqlskills.com/blogs/erin/query-store-trace-flags/' AS URL ,
+												'Trace Flag 7745 not enabled globally. It makes shutdowns/failovers quicker by not waiting for Query Store to flush to disk. It is recommended, but it loses you the non-flushed Query Store data.' AS Details				
+										FROM    #TraceStatus T
+							END;
+
+						IF NOT EXISTS ( SELECT  1
+										FROM    #TraceStatus T
+										WHERE   [T].[TraceFlag] = '7752' )
+							AND @ProductVersionMajor < 15
+							AND @QueryStoreInUse = 1
+
+							BEGIN
+								INSERT  INTO #BlitzResults
+										( CheckID ,
+										  Priority ,
+										  FindingsGroup ,
+										  Finding ,
+										  URL ,
+										  Details
+										)
+										SELECT  74 AS CheckID ,
+												200 AS Priority ,
+												'Informational' AS FindingsGroup ,
+												'Recommended Trace Flag Off' AS Finding ,
+												'https://www.sqlskills.com/blogs/erin/query-store-trace-flags/' AS URL ,
+												'Trace Flag 7752 not enabled globally. It stops queries needing to wait on Query Store loading up after database recovery. It is so recommended that it is enabled by default as of SQL Server 2019.' AS Details						
+										FROM    #TraceStatus T
+							END;
 					END;
 
             /* High CMEMTHREAD waits that could need trace flag 8048.
@@ -10437,7 +10535,7 @@ AS
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
-SELECT @Version = '8.21', @VersionDate = '20240701';
+SELECT @Version = '8.22', @VersionDate = '20241019';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -11315,7 +11413,7 @@ AS
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.21', @VersionDate = '20240701';
+	SELECT @Version = '8.22', @VersionDate = '20241019';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -13097,7 +13195,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.21', @VersionDate = '20240701';
+SELECT @Version = '8.22', @VersionDate = '20241019';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -20471,7 +20569,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.21', @VersionDate = '20240701';
+SELECT @Version = '8.22', @VersionDate = '20241019';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -22302,6 +22400,7 @@ WITH
                   ON ty.user_type_id = co.user_type_id 
                 WHERE id_inner.index_handle = id.index_handle
                 AND   id_inner.object_id = id.object_id
+				AND   id_inner.database_id = DB_ID(''' +  QUOTENAME(@DatabaseName) + N''')
                 AND   cn_inner.IndexColumnType = cn.IndexColumnType
                 FOR XML PATH('''')
                 ),
@@ -22339,6 +22438,7 @@ WITH
                ) x (n)
                CROSS APPLY n.nodes(''x'') node(v)
            )AS cn
+		   WHERE id.database_id = DB_ID(''' +  QUOTENAME(@DatabaseName) + N''')
            GROUP BY    
                id.index_handle,
                id.object_id,
@@ -23921,7 +24021,7 @@ BEGIN
                         SELECT  1 AS check_id, 
                                 ip.index_sanity_id,
                                 20 AS Priority,
-                                'Multiple Index Personalities' AS findings_group,
+                                'Redundant Indexes' AS findings_group,
                                 'Duplicate keys' AS finding,
                                 [database_name] AS [Database Name],
                                 N'https://www.brentozar.com/go/duplicateindex' AS URL,
@@ -23958,8 +24058,8 @@ BEGIN
                         SELECT  2 AS check_id, 
                                 ip.index_sanity_id,
                                 30 AS Priority,
-                                'Multiple Index Personalities' AS findings_group,
-                                'Borderline duplicate keys' AS finding,
+                                'Redundant Indexes' AS findings_group,
+                                'Approximate Duplicate Keys' AS finding,
                                 [database_name] AS [Database Name],
                                 N'https://www.brentozar.com/go/duplicateindex' AS URL,
                                 ip.db_schema_object_indexid AS details, 
@@ -23992,7 +24092,7 @@ BEGIN
                 SELECT  11 AS check_id, 
                         i.index_sanity_id,
                         70 AS Priority,
-                        N'Aggressive ' 
+                        N'Locking-Prone ' 
                             + CASE COALESCE((SELECT SUM(1) 
 							                 FROM #IndexSanity iMe 
 											 INNER JOIN #IndexSanity iOthers 
@@ -24053,7 +24153,7 @@ BEGIN
                         SELECT  20 AS check_id, 
                                 MAX(i.index_sanity_id) AS index_sanity_id, 
                                 10 AS Priority,
-                                'Index Hoarder' AS findings_group,
+                                'Over-Indexing' AS findings_group,
                                 'Many NC Indexes on a Single Table' AS finding,
                                 [database_name] AS [Database Name],
                                 N'https://www.brentozar.com/go/IndexHoarder' AS URL,
@@ -24077,13 +24177,13 @@ BEGIN
                         ORDER BY i.db_schema_object_name DESC  
 						OPTION    ( RECOMPILE );
 
-                RAISERROR(N'check_id 22: NC indexes with 0 reads. (Borderline) and >= 10,000 writes', 0,1) WITH NOWAIT;
+                RAISERROR(N'check_id 22: NC indexes with 0 reads and >= 10,000 writes', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
                         SELECT  22 AS check_id, 
                                 i.index_sanity_id,
                                 10 AS Priority,
-                                N'Index Hoarder' AS findings_group,
+                                N'Over-Indexing' AS findings_group,
                                 N'Unused NC Index with High Writes' AS finding, 
                                 [database_name] AS [Database Name],
                                 N'https://www.brentozar.com/go/IndexHoarder' AS URL,
@@ -24116,7 +24216,7 @@ BEGIN
                         SELECT  34 AS check_id, 
                                 i.index_sanity_id,
                                 80 AS Priority,
-                                N'Abnormal Psychology' AS findings_group,
+                                N'Abnormal Design Pattern' AS findings_group,
                                 N'Filter Columns Not In Index Definition' AS finding, 
                                 [database_name] AS [Database Name],
                                 N'https://www.brentozar.com/go/IndexFeatures' AS URL,
@@ -24150,7 +24250,7 @@ BEGIN
                     SELECT  40 AS check_id, 
                             i.index_sanity_id,
                             100 AS Priority,
-                            N'Self Loathing Indexes' AS findings_group,
+                            N'Indexes Worth Reviewing' AS findings_group,
                             N'Low Fill Factor on Nonclustered Index' AS finding, 
                             [database_name] AS [Database Name],
                             N'https://www.brentozar.com/go/SelfLoathing' AS URL,
@@ -24177,7 +24277,7 @@ BEGIN
                     SELECT  40 AS check_id, 
                             i.index_sanity_id,
                             100 AS Priority,
-                            N'Self Loathing Indexes' AS findings_group,
+                            N'Indexes Worth Reviewing' AS findings_group,
                             N'Low Fill Factor on Clustered Index' AS finding, 
                             [database_name] AS [Database Name],
                             N'https://www.brentozar.com/go/SelfLoathing' AS URL,
@@ -24216,7 +24316,7 @@ BEGIN
                         SELECT  43 AS check_id, 
                                 i.index_sanity_id,
                                 100 AS Priority,
-                                N'Self Loathing Indexes' AS findings_group,
+                                N'Indexes Worth Reviewing' AS findings_group,
                                 N'Heaps with Forwarded Fetches' AS finding, 
                                 [database_name] AS [Database Name],
                                 N'https://www.brentozar.com/go/SelfLoathing' AS URL,
@@ -24259,7 +24359,7 @@ BEGIN
                         SELECT  44 AS check_id, 
                                 i.index_sanity_id,
                                 100 AS Priority,
-                                N'Self Loathing Indexes' AS findings_group,
+                                N'Indexes Worth Reviewing' AS findings_group,
                                 N'Large Active Heap' AS finding, 
                                 [database_name] AS [Database Name],
                                 N'https://www.brentozar.com/go/SelfLoathing' AS URL,
@@ -24297,7 +24397,7 @@ BEGIN
                         SELECT  45 AS check_id, 
                                 i.index_sanity_id,
                                 100 AS Priority,
-                                N'Self Loathing Indexes' AS findings_group,
+                                N'Indexes Worth Reviewing' AS findings_group,
                                 N'Medium Active heap' AS finding, 
                                 [database_name] AS [Database Name],
                                 N'https://www.brentozar.com/go/SelfLoathing' AS URL,
@@ -24336,7 +24436,7 @@ BEGIN
                         SELECT  46 AS check_id, 
                                 i.index_sanity_id,
                                 100 AS Priority,
-                                N'Self Loathing Indexes' AS findings_group,
+                                N'Indexes Worth Reviewing' AS findings_group,
                                 N'Small Active heap' AS finding, 
                                 [database_name] AS [Database Name],
                                 N'https://www.brentozar.com/go/SelfLoathing' AS URL,
@@ -24363,7 +24463,7 @@ BEGIN
                         SELECT  47 AS check_id, 
                                 i.index_sanity_id,
                                 100 AS Priority,
-                                N'Self Loathing Indexes' AS findings_group,
+                                N'Indexes Worth Reviewing' AS findings_group,
                                 N'Heap with a Nonclustered Primary Key' AS finding, 
                                 [database_name] AS [Database Name],
                                 N'https://www.brentozar.com/go/SelfLoathing' AS URL,
@@ -24391,7 +24491,7 @@ BEGIN
                         SELECT  48 AS check_id, 
                                 i.index_sanity_id,
                                 100 AS Priority,
-                                N'Index Hoarder' AS findings_group,
+                                N'Over-Indexing' AS findings_group,
                                 N'NC index with High Writes:Reads' AS finding, 
                                 [database_name] AS [Database Name],
                                 N'https://www.brentozar.com/go/IndexHoarder' AS URL,
@@ -24421,7 +24521,7 @@ BEGIN
         --Indexaphobia
         --Missing indexes with value >= 5 million: : Check_id 50-59
         ----------------------------------------
-            RAISERROR(N'check_id 50: Indexaphobia.', 0,1) WITH NOWAIT;
+            RAISERROR(N'check_id 50: High Value Missing Index.', 0,1) WITH NOWAIT;
             WITH    index_size_cte
                       AS ( SELECT   i.database_id,
 									i.schema_name,
@@ -24459,7 +24559,7 @@ BEGIN
                                 50 AS check_id, 
                                 sz.index_sanity_id,
                                 40 AS Priority,
-                                N'Indexaphobia' AS findings_group,
+                                N'Index Suggestion' AS findings_group,
                                 N'High Value Missing Index' AS finding, 
                                 [database_name] AS [Database Name],
                                 N'https://www.brentozar.com/go/Indexaphobia' AS URL,
@@ -24504,7 +24604,7 @@ BEGIN
                         SELECT  68 AS check_id, 
                                 i.index_sanity_id, 
                                 80 AS Priority,
-                                N'Abnormal Psychology' AS findings_group,
+                                N'Abnormal Design Pattern' AS findings_group,
                                 N'Identity Column Within ' +                                     
                                     CAST (calc1.percent_remaining AS NVARCHAR(256))
                                     + N' Percent End of Range' AS finding,
@@ -24569,7 +24669,7 @@ BEGIN
                 SELECT  72 AS check_id, 
                         i.index_sanity_id,
                         80 AS Priority,
-                        N'Abnormal Psychology' AS findings_group,
+                        N'Abnormal Design Pattern' AS findings_group,
                         'Columnstore Indexes with Trace Flag 834' AS finding, 
                         [database_name] AS [Database Name],
                         N'https://support.microsoft.com/en-us/kb/3210239' AS URL,
@@ -24593,7 +24693,7 @@ BEGIN
                                                secret_columns, index_usage_summary, index_size_summary )
 		SELECT  90 AS check_id, 
 				90 AS Priority,
-				'Functioning Statistaholics' AS findings_group,
+				'Statistics Warnings' AS findings_group,
 				'Statistics Not Updated Recently',
 				s.database_name,
 				'https://www.brentozar.com/go/stats' AS URL,
@@ -24620,7 +24720,7 @@ BEGIN
                                                secret_columns, index_usage_summary, index_size_summary )
 		SELECT  91 AS check_id, 
 				90 AS Priority,
-				'Functioning Statistaholics' AS findings_group,
+				'Statistics Warnings' AS findings_group,
 				'Low Sampling Rates',
 				s.database_name,
 				'https://www.brentozar.com/go/stats' AS URL,
@@ -24639,7 +24739,7 @@ BEGIN
                                                secret_columns, index_usage_summary, index_size_summary )
 		SELECT  92 AS check_id, 
 				90 AS Priority,
-				'Functioning Statistaholics' AS findings_group,
+				'Statistics Warnings' AS findings_group,
 				'Statistics With NO RECOMPUTE',
 				s.database_name,
 				'https://www.brentozar.com/go/stats' AS URL,
@@ -24658,7 +24758,7 @@ BEGIN
                                                secret_columns, index_usage_summary, index_size_summary )
 		SELECT  94 AS check_id, 
 				100 AS Priority,
-				'Serial Forcer' AS findings_group,
+				'Forced Serialization' AS findings_group,
 				'Check Constraint with Scalar UDF' AS finding,
 				cc.database_name,
 				'https://www.brentozar.com/go/computedscalar' AS URL,
@@ -24677,7 +24777,7 @@ BEGIN
                                                secret_columns, index_usage_summary, index_size_summary )
 		SELECT  99 AS check_id, 
 				100 AS Priority,
-				'Serial Forcer' AS findings_group,
+				'Forced Serialization' AS findings_group,
 				'Computed Column with Scalar UDF' AS finding,
 				cc.database_name,
 				'https://www.brentozar.com/go/serialudf' AS URL,
@@ -24734,7 +24834,7 @@ BEGIN
                         SELECT  21 AS check_id, 
                                 MAX(i.index_sanity_id) AS index_sanity_id, 
                                 150 AS Priority,
-                                N'Index Hoarder' AS findings_group,
+                                N'Over-Indexing' AS findings_group,
                                 N'More Than 5 Percent NC Indexes Are Unused' AS finding,
                                 [database_name] AS [Database Name],
                                 N'https://www.brentozar.com/go/IndexHoarder' AS URL,
@@ -24769,8 +24869,8 @@ BEGIN
                     SELECT  23 AS check_id, 
                             i.index_sanity_id,
                             150 AS Priority, 
-                            N'Index Hoarder' AS findings_group,
-                            N'Borderline: Wide Indexes (7 or More Columns)' AS finding, 
+                            N'Over-Indexing' AS findings_group,
+                            N'Approximate: Wide Indexes (7 or More Columns)' AS finding, 
                             [database_name] AS [Database Name],
                             N'https://www.brentozar.com/go/IndexHoarder' AS URL,
                             CAST(count_key_columns + count_included_columns AS NVARCHAR(10)) + ' columns on '
@@ -24797,7 +24897,7 @@ BEGIN
                         SELECT  24 AS check_id, 
                                 i.index_sanity_id, 
                                 150 AS Priority,
-                                N'Index Hoarder' AS findings_group,
+                                N'Over-Indexing' AS findings_group,
                                 N'Wide Clustered Index (> 3 columns OR > 16 bytes)' AS finding,
                                 [database_name] AS [Database Name],
                                 N'https://www.brentozar.com/go/IndexHoarder' AS URL,
@@ -24829,7 +24929,7 @@ BEGIN
 									AND i.is_CX_columnstore = 0
                         ORDER BY i.db_schema_object_name DESC OPTION    ( RECOMPILE );
 
-            RAISERROR(N'check_id 25: Addicted to nullable columns.', 0,1) WITH NOWAIT;
+            RAISERROR(N'check_id 25: High ratio of nullable columns.', 0,1) WITH NOWAIT;
                 WITH count_columns AS (
                             SELECT [object_id],
 								   [database_id],
@@ -24847,8 +24947,8 @@ BEGIN
                         SELECT  25 AS check_id, 
                                 i.index_sanity_id, 
                                 200 AS Priority,
-                                N'Index Hoarder' AS findings_group,
-                                N'Addicted to Nulls' AS finding,
+                                N'Over-Indexing' AS findings_group,
+                                N'High Ratio of Nulls' AS finding,
                                 [database_name] AS [Database Name],
                                 N'https://www.brentozar.com/go/IndexHoarder' AS URL,
                                 i.db_schema_object_name 
@@ -24888,7 +24988,7 @@ BEGIN
                         SELECT  26 AS check_id, 
                                 i.index_sanity_id, 
                                 150 AS Priority,
-                                N'Index Hoarder' AS findings_group,
+                                N'Over-Indexing' AS findings_group,
                                 N'Wide Tables: 35+ cols or > 2000 non-LOB bytes' AS finding,
                                 [database_name] AS [Database Name],
                                 N'https://www.brentozar.com/go/IndexHoarder' AS URL,
@@ -24915,7 +25015,7 @@ BEGIN
                             cc.sum_max_length >= 2000)
                         ORDER BY i.db_schema_object_name DESC OPTION    ( RECOMPILE );
                     
-            RAISERROR(N'check_id 27: Addicted to strings.', 0,1) WITH NOWAIT;
+            RAISERROR(N'check_id 27: High Ratio of Strings.', 0,1) WITH NOWAIT;
                 WITH count_columns AS (
                             SELECT [object_id],
 								   [database_id],
@@ -24933,8 +25033,8 @@ BEGIN
                         SELECT  27 AS check_id, 
                                 i.index_sanity_id, 
                                 200 AS Priority,
-                                N'Index Hoarder' AS findings_group,
-                                N'Addicted to strings' AS finding,
+                                N'Over-Indexing' AS findings_group,
+                                N'High Ratio of Strings' AS finding,
                                 [database_name] AS [Database Name],
                                 N'https://www.brentozar.com/go/IndexHoarder' AS URL,
                                 i.db_schema_object_name 
@@ -24962,7 +25062,7 @@ BEGIN
                         SELECT  28 AS check_id, 
                                 i.index_sanity_id, 
                                 150 AS Priority,
-                                N'Index Hoarder' AS findings_group,
+                                N'Over-Indexing' AS findings_group,
                                 N'Non-Unique Clustered Index' AS finding,
                                 [database_name] AS [Database Name],
                                 N'https://www.brentozar.com/go/IndexHoarder' AS URL,
@@ -24988,13 +25088,13 @@ BEGIN
                                 AND is_CX_columnstore=0 /* not a clustered columnstore-- no unique option on those */
                         ORDER BY i.db_schema_object_name DESC OPTION    ( RECOMPILE );
 
-        RAISERROR(N'check_id 29: NC indexes with 0 reads. (Borderline) and < 10,000 writes', 0,1) WITH NOWAIT;
+        RAISERROR(N'check_id 29: NC indexes with 0 reads and < 10,000 writes', 0,1) WITH NOWAIT;
         INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                         secret_columns, index_usage_summary, index_size_summary )
                 SELECT  29 AS check_id, 
                         i.index_sanity_id,
                         150 AS Priority,
-                        N'Index Hoarder' AS findings_group,
+                        N'Over-Indexing' AS findings_group,
                         N'Unused NC index with Low Writes' AS finding, 
                         [database_name] AS [Database Name],
                         N'https://www.brentozar.com/go/IndexHoarder' AS URL,
@@ -25040,7 +25140,7 @@ BEGIN
                         SELECT  30 AS check_id, 
                                 NULL AS index_sanity_id, 
                                 250 AS Priority,
-                                N'Feature-Phobic Indexes' AS findings_group,
+                                N'Omitted Index Features' AS findings_group,
 								database_name AS [Database Name],
                                 N'No Indexes Use Includes' AS finding, 'https://www.brentozar.com/go/IndexFeatures' AS URL,
                                 N'No Indexes Use Includes' AS details,
@@ -25058,7 +25158,7 @@ BEGIN
 					SELECT  31 AS check_id,
 					        NULL AS index_sanity_id, 
 					        250 AS Priority,
-					        N'Feature-Phobic Indexes' AS findings_group,
+					        N'Omitted Index Features' AS findings_group,
 					        N'Few Indexes Use Includes' AS findings,
 					        database_name AS [Database Name],
 					        N'https://www.brentozar.com/go/IndexFeatures' AS URL,
@@ -25079,7 +25179,7 @@ BEGIN
 							32 AS check_id, 
 					        NULL AS index_sanity_id,
 					        250 AS Priority,
-					        N'Feature-Phobic Indexes' AS findings_group,
+					        N'Omitted Index Features' AS findings_group,
 					        N'No Filtered Indexes or Indexed Views' AS finding, 
 					        i.database_name AS [Database Name],
 					        N'https://www.brentozar.com/go/IndexFeatures' AS URL,
@@ -25105,7 +25205,7 @@ BEGIN
 					SELECT  33 AS check_id, 
 					        i.index_sanity_id AS index_sanity_id,
 					        250 AS Priority,
-					        N'Feature-Phobic Indexes' AS findings_group,
+					        N'Omitted Index Features' AS findings_group,
 					        N'Potential Filtered Index (Based on Column Name)' AS finding, 
 					        [database_name] AS [Database Name],
 					        N'https://www.brentozar.com/go/IndexFeatures' AS URL,
@@ -25133,7 +25233,7 @@ BEGIN
                     SELECT  41 AS check_id, 
                             i.index_sanity_id,
                             150 AS Priority,
-                            N'Self Loathing Indexes' AS findings_group,
+                            N'Indexes Worth Reviewing' AS findings_group,
                             N'Hypothetical Index' AS finding,
                             [database_name] AS [Database Name],
                             N'https://www.brentozar.com/go/SelfLoathing' AS URL,
@@ -25154,7 +25254,7 @@ BEGIN
                     SELECT  42 AS check_id, 
                             index_sanity_id,
                             150 AS Priority,
-                            N'Self Loathing Indexes' AS findings_group,
+                            N'Indexes Worth Reviewing' AS findings_group,
                             N'Disabled Index' AS finding, 
                             [database_name] AS [Database Name],
                             N'https://www.brentozar.com/go/SelfLoathing' AS URL,
@@ -25184,7 +25284,7 @@ BEGIN
                         SELECT  49 AS check_id, 
                                 i.index_sanity_id,
                                 200 AS Priority,
-                                N'Self Loathing Indexes' AS findings_group,
+                                N'Indexes Worth Reviewing' AS findings_group,
                                 N'Heaps with Deletes' AS finding, 
                                 [database_name] AS [Database Name],
                                 N'https://www.brentozar.com/go/SelfLoathing' AS URL,
@@ -25212,7 +25312,7 @@ BEGIN
                     SELECT  60 AS check_id, 
                             i.index_sanity_id,
                             150 AS Priority,
-                            N'Abnormal Psychology' AS findings_group,
+                            N'Abnormal Design Pattern' AS findings_group,
                             N'XML Index' AS finding, 
                             [database_name] AS [Database Name],
                             N'https://www.brentozar.com/go/AbnormalPsychology' AS URL,
@@ -25232,7 +25332,7 @@ BEGIN
                     SELECT  61 AS check_id, 
                             i.index_sanity_id,
                             150 AS Priority,
-                            N'Abnormal Psychology' AS findings_group,
+                            N'Abnormal Design Pattern' AS findings_group,
                             CASE WHEN i.is_NC_columnstore=1
                                 THEN N'NC Columnstore Index' 
                                 ELSE N'Clustered Columnstore Index' 
@@ -25256,7 +25356,7 @@ BEGIN
                     SELECT  62 AS check_id, 
                             i.index_sanity_id,
                             150 AS Priority,
-                            N'Abnormal Psychology' AS findings_group,
+                            N'Abnormal Design Pattern' AS findings_group,
                             N'Spatial Index' AS finding,
                             [database_name] AS [Database Name], 
                             N'https://www.brentozar.com/go/AbnormalPsychology' AS URL,
@@ -25276,7 +25376,7 @@ BEGIN
                     SELECT  63 AS check_id, 
                             i.index_sanity_id,
                             150 AS Priority,
-                            N'Abnormal Psychology' AS findings_group,
+                            N'Abnormal Design Pattern' AS findings_group,
                             N'Compressed Index' AS finding,
                             [database_name] AS [Database Name], 
                             N'https://www.brentozar.com/go/AbnormalPsychology' AS URL,
@@ -25296,7 +25396,7 @@ BEGIN
                     SELECT  64 AS check_id, 
                             i.index_sanity_id,
                             150 AS Priority,
-                            N'Abnormal Psychology' AS findings_group,
+                            N'Abnormal Design Pattern' AS findings_group,
                             N'Partitioned Index' AS finding,
                             [database_name] AS [Database Name], 
                             N'https://www.brentozar.com/go/AbnormalPsychology' AS URL,
@@ -25316,7 +25416,7 @@ BEGIN
                     SELECT  65 AS check_id, 
                             i.index_sanity_id,
                             150 AS Priority,
-                            N'Abnormal Psychology' AS findings_group,
+                            N'Abnormal Design Pattern' AS findings_group,
                             N'Non-Aligned Index on a Partitioned Table' AS finding,
                             i.[database_name] AS [Database Name], 
                             N'https://www.brentozar.com/go/AbnormalPsychology' AS URL,
@@ -25342,7 +25442,7 @@ BEGIN
                     SELECT  66 AS check_id, 
                             i.index_sanity_id,
                             200 AS Priority,
-                            N'Abnormal Psychology' AS findings_group,
+                            N'Abnormal Design Pattern' AS findings_group,
                             N'Recently Created Tables/Indexes (1 week)' AS finding,
                             [database_name] AS [Database Name], 
                             N'https://www.brentozar.com/go/AbnormalPsychology' AS URL,
@@ -25365,7 +25465,7 @@ BEGIN
                     SELECT  67 AS check_id, 
                             i.index_sanity_id,
                             200 AS Priority,
-                            N'Abnormal Psychology' AS findings_group,
+                            N'Abnormal Design Pattern' AS findings_group,
                             N'Recently Modified Tables/Indexes (2 days)' AS finding,
                             [database_name] AS [Database Name], 
                             N'https://www.brentozar.com/go/AbnormalPsychology' AS URL,
@@ -25402,7 +25502,7 @@ BEGIN
                         SELECT  69 AS check_id, 
                                 i.index_sanity_id, 
                                 150 AS Priority,
-                                N'Abnormal Psychology' AS findings_group,
+                                N'Abnormal Design Pattern' AS findings_group,
                                 N'Column Collation Does Not Match Database Collation' AS finding,
                                 [database_name] AS [Database Name],
                                 N'https://www.brentozar.com/go/AbnormalPsychology' AS URL,
@@ -25441,7 +25541,7 @@ BEGIN
                         SELECT  70 AS check_id, 
                                 i.index_sanity_id,
                                 200 AS Priority, 
-                                N'Abnormal Psychology' AS findings_group,
+                                N'Abnormal Design Pattern' AS findings_group,
                                 N'Replicated Columns' AS finding,
                                 [database_name] AS [Database Name],
                                 N'https://www.brentozar.com/go/AbnormalPsychology' AS URL,
@@ -25471,7 +25571,7 @@ BEGIN
             SELECT  71 AS check_id, 
                     NULL AS index_sanity_id,
                     150 AS Priority,
-                    N'Abnormal Psychology' AS findings_group,
+                    N'Abnormal Design Pattern' AS findings_group,
                     N'Cascading Updates or Deletes' AS finding, 
                     [database_name] AS [Database Name],
                     N'https://www.brentozar.com/go/AbnormalPsychology' AS URL,
@@ -25499,7 +25599,7 @@ BEGIN
             SELECT  72 AS check_id, 
                     NULL AS index_sanity_id,
                     150 AS Priority,
-                    N'Abnormal Psychology' AS findings_group,
+                    N'Abnormal Design Pattern' AS findings_group,
                     N'Unindexed Foreign Keys' AS finding, 
                     [database_name] AS [Database Name],
                     N'https://www.brentozar.com/go/AbnormalPsychology' AS URL,
@@ -25523,7 +25623,7 @@ BEGIN
                     SELECT  73 AS check_id, 
                             i.index_sanity_id,
                             150 AS Priority,
-                            N'Abnormal Psychology' AS findings_group,
+                            N'Abnormal Design Pattern' AS findings_group,
                             N'In-Memory OLTP' AS finding,
                             [database_name] AS [Database Name], 
                             N'https://www.brentozar.com/go/AbnormalPsychology' AS URL,
@@ -25543,7 +25643,7 @@ BEGIN
                     SELECT  74 AS check_id, 
                             i.index_sanity_id, 
                             200 AS Priority,
-                            N'Abnormal Psychology' AS findings_group,
+                            N'Abnormal Design Pattern' AS findings_group,
                             N'Identity Column Using a Negative Seed or Increment Other Than 1' AS finding,
                             [database_name] AS [Database Name],
                             N'https://www.brentozar.com/go/AbnormalPsychology' AS URL,
@@ -25595,7 +25695,7 @@ BEGIN
             80 AS check_id,
             i.index_sanity_id AS index_sanity_id,
             200 AS Priority,
-            N'Workaholics' AS findings_group,
+            N'High Workloads' AS findings_group,
             N'Scan-a-lots (index-usage-stats)' AS finding,
             [database_name] AS [Database Name],
             N'https://www.brentozar.com/go/Workaholics' AS URL,
@@ -25623,7 +25723,7 @@ BEGIN
             81 AS check_id,
             i.index_sanity_id AS index_sanity_id,
             200 AS Priority,
-            N'Workaholics' AS findings_group,
+            N'High Workloads' AS findings_group,
             N'Top Recent Accesses (index-op-stats)' AS finding,
             [database_name] AS [Database Name],
             N'https://www.brentozar.com/go/Workaholics' AS URL,
@@ -25651,8 +25751,8 @@ BEGIN
                                                secret_columns, index_usage_summary, index_size_summary )
 		SELECT  93 AS check_id, 
 				200 AS Priority,
-				'Functioning Statistaholics' AS findings_group,
-				'Filter Fixation',
+				'Statistics Warnings' AS findings_group,
+				'Statistics With Filters',
 				s.database_name,
 				'https://www.brentozar.com/go/stats' AS URL,
 				'The statistic ' + QUOTENAME(s.statistics_name) +  ' is filtered on [' + s.filter_definition + ']. It could be part of a filtered index, or just a filtered statistic. This is purely informational.' AS details,
@@ -25670,8 +25770,8 @@ BEGIN
                                                secret_columns, index_usage_summary, index_size_summary )
 		SELECT  100 AS check_id, 
 				200 AS Priority,
-				'Cold Calculators' AS findings_group,
-				'Definition Defeatists' AS finding,
+				'Repeated Calculations' AS findings_group,
+				'Computed Columns Not Persisted' AS finding,
 				cc.database_name,
 				'' AS URL,
 				'The computed column ' + QUOTENAME(cc.column_name) + ' on ' + QUOTENAME(cc.schema_name) + '.' + QUOTENAME(cc.table_name) + ' is not persisted, which means it will be calculated when a query runs.' + 
@@ -25691,7 +25791,7 @@ BEGIN
 
 				SELECT  110 AS check_id, 
 				200 AS Priority,
-				'Abnormal Psychology' AS findings_group,
+				'Abnormal Design Pattern' AS findings_group,
 				'Temporal Tables',
 				t.database_name,
 				'' AS URL,
@@ -25711,7 +25811,7 @@ BEGIN
 
 				SELECT  121 AS check_id, 
 				200 AS Priority,
-				'Medicated Indexes' AS findings_group,
+				'Specialized Indexes' AS findings_group,
 				'Optimized For Sequential Keys',
 				i.database_name,
 				'' AS URL,
@@ -26965,7 +27065,7 @@ BEGIN
     SET XACT_ABORT OFF;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-    SELECT @Version = '8.21', @VersionDate = '20240701';
+    SELECT @Version = '8.22', @VersionDate = '20241019';
 
     IF @VersionCheckMode = 1
     BEGIN
@@ -30603,8 +30703,9 @@ BEGIN
                 SET STATISTICS XML ON;
             END;
 
-            INSERT INTO
-                DeadLockTbl
+			SET @StringToExecute = N'
+
+				INSERT INTO ' + QUOTENAME(DB_NAME()) + N'..DeadLockTbl
             (
                 ServerName,
                 deadlock_type,
@@ -30648,7 +30749,8 @@ BEGIN
                 deadlock_graph
             )
             EXEC sys.sp_executesql
-                @deadlock_result;
+                @deadlock_result;'
+			EXEC sys.sp_executesql @StringToExecute, N'@deadlock_result NVARCHAR(MAX)', @deadlock_result;
 
             IF @Debug = 1
             BEGIN
@@ -30662,8 +30764,9 @@ BEGIN
             SET @d = CONVERT(varchar(40), GETDATE(), 109);
             RAISERROR('Findings to table %s', 0, 1, @d) WITH NOWAIT;
 
-            INSERT INTO
-                DeadlockFindings
+            SET @StringToExecute = N'
+
+				INSERT INTO ' + QUOTENAME(DB_NAME()) + N'..DeadlockFindings
             (
                 ServerName,
                 check_id,
@@ -30681,7 +30784,8 @@ BEGIN
                 df.finding
             FROM #deadlock_findings AS df
             ORDER BY df.check_id
-            OPTION(RECOMPILE);
+            OPTION(RECOMPILE);'
+			EXEC sys.sp_executesql @StringToExecute;
 
             RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
@@ -30977,17 +31081,23 @@ BEGIN
             FROM @sysAssObjId AS s
             OPTION(RECOMPILE);
 
+            IF OBJECT_ID('tempdb..#available_plans') IS NOT NULL
+            BEGIN
             SELECT
                 table_name = N'#available_plans',
                 *
             FROM #available_plans AS ap
             OPTION(RECOMPILE);
+            END;
 
+            IF OBJECT_ID('tempdb..#dm_exec_query_stats') IS NOT NULL
+            BEGIN    
             SELECT
                 table_name = N'#dm_exec_query_stats',
                 *
             FROM #dm_exec_query_stats
             OPTION(RECOMPILE);
+            END;
 
             SELECT
                 procedure_parameters =
@@ -31120,7 +31230,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.21', @VersionDate = '20240701';
+	SELECT @Version = '8.22', @VersionDate = '20241019';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -32533,7 +32643,7 @@ SET STATISTICS XML OFF;
 
 /*Versioning details*/
 
-SELECT @Version = '8.21', @VersionDate = '20240701';
+SELECT @Version = '8.22', @VersionDate = '20241019';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -33165,13 +33275,15 @@ BEGIN
 		END;
 
     -- Find latest full backup
-    SELECT @LastFullBackup = MAX(BackupFile)
+    -- Get the TOP record to use in "Restore HeaderOnly/FileListOnly" statement as well as Non-Split Backups Restore Command
+    SELECT TOP 1 @LastFullBackup = BackupFile, @CurrentBackupPathFull = BackupPath
     FROM @FileList
     WHERE BackupFile LIKE N'%.bak'
         AND
         BackupFile LIKE N'%' + @Database + N'%'
 	    AND
-	    (@StopAt IS NULL OR REPLACE( RIGHT( REPLACE( @LastFullBackup, RIGHT( @LastFullBackup, PATINDEX( '%_[0-9][0-9]%', REVERSE( @LastFullBackup ) ) ), '' ), 16 ), '_', '' ) <= @StopAt);
+	    (@StopAt IS NULL OR REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) <= @StopAt)
+    ORDER BY BackupFile DESC;
 
     /*	To get all backups that belong to the same set we can do two things:
 		    1.	RESTORE HEADERONLY of ALL backup files in the folder and look for BackupSetGUID.
@@ -33210,11 +33322,6 @@ BEGIN
 
     SET @FileListParamSQL += N')' + NCHAR(13) + NCHAR(10);
     SET @FileListParamSQL += N'EXEC (''RESTORE FILELISTONLY FROM DISK=''''{Path}'''''')';
-
-	-- get the TOP record to use in "Restore HeaderOnly/FileListOnly" statement as well as Non-Split Backups Restore Command
-	SELECT TOP 1 @CurrentBackupPathFull = BackupPath, @LastFullBackup = BackupFile
-	FROM @FileList
-	ORDER BY REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) DESC;
 
     SET @sql = REPLACE(@FileListParamSQL, N'{Path}', @CurrentBackupPathFull + @LastFullBackup);
 
@@ -34205,7 +34312,7 @@ BEGIN
   SET NOCOUNT ON;
   SET STATISTICS XML OFF;
 
-  SELECT @Version = '8.21', @VersionDate = '20240701';
+  SELECT @Version = '8.22', @VersionDate = '20241019';
   
   IF(@VersionCheckMode = 1)
   BEGIN
@@ -34567,6 +34674,11 @@ DELETE FROM dbo.SqlServerVersions;
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
+    /*2022*/
+    (16, 4150, 'CU15 GDR', 'https://support.microsoft.com/en-us/help/5046059', '2024-10-08', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 15 GDR'),
+    (16, 4145, 'CU15', 'https://support.microsoft.com/en-us/help/5041321', '2024-09-25', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 15'),
+    (16, 4140, 'CU14 GDR', 'https://support.microsoft.com/en-us/help/5042578', '2024-09-10', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 14 GDR'),
+    (16, 4135, 'CU14', 'https://support.microsoft.com/en-us/help/5038325', '2024-07-23', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 14'),
     (16, 4125, 'CU13', 'https://support.microsoft.com/en-us/help/5036432', '2024-05-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 13'),
     (16, 4115, 'CU12', 'https://support.microsoft.com/en-us/help/5033663', '2024-03-14', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 12'),
     (16, 4105, 'CU11', 'https://support.microsoft.com/en-us/help/5032679', '2024-01-11', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 11'),
@@ -34583,6 +34695,10 @@ VALUES
     (16, 4003, 'CU1', 'https://support.microsoft.com/en-us/help/5022375', '2023-02-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 1'),
     (16, 1050, 'RTM GDR', 'https://support.microsoft.com/kb/5021522', '2023-02-14', '2028-01-11', '2033-01-11', 'SQL Server 2022 GDR', 'RTM'),
     (16, 1000, 'RTM', '', '2022-11-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'RTM'),
+    /*2019*/
+    (15, 4395, 'CU28 GDR', 'https://support.microsoft.com/kb/5046060', '2024-10-08', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 28 GDR'),
+    (15, 4390, 'CU28 GDR', 'https://support.microsoft.com/kb/5042749', '2024-09-10', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 28 GDR'),
+    (15, 4385, 'CU28', 'https://support.microsoft.com/kb/5039747', '2024-08-01', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 28'),
     (15, 4375, 'CU27', 'https://support.microsoft.com/kb/5037331', '2024-06-14', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 27'),
     (15, 4365, 'CU26', 'https://support.microsoft.com/kb/5035123', '2024-04-11', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 26'),
     (15, 4355, 'CU25', 'https://support.microsoft.com/kb/5033688', '2024-02-15', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 25'),
@@ -34615,7 +34731,11 @@ VALUES
     (15, 4003, 'CU1', 'https://support.microsoft.com/en-us/help/4527376', '2020-01-07', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 1 '),
     (15, 2070, 'GDR', 'https://support.microsoft.com/en-us/help/4517790', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM GDR '),
     (15, 2000, 'RTM ', '', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM '),
-    (14, 3465, 'RTM CU31 GDR', 'https://support.microsoft.com/kb/5029376', '2023-10-12', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
+    /*2017*/
+    (14, 3480, 'RTM CU31 GDR', 'https://support.microsoft.com/kb/5046061', '2024-10-08', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
+    (14, 3475, 'RTM CU31 GDR', 'https://support.microsoft.com/kb/5042215', '2024-09-10', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
+    (14, 3471, 'RTM CU31 GDR', 'https://support.microsoft.com/kb/5040940', '2024-07-09', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
+    (14, 3465, 'RTM CU31 GDR', 'https://support.microsoft.com/kb/5029376', '2023-10-10', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
     (14, 3460, 'RTM CU31 GDR', 'https://support.microsoft.com/kb/5021126', '2023-02-14', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
     (14, 3456, 'RTM CU31', 'https://support.microsoft.com/en-us/help/5016884', '2022-09-20', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31'),
     (14, 3451, 'RTM CU30', 'https://support.microsoft.com/en-us/help/5013756', '2022-07-13', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 30'),
@@ -34651,8 +34771,18 @@ VALUES
     (14, 3008, 'RTM CU2', 'https://support.microsoft.com/en-us/help/4052574', '2017-11-28', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 2'),
     (14, 3006, 'RTM CU1', 'https://support.microsoft.com/en-us/help/4038634', '2017-10-24', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 1'),
     (14, 1000, 'RTM ', '', '2017-10-02', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM '),
+    /*2016*/
+    (13, 7045, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/en-us/help/5046062', '2024-10-08', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
+    (13, 7040, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/en-us/help/5042209', '2024-09-10', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
+    (13, 7037, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/en-us/help/5040944', '2024-07-09', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
+    (13, 7029, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/en-us/help/5029187', '2023-10-10', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
+    (13, 7024, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/en-us/help/5021128', '2023-02-14', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
     (13, 7016, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/en-us/help/5015371', '2022-06-14', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
     (13, 7000, 'SP3 Azure Feature Pack', 'https://support.microsoft.com/en-us/help/5014242', '2022-05-19', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack'),
+    (13, 6450, 'SP3 GDR', 'https://support.microsoft.com/kb/5046063', '2024-10-08', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
+    (13, 6445, 'SP3 GDR', 'https://support.microsoft.com/kb/5042207', '2024-09-10', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
+    (13, 6441, 'SP3 GDR', 'https://support.microsoft.com/kb/5040946', '2024-07-09', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
+    (13, 6435, 'SP3 GDR', 'https://support.microsoft.com/kb/5029186', '2023-10-10', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
     (13, 6430, 'SP3 GDR', 'https://support.microsoft.com/kb/5021129', '2023-02-14', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
     (13, 6419, 'SP3 GDR', 'https://support.microsoft.com/en-us/help/5014355', '2022-06-14', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
     (13, 6404, 'SP3 GDR', 'https://support.microsoft.com/en-us/help/5006943', '2021-10-27', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
@@ -34705,6 +34835,8 @@ VALUES
     (13, 2164, 'RTM CU2', 'https://support.microsoft.com/en-us/help/3182270 ', '2016-09-22', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 2'),
     (13, 2149, 'RTM CU1', 'https://support.microsoft.com/en-us/help/3164674 ', '2016-07-25', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 1'),
     (13, 1601, 'RTM ', '', '2016-06-01', '2019-01-09', '2019-01-09', 'SQL Server 2016', 'RTM '),
+    /*2014*/
+    (12, 6449, 'SP3 CU4 GDR', 'https://support.microsoft.com/kb/5029185', '2023-10-12', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 4 GDR'),
     (12, 6444, 'SP3 CU4 GDR', 'https://support.microsoft.com/kb/5021045', '2023-02-14', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 4 GDR'),
     (12, 6439, 'SP3 CU4 GDR', 'https://support.microsoft.com/en-us/help/5014164', '2022-06-14', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 4 GDR'),
     (12, 6433, 'SP3 CU4 GDR', 'https://support.microsoft.com/en-us/help/4583462', '2021-01-12', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 4 GDR'),
@@ -34769,6 +34901,8 @@ VALUES
     (12, 2269, 'RTM MS15-058: GDR Security Update ', 'https://support.microsoft.com/en-us/help/3045324', '2015-07-14', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM MS15-058: GDR Security Update '),
     (12, 2254, 'RTM MS14-044: GDR Security Update', 'https://support.microsoft.com/en-us/help/2977315', '2014-08-12', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM MS14-044: GDR Security Update'),
     (12, 2000, 'RTM ', '', '2014-04-01', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM '),
+    /*2012*/
+    (11, 7512, 'SP4 GDR Security Update', 'https://support.microsoft.com/en-us/help/5021123', '2023-02-16', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'Service Pack 4 GDR Security Update for CVE-2021-1636'),
     (11, 7507, 'SP4 GDR Security Update', 'https://support.microsoft.com/en-us/help/4583465', '2021-01-12', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'Service Pack 4 GDR Security Update for CVE-2021-1636'),
     (11, 7493, 'SP4 GDR Security Update', 'https://support.microsoft.com/en-us/help/4532098', '2020-02-11', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'Service Pack 4 GDR Security Update for CVE-2020-0618'),
     (11, 7469, 'SP4 On-Demand Hotfix Update', 'https://support.microsoft.com/en-us/help/4091266', '2018-03-28', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'Service Pack 4 SP4 On-Demand Hotfix Update'),
@@ -34836,6 +34970,7 @@ VALUES
     (11, 2316, 'RTM CU1', 'https://support.microsoft.com/en-us/help/2679368', '2012-04-12', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 1'),
     (11, 2218, 'RTM MS12-070: GDR Security Update', 'https://support.microsoft.com/en-us/help/2716442', '2012-10-09', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM MS12-070: GDR Security Update'),
     (11, 2100, 'RTM ', '', '2012-03-06', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM '),
+    /*2008 R2*/
     (10, 6529, 'SP3 MS15-058: QFE Security Update', 'https://support.microsoft.com/en-us/help/3045314', '2015-07-14', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'Service Pack 3 MS15-058: QFE Security Update'),
     (10, 6220, 'SP3 MS15-058: QFE Security Update', 'https://support.microsoft.com/en-us/help/3045316', '2015-07-14', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'Service Pack 3 MS15-058: QFE Security Update'),
     (10, 6000, 'SP3 ', 'https://support.microsoft.com/en-us/help/2979597', '2014-09-26', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'Service Pack 3 '),
@@ -34890,6 +35025,7 @@ VALUES
     (10, 1702, 'RTM CU1', 'https://support.microsoft.com/en-us/help/981355', '2010-05-18', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 1'),
     (10, 1617, 'RTM MS11-049: GDR Security Update', 'https://support.microsoft.com/en-us/help/2494088', '2011-06-14', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM MS11-049: GDR Security Update'),
     (10, 1600, 'RTM ', '', '2010-05-10', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM '),
+    /*2008*/
     (10, 6535, 'SP3 MS15-058: QFE Security Update', 'https://support.microsoft.com/en-us/help/3045308', '2015-07-14', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS15-058: QFE Security Update'),
     (10, 6241, 'SP3 MS15-058: GDR Security Update', 'https://support.microsoft.com/en-us/help/3045311', '2015-07-14', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS15-058: GDR Security Update'),
     (10, 5890, 'SP3 MS15-058: QFE Security Update', 'https://support.microsoft.com/en-us/help/3045303', '2015-07-14', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS15-058: QFE Security Update'),
@@ -35013,7 +35149,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.21', @VersionDate = '20240701';
+SELECT @Version = '8.22', @VersionDate = '20241019';
 
 IF(@VersionCheckMode = 1)
 BEGIN
