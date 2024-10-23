@@ -13,6 +13,7 @@ IF OBJECT_ID('dbo.sp_BlitzIndex') IS NULL
 GO
 
 ALTER PROCEDURE dbo.sp_BlitzIndex
+    @ObjectName NVARCHAR(386) = NULL, /* 'dbname.schema.table' -- if you are lazy and want to fill in @DatabaseName, @SchemaName and @TableName, and since it's the first parameter can simply do: sp_BlitzIndex 'sch.table' */
     @DatabaseName NVARCHAR(128) = NULL, /*Defaults to current DB if not specified*/
     @SchemaName NVARCHAR(128) = NULL, /*Requires table_name as well.*/
     @TableName NVARCHAR(128) = NULL,  /*Requires schema_name as well.*/
@@ -131,6 +132,11 @@ DECLARE @ColumnListWithApostrophes NVARCHAR(MAX);
 DECLARE @PartitionCount INT;
 DECLARE @OptimizeForSequentialKey BIT = 0;
 DECLARE @StringToExecute NVARCHAR(MAX);
+
+/* If user was lazy and just used @ObjectName with a fully qualified table name, then lets parse out the various parts */
+SET @DatabaseName = COALESCE(@DatabaseName, PARSENAME(@ObjectName, 3)) /* 3 = Database name */
+SET @SchemaName   = COALESCE(@SchemaName,   PARSENAME(@ObjectName, 2)) /* 2 = Schema name */
+SET @TableName    = COALESCE(@TableName,    PARSENAME(@ObjectName, 1)) /* 1 = Table name */
 
 
 /* Let's get @SortOrder set to lower case here for comparisons later */
