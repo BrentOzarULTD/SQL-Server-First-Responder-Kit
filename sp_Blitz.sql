@@ -8617,7 +8617,7 @@ IF @ProductVersionMajor >= 10
 							SELECT  162 AS CheckID ,
 									50 AS Priority ,
 									'Performance' AS FindingGroup ,
-									'Poison Wait Detected: CMEMTHREAD & NUMA'  AS Finding ,
+									'Poison Wait Detected: CMEMTHREAD and NUMA'  AS Finding ,
 									'https://www.brentozar.com/go/poison' AS URL ,
                                     CONVERT(VARCHAR(10), (MAX([wait_time_ms]) / 1000) / 86400) + ':' + CONVERT(VARCHAR(20), DATEADD(s, (MAX([wait_time_ms]) / 1000), 0), 108) + ' of this wait have been recorded'
                                     + CASE WHEN ts.status = 1 THEN ' despite enabling trace flag 8048 already.'
