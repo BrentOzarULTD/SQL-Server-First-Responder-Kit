@@ -9970,6 +9970,36 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
                                  END;
                             END; /* CheckID 261 */
 
+
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 266 )
+							BEGIN
+								INSERT  INTO #BlitzResults
+										( CheckID ,
+										  Priority ,
+										  FindingsGroup ,
+										  Finding ,
+										  URL ,
+										  Details
+										)
+										SELECT  266 AS CheckID ,
+												250 AS Priority ,
+												'Server Info' AS FindingsGroup ,
+												'Hardware - Memory Counters' AS Finding ,
+												'https://www.brentozar.com/go/target' AS URL ,
+												N'Target Server Memory (GB): ' + CAST((CAST((pTarget.cntr_value / 1024.0 / 1024.0) AS DECIMAL(10,1))) AS NVARCHAR(100))
+													+ N' Total Server Memory (GB): ' + CAST((CAST((pTotal.cntr_value / 1024.0 / 1024.0) AS DECIMAL(10,1))) AS NVARCHAR(100))
+										FROM    sys.dm_os_performance_counters pTarget
+										INNER JOIN sys.dm_os_performance_counters pTotal
+											ON pTotal.object_name LIKE 'SQLServer:Memory Manager%'
+											AND pTotal.counter_name LIKE 'Total Server Memory (KB)%'
+										WHERE pTarget.object_name LIKE 'SQLServer:Memory Manager%'
+										  AND pTarget.counter_name LIKE 'Target Server Memory (KB)%'
+							END
+
+
+
 					END; /* IF @CheckServerInfo = 1 */
 			END; /* IF ( ( SERVERPROPERTY('ServerName') NOT IN ( SELECT ServerName */
 
