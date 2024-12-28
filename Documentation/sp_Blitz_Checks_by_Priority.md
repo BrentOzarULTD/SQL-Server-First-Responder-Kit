@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 265.
-If you want to add a new one, start at 266.
+CURRENT HIGH CHECKID: 266.
+If you want to add a new one, start at 267.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
@@ -301,6 +301,7 @@ If you want to add a new one, start at 266.
 | 250 | Server Info | Drive Space |  | 92 |
 | 250 | Server Info | Full-text Filter Daemon is Currently Offline |  | 168 |
 | 250 | Server Info | Hardware |  | 84 |
+| 250 | Server Info | Hardware - Memory Counters | https://www.BrentOzar.com/go/target | 266 |
 | 250 | Server Info | Hardware - NUMA Config |  | 114 |
 | 250 | Server Info | Instant File Initialization Enabled | https://www.BrentOzar.com/go/instant | 193 |
 | 250 | Server Info | Locked Pages in Memory Enabled | https://www.BrentOzar.com/go/lpim | 166 |

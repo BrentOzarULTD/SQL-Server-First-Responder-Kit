@@ -38,7 +38,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.22', @VersionDate = '20241019';
+	SELECT @Version = '8.23', @VersionDate = '20241228';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -287,8 +287,8 @@ AS
             (
                 SELECT
                     1/0
-                FROM fn_my_permissions(N'sys.traces', N'OBJECT') AS fmp
-                WHERE fmp.permission_name = N'ALTER'
+                FROM fn_my_permissions(NULL, NULL) AS fmp
+                WHERE fmp.permission_name = N'ALTER TRACE'
             )
             BEGIN
                 SET @SkipTrace = 1;
@@ -7049,7 +7049,7 @@ IF @ProductVersionMajor >= 10
 		                                ''File Configuration'' AS FindingsGroup,
 		                                ''File growth set to percent'',
 		                                ''https://www.brentozar.com/go/percentgrowth'' AS URL,
-		                                ''The ['' + DB_NAME() + ''] database file '' + f.physical_name + '' has grown to '' + CONVERT(NVARCHAR(10), CONVERT(NUMERIC(38, 2), (f.size / 128.) / 1024.)) + '' GB, and is using percent filegrowth settings. This can lead to slow performance during growths if Instant File Initialization is not enabled.''
+		                                ''The ['' + DB_NAME() + ''] database file '' + f.physical_name + '' has grown to '' + CONVERT(NVARCHAR(20), CONVERT(NUMERIC(38, 2), (f.size / 128.) / 1024.)) + '' GB, and is using percent filegrowth settings. This can lead to slow performance during growths if Instant File Initialization is not enabled.''
 		                                FROM    [?].sys.database_files f
 		                                WHERE   is_percent_growth = 1 and size > 128000  OPTION (RECOMPILE);';
 					            END;
@@ -8617,7 +8617,7 @@ IF @ProductVersionMajor >= 10
 							SELECT  162 AS CheckID ,
 									50 AS Priority ,
 									'Performance' AS FindingGroup ,
-									'Poison Wait Detected: CMEMTHREAD & NUMA'  AS Finding ,
+									'Poison Wait Detected: CMEMTHREAD and NUMA'  AS Finding ,
 									'https://www.brentozar.com/go/poison' AS URL ,
                                     CONVERT(VARCHAR(10), (MAX([wait_time_ms]) / 1000) / 86400) + ':' + CONVERT(VARCHAR(20), DATEADD(s, (MAX([wait_time_ms]) / 1000), 0), 108) + ' of this wait have been recorded'
                                     + CASE WHEN ts.status = 1 THEN ' despite enabling trace flag 8048 already.'
@@ -9969,6 +9969,36 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 									END;/*can't piggyback*/
                                  END;
                             END; /* CheckID 261 */
+
+
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 266 )
+							BEGIN
+								INSERT  INTO #BlitzResults
+										( CheckID ,
+										  Priority ,
+										  FindingsGroup ,
+										  Finding ,
+										  URL ,
+										  Details
+										)
+										SELECT  266 AS CheckID ,
+												250 AS Priority ,
+												'Server Info' AS FindingsGroup ,
+												'Hardware - Memory Counters' AS Finding ,
+												'https://www.brentozar.com/go/target' AS URL ,
+												N'Target Server Memory (GB): ' + CAST((CAST((pTarget.cntr_value / 1024.0 / 1024.0) AS DECIMAL(10,1))) AS NVARCHAR(100))
+													+ N' Total Server Memory (GB): ' + CAST((CAST((pTotal.cntr_value / 1024.0 / 1024.0) AS DECIMAL(10,1))) AS NVARCHAR(100))
+										FROM    sys.dm_os_performance_counters pTarget
+										INNER JOIN sys.dm_os_performance_counters pTotal
+											ON pTotal.object_name LIKE 'SQLServer:Memory Manager%'
+											AND pTotal.counter_name LIKE 'Total Server Memory (KB)%'
+										WHERE pTarget.object_name LIKE 'SQLServer:Memory Manager%'
+										  AND pTarget.counter_name LIKE 'Target Server Memory (KB)%'
+							END
+
+
 
 					END; /* IF @CheckServerInfo = 1 */
 			END; /* IF ( ( SERVERPROPERTY('ServerName') NOT IN ( SELECT ServerName */
