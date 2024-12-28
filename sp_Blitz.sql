@@ -287,8 +287,8 @@ AS
             (
                 SELECT
                     1/0
-                FROM fn_my_permissions(N'sys.traces', N'OBJECT') AS fmp
-                WHERE fmp.permission_name = N'ALTER'
+                FROM fn_my_permissions(NULL, NULL) AS fmp
+                WHERE fmp.permission_name = N'ALTER TRACE'
             )
             BEGIN
                 SET @SkipTrace = 1;
