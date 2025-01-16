@@ -240,7 +240,7 @@ END;
 
 BEGIN TRY
 DECLARE @CurrentDatabaseContext AS VARCHAR(128) = (SELECT DB_NAME());
-DECLARE @CommandExecuteCheck VARCHAR(315)
+DECLARE @CommandExecuteCheck VARCHAR(400);
 
 SET @CommandExecuteCheck = 'IF NOT EXISTS (SELECT name FROM ' +@CurrentDatabaseContext+'.sys.objects WHERE type = ''P'' AND name = ''CommandExecute'')
 BEGIN
