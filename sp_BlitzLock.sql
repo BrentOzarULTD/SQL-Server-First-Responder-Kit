@@ -223,7 +223,9 @@ BEGIN
         @StartDateUTC datetime,
         @EndDateUTC datetime,
         @extract_sql nvarchar(MAX),
-        @validation_sql nvarchar(MAX);
+        @validation_sql nvarchar(MAX),
+        @xe bit,
+        @xd bit;
 
     /*Temporary objects used in the procedure*/
     DECLARE
@@ -348,8 +350,8 @@ BEGIN
             @TargetSessionType = N'ring_buffer';
     END;
 
-    IF  @TargetDatabaseName IS NOT NULL
-    AND @TargetSchemaName IS NOT NULL
+    IF  ISNULL(@TargetDatabaseName, DB_NAME()) IS NOT NULL
+    AND ISNULL(@TargetSchemaName, N'dbo') IS NOT NULL
     AND @TargetTableName IS NOT NULL
     AND @TargetColumnName IS NOT NULL
     BEGIN
@@ -360,15 +362,6 @@ BEGIN
     IF @TargetSessionType = N'table'
     BEGIN     
         IF @TargetDatabaseName IS NULL
-        OR @TargetSchemaName IS NULL
-        OR @TargetTableName IS NULL
-        OR @TargetColumnName IS NULL
-        BEGIN
-            RAISERROR(N'When using a table as a source, you must specify @TargetDatabaseName, @TargetSchemaName, @TargetTableName, and @TargetColumnName.', 11, 1) WITH NOWAIT;
-            RETURN;
-        END;
-
-        IF @TargetDatabaseName IS NULL
         BEGIN
             SET @TargetDatabaseName = DB_NAME();
         END;
@@ -376,6 +369,16 @@ BEGIN
         IF @TargetSchemaName IS NULL
         BEGIN
             SET @TargetSchemaName = N'dbo';
+        END;
+
+        IF @TargetTableName IS NULL
+        OR @TargetColumnName IS NULL
+        BEGIN
+            RAISERROR(N'
+            When using a table as a source, you must specify @TargetTableName, and @TargetColumnName.
+            When @TargetDatabaseName or @TargetSchemaName is NULL, they default to DB_NAME() AND dbo',
+            11, 1) WITH NOWAIT;
+            RETURN;
         END;
    
         /* Check if target database exists */
@@ -1257,8 +1260,42 @@ BEGIN
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
         RAISERROR('Inserting to #deadlock_data from table source %s', 0, 1, @d) WITH NOWAIT;
    
+        /*
+        First, we need to heck the XML structure.
+        Depending on the data source, the XML could
+        contain either the /event or /deadlock nodes.
+        When the /event nodes are not present, there
+        is no @name attribute to evaluate.
+        */
+
+        SELECT
+            @extract_sql = N'
+        SELECT TOP (1)
+            @xe = xe.e.exist(''.''),
+            @xd = xd.e.exist(''.'')
+        FROM [master].[dbo].[bpr] AS x
+        OUTER APPLY x.[bpr].nodes(''/event'') AS xe(e)
+        OUTER APPLY x.[bpr].nodes(''/deadlock'') AS xd(e) 
+        OPTION(RECOMPILE);
+        ';
+
+        IF @Debug = 1 BEGIN PRINT @extract_sql; END;
+
+        EXECUTE sys.sp_executesql
+            @extract_sql,
+          N'
+            @xe bit OUTPUT,
+            @xd bit OUTPUT
+           ',
+           @xe OUTPUT,
+           @xd OUTPUT;
+
+
         /* Build dynamic SQL to extract the XML  */  
-        SET @extract_sql = N'
+        IF  @xe = 1
+        AND @xd IS NULL
+        BEGIN
+            SET @extract_sql = N'
         SELECT
             deadlock_xml = ' +
             QUOTENAME(@TargetColumnName) +
@@ -1281,21 +1318,60 @@ BEGIN
            OR e.x.exist(''@name[ .= "database_xml_deadlock_report"]'') = 1
            OR e.x.exist(''@name[ .= "xml_deadlock_report_filtered"]'') = 1
           )';
+        END;
+
+        IF  @xe IS NULL
+        AND @xd = 1
+        BEGIN
+            SET @extract_sql = N'
+        SELECT
+            deadlock_xml = ' +
+            QUOTENAME(@TargetColumnName) +
+            N'
+        FROM ' +
+        QUOTENAME(@TargetDatabaseName) +
+        N'.' +
+        QUOTENAME(@TargetSchemaName) +
+        N'.' +
+        QUOTENAME(@TargetTableName) +
+        N' AS x
+        LEFT JOIN #t AS t
+          ON 1 = 1
+        CROSS APPLY x.' +
+        QUOTENAME(@TargetColumnName) +
+        N'.nodes(''/deadlock'') AS e(x)
+        WHERE 1 = 1';
+        END;
        
         /* Add timestamp filtering if specified */
-        IF   @TargetTimestampColumnName IS NOT NULL
+        IF @TargetTimestampColumnName IS NOT NULL
         BEGIN
             SET @extract_sql = @extract_sql + N'
         AND x.' + QUOTENAME(@TargetTimestampColumnName) + N' >= @StartDate
         AND x.' + QUOTENAME(@TargetTimestampColumnName) + N'  < @EndDate';
         END;
                    
-        /* If no timestamp column but date filtering is needed, handle XML-based filtering */
-        IF   @TargetTimestampColumnName IS NULL
+        /* If no timestamp column but date filtering is needed, handle XML-based filtering when possible */
+        IF  @TargetTimestampColumnName IS NULL
+        AND @xe = 1
+        AND @xd IS NULL
             BEGIN
                 SET @extract_sql = @extract_sql + N'
         AND e.x.exist(''@timestamp[. >= sql:variable("@StartDate") and . < sql:variable("@EndDate")]'') = 1';
         END;
+
+		/*Woof*/
+		IF  @TargetTimestampColumnName IS NULL
+        AND @xe IS NULL
+        AND @xd = 1
+            BEGIN
+                SET @extract_sql = @extract_sql + N'
+        AND e.x.exist(''(/deadlock/process-list/process/@lasttranstarted)[. >= sql:variable("@StartDate") and . < sql:variable("@EndDate")]'') = 1';
+        END;
+
+        SET @extract_sql += N'
+        OPTION(RECOMPILE);
+        ';
        
         IF @Debug = 1 BEGIN PRINT @extract_sql; END;
        
@@ -1335,6 +1411,21 @@ BEGIN
         FROM #deadlock_data AS d1
         LEFT JOIN #t AS t
           ON 1 = 1
+		WHERE @xe = 1
+
+		UNION ALL
+
+        SELECT
+            d1.deadlock_xml,
+            event_date = d1.deadlock_xml.value('(/deadlock/process-list/process/@lasttranstarted)[1]', 'datetime2'),
+            victim_id = d1.deadlock_xml.value('(/deadlock/victim-list/victimProcess/@id)[1]', 'nvarchar(256)'),
+            is_parallel = d1.deadlock_xml.exist('/deadlock/resource-list/exchangeEvent'),
+            is_parallel_batch = d1.deadlock_xml.exist('/deadlock/resource-list/SyncPoint'),
+            deadlock_graph = d1.deadlock_xml.query('.')
+        FROM #deadlock_data AS d1
+        LEFT JOIN #t AS t
+          ON 1 = 1
+		WHERE @xd = 1
         OPTION(RECOMPILE);
 
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
@@ -4370,16 +4461,16 @@ BEGIN
                 @VictimsOnly,
             DeadlockType =
                 @DeadlockType,
-			TargetDatabaseName =
-			    @TargetDatabaseName,
+            TargetDatabaseName =
+                @TargetDatabaseName,
             TargetSchemaName =
-			    @TargetSchemaName,
+                @TargetSchemaName,
             TargetTableName =
-			    @TargetTableName,
+                @TargetTableName,
             TargetColumnName =
-			    @TargetColumnName,
+                @TargetColumnName,
             TargetTimestampColumnName =
-			    @TargetTimestampColumnName,
+                @TargetTimestampColumnName,
             Debug =
                 @Debug,
             Help =
