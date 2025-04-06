@@ -6,13 +6,15 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 121
-If you want to add a new check, start at 122.
+CURRENT HIGH CHECKID: 123
+If you want to add a new check, start at 124.
 
 | Priority | FindingsGroup           | Finding                                                         | URL                                             | CheckID |
 | -------- | ----------------------- | --------------------------------------------------------------- | ----------------------------------------------- | ------- |
 | 10       | Over-Indexing           | Many NC Indexes on a Single Table                               | https://www.brentozar.com/go/IndexHoarder       | 20      |
 | 10       | Over-Indexing           | Unused NC Index with High Writes                                | https://www.brentozar.com/go/IndexHoarder       | 22      |
+| 10       | Resumable Indexing      | Resumable Index Operation Paused                                | https://www.BrentOzar.com/go/resumable          | 122     |
+| 10       | Resumable Indexing      | Resumable Index Operation Running                               | https://www.BrentOzar.com/go/resumable          | 123     |
 | 20       | Redundant Indexes       | Duplicate Keys                                                  | https://www.brentozar.com/go/duplicateindex     | 1       |
 | 30       | Redundant Indexes       | Approximate Duplicate Keys                                      | https://www.brentozar.com/go/duplicateindex     | 2       |
 | 40       | Index Suggestion        | High Value Missing Index                                        | https://www.brentozar.com/go/indexaphobia       | 50      |
