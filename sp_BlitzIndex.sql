@@ -131,6 +131,7 @@ DECLARE @ColumnList NVARCHAR(MAX);
 DECLARE @ColumnListWithApostrophes NVARCHAR(MAX);
 DECLARE @PartitionCount INT;
 DECLARE @OptimizeForSequentialKey BIT = 0;
+DECLARE @ResumableIndexesDisappearAfter INT = 0;
 DECLARE @StringToExecute NVARCHAR(MAX);
 
 /* If user was lazy and just used @ObjectName with a fully qualified table name, then lets parse out the various parts */
@@ -2612,7 +2613,17 @@ OPTION (RECOMPILE);';
                       [object_id], index_id, name, sql_text, last_max_dop_used, partition_number, state, state_desc,
                       start_time, last_pause_time, total_execution_time, percent_complete, page_count )
                     EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
-                END TRY
+
+                    SET @dsql=N'SELECT @ResumableIndexesDisappearAfter = CAST(value AS INT) 
+                        FROM ' + QUOTENAME(@DatabaseName) + N'.sys.database_scoped_configurations
+			            WHERE name = ''PAUSED_RESUMABLE_INDEX_ABORT_DURATION_MINUTES''
+			            AND value > 0;'
+                    EXEC sp_executesql @dsql, N'@ResumableIndexesDisappearAfter INT OUT', @ResumableIndexesDisappearAfter out;
+
+                    IF @ResumableIndexesDisappearAfter IS NULL
+                        SET @ResumableIndexesDisappearAfter = 0;
+
+            END TRY
                 BEGIN CATCH
                     RAISERROR (N'Skipping #IndexResumableOperations population due to error, typically low permissions', 0,1) WITH NOWAIT;
                 END CATCH
@@ -3294,17 +3305,22 @@ BEGIN
         SELECT
             N'Resumable Index Operation' AS finding,
             N'This may invalidate your analysis!' AS warning,
-            iro.state_desc + ' on ' + iro.db_schema_table_index +
+            iro.state_desc + N' on ' + iro.db_schema_table_index +
             CASE iro.state
                 WHEN 0 THEN
-                    ' at MAXDOP ' + CONVERT(NVARCHAR(30), iro.last_max_dop_used) +
-                    '. First started ' + CONVERT(NVARCHAR(50), iro.start_time, 120) + '. ' +
-                    CONVERT(NVARCHAR(6), CONVERT(MONEY, iro.percent_complete)) + '% complete after ' +
+                    N' at MAXDOP ' + CONVERT(NVARCHAR(30), iro.last_max_dop_used) +
+                    N'. First started ' + CONVERT(NVARCHAR(50), iro.start_time, 120) + N'. ' +
+                    CONVERT(NVARCHAR(6), CONVERT(MONEY, iro.percent_complete)) + N'% complete after ' +
                     CONVERT(NVARCHAR(30), iro.total_execution_time) +
-                    ' minute(s). This blocks DDL and can pile up ghosts.'
+                    N' minute(s). ' + 
+                    CASE WHEN @ResumableIndexesDisappearAfter > 0
+                        THEN N' Will be automatically removed by the database server at ' + CONVERT(NVARCHAR(50), (DATEADD(mi, @ResumableIndexesDisappearAfter, iro.last_pause_time)), 121) + N'. '
+                        ELSE N' Will not be automatically removed by the database server. '
+                    END
+                    + N'This blocks DDL and can pile up ghosts.'
                 WHEN 1 THEN
-                    ' since ' + CONVERT(NVARCHAR(50), iro.last_pause_time, 120) + '. ' +
-                    CONVERT(NVARCHAR(6), CONVERT(MONEY, iro.percent_complete)) + '% complete' +
+                    N' since ' + CONVERT(NVARCHAR(50), iro.last_pause_time, 120) + N'. ' +
+                    CONVERT(NVARCHAR(6), CONVERT(MONEY, iro.percent_complete)) + N'% complete' +
                     /*
                     At 100% completion, resumable indexes open up a transaction and go back to paused for what ought to be a moment.
                     Updating statistics is one of the things that it can do in this false paused state.
@@ -3312,11 +3328,11 @@ BEGIN
                     It seems that any of the normal operations that happen at the very end of an index build can cause this.
                     */
                     CASE WHEN iro.percent_complete > 99.9
-                         THEN '. It is probably still running, perhaps updating statistics.'
-                         ELSE ' after ' + CONVERT(NVARCHAR(30), iro.total_execution_time)
-                              + ' minute(s). This blocks DDL, fails transactions needing table-level X locks, and can pile up ghosts.'
+                         THEN N'. It is probably still running, perhaps updating statistics.'
+                         ELSE N' after ' + CONVERT(NVARCHAR(30), iro.total_execution_time)
+                              + N' minute(s). This blocks DDL, fails transactions needing table-level X locks, and can pile up ghosts.'
                     END
-                ELSE ' which is an undocumented resumable index state description.'
+                ELSE N' which is an undocumented resumable index state description.'
                 END AS details,
             N'https://www.BrentOzar.com/go/resumable' AS URL,
             iro.more_info AS [More Info]
@@ -3738,9 +3754,9 @@ BEGIN
                         N'Resumable Index Operation Paused' AS finding, 
                         iro.[database_name] AS [Database Name],
                         N'https://www.BrentOzar.com/go/resumable' AS URL,
-                        iro.state_desc + ' on ' + iro.db_schema_table_index +
-                            ' since ' + CONVERT(NVARCHAR(50), iro.last_pause_time, 120) + '. ' +
-                            CONVERT(NVARCHAR(6), CONVERT(MONEY, iro.percent_complete)) + '% complete' +
+                        iro.state_desc + N' on ' + iro.db_schema_table_index +
+                            N' since ' + CONVERT(NVARCHAR(50), iro.last_pause_time, 120) + N'. ' +
+                            CONVERT(NVARCHAR(6), CONVERT(MONEY, iro.percent_complete)) + N'% complete' +
                             /*
                             At 100% completion, resumable indexes open up a transaction and go back to paused for what ought to be a moment.
                             Updating statistics is one of the things that it can do in this false paused state.
@@ -3748,15 +3764,19 @@ BEGIN
                             It seems that any of the normal operations that happen at the very end of an index build can cause this.
                             */
                             CASE WHEN iro.percent_complete > 99.9
-                            THEN '. It is probably still running, perhaps updating statistics.'
-                            ELSE ' after ' + CONVERT(NVARCHAR(30), iro.total_execution_time)
-                                 + ' minute(s). This blocks DDL, fails transactions needing table-level X locks, and can pile up ghosts.'
+                            THEN N'. It is probably still running, perhaps updating statistics.'
+                            ELSE N' after ' + CONVERT(NVARCHAR(30), iro.total_execution_time)
+                                 + N' minute(s). This blocks DDL, fails transactions needing table-level X locks, and can pile up ghosts. '
+                            END +
+                            CASE WHEN @ResumableIndexesDisappearAfter > 0
+                                THEN N' Will be automatically removed by the database server at ' + CONVERT(NVARCHAR(50), (DATEADD(mi, @ResumableIndexesDisappearAfter, iro.last_pause_time)), 121) + N'. '
+                                ELSE N' Will not be automatically removed by the database server. '
                             END AS details,
-                        'Old index: ' + ISNULL(i.index_definition, 'not found. Either the index is new or you need @IncludeInactiveIndexes = 1') AS index_definition,
+                        N'Old index: ' + ISNULL(i.index_definition, N'not found. Either the index is new or you need @IncludeInactiveIndexes = 1') AS index_definition,
                         i.secret_columns,
                         i.index_usage_summary,
-                        'New index: ' + iro.reserved_MB_pretty_print + '; Old index: ' + ISNULL(sz.index_size_summary,'not found.') AS index_size_summary,
-                        'New index: ' + iro.sql_text AS create_tsql,
+                        N'New index: ' + iro.reserved_MB_pretty_print + N'; Old index: ' + ISNULL(sz.index_size_summary,'not found.') AS index_size_summary,
+                        N'New index: ' + iro.sql_text AS create_tsql,
                         iro.more_info
                 FROM    #IndexResumableOperations iro
                 LEFT JOIN #IndexSanity AS i ON i.database_id = iro.database_id
