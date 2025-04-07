@@ -1,6 +1,6 @@
 IF OBJECT_ID('dbo.sp_BlitzLock') IS NULL
 BEGIN
-    EXEC ('CREATE PROCEDURE dbo.sp_BlitzLock AS RETURN 0;');
+    EXECUTE ('CREATE PROCEDURE dbo.sp_BlitzLock AS RETURN 0;');
 END;
 GO
 
@@ -19,6 +19,11 @@ ALTER PROCEDURE
     @TargetSessionType sysname = NULL,
     @VictimsOnly bit = 0,
     @DeadlockType nvarchar(20) = NULL,
+    @TargetDatabaseName sysname = NULL,      
+    @TargetSchemaName sysname = NULL,        
+    @TargetTableName sysname = NULL,         
+    @TargetColumnName sysname = NULL,       
+    @TargetTimestampColumnName sysname = NULL,
     @Debug bit = 0,
     @Help bit = 0,
     @Version varchar(30) = NULL OUTPUT,
@@ -37,7 +42,7 @@ BEGIN
     SET XACT_ABORT OFF;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-    SELECT @Version = '8.23', @VersionDate = '20241228';
+    SELECT @Version = '8.24', @VersionDate = '20250407';
 
     IF @VersionCheckMode = 1
     BEGIN
@@ -54,6 +59,7 @@ BEGIN
 
     Variables you can use:
 
+        /*Filtering parameters*/
         @DatabaseName: If you want to filter to a specific database
 
         @StartDate: The date you want to start searching on, defaults to last 7 days
@@ -72,16 +78,32 @@ BEGIN
 
         @LoginName: If you want to filter to a specific login
 
+        @DeadlockType: Search for regular or parallel deadlocks specifically
+
+        /*Extended Event session details*/
         @EventSessionName: If you want to point this at an XE session rather than the system health session.
 
-        @TargetSessionType: Can be ''ring_buffer'' or ''event_file''. Leave NULL to auto-detect.
+        @TargetSessionType: Can be ''ring_buffer'',  ''event_file'', or ''table''. Leave NULL to auto-detect.
 
+        /*Output to a table*/
         @OutputDatabaseName: If you want to output information to a specific database
 
         @OutputSchemaName: Specify a schema name to output information to a specific Schema
 
         @OutputTableName: Specify table name to to output information to a specific table
 
+        /*Point at a table containing deadlock XML*/
+        @TargetDatabaseName: The database that contains the table with deadlock report XML
+
+        @TargetSchemaName: The schema of the table containing deadlock report XML
+
+        @TargetTableName: The name of the table containing deadlock report XML
+       
+        @TargetColumnName: The name of the XML column that contains the deadlock report
+       
+        @TargetTimestampColumnName: The name of the datetime column for filtering by date range (optional)
+
+   
     To learn more, visit http://FirstResponderKit.org where you can download new
     versions for free, watch training videos on how it works, get more info on
     the findings, contribute your own code, and more.
@@ -199,7 +221,11 @@ BEGIN
         @StartDateOriginal datetime = @StartDate,
         @EndDateOriginal datetime = @EndDate,
         @StartDateUTC datetime,
-        @EndDateUTC datetime;;
+        @EndDateUTC datetime,
+        @extract_sql nvarchar(MAX),
+        @validation_sql nvarchar(MAX),
+        @xe bit,
+        @xd bit;
 
     /*Temporary objects used in the procedure*/
     DECLARE
@@ -324,7 +350,185 @@ BEGIN
             @TargetSessionType = N'ring_buffer';
     END;
 
+    IF  ISNULL(@TargetDatabaseName, DB_NAME()) IS NOT NULL
+    AND ISNULL(@TargetSchemaName, N'dbo') IS NOT NULL
+    AND @TargetTableName IS NOT NULL
+    AND @TargetColumnName IS NOT NULL
+    BEGIN
+        SET @TargetSessionType = N'table';
+    END;
+
+    /* Add this after the existing parameter validations */
+    IF @TargetSessionType = N'table'
+    BEGIN     
+        IF @TargetDatabaseName IS NULL
+        BEGIN
+            SET @TargetDatabaseName = DB_NAME();
+        END;
+
+        IF @TargetSchemaName IS NULL
+        BEGIN
+            SET @TargetSchemaName = N'dbo';
+        END;
+
+        IF @TargetTableName IS NULL
+        OR @TargetColumnName IS NULL
+        BEGIN
+            RAISERROR(N'
+            When using a table as a source, you must specify @TargetTableName, and @TargetColumnName.
+            When @TargetDatabaseName or @TargetSchemaName is NULL, they default to DB_NAME() AND dbo',
+            11, 1) WITH NOWAIT;
+            RETURN;
+        END;
+   
+        /* Check if target database exists */
+        IF NOT EXISTS
+        (
+            SELECT
+                1/0
+            FROM sys.databases AS d
+            WHERE d.name = @TargetDatabaseName
+        )
+        BEGIN
+            RAISERROR(N'The specified @TargetDatabaseName %s does not exist.', 11, 1, @TargetDatabaseName) WITH NOWAIT;
+            RETURN;
+        END;
+   
+        /* Use dynamic SQL to validate schema, table, and column existence */
+        SET @validation_sql = N'
+        IF NOT EXISTS
+        (
+            SELECT
+                1/0
+            FROM ' + QUOTENAME(@TargetDatabaseName) + N'.sys.schemas AS s
+            WHERE s.name = @schema
+        )
+        BEGIN
+            RAISERROR(N''The specified @TargetSchemaName %s does not exist in database %s.'', 11, 1, @schema, @database) WITH NOWAIT;
+            RETURN;
+        END;
+   
+        IF NOT EXISTS
+        (
+            SELECT
+                1/0
+            FROM ' + QUOTENAME(@TargetDatabaseName) + N'.sys.tables AS t
+            JOIN ' + QUOTENAME(@TargetDatabaseName) + N'.sys.schemas AS s
+              ON t.schema_id = s.schema_id
+            WHERE t.name = @table
+            AND   s.name = @schema
+        )
+        BEGIN
+            RAISERROR(N''The specified @TargetTableName %s does not exist in schema %s in database %s.'', 11, 1, @table, @schema, @database) WITH NOWAIT;
+            RETURN;
+        END;
+   
+        IF NOT EXISTS
+        (
+            SELECT
+                1/0
+            FROM ' + QUOTENAME(@TargetDatabaseName) + N'.sys.columns AS c
+            JOIN ' + QUOTENAME(@TargetDatabaseName) + N'.sys.tables AS t
+              ON c.object_id = t.object_id
+            JOIN ' + QUOTENAME(@TargetDatabaseName) + N'.sys.schemas AS s
+              ON t.schema_id = s.schema_id
+            WHERE c.name = @column
+            AND   t.name = @table
+            AND   s.name = @schema
+        )
+        BEGIN
+            RAISERROR(N''The specified @TargetColumnName %s does not exist in table %s.%s in database %s.'', 11, 1, @column, @schema, @table, @database) WITH NOWAIT;
+            RETURN;
+        END;
+   
+        /* Validate column is XML type */
+        IF NOT EXISTS
+        (
+            SELECT
+                1/0
+            FROM ' + QUOTENAME(@TargetDatabaseName) + N'.sys.columns AS c
+            JOIN ' + QUOTENAME(@TargetDatabaseName) + N'.sys.types AS ty
+              ON c.user_type_id = ty.user_type_id
+            JOIN ' + QUOTENAME(@TargetDatabaseName) + N'.sys.tables AS t
+              ON c.object_id = t.object_id
+            JOIN ' + QUOTENAME(@TargetDatabaseName) + N'.sys.schemas AS s
+              ON t.schema_id = s.schema_id
+            WHERE c.name = @column
+            AND   t.name = @table
+            AND   s.name = @schema
+            AND   ty.name = N''xml''
+        )
+        BEGIN
+            RAISERROR(N''The specified @TargetColumnName %s must be of XML data type.'', 11, 1, @column) WITH NOWAIT;
+            RETURN;
+        END;';
+   
+        /* Validate timestamp_column if specified */
+        IF @TargetTimestampColumnName IS NOT NULL
+        BEGIN
+            SET @validation_sql = @validation_sql + N'
+        IF NOT EXISTS
+        (
+            SELECT
+                1/0
+            FROM ' + QUOTENAME(@TargetDatabaseName) + N'.sys.columns AS c
+            JOIN ' + QUOTENAME(@TargetDatabaseName) + N'.sys.tables AS t
+              ON c.object_id = t.object_id
+            JOIN ' + QUOTENAME(@TargetDatabaseName) + N'.sys.schemas AS s
+              ON t.schema_id = s.schema_id
+            WHERE c.name = @timestamp_column
+            AND   t.name = @table
+            AND   s.name = @schema
+        )
+        BEGIN
+            RAISERROR(N''The specified @TargetTimestampColumnName %s does not exist in table %s.%s in database %s.'', 11, 1, @timestamp_column, @schema, @table, @database) WITH NOWAIT;
+            RETURN;
+        END;
+   
+        /* Validate timestamp column is datetime type */
+        IF NOT EXISTS
+        (
+            SELECT
+                1/0
+            FROM ' + QUOTENAME(@TargetDatabaseName) + N'.sys.columns AS c
+            JOIN ' + QUOTENAME(@TargetDatabaseName) + N'.sys.types AS ty
+              ON c.user_type_id = ty.user_type_id
+            JOIN ' + QUOTENAME(@TargetDatabaseName) + N'.sys.tables AS t
+              ON c.object_id = t.object_id
+            JOIN ' + QUOTENAME(@TargetDatabaseName) + N'.sys.schemas AS s
+              ON t.schema_id = s.schema_id
+            WHERE c.name = @timestamp_column
+            AND   t.name = @table
+            AND   s.name = @schema
+            AND   ty.name LIKE ''%date%''
+        )
+        BEGIN
+            RAISERROR(N''The specified @TargetTimestampColumnName %s must be of datetime data type.'', 11, 1, @timestamp_column) WITH NOWAIT;
+            RETURN;
+        END;';
+        END;
+   
+        IF @Debug = 1 BEGIN PRINT @validation_sql; END;
+       
+        EXECUTE sys.sp_executesql
+            @validation_sql,
+          N'
+            @database sysname,
+            @schema sysname,
+            @table sysname,
+            @column sysname,
+            @timestamp_column sysname
+          ',
+            @TargetDatabaseName,
+            @TargetSchemaName,
+            @TargetTableName,
+            @TargetColumnName,
+            @TargetTimestampColumnName;
+    END;
+
+
     IF @Azure = 0
+    AND LOWER(@TargetSessionType) <> N'table'
     BEGIN
         IF NOT EXISTS
         (
@@ -341,8 +545,9 @@ BEGIN
             RETURN;
         END;
     END;
- 
+
     IF @Azure = 1
+    AND LOWER(@TargetSessionType) <> N'table'
     BEGIN
         IF NOT EXISTS
         (
@@ -401,7 +606,7 @@ BEGIN
                     N'@r sysname OUTPUT';
 
             IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
-            EXEC sys.sp_executesql
+            EXECUTE sys.sp_executesql
                 @StringToExecute,
                 @StringToExecuteParams,
                 @r OUTPUT;
@@ -441,7 +646,7 @@ BEGIN
                         N' ADD spid smallint NULL;';
 
                 IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
-                EXEC sys.sp_executesql
+                EXECUTE sys.sp_executesql
                     @StringToExecute;
 
                 /* If the table doesn't have the new wait_resource column, add it. See Github #3101. */
@@ -457,7 +662,7 @@ BEGIN
                         N' ADD wait_resource nvarchar(MAX) NULL;';
 
                 IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
-                EXEC sys.sp_executesql
+                EXECUTE sys.sp_executesql
                     @StringToExecute;
 
                 /* If the table doesn't have the new client option column, add it. See Github #3101. */
@@ -473,7 +678,7 @@ BEGIN
                         N' ADD client_option_1 varchar(500) NULL;';
 
                 IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
-                EXEC sys.sp_executesql
+                EXECUTE sys.sp_executesql
                     @StringToExecute;
 
                 /* If the table doesn't have the new client option column, add it. See Github #3101. */
@@ -489,7 +694,7 @@ BEGIN
                         N' ADD client_option_2 varchar(500) NULL;';
 
                 IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
-                EXEC sys.sp_executesql
+                EXECUTE sys.sp_executesql
                     @StringToExecute;
 
                 /* If the table doesn't have the new lock mode column, add it. See Github #3101. */
@@ -505,7 +710,7 @@ BEGIN
                         N' ADD lock_mode nvarchar(256) NULL;';
 
                 IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
-                EXEC sys.sp_executesql
+                EXECUTE sys.sp_executesql
                     @StringToExecute;
 
                 /* If the table doesn't have the new status column, add it. See Github #3101. */
@@ -521,7 +726,7 @@ BEGIN
                         N' ADD status nvarchar(256) NULL;';
 
                 IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
-                EXEC sys.sp_executesql
+                EXECUTE sys.sp_executesql
                     @StringToExecute;
             END;
             ELSE /* end if @r is not null. if it is null there is no table, create it from above execution */
@@ -579,7 +784,7 @@ BEGIN
                             )';
 
                 IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
-                EXEC sys.sp_executesql
+                EXECUTE sys.sp_executesql
                     @StringToExecute;
 
                 /*table created.*/
@@ -594,7 +799,7 @@ BEGIN
                         N'@r sysname OUTPUT';
 
                 IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
-                EXEC sys.sp_executesql
+                EXECUTE sys.sp_executesql
                     @StringToExecute,
                     @StringToExecuteParams,
                     @r OUTPUT;
@@ -622,7 +827,7 @@ BEGIN
                                );';
 
                     IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
-                    EXEC sys.sp_executesql
+                    EXECUTE sys.sp_executesql
                         @StringToExecute;
                 END;
             END;
@@ -651,7 +856,7 @@ BEGIN
                     @OutputTableFindings;
 
             IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
-            EXEC sys.sp_executesql
+            EXECUTE sys.sp_executesql
                 @StringToExecute;
 
             /*create synonym for deadlock table.*/
@@ -678,7 +883,7 @@ BEGIN
                     @OutputTableName;
 
             IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
-            EXEC sys.sp_executesql
+            EXECUTE sys.sp_executesql
                 @StringToExecute;
         END;
     END;
@@ -750,6 +955,7 @@ BEGIN
     (
             @Azure = 1
         AND @TargetSessionType IS NULL
+        AND LOWER(@TargetSessionType) <> N'table'
     )
     BEGIN
     RAISERROR('@TargetSessionType is NULL, assigning for Azure instance', 0, 1) WITH NOWAIT;
@@ -1048,6 +1254,148 @@ BEGIN
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
     END;
 
+    /* If table target */
+    IF @TargetSessionType = 'table'
+    BEGIN
+        SET @d = CONVERT(varchar(40), GETDATE(), 109);
+        RAISERROR('Inserting to #deadlock_data from table source %s', 0, 1, @d) WITH NOWAIT;
+   
+        /*
+        First, we need to heck the XML structure.
+        Depending on the data source, the XML could
+        contain either the /event or /deadlock nodes.
+        When the /event nodes are not present, there
+        is no @name attribute to evaluate.
+        */
+
+        SELECT
+            @extract_sql = N'
+        SELECT TOP (1)
+            @xe = xe.e.exist(''.''),
+            @xd = xd.e.exist(''.'')
+        FROM [master].[dbo].[bpr] AS x
+        OUTER APPLY x.[bpr].nodes(''/event'') AS xe(e)
+        OUTER APPLY x.[bpr].nodes(''/deadlock'') AS xd(e) 
+        OPTION(RECOMPILE);
+        ';
+
+        IF @Debug = 1 BEGIN PRINT @extract_sql; END;
+
+        EXECUTE sys.sp_executesql
+            @extract_sql,
+          N'
+            @xe bit OUTPUT,
+            @xd bit OUTPUT
+           ',
+           @xe OUTPUT,
+           @xd OUTPUT;
+
+
+        /* Build dynamic SQL to extract the XML  */  
+        IF  @xe = 1
+        AND @xd IS NULL
+        BEGIN
+            SET @extract_sql = N'
+        SELECT
+            deadlock_xml = ' +
+            QUOTENAME(@TargetColumnName) +
+            N'
+        FROM ' +
+        QUOTENAME(@TargetDatabaseName) +
+        N'.' +
+        QUOTENAME(@TargetSchemaName) +
+        N'.' +
+        QUOTENAME(@TargetTableName) +
+        N' AS x
+        LEFT JOIN #t AS t
+          ON 1 = 1
+        CROSS APPLY x.' +
+        QUOTENAME(@TargetColumnName) +
+        N'.nodes(''/event'') AS e(x)
+        WHERE
+          (
+              e.x.exist(''@name[ .= "xml_deadlock_report"]'') = 1
+           OR e.x.exist(''@name[ .= "database_xml_deadlock_report"]'') = 1
+           OR e.x.exist(''@name[ .= "xml_deadlock_report_filtered"]'') = 1
+          )';
+        END;
+
+        IF  @xe IS NULL
+        AND @xd = 1
+        BEGIN
+            SET @extract_sql = N'
+        SELECT
+            deadlock_xml = ' +
+            QUOTENAME(@TargetColumnName) +
+            N'
+        FROM ' +
+        QUOTENAME(@TargetDatabaseName) +
+        N'.' +
+        QUOTENAME(@TargetSchemaName) +
+        N'.' +
+        QUOTENAME(@TargetTableName) +
+        N' AS x
+        LEFT JOIN #t AS t
+          ON 1 = 1
+        CROSS APPLY x.' +
+        QUOTENAME(@TargetColumnName) +
+        N'.nodes(''/deadlock'') AS e(x)
+        WHERE 1 = 1';
+        END;
+       
+        /* Add timestamp filtering if specified */
+        IF @TargetTimestampColumnName IS NOT NULL
+        BEGIN
+            SET @extract_sql = @extract_sql + N'
+        AND x.' + QUOTENAME(@TargetTimestampColumnName) + N' >= @StartDate
+        AND x.' + QUOTENAME(@TargetTimestampColumnName) + N'  < @EndDate';
+        END;
+                   
+        /* If no timestamp column but date filtering is needed, handle XML-based filtering when possible */
+        IF  @TargetTimestampColumnName IS NULL
+        AND @xe = 1
+        AND @xd IS NULL
+            BEGIN
+                SET @extract_sql = @extract_sql + N'
+        AND e.x.exist(''@timestamp[. >= sql:variable("@StartDate") and . < sql:variable("@EndDate")]'') = 1';
+        END;
+
+		/*Woof*/
+		IF  @TargetTimestampColumnName IS NULL
+        AND @xe IS NULL
+        AND @xd = 1
+            BEGIN
+                SET @extract_sql = @extract_sql + N'
+        AND e.x.exist(''(/deadlock/process-list/process/@lasttranstarted)[. >= sql:variable("@StartDate") and . < sql:variable("@EndDate")]'') = 1';
+        END;
+
+        SET @extract_sql += N'
+        OPTION(RECOMPILE);
+        ';
+       
+        IF @Debug = 1 BEGIN PRINT @extract_sql; END;
+       
+        /* Execute the dynamic SQL */
+        INSERT
+            #deadlock_data
+        WITH
+            (TABLOCKX)
+        (
+            deadlock_xml
+        )
+        EXECUTE sys.sp_executesql
+            @extract_sql,
+          N'
+            @StartDate datetime,
+            @EndDate datetime
+           ',
+            @StartDate,
+            @EndDate;
+       
+        SET @d = CONVERT(varchar(40), GETDATE(), 109);
+        RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
+    END;
+
         /*Parse process and input buffer xml*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
         RAISERROR('Initial Parse process and input buffer xml %s', 0, 1, @d) WITH NOWAIT;
@@ -1063,6 +1411,21 @@ BEGIN
         FROM #deadlock_data AS d1
         LEFT JOIN #t AS t
           ON 1 = 1
+		WHERE @xe = 1
+
+		UNION ALL
+
+        SELECT
+            d1.deadlock_xml,
+            event_date = d1.deadlock_xml.value('(/deadlock/process-list/process/@lasttranstarted)[1]', 'datetime2'),
+            victim_id = d1.deadlock_xml.value('(/deadlock/victim-list/victimProcess/@id)[1]', 'nvarchar(256)'),
+            is_parallel = d1.deadlock_xml.exist('/deadlock/resource-list/exchangeEvent'),
+            is_parallel_batch = d1.deadlock_xml.exist('/deadlock/resource-list/SyncPoint'),
+            deadlock_graph = d1.deadlock_xml.query('.')
+        FROM #deadlock_data AS d1
+        LEFT JOIN #t AS t
+          ON 1 = 1
+		WHERE @xd = 1
         OPTION(RECOMPILE);
 
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
@@ -1735,7 +2098,7 @@ BEGIN
                  ';
 
             IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
-            EXEC sys.sp_executesql
+            EXECUTE sys.sp_executesql
                 @StringToExecute;
 
         END;
@@ -1884,7 +2247,7 @@ BEGIN
                     COUNT_BIG(DISTINCT dp.event_date)
                 ) +
                 N' deadlocks.',
-            sort_order =  
+            sort_order = 
                 ROW_NUMBER()
                 OVER (ORDER BY COUNT_BIG(DISTINCT dp.event_date) DESC)
         FROM #deadlock_process AS dp
@@ -1939,7 +2302,7 @@ BEGIN
                     COUNT_BIG(DISTINCT dow.event_date)
                 ) +
                 N' deadlock(s) between read queries and modification queries.',
-            sort_order =  
+            sort_order = 
                 ROW_NUMBER()
                 OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
         FROM #deadlock_owner_waiter AS dow
@@ -2001,7 +2364,7 @@ BEGIN
                     COUNT_BIG(DISTINCT dow.event_date)
                 ) +
                 N' deadlock(s).',
-            sort_order =  
+            sort_order = 
                 ROW_NUMBER()
                 OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
         FROM #deadlock_owner_waiter AS dow
@@ -2044,7 +2407,7 @@ BEGIN
                     COUNT_BIG(DISTINCT dow.event_date)
                 ) +
                 N' deadlock(s).',
-            sort_order =  
+            sort_order = 
                 ROW_NUMBER()
                 OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
         FROM #deadlock_owner_waiter AS dow
@@ -2093,7 +2456,7 @@ BEGIN
                     COUNT_BIG(DISTINCT dow.event_date)
                 ) +
                 N' deadlock(s).',
-            sort_order =  
+            sort_order = 
                 ROW_NUMBER()
                 OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
         FROM #deadlock_owner_waiter AS dow
@@ -2142,7 +2505,7 @@ BEGIN
                     COUNT_BIG(DISTINCT dp.event_date)
                 ) +
                 N' instances of Serializable deadlocks.',
-            sort_order =  
+            sort_order = 
                 ROW_NUMBER()
                 OVER (ORDER BY COUNT_BIG(DISTINCT dp.event_date) DESC)
         FROM #deadlock_process AS dp
@@ -2185,7 +2548,7 @@ BEGIN
                     COUNT_BIG(DISTINCT dp.event_date)
                 ) +
                 N' instances of Repeatable Read deadlocks.',
-            sort_order =  
+            sort_order = 
                 ROW_NUMBER()
                 OVER (ORDER BY COUNT_BIG(DISTINCT dp.event_date) DESC)
         FROM #deadlock_process AS dp
@@ -2247,7 +2610,7 @@ BEGIN
                     N'UNKNOWN'
                 ) +
                 N'.',
-            sort_order =  
+            sort_order = 
                 ROW_NUMBER()
                 OVER (ORDER BY COUNT_BIG(DISTINCT dp.event_date) DESC)
         FROM #deadlock_process AS dp
@@ -2359,7 +2722,7 @@ BEGIN
                     1,
                     N''
                 ) + N' locks.',
-            sort_order =  
+            sort_order = 
                 ROW_NUMBER()
                 OVER (ORDER BY CONVERT(bigint, lt.lock_count) DESC)
         FROM lock_types AS lt
@@ -2429,7 +2792,7 @@ BEGIN
             dow.database_name,
             object_name = ds.proc_name,
             finding_group = N'More Info - Query',
-            finding = N'EXEC sp_BlitzCache ' +
+            finding = N'EXECUTE sp_BlitzCache ' +
                 CASE
                     WHEN ds.proc_name = N'adhoc'
                     THEN N'@OnlySqlHandles = ' + ds.sql_handle_csv
@@ -2485,7 +2848,7 @@ BEGIN
                 object_name = ds.proc_name,
                 finding_group = N'More Info - Query',
                 finding =
-                    N'EXEC sp_BlitzQueryStore ' +
+                    N'EXECUTE sp_BlitzQueryStore ' +
                     N'@DatabaseName = ' +
                     QUOTENAME(ds.database_name, N'''') +
                     N', ' +
@@ -2538,7 +2901,7 @@ BEGIN
                     COUNT_BIG(DISTINCT ds.id)
                 ) +
                 N' deadlocks.',
-            sort_order =  
+            sort_order = 
                 ROW_NUMBER()
                 OVER (ORDER BY COUNT_BIG(DISTINCT ds.id) DESC)
         FROM #deadlock_stack AS ds
@@ -2598,7 +2961,7 @@ BEGIN
             bi.object_name,
             finding_group = N'More Info - Table',
             finding =
-                N'EXEC sp_BlitzIndex ' +
+                N'EXECUTE sp_BlitzIndex ' +
                 N'@DatabaseName = ' +
                 QUOTENAME(bi.database_name, N'''') +
                 N', @SchemaName = ' +
@@ -2639,19 +3002,19 @@ BEGIN
                      )
                  ),
              wait_time_hms =
-             /*the more wait time you rack up the less accurate this gets, 
+             /*the more wait time you rack up the less accurate this gets,
              it's either that or erroring out*/
-            CASE 
-                WHEN 
+            CASE
+                WHEN
                     SUM
                     (
                         CONVERT
                         (
-                            bigint, 
+                            bigint,
                             dp.wait_time
                         )
                     )/1000 > 2147483647
-                THEN 
+                THEN
                    CONVERT
                    (
                        nvarchar(30),
@@ -2664,7 +3027,7 @@ BEGIN
                                     (
                                        CONVERT
                                        (
-                                           bigint, 
+                                           bigint,
                                            dp.wait_time
                                        )
                                     )
@@ -2675,16 +3038,16 @@ BEGIN
                        ),
                        14
                    )
-                WHEN 
+                WHEN
                     SUM
                     (
                         CONVERT
                         (
-                            bigint, 
+                            bigint,
                             dp.wait_time
                         )
                     ) BETWEEN 2147483648 AND 2147483647000
-                THEN 
+                THEN
                    CONVERT
                    (
                        nvarchar(30),
@@ -2697,7 +3060,7 @@ BEGIN
                                     (
                                        CONVERT
                                        (
-                                           bigint, 
+                                           bigint,
                                            dp.wait_time
                                        )
                                     )
@@ -2779,7 +3142,7 @@ BEGIN
                     14
                 ) +
                 N' [dd hh:mm:ss:ms] of deadlock wait time.',
-            sort_order =  
+            sort_order = 
                 ROW_NUMBER()
                 OVER (ORDER BY cs.total_waits DESC)
         FROM chopsuey AS cs
@@ -2853,19 +3216,19 @@ BEGIN
                 )
             ) +
             N' ' +
-        /*the more wait time you rack up the less accurate this gets, 
+        /*the more wait time you rack up the less accurate this gets,
         it's either that or erroring out*/
-            CASE 
-                WHEN 
+            CASE
+                WHEN
                     SUM
                     (
                         CONVERT
                         (
-                            bigint, 
+                            bigint,
                             wt.total_wait_time_ms
                         )
                     )/1000 > 2147483647
-                THEN 
+                THEN
                    CONVERT
                    (
                        nvarchar(30),
@@ -2878,7 +3241,7 @@ BEGIN
                                     (
                                        CONVERT
                                        (
-                                           bigint, 
+                                           bigint,
                                            wt.total_wait_time_ms
                                        )
                                     )
@@ -2889,16 +3252,16 @@ BEGIN
                        ),
                        14
                    )
-                WHEN 
+                WHEN
                     SUM
                     (
                         CONVERT
                         (
-                            bigint, 
+                            bigint,
                             wt.total_wait_time_ms
                         )
                     ) BETWEEN 2147483648 AND 2147483647000
-                THEN 
+                THEN
                    CONVERT
                    (
                        nvarchar(30),
@@ -2911,7 +3274,7 @@ BEGIN
                                     (
                                        CONVERT
                                        (
-                                           bigint, 
+                                           bigint,
                                            wt.total_wait_time_ms
                                        )
                                     )
@@ -2944,7 +3307,7 @@ BEGIN
                   14
               ) END +
             N' [dd hh:mm:ss:ms] of deadlock wait time.',
-            sort_order =  
+            sort_order = 
                 ROW_NUMBER()
                 OVER (ORDER BY SUM(CONVERT(bigint, wt.total_wait_time_ms)) DESC)
         FROM wait_time AS wt
@@ -2982,7 +3345,7 @@ BEGIN
                 N'There have been ' +
                 RTRIM(COUNT_BIG(DISTINCT aj.event_date)) +
                 N' deadlocks from this Agent Job and Step.',
-            sort_order =  
+            sort_order = 
                 ROW_NUMBER()
                 OVER (ORDER BY COUNT_BIG(DISTINCT aj.event_date) DESC)
         FROM #agent_job AS aj
@@ -3675,9 +4038,9 @@ BEGIN
                 SET STATISTICS XML ON;
             END;
 
-			SET @StringToExecute = N'
+            SET @StringToExecute = N'
 
-				INSERT INTO ' + QUOTENAME(DB_NAME()) + N'..DeadLockTbl
+                INSERT INTO ' + QUOTENAME(DB_NAME()) + N'..DeadLockTbl
             (
                 ServerName,
                 deadlock_type,
@@ -3720,9 +4083,9 @@ BEGIN
                 waiter_waiting_to_close,
                 deadlock_graph
             )
-            EXEC sys.sp_executesql
-                @deadlock_result;'
-			EXEC sys.sp_executesql @StringToExecute, N'@deadlock_result NVARCHAR(MAX)', @deadlock_result;
+            EXECUTE sys.sp_executesql
+                @deadlock_result;';
+            EXECUTE sys.sp_executesql @StringToExecute, N'@deadlock_result NVARCHAR(MAX)', @deadlock_result;
 
             IF @Debug = 1
             BEGIN
@@ -3738,7 +4101,7 @@ BEGIN
 
             SET @StringToExecute = N'
 
-				INSERT INTO ' + QUOTENAME(DB_NAME()) + N'..DeadlockFindings
+                INSERT INTO ' + QUOTENAME(DB_NAME()) + N'..DeadlockFindings
             (
                 ServerName,
                 check_id,
@@ -3756,8 +4119,8 @@ BEGIN
                 df.finding
             FROM #deadlock_findings AS df
             ORDER BY df.check_id
-            OPTION(RECOMPILE);'
-			EXEC sys.sp_executesql @StringToExecute;
+            OPTION(RECOMPILE);';
+            EXECUTE sys.sp_executesql @StringToExecute;
 
             RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
@@ -3767,23 +4130,23 @@ BEGIN
         BEGIN
                 SET @d = CONVERT(varchar(40), GETDATE(), 109);
                 RAISERROR('Results to client %s', 0, 1, @d) WITH NOWAIT;
-            
+           
                 IF @Debug = 1 BEGIN SET STATISTICS XML ON; END;
-            
-                EXEC sys.sp_executesql
+           
+                EXECUTE sys.sp_executesql
                     @deadlock_result;
-            
+           
                 IF @Debug = 1
                 BEGIN
                     SET STATISTICS XML OFF;
                     PRINT @deadlock_result;
                 END;
-            
+           
                 RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
                 SET @d = CONVERT(varchar(40), GETDATE(), 109);
                 RAISERROR('Getting available execution plans for deadlocks %s', 0, 1, @d) WITH NOWAIT;
-              
+             
                 SELECT DISTINCT
                     available_plans =
                         'available_plans',
@@ -3850,15 +4213,15 @@ BEGIN
                     min_used_grant_mb =
                         deqs.min_used_grant_kb * 8. / 1024.,
                     max_used_grant_mb =
-                        deqs.max_used_grant_kb * 8. / 1024.,   
+                        deqs.max_used_grant_kb * 8. / 1024.,  
                     deqs.min_reserved_threads,
                     deqs.max_reserved_threads,
                     deqs.min_used_threads,
                     deqs.max_used_threads,
                     deqs.total_rows,
-                    max_worker_time_ms = 
+                    max_worker_time_ms =
                         deqs.max_worker_time / 1000.,
-                    max_elapsed_time_ms = 
+                    max_elapsed_time_ms =
                         deqs.max_elapsed_time / 1000.
                 INTO #dm_exec_query_stats
                 FROM sys.dm_exec_query_stats AS deqs
@@ -3870,7 +4233,7 @@ BEGIN
                     WHERE ap.sql_handle = deqs.sql_handle
                 )
                 AND deqs.query_hash IS NOT NULL;
-               
+              
                 CREATE CLUSTERED INDEX
                     deqs
                 ON #dm_exec_query_stats
@@ -3878,7 +4241,7 @@ BEGIN
                     sql_handle,
                     plan_handle
                 );
-               
+              
                 SELECT
                     ap.available_plans,
                     ap.database_name,
@@ -3912,7 +4275,7 @@ BEGIN
                     ap.statement_end_offset
                 FROM
                 (
-              
+             
                     SELECT
                         ap.*,
                         c.statement_start_offset,
@@ -3964,10 +4327,10 @@ BEGIN
                 OPTION(RECOMPILE, LOOP JOIN, HASH JOIN);
 
                 RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
-            
+           
                 SET @d = CONVERT(varchar(40), GETDATE(), 109);
                 RAISERROR('Returning findings %s', 0, 1, @d) WITH NOWAIT;
-            
+           
                 SELECT
                     df.check_id,
                     df.database_name,
@@ -3979,7 +4342,7 @@ BEGIN
                     df.check_id,
                     df.sort_order
                 OPTION(RECOMPILE);
-            
+           
                 SET @d = CONVERT(varchar(40), GETDATE(), 109);
                 RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
             END; /*done with output to client app.*/
@@ -4063,7 +4426,7 @@ BEGIN
             END;
 
             IF OBJECT_ID('tempdb..#dm_exec_query_stats') IS NOT NULL
-            BEGIN    
+            BEGIN   
             SELECT
                 table_name = N'#dm_exec_query_stats',
                 *
@@ -4098,6 +4461,16 @@ BEGIN
                 @VictimsOnly,
             DeadlockType =
                 @DeadlockType,
+            TargetDatabaseName =
+                @TargetDatabaseName,
+            TargetSchemaName =
+                @TargetSchemaName,
+            TargetTableName =
+                @TargetTableName,
+            TargetColumnName =
+                @TargetColumnName,
+            TargetTimestampColumnName =
+                @TargetTimestampColumnName,
             Debug =
                 @Debug,
             Help =

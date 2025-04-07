@@ -58,7 +58,7 @@ SET STATISTICS XML OFF;
 
 /*Versioning details*/
 
-SELECT @Version = '8.23', @VersionDate = '20241228';
+SELECT @Version = '8.24', @VersionDate = '20250407';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -240,7 +240,7 @@ END;
 
 BEGIN TRY
 DECLARE @CurrentDatabaseContext AS VARCHAR(128) = (SELECT DB_NAME());
-DECLARE @CommandExecuteCheck VARCHAR(315)
+DECLARE @CommandExecuteCheck VARCHAR(400);
 
 SET @CommandExecuteCheck = 'IF NOT EXISTS (SELECT name FROM ' +@CurrentDatabaseContext+'.sys.objects WHERE type = ''P'' AND name = ''CommandExecute'')
 BEGIN

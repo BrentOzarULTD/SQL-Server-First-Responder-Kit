@@ -49,7 +49,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.23', @VersionDate = '20241228';
+SELECT @Version = '8.24', @VersionDate = '20250407';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -131,6 +131,7 @@ DECLARE @ColumnList NVARCHAR(MAX);
 DECLARE @ColumnListWithApostrophes NVARCHAR(MAX);
 DECLARE @PartitionCount INT;
 DECLARE @OptimizeForSequentialKey BIT = 0;
+DECLARE @ResumableIndexesDisappearAfter INT = 0;
 DECLARE @StringToExecute NVARCHAR(MAX);
 
 /* If user was lazy and just used @ObjectName with a fully qualified table name, then lets parse out the various parts */
@@ -261,8 +262,11 @@ IF OBJECT_ID('tempdb..#FilteredIndexes') IS NOT NULL
 	DROP TABLE #FilteredIndexes;
 
 IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL 
-    DROP TABLE #Ignore_Databases
-		
+    DROP TABLE #Ignore_Databases;
+
+IF OBJECT_ID('tempdb..#IndexResumableOperations') IS NOT NULL 
+    DROP TABLE #IndexResumableOperations;
+
 IF OBJECT_ID('tempdb..#dm_db_partition_stats_etc') IS NOT NULL 
     DROP TABLE #dm_db_partition_stats_etc
 IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL 
@@ -773,7 +777,8 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
             history_schema_name NVARCHAR(128) NOT NULL,
             start_column_name NVARCHAR(128) NOT NULL,
             end_column_name NVARCHAR(128) NOT NULL,
-            period_name NVARCHAR(128) NOT NULL
+            period_name NVARCHAR(128) NOT NULL,
+            history_table_object_id INT NULL
         );
 
 		CREATE TABLE #CheckConstraints
@@ -802,6 +807,59 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
 		  index_name NVARCHAR(128) NULL,
 		  column_name NVARCHAR(128) NULL
 		);
+
+        CREATE TABLE #IndexResumableOperations
+        (
+		  database_name NVARCHAR(128) NULL,
+		  database_id INT NOT NULL,
+		  schema_name NVARCHAR(128) NOT NULL,
+		  table_name NVARCHAR(128) NOT NULL,
+ 		  /*
+          Every following non-computed column has
+          the same definitions as in
+          sys.index_resumable_operations.
+          */
+		  [object_id] INT NOT NULL,
+		  index_id INT NOT NULL,
+		  [name] NVARCHAR(128) NOT NULL,
+          /*
+          We have done nothing to make this query text pleasant
+          to read. Until somebody has a better idea, we trust
+          that copying Microsoft's approach is wise.
+          */
+		  sql_text NVARCHAR(MAX) NULL,
+		  last_max_dop_used SMALLINT NOT NULL,
+		  partition_number INT NULL,
+		  state TINYINT NOT NULL,
+		  state_desc NVARCHAR(60) NULL,
+		  start_time DATETIME NOT NULL,
+		  last_pause_time DATETIME NULL,
+		  total_execution_time INT NOT NULL,
+		  percent_complete FLOAT NOT NULL,
+          page_count BIGINT NOT NULL,
+          /*
+          sys.indexes will not always have the name of the index
+          because a resumable CREATE INDEX does not populate
+          sys.indexes until it is done.
+          So it is better to work out the full name here
+          rather than pull it from another temp table.
+          */
+          [db_schema_table_index] AS
+              [schema_name] + N'.' + [table_name] + N'.' + [name],
+          /* For convenience. */
+          reserved_MB_pretty_print AS
+              CONVERT(NVARCHAR(100), CONVERT(MONEY, page_count * 8. / 1024.))
+              + 'MB and '
+              + state_desc,
+          more_info AS
+              N'New index: SELECT * FROM ' + QUOTENAME(database_name) +
+              N'.sys.index_resumable_operations WHERE [object_id] = ' +
+              CONVERT(NVARCHAR(100), [object_id]) +
+              N'; Old index: ' +
+              N'EXEC dbo.sp_BlitzIndex @DatabaseName=' + QUOTENAME([database_name],N'''') + 
+			  N', @SchemaName=' + QUOTENAME([schema_name],N'''') +
+              N', @TableName=' + QUOTENAME([table_name],N'''') + N';'
+        );
 
         CREATE TABLE #Ignore_Databases 
         (
@@ -2425,7 +2483,8 @@ OPTION (RECOMPILE);';
 								   oa.htn AS history_table_name, 
 								   c1.name AS start_column_name,
 								   c2.name AS end_column_name,
-								   p.name AS period_name
+								   p.name AS period_name,
+								   t.history_table_id AS history_table_object_id
 							FROM ' + QUOTENAME(@DatabaseName) + N'.sys.periods AS p
 							INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.tables AS t
 							ON  p.object_id = t.object_id
@@ -2451,7 +2510,7 @@ OPTION (RECOMPILE);';
 			RAISERROR('@dsql is null',16,1);
 			
 			INSERT #TemporalTables ( database_name, database_id, schema_name, table_name, history_schema_name, 
-									 history_table_name, start_column_name, end_column_name, period_name )
+									 history_table_name, start_column_name, end_column_name, period_name, history_table_object_id )
 					
 			EXEC sp_executesql @dsql;
         END;
@@ -2517,8 +2576,63 @@ OPTION (RECOMPILE);';
 				BEGIN CATCH
 					RAISERROR (N'Skipping #FilteredIndexes population due to error, typically low permissions.', 0,1) WITH NOWAIT;
 				END CATCH
+        END;
+
+        IF @Mode NOT IN(1, 2, 3)
+        /*
+        The sys.index_resumable_operations view was a 2017 addition, so we need to check for it and go dynamic.
+        */
+        AND EXISTS (SELECT * FROM sys.all_objects WHERE name = 'index_resumable_operations')
+        BEGIN
+            SET @dsql=N'SELECT @i_DatabaseName AS database_name,
+                               DB_ID(@i_DatabaseName) AS [database_id],
+                               s.name AS schema_name,
+                               t.name AS table_name,
+                               iro.[object_id],
+                               iro.index_id,
+                               iro.name,
+                               iro.sql_text,
+                               iro.last_max_dop_used,
+                               iro.partition_number,
+                               iro.state,
+                               iro.state_desc,
+                               iro.start_time,
+                               iro.last_pause_time,
+                               iro.total_execution_time,
+                               iro.percent_complete,
+                               iro.page_count
+                        FROM   ' + QUOTENAME(@DatabaseName) + N'.sys.index_resumable_operations AS iro
+                        JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.tables AS t
+                            ON t.object_id = iro.object_id
+                        JOIN   ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s
+                            ON t.schema_id = s.schema_id
+                        OPTION(RECOMPILE);'
+
+                BEGIN TRY
+                    RAISERROR (N'Inserting data into #IndexResumableOperations',0,1) WITH NOWAIT;
+                    INSERT #IndexResumableOperations
+                    ( database_name, database_id, schema_name, table_name,
+                      [object_id], index_id, name, sql_text, last_max_dop_used, partition_number, state, state_desc,
+                      start_time, last_pause_time, total_execution_time, percent_complete, page_count )
+                    EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
+
+                    SET @dsql=N'SELECT @ResumableIndexesDisappearAfter = CAST(value AS INT) 
+                        FROM ' + QUOTENAME(@DatabaseName) + N'.sys.database_scoped_configurations
+			            WHERE name = ''PAUSED_RESUMABLE_INDEX_ABORT_DURATION_MINUTES''
+			            AND value > 0;'
+                    EXEC sp_executesql @dsql, N'@ResumableIndexesDisappearAfter INT OUT', @ResumableIndexesDisappearAfter out;
+
+                    IF @ResumableIndexesDisappearAfter IS NULL
+                        SET @ResumableIndexesDisappearAfter = 0;
+
+            END TRY
+                BEGIN CATCH
+                    RAISERROR (N'Skipping #IndexResumableOperations population due to error, typically low permissions', 0,1) WITH NOWAIT;
+                END CATCH
+        END;
+
+
     END;
-	END;
 			
 END;                    
 END TRY
@@ -2965,9 +3079,11 @@ BEGIN
     SELECT '#Statistics' AS table_name, * FROM  #Statistics;
     SELECT '#PartitionCompressionInfo' AS table_name, * FROM  #PartitionCompressionInfo;
     SELECT '#ComputedColumns' AS table_name, * FROM  #ComputedColumns;
-    SELECT '#TraceStatus' AS table_name, * FROM  #TraceStatus;   
+    SELECT '#TraceStatus' AS table_name, * FROM  #TraceStatus;
+    SELECT '#TemporalTables' AS table_name, * FROM  #TemporalTables;   
     SELECT '#CheckConstraints' AS table_name, * FROM  #CheckConstraints;   
-    SELECT '#FilteredIndexes' AS table_name, * FROM  #FilteredIndexes;                   
+    SELECT '#FilteredIndexes' AS table_name, * FROM  #FilteredIndexes;
+    SELECT '#IndexResumableOperations' AS table_name, * FROM  #IndexResumableOperations;
 END
 
 
@@ -3185,7 +3301,55 @@ BEGIN
                     ORDER BY s.auto_created, s.user_created, s.name, hist.step_number;';
         EXEC sp_executesql @dsql, N'@ObjectID INT', @ObjectID;
      END
-	END
+
+    /* Check for resumable index operations. */
+    IF (SELECT TOP (1) [object_id] FROM #IndexResumableOperations WHERE [object_id] = @ObjectID AND database_id = @DatabaseID) IS NOT NULL
+    BEGIN
+        SELECT
+            N'Resumable Index Operation' AS finding,
+            N'This may invalidate your analysis!' AS warning,
+            iro.state_desc + N' on ' + iro.db_schema_table_index +
+            CASE iro.state
+                WHEN 0 THEN
+                    N' at MAXDOP ' + CONVERT(NVARCHAR(30), iro.last_max_dop_used) +
+                    N'. First started ' + CONVERT(NVARCHAR(50), iro.start_time, 120) + N'. ' +
+                    CONVERT(NVARCHAR(6), CONVERT(MONEY, iro.percent_complete)) + N'% complete after ' +
+                    CONVERT(NVARCHAR(30), iro.total_execution_time) +
+                    N' minute(s). ' + 
+                    CASE WHEN @ResumableIndexesDisappearAfter > 0
+                        THEN N' Will be automatically removed by the database server at ' + CONVERT(NVARCHAR(50), (DATEADD(mi, @ResumableIndexesDisappearAfter, iro.last_pause_time)), 121) + N'. '
+                        ELSE N' Will not be automatically removed by the database server. '
+                    END
+                    + N'This blocks DDL and can pile up ghosts.'
+                WHEN 1 THEN
+                    N' since ' + CONVERT(NVARCHAR(50), iro.last_pause_time, 120) + N'. ' +
+                    CONVERT(NVARCHAR(6), CONVERT(MONEY, iro.percent_complete)) + N'% complete' +
+                    /*
+                    At 100% completion, resumable indexes open up a transaction and go back to paused for what ought to be a moment.
+                    Updating statistics is one of the things that it can do in this false paused state.
+                    Updating stats can take a while, so we point it out as a likely delay.
+                    It seems that any of the normal operations that happen at the very end of an index build can cause this.
+                    */
+                    CASE WHEN iro.percent_complete > 99.9
+                         THEN N'. It is probably still running, perhaps updating statistics.'
+                         ELSE N' after ' + CONVERT(NVARCHAR(30), iro.total_execution_time)
+                              + N' minute(s). This blocks DDL, fails transactions needing table-level X locks, and can pile up ghosts.'
+                    END
+                ELSE N' which is an undocumented resumable index state description.'
+                END AS details,
+            N'https://www.BrentOzar.com/go/resumable' AS URL,
+            iro.more_info AS [More Info]
+        FROM #IndexResumableOperations AS iro
+        WHERE iro.database_id = @DatabaseID
+        AND iro.[object_id] = @ObjectID            
+        OPTION    ( RECOMPILE );
+    END
+    ELSE
+    BEGIN
+        SELECT N'No resumable index operations.' AS finding;
+    END;
+
+	END /* END @ShowColumnstoreOnly = 0 */
 
     /* Visualize columnstore index contents. More info: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2584 */
     IF 2 = (SELECT SUM(1) FROM sys.all_objects WHERE name IN ('column_store_row_groups','column_store_segments'))
@@ -3567,6 +3731,96 @@ BEGIN
             OPTION    ( RECOMPILE );
 
         ----------------------------------------
+        --Resumable Indexing: Check_id 122-123
+        ----------------------------------------
+        /*
+        This is more complicated than you would expect!
+        As of SQL Server 2022, I am aware of 6 cases that we need to check:
+           1) A resumable rowstore CREATE INDEX that is currently running
+           2) A resumable rowstore CREATE INDEX that is currently paused
+           3) A resumable rowstore REBUILD that is currently running
+           4) A resumable rowstore REBUILD that is currently paused
+           5) A resumable rowstore CREATE INDEX [...] DROP_EXISTING = ON that is currently running
+           6) A resumable rowstore CREATE INDEX [...] DROP_EXISTING = ON that is currently paused
+        In cases 1 and 2, sys.indexes has no data at all about the index in question.
+        This makes #IndexSanity much harder to use, since it depends on sys.indexes.
+        We must therefore get as much from #IndexResumableOperations as possible.
+        */
+        RAISERROR(N'check_id 122: Resumable Index Operation Paused', 0,1) WITH NOWAIT;
+        INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding,
+                                       [database_name], URL, details, index_definition, secret_columns,
+                                       index_usage_summary, index_size_summary, create_tsql, more_info )
+                SELECT  122 AS check_id, 
+                        i.index_sanity_id,
+                        10 AS Priority,
+                        N'Resumable Indexing' AS findings_group,
+                        N'Resumable Index Operation Paused' AS finding, 
+                        iro.[database_name] AS [Database Name],
+                        N'https://www.BrentOzar.com/go/resumable' AS URL,
+                        iro.state_desc + N' on ' + iro.db_schema_table_index +
+                            N' since ' + CONVERT(NVARCHAR(50), iro.last_pause_time, 120) + N'. ' +
+                            CONVERT(NVARCHAR(6), CONVERT(MONEY, iro.percent_complete)) + N'% complete' +
+                            /*
+                            At 100% completion, resumable indexes open up a transaction and go back to paused for what ought to be a moment.
+                            Updating statistics is one of the things that it can do in this false paused state.
+                            Updating stats can take a while, so we point it out as a likely delay.
+                            It seems that any of the normal operations that happen at the very end of an index build can cause this.
+                            */
+                            CASE WHEN iro.percent_complete > 99.9
+                            THEN N'. It is probably still running, perhaps updating statistics.'
+                            ELSE N' after ' + CONVERT(NVARCHAR(30), iro.total_execution_time)
+                                 + N' minute(s). This blocks DDL, fails transactions needing table-level X locks, and can pile up ghosts. '
+                            END +
+                            CASE WHEN @ResumableIndexesDisappearAfter > 0
+                                THEN N' Will be automatically removed by the database server at ' + CONVERT(NVARCHAR(50), (DATEADD(mi, @ResumableIndexesDisappearAfter, iro.last_pause_time)), 121) + N'. '
+                                ELSE N' Will not be automatically removed by the database server. '
+                            END AS details,
+                        N'Old index: ' + ISNULL(i.index_definition, N'not found. Either the index is new or you need @IncludeInactiveIndexes = 1') AS index_definition,
+                        i.secret_columns,
+                        i.index_usage_summary,
+                        N'New index: ' + iro.reserved_MB_pretty_print + N'; Old index: ' + ISNULL(sz.index_size_summary,'not found.') AS index_size_summary,
+                        N'New index: ' + iro.sql_text AS create_tsql,
+                        iro.more_info
+                FROM    #IndexResumableOperations iro
+                LEFT JOIN #IndexSanity AS i ON i.database_id = iro.database_id
+                                       AND i.[object_id] = iro.[object_id] 
+                                       AND i.index_id = iro.index_id            
+                LEFT JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                WHERE iro.state = 1
+                OPTION    ( RECOMPILE );
+
+        RAISERROR(N'check_id 123: Resumable Index Operation Running', 0,1) WITH NOWAIT;
+        INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding,
+                                       [database_name], URL, details, index_definition, secret_columns,
+                                       index_usage_summary, index_size_summary, create_tsql, more_info )
+                SELECT  123 AS check_id, 
+                        i.index_sanity_id,
+                        10 AS Priority,
+                        N'Resumable Indexing' AS findings_group,
+                        N'Resumable Index Operation Running' AS finding, 
+                        iro.[database_name] AS [Database Name],
+                        N'https://www.BrentOzar.com/go/resumable' AS URL,
+                        iro.state_desc + ' on ' + iro.db_schema_table_index +
+                            ' at MAXDOP ' + CONVERT(NVARCHAR(30), iro.last_max_dop_used) +
+                            '. First started ' + CONVERT(NVARCHAR(50), iro.start_time, 120) + '. ' +
+                            CONVERT(NVARCHAR(6), CONVERT(MONEY, iro.percent_complete)) + '% complete after ' +
+                            CONVERT(NVARCHAR(30), iro.total_execution_time) +
+                            ' minute(s). This blocks DDL and can pile up ghosts.' AS details,
+                        'Old index: ' + ISNULL(i.index_definition, 'not found. Either the index is new or you need @IncludeInactiveIndexes = 1') AS index_definition,
+                        i.secret_columns,
+                        i.index_usage_summary,
+                        'New index: ' + iro.reserved_MB_pretty_print + '; Old index: ' + ISNULL(sz.index_size_summary,'not found.') AS index_size_summary,
+                        'New index: ' + iro.sql_text AS create_tsql,
+                        iro.more_info
+                FROM    #IndexResumableOperations iro
+                LEFT JOIN #IndexSanity AS i ON i.database_id = iro.database_id
+                                       AND i.[object_id] = iro.[object_id] 
+                                       AND i.index_id = iro.index_id            
+                LEFT JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                WHERE iro.state = 0
+                OPTION    ( RECOMPILE );
+
+        ----------------------------------------
         --Aggressive Indexes: Check_id 10-19
         ----------------------------------------
 
@@ -3723,7 +3977,38 @@ BEGIN
                         WHERE   i.filter_columns_not_in_index IS NOT NULL
                         ORDER BY i.db_schema_object_indexid
                         OPTION    ( RECOMPILE );
-                                
+
+		RAISERROR(N'check_id 124: History Table With NonClustered Index', 0,1) WITH NOWAIT;
+                 
+                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+                        SELECT  124 AS check_id, 
+                                i.index_sanity_id,
+                                80 AS Priority,
+                                N'Abnormal Design Pattern' AS findings_group,
+                                N'History Table With NonClustered Index' AS finding, 
+                                i.[database_name] AS [Database Name],
+                                N'https://sqlserverfast.com/blog/hugo/2023/09/an-update-on-merge/' AS URL,
+                                N'The history table '
+                                + QUOTENAME(hist.history_schema_name)
+                                + '.'
+                                + QUOTENAME(hist.history_table_name)
+                                + ' has a non-clustered index. This can cause MERGEs on the main table to fail! See item 8 on the URL.'
+                                AS details, 
+                                i.index_definition, 
+                                i.secret_columns, 
+                                i.index_usage_summary,
+                                sz.index_size_summary
+                        FROM    #IndexSanity i
+                        JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                        JOIN #TemporalTables hist
+                        ON i.[object_id] = hist.history_table_object_id
+                        AND i.[database_id] = hist.[database_id]
+                        WHERE hist.history_table_object_id IS NOT NULL
+                        AND i.index_type = 2 /* NC only */
+                        ORDER BY i.db_schema_object_indexid
+                        OPTION    ( RECOMPILE );
+
          ----------------------------------------
         --Self Loathing Indexes : Check_id 40-49
         ----------------------------------------
