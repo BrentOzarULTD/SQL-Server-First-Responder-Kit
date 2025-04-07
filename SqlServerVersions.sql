@@ -42,6 +42,8 @@ INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
     /*2022*/
+    (16, 4185, 'CU18', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate18', '2025-03-13', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 18'),
+    (16, 4175, 'CU17', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate17', '2025-01-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 17'),
     (16, 4165, 'CU16', 'https://support.microsoft.com/en-us/help/5048033', '2024-11-14', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 16'),
     (16, 4150, 'CU15 GDR', 'https://support.microsoft.com/en-us/help/5046059', '2024-10-08', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 15 GDR'),
     (16, 4145, 'CU15', 'https://support.microsoft.com/en-us/help/5041321', '2024-09-25', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 15'),
@@ -64,6 +66,8 @@ VALUES
     (16, 1050, 'RTM GDR', 'https://support.microsoft.com/kb/5021522', '2023-02-14', '2028-01-11', '2033-01-11', 'SQL Server 2022 GDR', 'RTM'),
     (16, 1000, 'RTM', '', '2022-11-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'RTM'),
     /*2019*/
+    (15, 4420, 'CU32', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2019/cumulativeupdate32', '2025-02-27', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 32'),
+    (15, 4430, 'CU31', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2019/cumulativeupdate31', '2025-02-13', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 31'),
     (15, 4415, 'CU30', 'https://support.microsoft.com/kb/5049235', '2024-12-13', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 30'),
     (15, 4405, 'CU29', 'https://support.microsoft.com/kb/5046365', '2024-10-31', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 29'),
     (15, 4395, 'CU28 GDR', 'https://support.microsoft.com/kb/5046060', '2024-10-08', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 28 GDR'),
