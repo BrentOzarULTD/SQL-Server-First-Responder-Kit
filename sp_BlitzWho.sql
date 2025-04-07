@@ -33,7 +33,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.23', @VersionDate = '20241228';
+	SELECT @Version = '8.24', @VersionDate = '20250407';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
