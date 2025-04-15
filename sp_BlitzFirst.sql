@@ -3081,6 +3081,28 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 	END;
 
 
+    /* Query Problems - Deadlocks - CheckID 51 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 51',10,1) WITH NOWAIT;
+	END
+
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    SELECT 51 AS CheckID,
+        100 AS Priority,
+        'Query Problems' AS FindingGroup,
+        'Deadlocks' AS Finding,
+        ' https://www.brentozar.com/go/deadlocks' AS URL,
+        'Number of deadlocks during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed
+            + 'Determined by sampling Perfmon counter ' + ps.object_name + ' - ' + ps.counter_name + @LineFeed AS Details,
+        'Check sp_BlitzLock to find which indexes and queries to tune.'  AS HowToStopIt
+    FROM #PerfmonStats ps
+    WHERE ps.Pass = 2
+        AND counter_name = 'Number of Deadlocks/sec'
+        AND instance_name LIKE '_Total%'
+        AND value_delta > 0;
+
+
     /* SQL Server Internal Maintenance - Log File Growing - CheckID 13 */
 	IF (@Debug = 1)
 	BEGIN

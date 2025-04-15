@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 50
-If you want to add a new check, start at 51.
+CURRENT HIGH CHECKID: 51
+If you want to add a new check, start at 52.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|---------------------------------|---------------------------------------|-------------------------------------------------|----------|
@@ -42,10 +42,11 @@ If you want to add a new check, start at 51.
 | 50 | Server Performance | Too Much Free Memory | https://www.brentozar.com/go/freememory | 34 |
 | 50 | Server Performance | Memory Grants pending | https://www.brentozar.com/blitz/memory-grants | 39 |
 | 100 | In-Memory OLTP | Transactions aborted | https://www.brentozar.com/go/aborted | 32 |
-| 100 | Query Problems | Suboptimal Plans/Sec High | https://www.brentozar.com/go/suboptimal | 33 |
 | 100 | Query Problems | Bad Estimates | https://www.brentozar.com/go/skewedup | 42 |
-| 100 | Query Problems | Skewed Parallelism | https://www.brentozar.com/go/skewedup | 43 |
+| 100 | Query Problems | Deadlocks | https://www.brentozar.com/go/deadlocks | 51 |
 | 100 | Query Problems | Query with a memory grant exceeding @MemoryGrantThresholdPct | https://www.brentozar.com/memory-grants-sql-servers-public-toilet/ | 46 |
+| 100 | Query Problems | Skewed Parallelism | https://www.brentozar.com/go/skewedup | 43 |
+| 100 | Query Problems | Suboptimal Plans/Sec High | https://www.brentozar.com/go/suboptimal | 33 |
 | 200 | Wait Stats | (One per wait type) | https://www.brentozar.com/sql/wait-stats/#(waittype) | 6 |
 | 210 | Potential Upcoming Problems | High Number of Connections |https://www.brentozar.com/archive/2014/05/connections-slow-sql-server-threadpool/ | 49 |
 | 210 | Query Stats | Plan Cache Analysis Skipped | https://www.brentozar.com/go/topqueries | 18 |
