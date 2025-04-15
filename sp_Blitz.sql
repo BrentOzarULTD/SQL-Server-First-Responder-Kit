@@ -8558,8 +8558,7 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 												'Informational' AS FindingsGroup ,
 												'Recommended Trace Flag Off' AS Finding ,
 												'https://www.sqlskills.com/blogs/erin/query-store-trace-flags/' AS URL ,
-												'Trace Flag 7745 not enabled globally. It makes shutdowns/failovers quicker by not waiting for Query Store to flush to disk. It is recommended, but it loses you the non-flushed Query Store data.' AS Details				
-										FROM    #TraceStatus T
+												'Trace Flag 7745 not enabled globally. It makes shutdowns/failovers quicker by not waiting for Query Store to flush to disk. It is recommended, but it loses you the non-flushed Query Store data.' AS Details;
 							END;
 
 						IF NOT EXISTS ( SELECT  1
