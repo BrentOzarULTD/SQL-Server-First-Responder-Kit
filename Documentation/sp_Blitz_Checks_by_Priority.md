@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 267.
-If you want to add a new one, start at 268.
+CURRENT HIGH CHECKID: 268.
+If you want to add a new one, start at 269.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
@@ -32,6 +32,7 @@ If you want to add a new one, start at 268.
 | 1 | Security | Dangerous Service Account | https://vladdba.com/SQLServerSvcAccount | 259 |
 | 1 | Security | Dangerous Service Account | https://vladdba.com/SQLServerSvcAccount | 260 |
 | 1 | Security | Dangerous Service Account | https://vladdba.com/SQLServerSvcAccount | 261 |
+| 5 | Availability | AG Replica Falling Behind | https://www.BrentOzar.com/go/ag | 268 |
 | 5 | Monitoring | Disabled Internal Monitoring Features | https://msdn.microsoft.com/en-us/library/ms190737.aspx | 177 |
 | 5 | Reliability | Dangerous Third Party Modules | https://support.microsoft.com/en-us/kb/2033238 | 179 |
 | 5 | Reliability | Priority Boost Enabled | https://www.BrentOzar.com/go/priorityboost | 126 |

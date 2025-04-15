@@ -6706,6 +6706,45 @@ IF @ProductVersionMajor >= 10
 
 
 
+				IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 268 )
+					BEGIN
+						
+						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 268) WITH NOWAIT;
+						
+							INSERT  INTO #BlitzResults
+									( CheckID ,
+									  Priority ,
+									  DatabaseName ,
+									  FindingsGroup ,
+									  Finding ,
+									  URL ,
+									  Details
+									)														
+							SELECT 268 AS CheckID,
+							       5 AS Priority,
+								   DB_NAME(ps.database_id),
+							       'Availability' AS FindingsGroup,
+							       'AG Replica Falling Behind' AS Finding,
+							       'https://www.BrentOzar.com/go/ag' AS URL,
+							       ag.name + N' AG replica server ' + 
+										ar.replica_server_name + N' is ' + 
+										CASE WHEN DATEDIFF(SECOND, drs.last_commit_time, ps.last_commit_time) < 200 THEN (CAST(DATEDIFF(SECOND, drs.last_commit_time, ps.last_commit_time) AS NVARCHAR(10)) + N' seconds ')
+										ELSE (CAST(DATEDIFF(MINUTE, drs.last_commit_time, ps.last_commit_time) AS NVARCHAR(10)) + N' minutes ') END
+										+ N' behind the primary.'
+										AS details
+							FROM sys.dm_hadr_database_replica_states AS drs
+							JOIN sys.availability_replicas AS ar ON drs.replica_id = ar.replica_id
+							JOIN sys.availability_groups AS ag ON ar.group_id = ag.group_id
+							JOIN sys.dm_hadr_database_replica_states AS ps 
+								ON drs.group_id = ps.group_id 
+								AND drs.database_id = ps.database_id
+								AND ps.is_local = 1 /* Primary */
+							WHERE drs.is_local = 0 /* Secondary */
+							  AND DATEDIFF(SECOND, drs.last_commit_time, ps.last_commit_time) > 60;
+					END;
+
 
 				IF @CheckUserDatabaseObjects = 1
 					BEGIN
