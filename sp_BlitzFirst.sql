@@ -2021,6 +2021,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     FROM sys.databases
     WHERE database_id > 4;
 
+
 	/* Server Info - Memory Grants pending - CheckID 39 */
 	IF (@Debug = 1)
 	BEGIN
@@ -3324,6 +3325,34 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                OR max_worker_percent >= 90
                OR max_session_percent >= 90);
 	END
+
+    /* Server Info - Thread Time - CheckID 50 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 50',10,1) WITH NOWAIT;
+	END
+
+    ;WITH max_batch AS (
+        SELECT MAX(SampleTime) AS SampleTime
+        FROM #WaitStats
+    )
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+    SELECT TOP 1 50 AS CheckID,
+        251 AS Priority,
+        'Server Info' AS FindingGroup,
+        'Thread Time' AS Finding,
+		CAST(CAST(c.[Total Thread Time (Seconds)] AS DECIMAL(18,1)) AS VARCHAR(100)) AS Details,
+        CAST(c.[Total Thread Time (Seconds)] AS DECIMAL(18,1)) AS DetailsInt,
+        'https://www.brentozar.com/go/threadtime' AS URL
+    FROM  max_batch b
+    JOIN #WaitStats wd2 ON
+        wd2.SampleTime =b.SampleTime
+    JOIN #WaitStats wd1 ON
+        wd1.wait_type=wd2.wait_type AND
+        wd2.SampleTime > wd1.SampleTime
+    CROSS APPLY (SELECT
+		CAST((wd2.thread_time_ms - wd1.thread_time_ms)/1000. AS DECIMAL(18,1)) AS [Total Thread Time (Seconds)]
+		) AS c;
 
     /* Server Info - Batch Requests per Sec - CheckID 19 */
 	IF (@Debug = 1)

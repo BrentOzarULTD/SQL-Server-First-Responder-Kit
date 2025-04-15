@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 49
-If you want to add a new check, start at 50.
+CURRENT HIGH CHECKID: 50
+If you want to add a new check, start at 51.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|---------------------------------|---------------------------------------|-------------------------------------------------|----------|
@@ -58,4 +58,5 @@ If you want to add a new check, start at 50.
 | 251 | Server Info | Database Count |  | 22 |
 | 251 | Server Info | Database Size, Total GB |  | 21 |
 | 251 | Server Info | Memory Grant/Workspace info |  | 40 |
+| 251 | Server Info | Thread Time | https://www.brentozar.com/go/threadtime | 50 |
 | 254 | Informational | Thread Time Inaccurate |  | 48 |
