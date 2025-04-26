@@ -301,7 +301,6 @@ In addition to the [parameters common to many of the stored procedures](#paramet
 Checks either the System Health session or a specific Extended Event session that captures deadlocks and parses out all the XML for you.
 
 Parameters you can use:
-* @Top: Use if you want to limit the number of deadlocks to return. This is ordered by event date ascending.
 * @DatabaseName: If you want to filter to a specific database
 * @StartDate: The date you want to start searching on.
 * @EndDate: The date you want to stop searching on.
