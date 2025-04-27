@@ -4076,7 +4076,7 @@ AS
 											''Informational'' AS FindingGroup ,
 											''Backup Compression Default Off''  AS Finding ,
 											''https://www.brentozar.com/go/backup'' AS URL ,
-											''Uncompressed full backups have happened recently, and backup compression is not turned on at the server level. Backup compression is included with Standard Edition. We recommend turning backup compression on by default so that ad-hoc backups will get compressed.''
+											''Uncompressed full backups have happened recently, and backup compression is not turned on at the server level. Backup compression is included with Standard Edition. We recommend turning backup compression on by default so that ad-hoc backups will get compressed.'' AS Details
 											FROM sys.configurations
 											WHERE configuration_id = 1579 AND CAST(value_in_use AS INT) = 0
                                             AND EXISTS (SELECT * FROM msdb.dbo.backupset WHERE backup_size = compressed_backup_size AND type = ''D'' AND backup_finish_date >= DATEADD(DD, -14, GETDATE())) OPTION (RECOMPILE);';
@@ -7433,9 +7433,9 @@ IF @ProductVersionMajor >= 10
 		  N''?'' as DatabaseName,
 		  100 AS Priority,
 		  ''Performance'' AS FindingsGroup,
-		  ''Fill Factor Changed'',
+		  ''Fill Factor Changed'' AS Finding,
 		  ''https://www.brentozar.com/go/fillfactor'' AS URL,
-		  ''The ['' + DB_NAME() + ''] database has '' + CAST(SUM(1) AS NVARCHAR(50)) + '' objects with fill factor = '' + CAST(fill_factor AS NVARCHAR(5)) + ''%. This can cause memory and storage performance problems, but may also prevent page splits.''
+		  ''The ['' + DB_NAME() + ''] database has '' + CAST(SUM(1) AS NVARCHAR(50)) + '' objects with fill factor = '' + CAST(fill_factor AS NVARCHAR(5)) + ''%. This can cause memory and storage performance problems, but may also prevent page splits.'' AS Details
 		  FROM    [?].sys.indexes
 		  WHERE   fill_factor <> 0 AND fill_factor < 80 AND is_disabled = 0 AND is_hypothetical = 0
 		  GROUP BY fill_factor OPTION (RECOMPILE);';
