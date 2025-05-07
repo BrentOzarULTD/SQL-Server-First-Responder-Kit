@@ -35181,7 +35181,8 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @Debug BIT = 0,
 	@Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
-    @VersionCheckMode BIT = 0
+    @VersionCheckMode BIT = 0,
+	@CheckStatisticsUpdatedRecently bit = 0
     WITH EXECUTE AS CALLER, RECOMPILE
 AS
 BEGIN
@@ -37620,114 +37621,117 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		
         END; /* IF @Seconds < 30 */
 
-    /* Query Problems - Statistics Updated Recently - CheckID 44 */
-	IF (@Debug = 1)
-	BEGIN
-		RAISERROR('Running CheckID 44',10,1) WITH NOWAIT;
-	END
-
-	IF 20 >= (SELECT COUNT(*) FROM sys.databases WHERE name NOT IN ('master', 'model', 'msdb', 'tempdb'))
-		AND @Seconds > 0
-	BEGIN
-		CREATE TABLE #UpdatedStats (HowToStopIt NVARCHAR(4000), RowsForSorting BIGINT);
-		IF EXISTS(SELECT * FROM sys.all_objects WHERE name = 'dm_db_stats_properties')
+	if @CheckStatisticsUpdatedRecently = 1
+	begin
+		/* Query Problems - Statistics Updated Recently - CheckID 44 */
+		IF (@Debug = 1)
 		BEGIN
-			/* We don't want to hang around to obtain locks */
-			SET LOCK_TIMEOUT 0;
+			RAISERROR('Running CheckID 44',10,1) WITH NOWAIT;
+		END
 
-			IF SERVERPROPERTY('EngineEdition') <> 5 /*SERVERPROPERTY('Edition') <> 'SQL Azure'*/
-				SET @StringToExecute = N'USE [?];' + @LineFeed;
-			ELSE
-				SET @StringToExecute = N'';
-
-            SET @StringToExecute = @StringToExecute + 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET LOCK_TIMEOUT 1000;' + @LineFeed +
-                                    'BEGIN TRY' + @LineFeed +
-                                    '    INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)' + @LineFeed +
-                                    '    SELECT HowToStopIt = ' + @LineFeed +
-                                    '                QUOTENAME(DB_NAME()) + N''.'' +' + @LineFeed +
-                                    '                QUOTENAME(SCHEMA_NAME(obj.schema_id)) + N''.'' +' + @LineFeed +
-                                    '                QUOTENAME(obj.name) +' + @LineFeed +
-                                    '                N'' statistic '' + QUOTENAME(stat.name) + ' + @LineFeed +
-                                    '                N'' was updated on '' + CONVERT(NVARCHAR(50), sp.last_updated, 121) + N'','' + ' + @LineFeed +
-                                    '                N'' had '' + CAST(sp.rows AS NVARCHAR(50)) + N'' rows, with '' +' + @LineFeed +
-                                    '                CAST(sp.rows_sampled AS NVARCHAR(50)) + N'' rows sampled,'' +  ' + @LineFeed +
-                                    '                N'' producing '' + CAST(sp.steps AS NVARCHAR(50)) + N'' steps in the histogram.'',' + @LineFeed +
-                                    '        sp.rows' + @LineFeed +
-                                    '    FROM sys.objects AS obj WITH (NOLOCK)' + @LineFeed +
-                                    '    INNER JOIN sys.stats AS stat WITH (NOLOCK) ON stat.object_id = obj.object_id  ' + @LineFeed +
-                                    '    CROSS APPLY sys.dm_db_stats_properties(stat.object_id, stat.stats_id) AS sp  ' + @LineFeed +
-                                    '    WHERE sp.last_updated > DATEADD(MI, -15, GETDATE())' + @LineFeed +
-                                    '    AND obj.is_ms_shipped = 0' + @LineFeed +
-                                    '    AND ''[?]'' <> ''[tempdb]'';' + @LineFeed +
-                                    'END TRY' + @LineFeed +
-                                    'BEGIN CATCH' + @LineFeed +
-                                    '    IF (ERROR_NUMBER() = 1222)' + @LineFeed +
-                                    '    BEGIN ' + @LineFeed +
-                                    '        INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)' + @LineFeed +
-                                    '        SELECT HowToStopIt = ' + @LineFeed +
-                                    '                    QUOTENAME(DB_NAME()) +' + @LineFeed +
-                                    '                    N'' No information could be retrieved as the lock timeout was exceeded,''+' + @LineFeed +
-                                    '                    N''  this is likely due to an Index operation in Progress'',' + @LineFeed +
-                                    '            -1' + @LineFeed +
-                                    '    END' + @LineFeed +
-                                    '    ELSE' + @LineFeed +
-                                    '    BEGIN' + @LineFeed +
-                                    '        INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)' + @LineFeed +
-                                    '        SELECT HowToStopIt = ' + @LineFeed +
-                                    '                    QUOTENAME(DB_NAME()) +' + @LineFeed +
-                                    '                    N'' No information could be retrieved as a result of error: ''+' + @LineFeed +
-                                    '                    CAST(ERROR_NUMBER() AS NVARCHAR(10)) +' + @LineFeed +
-                                    '                    N'' with message: ''+' + @LineFeed +
-                                    '                    CAST(ERROR_MESSAGE() AS NVARCHAR(128)),' + @LineFeed +
-                                    '            -1' + @LineFeed +
-                                    '    END' + @LineFeed +
-                                    'END CATCH'                          
-                                    ;
-
-			IF SERVERPROPERTY('EngineEdition') <> 5 /*SERVERPROPERTY('Edition') <> 'SQL Azure'*/
+		IF 20 >= (SELECT COUNT(*) FROM sys.databases WHERE name NOT IN ('master', 'model', 'msdb', 'tempdb'))
+			AND @Seconds > 0
+		BEGIN
+			CREATE TABLE #UpdatedStats (HowToStopIt NVARCHAR(4000), RowsForSorting BIGINT);
+			IF EXISTS(SELECT * FROM sys.all_objects WHERE name = 'dm_db_stats_properties')
 			BEGIN
-				BEGIN TRY
-					EXEC sp_MSforeachdb @StringToExecute;
-				END TRY
-				BEGIN CATCH
-					IF (ERROR_NUMBER() = 1222)
-					BEGIN
-						INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
-						SELECT HowToStopIt = N'No information could be retrieved as the lock timeout was exceeded while iterating databases,' +
-											 N' this is likely due to an Index operation in Progress', -1;
-					END
-					ELSE
-					BEGIN
-						THROW;
-					END
-				END CATCH
-			END
-			ELSE
-				EXEC(@StringToExecute);
+				/* We don't want to hang around to obtain locks */
+				SET LOCK_TIMEOUT 0;
 
-			/* Set timeout back to a default value of -1 */
-			SET LOCK_TIMEOUT -1;
-		END;
+				IF SERVERPROPERTY('EngineEdition') <> 5 /*SERVERPROPERTY('Edition') <> 'SQL Azure'*/
+					SET @StringToExecute = N'USE [?];' + @LineFeed;
+				ELSE
+					SET @StringToExecute = N'';
+
+				SET @StringToExecute = @StringToExecute + 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET LOCK_TIMEOUT 1000;' + @LineFeed +
+										'BEGIN TRY' + @LineFeed +
+										'    INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)' + @LineFeed +
+										'    SELECT HowToStopIt = ' + @LineFeed +
+										'                QUOTENAME(DB_NAME()) + N''.'' +' + @LineFeed +
+										'                QUOTENAME(SCHEMA_NAME(obj.schema_id)) + N''.'' +' + @LineFeed +
+										'                QUOTENAME(obj.name) +' + @LineFeed +
+										'                N'' statistic '' + QUOTENAME(stat.name) + ' + @LineFeed +
+										'                N'' was updated on '' + CONVERT(NVARCHAR(50), sp.last_updated, 121) + N'','' + ' + @LineFeed +
+										'                N'' had '' + CAST(sp.rows AS NVARCHAR(50)) + N'' rows, with '' +' + @LineFeed +
+										'                CAST(sp.rows_sampled AS NVARCHAR(50)) + N'' rows sampled,'' +  ' + @LineFeed +
+										'                N'' producing '' + CAST(sp.steps AS NVARCHAR(50)) + N'' steps in the histogram.'',' + @LineFeed +
+										'        sp.rows' + @LineFeed +
+										'    FROM sys.objects AS obj WITH (NOLOCK)' + @LineFeed +
+										'    INNER JOIN sys.stats AS stat WITH (NOLOCK) ON stat.object_id = obj.object_id  ' + @LineFeed +
+										'    CROSS APPLY sys.dm_db_stats_properties(stat.object_id, stat.stats_id) AS sp  ' + @LineFeed +
+										'    WHERE sp.last_updated > DATEADD(MI, -15, GETDATE())' + @LineFeed +
+										'    AND obj.is_ms_shipped = 0' + @LineFeed +
+										'    AND ''[?]'' <> ''[tempdb]'';' + @LineFeed +
+										'END TRY' + @LineFeed +
+										'BEGIN CATCH' + @LineFeed +
+										'    IF (ERROR_NUMBER() = 1222)' + @LineFeed +
+										'    BEGIN ' + @LineFeed +
+										'        INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)' + @LineFeed +
+										'        SELECT HowToStopIt = ' + @LineFeed +
+										'                    QUOTENAME(DB_NAME()) +' + @LineFeed +
+										'                    N'' No information could be retrieved as the lock timeout was exceeded,''+' + @LineFeed +
+										'                    N''  this is likely due to an Index operation in Progress'',' + @LineFeed +
+										'            -1' + @LineFeed +
+										'    END' + @LineFeed +
+										'    ELSE' + @LineFeed +
+										'    BEGIN' + @LineFeed +
+										'        INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)' + @LineFeed +
+										'        SELECT HowToStopIt = ' + @LineFeed +
+										'                    QUOTENAME(DB_NAME()) +' + @LineFeed +
+										'                    N'' No information could be retrieved as a result of error: ''+' + @LineFeed +
+										'                    CAST(ERROR_NUMBER() AS NVARCHAR(10)) +' + @LineFeed +
+										'                    N'' with message: ''+' + @LineFeed +
+										'                    CAST(ERROR_MESSAGE() AS NVARCHAR(128)),' + @LineFeed +
+										'            -1' + @LineFeed +
+										'    END' + @LineFeed +
+										'END CATCH'                          
+										;
+
+				IF SERVERPROPERTY('EngineEdition') <> 5 /*SERVERPROPERTY('Edition') <> 'SQL Azure'*/
+				BEGIN
+					BEGIN TRY
+						EXEC sp_MSforeachdb @StringToExecute;
+					END TRY
+					BEGIN CATCH
+						IF (ERROR_NUMBER() = 1222)
+						BEGIN
+							INSERT INTO #UpdatedStats(HowToStopIt, RowsForSorting)
+							SELECT HowToStopIt = N'No information could be retrieved as the lock timeout was exceeded while iterating databases,' +
+												 N' this is likely due to an Index operation in Progress', -1;
+						END
+						ELSE
+						BEGIN
+							THROW;
+						END
+					END CATCH
+				END
+				ELSE
+					EXEC(@StringToExecute);
+
+				/* Set timeout back to a default value of -1 */
+				SET LOCK_TIMEOUT -1;
+			END;
 		
-		/* We mark timeout exceeded with a -1 so only show these IF there is statistics info that succeeded */
-		IF EXISTS (SELECT * FROM #UpdatedStats WHERE RowsForSorting > -1)
-			INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
-			SELECT 44 AS CheckId,
-					50 AS Priority,
-					'Query Problems' AS FindingGroup,
-					'Statistics Updated Recently' AS Finding,
-					'https://www.brentozar.com/go/stats' AS URL,
-					'In the last 15 minutes, statistics were updated. To see which ones, click the HowToStopIt column.' + @LineFeed + @LineFeed
-						+ 'This effectively clears the plan cache for queries that involve these tables,' + @LineFeed
-						+ 'which thereby causes parameter sniffing: those queries are now getting brand new' + @LineFeed
-						+ 'query plans based on whatever parameters happen to call them next.' + @LineFeed + @LineFeed
-						+ 'Be on the lookout for sudden parameter sniffing issues after this time range.',
-					HowToStopIt = (SELECT (SELECT HowToStopIt + NCHAR(10))
-						FROM #UpdatedStats
-						ORDER BY RowsForSorting DESC
-						FOR XML PATH(''));
+			/* We mark timeout exceeded with a -1 so only show these IF there is statistics info that succeeded */
+			IF EXISTS (SELECT * FROM #UpdatedStats WHERE RowsForSorting > -1)
+				INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+				SELECT 44 AS CheckId,
+						50 AS Priority,
+						'Query Problems' AS FindingGroup,
+						'Statistics Updated Recently' AS Finding,
+						'https://www.brentozar.com/go/stats' AS URL,
+						'In the last 15 minutes, statistics were updated. To see which ones, click the HowToStopIt column.' + @LineFeed + @LineFeed
+							+ 'This effectively clears the plan cache for queries that involve these tables,' + @LineFeed
+							+ 'which thereby causes parameter sniffing: those queries are now getting brand new' + @LineFeed
+							+ 'query plans based on whatever parameters happen to call them next.' + @LineFeed + @LineFeed
+							+ 'Be on the lookout for sudden parameter sniffing issues after this time range.',
+						HowToStopIt = (SELECT (SELECT HowToStopIt + NCHAR(10))
+							FROM #UpdatedStats
+							ORDER BY RowsForSorting DESC
+							FOR XML PATH(''));
 
-	END
+		END
+	end
 
     /* Potential Upcoming Problems - High Number of Connections - CheckID 49 */
 	IF (@Debug = 1)
