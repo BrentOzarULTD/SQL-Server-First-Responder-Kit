@@ -1255,7 +1255,7 @@ BEGIN
     END;
 
     /* If table target */
-    IF @TargetSessionType = 'table'
+    IF LOWER(@TargetSessionType) = N'table'
     BEGIN
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
         RAISERROR('Inserting to #deadlock_data from table source %s', 0, 1, @d) WITH NOWAIT;
@@ -1273,9 +1273,19 @@ BEGIN
         SELECT TOP (1)
             @xe = xe.e.exist(''.''),
             @xd = xd.e.exist(''.'')
-        FROM [master].[dbo].[bpr] AS x
-        OUTER APPLY x.[bpr].nodes(''/event'') AS xe(e)
-        OUTER APPLY x.[bpr].nodes(''/deadlock'') AS xd(e) 
+        FROM ' +
+        QUOTENAME(@TargetDatabaseName) +
+        N'.' +
+        QUOTENAME(@TargetSchemaName) +
+        N'.' +
+        QUOTENAME(@TargetTableName) +
+        N' AS x
+        OUTER APPLY x.' +
+        QUOTENAME(@TargetColumnName) +
+        N'.nodes(''/event'') AS xe(e)
+        OUTER APPLY x.' +
+        QUOTENAME(@TargetColumnName) +
+        N'.nodes(''/deadlock'') AS xd(e) 
         OPTION(RECOMPILE);
         ';
 
@@ -1412,6 +1422,7 @@ BEGIN
         LEFT JOIN #t AS t
           ON 1 = 1
 		WHERE @xe = 1
+		OR    LOWER(@TargetSessionType) <> N'table'
 
 		UNION ALL
 
