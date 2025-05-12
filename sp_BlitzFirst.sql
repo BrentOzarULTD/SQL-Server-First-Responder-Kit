@@ -1638,7 +1638,7 @@ BEGIN
                 'Maintenance Tasks Running' AS FindingGroup,
                 'Restore Running' AS Finding,
                 'https://www.brentozar.com/askbrent/backups/' AS URL,
-                'Restore of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
+                'Restore of ' + COALESCE(DB_NAME(db.resource_database_id), 'Unknown Database') + ' database (' + COALESCE((SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id), 'Unknown') + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
                 'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
                 pl.query_plan AS QueryPlan,
                 r.start_time AS StartTime,
@@ -1646,14 +1646,14 @@ BEGIN
                 s.nt_user_name AS NTUserName,
                 s.[program_name] AS ProgramName,
                 s.[host_name] AS HostName,
-                db.[resource_database_id] AS DatabaseID,
-                DB_NAME(db.resource_database_id) AS DatabaseName,
+                COALESCE(db.[resource_database_id],0) AS DatabaseID,
+                COALESCE(DB_NAME(db.resource_database_id), 'Unknown') AS DatabaseName,
                 0 AS OpenTransactionCount,
                 r.query_hash
             FROM sys.dm_exec_requests r
             INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
             INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
-            INNER JOIN (
+            LEFT OUTER JOIN (
             SELECT DISTINCT request_session_id, resource_database_id
             FROM    sys.dm_tran_locks
             WHERE resource_type = N'DATABASE'
