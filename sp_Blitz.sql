@@ -7821,9 +7821,15 @@ IF @ProductVersionMajor >= 10
 									(33, 'MEMORY_GRANT_FEEDBACK_PERSISTENCE', '1', NULL, 267),
 									(34, 'MEMORY_GRANT_FEEDBACK_PERCENTILE_GRANT', '1', NULL, 267),
 									(35, 'OPTIMIZED_PLAN_FORCING', '1', NULL, 267),
-									(37, 'DOP_FEEDBACK', '0', NULL, 267),
+									(37, 'DOP_FEEDBACK', CASE WHEN @ProductVersionMajor >= 17 THEN '1' ELSE '0' END, NULL, 267),
 									(38, 'LEDGER_DIGEST_STORAGE_ENDPOINT', 'OFF', NULL, 267),
-									(39, 'FORCE_SHOWPLAN_RUNTIME_PARAMETER_COLLECTION', '0', NULL, 267);
+									(39, 'FORCE_SHOWPLAN_RUNTIME_PARAMETER_COLLECTION', '0', NULL, 267),
+									(40, 'READABLE_SECONDARY_TEMPORARY_STATS_AUTO_CREATE', '1', NULL, 267),
+									(41, 'READABLE_SECONDARY_TEMPORARY_STATS_AUTO_UPDATE', '1', NULL, 267),
+									(42, 'OPTIMIZED_SP_EXECUTESQL', '0', NULL, 267),
+									(43, 'OPTIMIZED_HALLOWEEN_PROTECTION', '1', NULL, 267),
+									(44, 'FULLTEXT_INDEX_VERSION', '2', NULL, 267),
+									(47, 'OPTIONAL_PARAMETER_OPTIMIZATION', '1', NULL, 267);
 
 EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 									SELECT def1.CheckID, DB_NAME(), 210, ''Non-Default Database Scoped Config'', dsc.[name], ''https://www.brentozar.com/go/dbscope'', (''Set value: '' + COALESCE(CAST(dsc.value AS NVARCHAR(100)),''Empty'') + '' Default: '' + COALESCE(CAST(def1.default_value AS NVARCHAR(100)),''Empty'') + '' Set value for secondary: '' + COALESCE(CAST(dsc.value_for_secondary AS NVARCHAR(100)),''Empty'') + '' Default value for secondary: '' + COALESCE(CAST(def1.default_value_for_secondary AS NVARCHAR(100)),''Empty''))
