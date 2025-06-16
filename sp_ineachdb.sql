@@ -241,7 +241,7 @@ OPTION (MAXRECURSION 0);
   BEGIN
     DELETE dbs FROM #ineachdb AS dbs
 	WHERE EXISTS
-	(
+	 (
        SELECT 1 
          FROM sys.databases AS d
          WHERE d.database_id = dbs.id
