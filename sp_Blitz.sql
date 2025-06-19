@@ -1862,7 +1862,7 @@ AS
 										'Security' AS FindingsGroup ,
 										'Invalid login defined with Windows Authentication' AS Finding ,
 										'https://docs.microsoft.com/en-us/sql/relational-databases/system-stored-procedures/sp-validatelogins-transact-sql' AS URL ,
-										( 'Windows user or group ' + QUOTENAME(LoginName) + ' is mapped to a SQL Server principal but no longer exists in the Windows environment.') AS Details
+										( 'Windows user or group ' + QUOTENAME(LoginName) + ' is mapped to a SQL Server principal but no longer exists in the Windows environment. Sometimes empty AD groups can show up here so check thoroughly.') AS Details
                                 FROM #InvalidLogins
                                 ;
                     END;
