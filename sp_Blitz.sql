@@ -7829,7 +7829,8 @@ IF @ProductVersionMajor >= 10
 									(42, 'OPTIMIZED_SP_EXECUTESQL', '0', NULL, 267),
 									(43, 'OPTIMIZED_HALLOWEEN_PROTECTION', '1', NULL, 267),
 									(44, 'FULLTEXT_INDEX_VERSION', '2', NULL, 267),
-									(47, 'OPTIONAL_PARAMETER_OPTIMIZATION', '1', NULL, 267);
+									(47, 'OPTIONAL_PARAMETER_OPTIMIZATION', '1', NULL, 267),
+									(48, 'PREVIEW_FEATURES', '0', NULL, 267);
 
 EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 									SELECT def1.CheckID, DB_NAME(), 210, ''Non-Default Database Scoped Config'', dsc.[name], ''https://www.brentozar.com/go/dbscope'', (''Set value: '' + COALESCE(CAST(dsc.value AS NVARCHAR(100)),''Empty'') + '' Default: '' + COALESCE(CAST(def1.default_value AS NVARCHAR(100)),''Empty'') + '' Set value for secondary: '' + COALESCE(CAST(dsc.value_for_secondary AS NVARCHAR(100)),''Empty'') + '' Default value for secondary: '' + COALESCE(CAST(def1.default_value_for_secondary AS NVARCHAR(100)),''Empty''))
