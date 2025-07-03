@@ -29,7 +29,8 @@ ALTER PROCEDURE [dbo].[sp_ineachdb]
   @Version              varchar(30)    = NULL OUTPUT,
   @VersionDate          datetime       = NULL OUTPUT,
   @VersionCheckMode     bit            = 0,
-  @is_ag_writeable_copy bit            = 0
+  @is_ag_writeable_copy bit            = 0,
+  @is_query_store_on	bit            = 0
 -- WITH EXECUTE AS OWNER – maybe not a great idea, depending on the security of your system
 AS
 BEGIN
@@ -235,6 +236,23 @@ OPTION (MAXRECURSION 0);
          )
      );
 
+  -- delete any databases that don't match query store criteria
+  IF @SQLVersion >= 13
+  BEGIN
+    DELETE dbs FROM #ineachdb AS dbs
+	WHERE EXISTS
+	 (
+       SELECT 1 
+         FROM sys.databases AS d
+         WHERE d.database_id = dbs.id
+         AND NOT
+         (
+           is_query_store_on   = COALESCE(@is_query_store_on,   is_query_store_on)
+		   AND NOT (@is_query_store_on = 1 AND d.database_id = 3) OR (@is_query_store_on = 0 AND d.database_id = 3) -- Excluding the model database which shows QS enabled in SQL2022+
+		 )
+     );
+  END
+  
   -- if a user access is specified, remove any that are NOT in that state
   IF @user_access IN (N'SINGLE_USER', N'MULTI_USER', N'RESTRICTED_USER')
   BEGIN
