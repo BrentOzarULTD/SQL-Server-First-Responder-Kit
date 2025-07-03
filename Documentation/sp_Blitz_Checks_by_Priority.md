@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 268.
-If you want to add a new one, start at 269.
+CURRENT HIGH CHECKID: 269.
+If you want to add a new one, start at 270.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
@@ -242,6 +242,7 @@ If you want to add a new one, start at 269.
 | 200 | Non-Default Server Config | user options | https://www.BrentOzar.com/go/conf | 1063 |
 | 200 | Non-Default Server Config | Web Assistant Procedures | https://www.BrentOzar.com/go/conf | 1064 |
 | 200 | Non-Default Server Config | xp_cmdshell | https://www.BrentOzar.com/go/conf | 1065 |
+| 200 | Non-Default Server Config | Configuration Changed | https://www.BrentOzar.com/go/conf | 269 |
 | 200 | Performance | Buffer Pool Extensions Enabled | https://www.BrentOzar.com/go/bpe | 174 |
 | 200 | Performance | Default Parallelism Settings | https://www.BrentOzar.com/go/cxpacket | 188 |
 | 200 | Performance | In-Memory OLTP (Hekaton) In Use | https://www.BrentOzar.com/go/hekaton | 146 |
