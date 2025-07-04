@@ -42,6 +42,10 @@ INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
     /*2022*/
+    (17, 800, 'CTP 2.1', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-06-16', '2025-12-31', '2025-12-31', 'SQL Server 2025', 'Preview CTP 2.1'),
+    (17, 700, 'CTP 2.0', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-05-19', '2025-12-31', '2025-12-31', 'SQL Server 2025', 'Preview CTP 2.0'),
+    /*2022*/
+    (16, 4195, 'CU19', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate19', '2025-05-19', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 19'),
     (16, 4185, 'CU18', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate18', '2025-03-13', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 18'),
     (16, 4175, 'CU17', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate17', '2025-01-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 17'),
     (16, 4165, 'CU16', 'https://support.microsoft.com/en-us/help/5048033', '2024-11-14', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 16'),
