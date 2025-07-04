@@ -38,7 +38,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.24', @VersionDate = '20250407';
+	SELECT @Version = '8.25', @VersionDate = '20250704';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -1862,7 +1862,7 @@ AS
 										'Security' AS FindingsGroup ,
 										'Invalid login defined with Windows Authentication' AS Finding ,
 										'https://docs.microsoft.com/en-us/sql/relational-databases/system-stored-procedures/sp-validatelogins-transact-sql' AS URL ,
-										( 'Windows user or group ' + QUOTENAME(LoginName) + ' is mapped to a SQL Server principal but no longer exists in the Windows environment.') AS Details
+										( 'Windows user or group ' + QUOTENAME(LoginName) + ' is mapped to a SQL Server principal but no longer exists in the Windows environment. Sometimes empty AD groups can show up here so check thoroughly.') AS Details
                                 FROM #InvalidLogins
                                 ;
                     END;
@@ -2320,177 +2320,141 @@ AS
 
 				IF @Debug IN (1, 2) RAISERROR('Generating default configuration values', 0, 1) WITH NOWAIT;
 
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'access check cache bucket count', 0, 1001 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'access check cache quota', 0, 1002 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'Ad Hoc Distributed Queries', 0, 1003 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'affinity I/O mask', 0, 1004 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'affinity mask', 0, 1005 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'affinity64 mask', 0, 1066 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'affinity64 I/O mask', 0, 1067 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'Agent XPs', 0, 1071 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'allow updates', 0, 1007 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'awe enabled', 0, 1008 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'backup checksum default', 0, 1070 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'backup compression default', 0, 1073 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'blocked process threshold', 0, 1009 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'blocked process threshold (s)', 0, 1009 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'c2 audit mode', 0, 1010 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'clr enabled', 0, 1011 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'common criteria compliance enabled', 0, 1074 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'contained database authentication', 0, 1068 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'cost threshold for parallelism', 5, 1012 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'cross db ownership chaining', 0, 1013 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'cursor threshold', -1, 1014 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'Database Mail XPs', 0, 1072 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'default full-text language', 1033, 1016 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'default language', 0, 1017 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'default trace enabled', 1, 1018 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'disallow results from triggers', 0, 1019 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'EKM provider enabled', 0, 1075 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'filestream access level', 0, 1076 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'fill factor (%)', 0, 1020 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'ft crawl bandwidth (max)', 100, 1021 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'ft crawl bandwidth (min)', 0, 1022 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'ft notify bandwidth (max)', 100, 1023 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'ft notify bandwidth (min)', 0, 1024 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'index create memory (KB)', 0, 1025 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'in-doubt xact resolution', 0, 1026 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'lightweight pooling', 0, 1027 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'locks', 0, 1028 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'max degree of parallelism', 0, 1029 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'max full-text crawl range', 4, 1030 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'max server memory (MB)', 2147483647, 1031 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'max text repl size (B)', 65536, 1032 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'max worker threads', 0, 1033 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'media retention', 0, 1034 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'min memory per query (KB)', 1024, 1035 );
-				/* Accepting both 0 and 16 below because both have been seen in the wild as defaults. */
-				IF EXISTS ( SELECT  *
-							FROM    sys.configurations
-							WHERE   name = 'min server memory (MB)'
-									AND value_in_use IN ( 0, 16 ) )
-					INSERT  INTO #ConfigurationDefaults
-							SELECT  'min server memory (MB)' ,
-									CAST(value_in_use AS BIGINT), 1036
-							FROM    sys.configurations
-							WHERE   name = 'min server memory (MB)';
+				INSERT INTO #ConfigurationDefaults
+				VALUES
+					( 'access check cache bucket count', 0, 1001 ),
+					( 'access check cache quota', 0, 1002 ),
+					( 'Ad Hoc Distributed Queries', 0, 1003 ),
+					( 'affinity I/O mask', 0, 1004 ),
+					( 'affinity mask', 0, 1005 ),
+					( 'affinity64 mask', 0, 1066 ),
+					( 'affinity64 I/O mask', 0, 1067 ),
+					( 'Agent XPs', 0, 1071 ),
+					( 'allow updates', 0, 1007 ),
+					( 'awe enabled', 0, 1008 ),
+					( 'backup checksum default', 0, 1070 ),
+					( 'backup compression default', 0, 1073 ),
+					( 'blocked process threshold', 0, 1009 ),
+					( 'blocked process threshold (s)', 0, 1009 ),
+					( 'c2 audit mode', 0, 1010 ),
+					( 'clr enabled', 0, 1011 ),
+					( 'common criteria compliance enabled', 0, 1074 ),
+					( 'contained database authentication', 0, 1068 ),
+					( 'cost threshold for parallelism', 5, 1012 ),
+					( 'cross db ownership chaining', 0, 1013 ),
+					( 'cursor threshold', -1, 1014 ),
+					( 'Database Mail XPs', 0, 1072 ),
+					( 'default full-text language', 1033, 1016 ),
+					( 'default language', 0, 1017 ),
+					( 'default trace enabled', 1, 1018 ),
+					( 'disallow results from triggers', 0, 1019 ),
+					( 'EKM provider enabled', 0, 1075 ),
+					( 'filestream access level', 0, 1076 ),
+					( 'fill factor (%)', 0, 1020 ),
+					( 'ft crawl bandwidth (max)', 100, 1021 ),
+					( 'ft crawl bandwidth (min)', 0, 1022 ),
+					( 'ft notify bandwidth (max)', 100, 1023 ),
+					( 'ft notify bandwidth (min)', 0, 1024 ),
+					( 'index create memory (KB)', 0, 1025 ),
+					( 'in-doubt xact resolution', 0, 1026 ),
+					( 'lightweight pooling', 0, 1027 ),
+					( 'locks', 0, 1028 ),
+					( 'max degree of parallelism', 0, 1029 ),
+					( 'max full-text crawl range', 4, 1030 ),
+					( 'max server memory (MB)', 2147483647, 1031 ),
+					( 'max text repl size (B)', 65536, 1032 ),
+					( 'max worker threads', 0, 1033 ),
+					( 'media retention', 0, 1034 ),
+					( 'min memory per query (KB)', 1024, 1035 ),
+					( 'nested triggers', 1, 1037 ),
+					( 'network packet size (B)', 4096, 1038 ),
+					( 'Ole Automation Procedures', 0, 1039 ),
+					( 'open objects', 0, 1040 ),
+					( 'optimize for ad hoc workloads', 0, 1041 ),
+					( 'PH timeout (s)', 60, 1042 ),
+					( 'precompute rank', 0, 1043 ),
+					( 'priority boost', 0, 1044 ),
+					( 'query governor cost limit', 0, 1045 ),
+					( 'query wait (s)', -1, 1046 ),
+					( 'recovery interval (min)', 0, 1047 ),
+					( 'remote access', 1, 1048 ),
+					( 'remote admin connections', 0, 1049 ),
+					( 'remote login timeout (s)', CASE
+						WHEN @@VERSION LIKE '%Microsoft SQL Server 2005%'
+						  OR @@VERSION LIKE '%Microsoft SQL Server 2008%' THEN 20
+						ELSE 10
+					  END, 1069 ),
+					( 'remote proc trans', 0, 1050 ),
+					( 'remote query timeout (s)', 600, 1051 ),
+					( 'Replication XPs', 0, 1052 ),
+					( 'RPC parameter data validation', 0, 1053 ),
+					( 'scan for startup procs', 0, 1054 ),
+					( 'server trigger recursion', 1, 1055 ),
+					( 'set working set size', 0, 1056 ),
+					( 'show advanced options', 0, 1057 ),
+					( 'SMO and DMO XPs', 1, 1058 ),
+					( 'SQL Mail XPs', 0, 1059 ),
+					( 'transform noise words', 0, 1060 ),
+					( 'two digit year cutoff', 2049, 1061 ),
+					( 'user connections', 0, 1062 ),
+					( 'user options', 0, 1063 ),
+					( 'Web Assistant Procedures', 0, 1064 ),
+					( 'xp_cmdshell', 0, 1065 ),
+					( 'automatic soft-NUMA disabled', 0, 269),
+					( 'external scripts enabled', 0, 269),
+					( 'clr strict security', 1, 269),
+					( 'column encryption enclave type', 0, 269),
+					( 'tempdb metadata memory-optimized', 0, 269),
+					( 'ADR cleaner retry timeout (min)', 15, 269),
+					( 'ADR Preallocation Factor', 4, 269),
+					( 'version high part of SQL Server', 1114112, 269),
+					( 'version low part of SQL Server', 52428803, 269),
+					( 'Data processed daily limit in TB', 2147483647, 269),
+					( 'Data processed weekly limit in TB', 2147483647, 269),
+					( 'Data processed monthly limit in TB', 2147483647, 269),
+					( 'ADR Cleaner Thread Count', 1, 269),
+					( 'hardware offload enabled', 0, 269),
+					( 'hardware offload config', 0, 269),
+					( 'hardware offload mode', 0, 269),
+					( 'backup compression algorithm', 0, 269),
+					( 'ADR cleaner lock timeout (s)', 5, 269),
+					( 'SLOG memory quota (%)', 75, 269),
+					( 'max RPC request params (KB)', 0, 269),
+					( 'max UCS send boxcars', 256, 269),
+					( 'availability group commit time (ms)', 0, 269),
+					( 'tiered memory enabled', 0, 269),
+					( 'max server tiered memory (MB)', 2147483647, 269),
+					( 'hadoop connectivity', 0, 269),
+					( 'polybase network encryption', 1, 269),
+					( 'remote data archive', 0, 269),
+					( 'allow polybase export', 0, 269),
+					( 'allow filesystem enumeration', 1, 269),
+					( 'polybase enabled', 0, 269),
+					( 'suppress recovery model errors', 0, 269),
+					( 'openrowset auto_create_statistics', 1, 269),
+					( 'external rest endpoint enabled', 0, 269),
+					( 'external xtp dll gen util enabled', 0, 269),
+					( 'external AI runtimes enabled', 0, 269),
+					( 'allow server scoped db credentials', 0, 269);
+
+				/* Either 0 or 16 is fine here */
+				IF EXISTS (
+				SELECT * FROM sys.configurations
+				WHERE name = 'min server memory (MB)'
+					AND value_in_use IN (0, 16)
+				)
+				BEGIN
+					INSERT INTO #ConfigurationDefaults
+					SELECT 'min server memory (MB)', CAST(value_in_use AS BIGINT), 1036
+					FROM sys.configurations
+					WHERE name = 'min server memory (MB)';
+				END
 				ELSE
-					INSERT  INTO #ConfigurationDefaults
-					VALUES  ( 'min server memory (MB)', 0, 1036 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'nested triggers', 1, 1037 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'network packet size (B)', 4096, 1038 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'Ole Automation Procedures', 0, 1039 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'open objects', 0, 1040 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'optimize for ad hoc workloads', 0, 1041 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'PH timeout (s)', 60, 1042 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'precompute rank', 0, 1043 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'priority boost', 0, 1044 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'query governor cost limit', 0, 1045 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'query wait (s)', -1, 1046 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'recovery interval (min)', 0, 1047 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'remote access', 1, 1048 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'remote admin connections', 0, 1049 );
-				/* SQL Server 2012 changes a configuration default */
-				IF @@VERSION LIKE '%Microsoft SQL Server 2005%'
-					OR @@VERSION LIKE '%Microsoft SQL Server 2008%'
-					BEGIN
-						INSERT  INTO #ConfigurationDefaults
-						VALUES  ( 'remote login timeout (s)', 20, 1069 );
-					END;
-				ELSE
-					BEGIN
-						INSERT  INTO #ConfigurationDefaults
-						VALUES  ( 'remote login timeout (s)', 10, 1069 );
-					END;
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'remote proc trans', 0, 1050 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'remote query timeout (s)', 600, 1051 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'Replication XPs', 0, 1052 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'RPC parameter data validation', 0, 1053 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'scan for startup procs', 0, 1054 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'server trigger recursion', 1, 1055 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'set working set size', 0, 1056 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'show advanced options', 0, 1057 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'SMO and DMO XPs', 1, 1058 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'SQL Mail XPs', 0, 1059 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'transform noise words', 0, 1060 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'two digit year cutoff', 2049, 1061 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'user connections', 0, 1062 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'user options', 0, 1063 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'Web Assistant Procedures', 0, 1064 );
-				INSERT  INTO #ConfigurationDefaults
-				VALUES  ( 'xp_cmdshell', 0, 1065 );
+				BEGIN
+					INSERT INTO #ConfigurationDefaults
+					VALUES ('min server memory (MB)', 0, 1036);
+				END;
+
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
@@ -6706,6 +6670,45 @@ IF @ProductVersionMajor >= 10
 
 
 
+				IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 268 )
+					BEGIN
+						
+						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 268) WITH NOWAIT;
+						
+							INSERT  INTO #BlitzResults
+									( CheckID ,
+									  Priority ,
+									  DatabaseName ,
+									  FindingsGroup ,
+									  Finding ,
+									  URL ,
+									  Details
+									)														
+							SELECT 268 AS CheckID,
+							       5 AS Priority,
+								   DB_NAME(ps.database_id),
+							       'Availability' AS FindingsGroup,
+							       'AG Replica Falling Behind' AS Finding,
+							       'https://www.BrentOzar.com/go/ag' AS URL,
+							       ag.name + N' AG replica server ' + 
+										ar.replica_server_name + N' is ' + 
+										CASE WHEN DATEDIFF(SECOND, drs.last_commit_time, ps.last_commit_time) < 200 THEN (CAST(DATEDIFF(SECOND, drs.last_commit_time, ps.last_commit_time) AS NVARCHAR(10)) + N' seconds ')
+										ELSE (CAST(DATEDIFF(MINUTE, drs.last_commit_time, ps.last_commit_time) AS NVARCHAR(10)) + N' minutes ') END
+										+ N' behind the primary.'
+										AS details
+							FROM sys.dm_hadr_database_replica_states AS drs
+							JOIN sys.availability_replicas AS ar ON drs.replica_id = ar.replica_id
+							JOIN sys.availability_groups AS ag ON ar.group_id = ag.group_id
+							JOIN sys.dm_hadr_database_replica_states AS ps 
+								ON drs.group_id = ps.group_id 
+								AND drs.database_id = ps.database_id
+								AND ps.is_local = 1 /* Primary */
+							WHERE drs.is_local = 0 /* Secondary */
+							  AND DATEDIFF(SECOND, drs.last_commit_time, ps.last_commit_time) > 60;
+					END;
+
 
 				IF @CheckUserDatabaseObjects = 1
 					BEGIN
@@ -7738,7 +7741,7 @@ IF @ProductVersionMajor >= 10
 						
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 74) WITH NOWAIT;
 								
-								EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; IF EXISTS(SELECT * FROM sys.databases WHERE is_query_store_on = 1) INSERT INTO #TemporaryDatabaseResults (DatabaseName, Finding) VALUES (DB_NAME(), ''Yup'') OPTION (RECOMPILE);';
+								EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; IF EXISTS(SELECT * FROM sys.databases WHERE is_query_store_on = 1 AND database_id <> 3) INSERT INTO #TemporaryDatabaseResults (DatabaseName, Finding) VALUES (DB_NAME(), ''Yup'') OPTION (RECOMPILE);';
 								IF EXISTS (SELECT * FROM #TemporaryDatabaseResults) SET @QueryStoreInUse = 1;
 					        END;
 
@@ -7782,9 +7785,16 @@ IF @ProductVersionMajor >= 10
 									(33, 'MEMORY_GRANT_FEEDBACK_PERSISTENCE', '1', NULL, 267),
 									(34, 'MEMORY_GRANT_FEEDBACK_PERCENTILE_GRANT', '1', NULL, 267),
 									(35, 'OPTIMIZED_PLAN_FORCING', '1', NULL, 267),
-									(37, 'DOP_FEEDBACK', '0', NULL, 267),
+									(37, 'DOP_FEEDBACK', CASE WHEN @ProductVersionMajor >= 17 THEN '1' ELSE '0' END, NULL, 267),
 									(38, 'LEDGER_DIGEST_STORAGE_ENDPOINT', 'OFF', NULL, 267),
-									(39, 'FORCE_SHOWPLAN_RUNTIME_PARAMETER_COLLECTION', '0', NULL, 267);
+									(39, 'FORCE_SHOWPLAN_RUNTIME_PARAMETER_COLLECTION', '0', NULL, 267),
+									(40, 'READABLE_SECONDARY_TEMPORARY_STATS_AUTO_CREATE', '1', NULL, 267),
+									(41, 'READABLE_SECONDARY_TEMPORARY_STATS_AUTO_UPDATE', '1', NULL, 267),
+									(42, 'OPTIMIZED_SP_EXECUTESQL', '0', NULL, 267),
+									(43, 'OPTIMIZED_HALLOWEEN_PROTECTION', '1', NULL, 267),
+									(44, 'FULLTEXT_INDEX_VERSION', '2', NULL, 267),
+									(47, 'OPTIONAL_PARAMETER_OPTIMIZATION', '1', NULL, 267),
+									(48, 'PREVIEW_FEATURES', '0', NULL, 267);
 
 EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 									SELECT def1.CheckID, DB_NAME(), 210, ''Non-Default Database Scoped Config'', dsc.[name], ''https://www.brentozar.com/go/dbscope'', (''Set value: '' + COALESCE(CAST(dsc.value AS NVARCHAR(100)),''Empty'') + '' Default: '' + COALESCE(CAST(def1.default_value AS NVARCHAR(100)),''Empty'') + '' Set value for secondary: '' + COALESCE(CAST(dsc.value_for_secondary AS NVARCHAR(100)),''Empty'') + '' Default value for secondary: '' + COALESCE(CAST(def1.default_value_for_secondary AS NVARCHAR(100)),''Empty''))
@@ -8558,8 +8568,7 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 												'Informational' AS FindingsGroup ,
 												'Recommended Trace Flag Off' AS Finding ,
 												'https://www.sqlskills.com/blogs/erin/query-store-trace-flags/' AS URL ,
-												'Trace Flag 7745 not enabled globally. It makes shutdowns/failovers quicker by not waiting for Query Store to flush to disk. It is recommended, but it loses you the non-flushed Query Store data.' AS Details				
-										FROM    #TraceStatus T
+												'Trace Flag 7745 not enabled globally. It makes shutdowns/failovers quicker by not waiting for Query Store to flush to disk. It is recommended, but it loses you the non-flushed Query Store data.' AS Details;
 							END;
 
 						IF NOT EXISTS ( SELECT  1
@@ -10557,7 +10566,7 @@ AS
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
-SELECT @Version = '8.24', @VersionDate = '20250407';
+SELECT @Version = '8.25', @VersionDate = '20250704';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -11435,7 +11444,7 @@ AS
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.24', @VersionDate = '20250407';
+	SELECT @Version = '8.25', @VersionDate = '20250704';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -13192,6 +13201,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @DurationFilter DECIMAL(38,4) = NULL ,
     @HideSummary BIT = 0 ,
     @IgnoreSystemDBs BIT = 1 ,
+    @IgnoreReadableReplicaDBs BIT = 1 ,
     @OnlyQueryHashes VARCHAR(MAX) = NULL ,
     @IgnoreQueryHashes VARCHAR(MAX) = NULL ,
     @OnlySqlHandles VARCHAR(MAX) = NULL ,
@@ -13218,7 +13228,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.24', @VersionDate = '20250407';
+SELECT @Version = '8.25', @VersionDate = '20250704';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -14341,7 +14351,7 @@ CREATE TABLE #plan_usage
 );
 
 
-IF EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
+IF @IgnoreReadableReplicaDBs = 1 AND EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
 BEGIN
 	RAISERROR('Checking for Read intent databases to exclude',0,0) WITH NOWAIT;
 
@@ -14760,7 +14770,7 @@ IF @VersionShowsAirQuoteActualPlans = 1
 
 SET @body += N'        WHERE  1 = 1 ' +  @nl ;
 
-	IF EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
+	IF @IgnoreReadableReplicaDBs = 1 AND EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
     BEGIN
     RAISERROR(N'Ignoring readable secondaries databases by default', 0, 1) WITH NOWAIT;
     SET @body += N'               AND CAST(xpa.value AS INT) NOT IN (SELECT database_id FROM #ReadableDBs)' + @nl ;
@@ -20604,7 +20614,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.24', @VersionDate = '20250407';
+SELECT @Version = '8.25', @VersionDate = '20250704';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -27394,7 +27404,7 @@ BEGIN
     SET XACT_ABORT OFF;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-    SELECT @Version = '8.24', @VersionDate = '20250407';
+    SELECT @Version = '8.25', @VersionDate = '20250704';
 
     IF @VersionCheckMode = 1
     BEGIN
@@ -28607,7 +28617,7 @@ BEGIN
     END;
 
     /* If table target */
-    IF @TargetSessionType = 'table'
+    IF LOWER(@TargetSessionType) = N'table'
     BEGIN
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
         RAISERROR('Inserting to #deadlock_data from table source %s', 0, 1, @d) WITH NOWAIT;
@@ -28625,9 +28635,19 @@ BEGIN
         SELECT TOP (1)
             @xe = xe.e.exist(''.''),
             @xd = xd.e.exist(''.'')
-        FROM [master].[dbo].[bpr] AS x
-        OUTER APPLY x.[bpr].nodes(''/event'') AS xe(e)
-        OUTER APPLY x.[bpr].nodes(''/deadlock'') AS xd(e) 
+        FROM ' +
+        QUOTENAME(@TargetDatabaseName) +
+        N'.' +
+        QUOTENAME(@TargetSchemaName) +
+        N'.' +
+        QUOTENAME(@TargetTableName) +
+        N' AS x
+        OUTER APPLY x.' +
+        QUOTENAME(@TargetColumnName) +
+        N'.nodes(''/event'') AS xe(e)
+        OUTER APPLY x.' +
+        QUOTENAME(@TargetColumnName) +
+        N'.nodes(''/deadlock'') AS xd(e) 
         OPTION(RECOMPILE);
         ';
 
@@ -28764,6 +28784,7 @@ BEGIN
         LEFT JOIN #t AS t
           ON 1 = 1
 		WHERE @xe = 1
+		OR    LOWER(@TargetSessionType) <> N'table'
 
 		UNION ALL
 
@@ -31927,7 +31948,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.24', @VersionDate = '20250407';
+	SELECT @Version = '8.25', @VersionDate = '20250704';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -33340,7 +33361,7 @@ SET STATISTICS XML OFF;
 
 /*Versioning details*/
 
-SELECT @Version = '8.24', @VersionDate = '20250407';
+SELECT @Version = '8.25', @VersionDate = '20250704';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -35002,14 +35023,15 @@ ALTER PROCEDURE [dbo].[sp_ineachdb]
   @Version              varchar(30)    = NULL OUTPUT,
   @VersionDate          datetime       = NULL OUTPUT,
   @VersionCheckMode     bit            = 0,
-  @is_ag_writeable_copy bit            = 0
+  @is_ag_writeable_copy bit            = 0,
+  @is_query_store_on	bit            = 0
 -- WITH EXECUTE AS OWNER – maybe not a great idea, depending on the security of your system
 AS
 BEGIN
   SET NOCOUNT ON;
   SET STATISTICS XML OFF;
 
-  SELECT @Version = '8.24', @VersionDate = '20250407';
+  SELECT @Version = '8.25', @VersionDate = '20250704';
   
   IF(@VersionCheckMode = 1)
   BEGIN
@@ -35208,6 +35230,23 @@ OPTION (MAXRECURSION 0);
          )
      );
 
+  -- delete any databases that don't match query store criteria
+  IF @SQLVersion >= 13
+  BEGIN
+    DELETE dbs FROM #ineachdb AS dbs
+	WHERE EXISTS
+	 (
+       SELECT 1 
+         FROM sys.databases AS d
+         WHERE d.database_id = dbs.id
+         AND NOT
+         (
+           is_query_store_on   = COALESCE(@is_query_store_on,   is_query_store_on)
+		   AND NOT (@is_query_store_on = 1 AND d.database_id = 3) OR (@is_query_store_on = 0 AND d.database_id = 3) -- Excluding the model database which shows QS enabled in SQL2022+
+		 )
+     );
+  END
+  
   -- if a user access is specified, remove any that are NOT in that state
   IF @user_access IN (N'SINGLE_USER', N'MULTI_USER', N'RESTRICTED_USER')
   BEGIN
@@ -35372,6 +35411,10 @@ INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
     /*2022*/
+    (17, 800, 'CTP 2.1', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-06-16', '2025-12-31', '2025-12-31', 'SQL Server 2025', 'Preview CTP 2.1'),
+    (17, 700, 'CTP 2.0', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-05-19', '2025-12-31', '2025-12-31', 'SQL Server 2025', 'Preview CTP 2.0'),
+    /*2022*/
+    (16, 4195, 'CU19', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate19', '2025-05-19', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 19'),
     (16, 4185, 'CU18', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate18', '2025-03-13', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 18'),
     (16, 4175, 'CU17', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate17', '2025-01-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 17'),
     (16, 4165, 'CU16', 'https://support.microsoft.com/en-us/help/5048033', '2024-11-14', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 16'),
@@ -35855,7 +35898,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.24', @VersionDate = '20250407';
+SELECT @Version = '8.25', @VersionDate = '20250704';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -37446,7 +37489,7 @@ BEGIN
                 'Maintenance Tasks Running' AS FindingGroup,
                 'Restore Running' AS Finding,
                 'https://www.brentozar.com/askbrent/backups/' AS URL,
-                'Restore of ' + DB_NAME(db.resource_database_id) + ' database (' + (SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id) + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
+                'Restore of ' + COALESCE(DB_NAME(db.resource_database_id), 'Unknown Database') + ' database (' + COALESCE((SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id), 'Unknown') + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
                 'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
                 pl.query_plan AS QueryPlan,
                 r.start_time AS StartTime,
@@ -37454,14 +37497,14 @@ BEGIN
                 s.nt_user_name AS NTUserName,
                 s.[program_name] AS ProgramName,
                 s.[host_name] AS HostName,
-                db.[resource_database_id] AS DatabaseID,
-                DB_NAME(db.resource_database_id) AS DatabaseName,
+                COALESCE(db.[resource_database_id],0) AS DatabaseID,
+                COALESCE(DB_NAME(db.resource_database_id), 'Unknown') AS DatabaseName,
                 0 AS OpenTransactionCount,
                 r.query_hash
             FROM sys.dm_exec_requests r
             INNER JOIN sys.dm_exec_connections c ON r.session_id = c.session_id
             INNER JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
-            INNER JOIN (
+            LEFT OUTER JOIN (
             SELECT DISTINCT request_session_id, resource_database_id
             FROM    sys.dm_tran_locks
             WHERE resource_type = N'DATABASE'
@@ -37828,6 +37871,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         'https://www.brentozar.com/askbrent/' AS URL
     FROM sys.databases
     WHERE database_id > 4;
+
 
 	/* Server Info - Memory Grants pending - CheckID 39 */
 	IF (@Debug = 1)
@@ -38888,6 +38932,28 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 	END;
 
 
+    /* Query Problems - Deadlocks - CheckID 51 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 51',10,1) WITH NOWAIT;
+	END
+
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    SELECT 51 AS CheckID,
+        100 AS Priority,
+        'Query Problems' AS FindingGroup,
+        'Deadlocks' AS Finding,
+        ' https://www.brentozar.com/go/deadlocks' AS URL,
+        'Number of deadlocks during the sample: ' + CAST(ps.value_delta AS NVARCHAR(20)) + @LineFeed
+            + 'Determined by sampling Perfmon counter ' + ps.object_name + ' - ' + ps.counter_name + @LineFeed AS Details,
+        'Check sp_BlitzLock to find which indexes and queries to tune.'  AS HowToStopIt
+    FROM #PerfmonStats ps
+    WHERE ps.Pass = 2
+        AND counter_name = 'Number of Deadlocks/sec'
+        AND instance_name LIKE '_Total%'
+        AND value_delta > 0;
+
+
     /* SQL Server Internal Maintenance - Log File Growing - CheckID 13 */
 	IF (@Debug = 1)
 	BEGIN
@@ -39132,6 +39198,53 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                OR max_worker_percent >= 90
                OR max_session_percent >= 90);
 	END
+
+    /* Server Info - Thread Time - CheckID 50 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 50',10,1) WITH NOWAIT;
+	END
+
+    ;WITH max_batch AS (
+        SELECT MAX(SampleTime) AS SampleTime
+        FROM #WaitStats
+    )
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
+    SELECT TOP 1 
+        50 AS CheckID,
+        251 AS Priority,
+        'Server Info' AS FindingGroup,
+        'Thread Time' AS Finding,
+        LTRIM(
+            CASE 
+                WHEN c.[TotalThreadTimeSeconds] >= 86400 THEN 
+                    CAST(c.[TotalThreadTimeSeconds] / 86400 AS VARCHAR) + 'd '
+                ELSE '' 
+            END +
+            CASE 
+                WHEN c.[TotalThreadTimeSeconds] % 86400 >= 3600 THEN 
+                    CAST((c.[TotalThreadTimeSeconds] % 86400) / 3600 AS VARCHAR) + 'h '
+                ELSE '' 
+            END +
+            CASE 
+                WHEN c.[TotalThreadTimeSeconds] % 3600 >= 60 THEN 
+                    CAST((c.[TotalThreadTimeSeconds] % 3600) / 60 AS VARCHAR) + 'm '
+                ELSE '' 
+            END +
+            CASE 
+                WHEN c.[TotalThreadTimeSeconds] % 60 > 0 OR c.[TotalThreadTimeSeconds] = 0 THEN 
+                    CAST(c.[TotalThreadTimeSeconds] % 60 AS VARCHAR) + 's'
+                ELSE '' 
+            END
+        ) AS Details,
+        CAST(c.[TotalThreadTimeSeconds] AS DECIMAL(18,1)) AS DetailsInt,
+        'https://www.brentozar.com/go/threadtime' AS URL
+    FROM max_batch b
+    JOIN #WaitStats wd2 ON wd2.SampleTime = b.SampleTime
+    JOIN #WaitStats wd1 ON wd1.wait_type = wd2.wait_type AND wd2.SampleTime > wd1.SampleTime
+    CROSS APPLY (
+        SELECT CAST((wd2.thread_time_ms - wd1.thread_time_ms) / 1000 AS INT) AS TotalThreadTimeSeconds
+    ) AS c;
 
     /* Server Info - Batch Requests per Sec - CheckID 19 */
 	IF (@Debug = 1)
@@ -40462,13 +40575,13 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     wd1.wait_type,
 					COALESCE(wcat.WaitCategory, 'Other') AS wait_category,
                     CAST(c.[Wait Time (Seconds)] / 60. / 60. AS DECIMAL(18,1)) AS [Wait Time (Hours)],
-					CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Hour],
-                    (wd2.waiting_tasks_count - wd1.waiting_tasks_count) AS [Number of Waits],
                     CASE WHEN (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
                     THEN
                         CAST((wd2.wait_time_ms-wd1.wait_time_ms)/
                             (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) AS NUMERIC(12,1))
-                    ELSE 0 END AS [Avg ms Per Wait]
+                    ELSE 0 END AS [Avg ms Per Wait],
+					CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Hour],
+                    (wd2.waiting_tasks_count - wd1.waiting_tasks_count) AS [Number of Waits]
                 FROM  max_batch b
                 JOIN #WaitStats wd2 ON
                     wd2.SampleTime =b.SampleTime
@@ -40607,17 +40720,17 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     wd1.wait_type,
 					COALESCE(wcat.WaitCategory, 'Other') AS wait_category,
                     CAST(c.[Wait Time (Seconds)] / 60. / 60. AS DECIMAL(18,1)) AS [Wait Time (Hours)],
+                    CASE WHEN (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
+                    THEN
+                        CAST((wd2.wait_time_ms-wd1.wait_time_ms)/
+                            (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) AS NUMERIC(12,1))
+                    ELSE 0 END AS [Avg ms Per Wait],
                     CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Hour],
                     CAST(c.[Signal Wait Time (Seconds)] / 60.0 / 60 AS DECIMAL(18,1)) AS [Signal Wait Time (Hours)],
                     CASE WHEN c.[Wait Time (Seconds)] > 0
                      THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) AS NUMERIC(4,1))
                     ELSE 0 END AS [Percent Signal Waits],
                     (wd2.waiting_tasks_count - wd1.waiting_tasks_count) AS [Number of Waits],
-                    CASE WHEN (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
-                    THEN
-                        CAST((wd2.wait_time_ms-wd1.wait_time_ms)/
-                            (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) AS NUMERIC(12,1))
-                    ELSE 0 END AS [Avg ms Per Wait],
                     N'https://www.sqlskills.com/help/waits/' + LOWER(wd1.wait_type) + '/' AS URL
                 FROM  max_batch b
                 JOIN #WaitStats wd2 ON
@@ -40651,17 +40764,17 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     wd1.wait_type,
 					COALESCE(wcat.WaitCategory, 'Other') AS wait_category,
                     c.[Wait Time (Seconds)],
+                    CASE WHEN (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
+                    THEN
+                        CAST((wd2.wait_time_ms-wd1.wait_time_ms)/
+                            (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) AS NUMERIC(12,1))
+                    ELSE 0 END AS [Avg ms Per Wait],
                     CAST((CAST(wd2.wait_time_ms - wd1.wait_time_ms AS MONEY)) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Second],
                     c.[Signal Wait Time (Seconds)],
                     CASE WHEN c.[Wait Time (Seconds)] > 0
                      THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) AS NUMERIC(4,1))
                     ELSE 0 END AS [Percent Signal Waits],
                     (wd2.waiting_tasks_count - wd1.waiting_tasks_count) AS [Number of Waits],
-                    CASE WHEN (wd2.waiting_tasks_count - wd1.waiting_tasks_count) > 0
-                    THEN
-                        CAST((wd2.wait_time_ms-wd1.wait_time_ms)/
-                            (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) AS NUMERIC(12,1))
-                    ELSE 0 END AS [Avg ms Per Wait],
                     N'https://www.sqlskills.com/help/waits/' + LOWER(wd1.wait_type) + '/' AS URL
                 FROM  max_batch b
                 JOIN #WaitStats wd2 ON

@@ -180,6 +180,7 @@ Other common parameters include:
 * @ExportToExcel = 1 - turn this on, and it doesn't return XML fields that would hinder you from copy/pasting the data into Excel.
 * @ExpertMode = 1 - turn this on, and you get more columns with more data. Doesn't take longer to run though.
 * @IgnoreSystemDBs = 0 - if you want to show queries in master/model/msdb. By default we hide these. Additionally hides queries from databases named `dbadmin`, `dbmaintenance`, and `dbatools`.
+* @IgnoreReadableReplicaDBs = 0 - if you want to analyze the plan cache on an Availability Group readable replica. You will also have to connect to the replica using ApplicationIntent = ReadOnly, since SQL Server itself will abort queries that try to do work in readable secondaries.
 * @MinimumExecutionCount = 0 - in servers like data warehouses where lots of queries only run a few times, you can set a floor number for examination.
 
 [*Back to top*](#header1)
@@ -300,7 +301,6 @@ In addition to the [parameters common to many of the stored procedures](#paramet
 Checks either the System Health session or a specific Extended Event session that captures deadlocks and parses out all the XML for you.
 
 Parameters you can use:
-* @Top: Use if you want to limit the number of deadlocks to return. This is ordered by event date ascending.
 * @DatabaseName: If you want to filter to a specific database
 * @StartDate: The date you want to start searching on.
 * @EndDate: The date you want to stop searching on.
