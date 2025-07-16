@@ -589,19 +589,17 @@ BEGIN
                 @StringToExecute =
                     N'SELECT @r = o.name FROM ' +
                     @OutputDatabaseName +
-                    N'.sys.objects AS o WHERE o.type_desc = N''USER_TABLE'' AND o.name = ' +
+                    N'.sys.objects AS o inner join ' +
+                    @OutputDatabaseName +
+                    N'.sys.schemas as s on o.schema_id = s.schema_id WHERE o.type_desc = N''USER_TABLE'' AND o.name = ' +
                     QUOTENAME
                     (
                         @OutputTableName,
                         N''''
                     ) +
-                    N' AND o.schema_id = SCHEMA_ID(' +
-                    QUOTENAME
-                    (
-                        @OutputSchemaName,
-                        N''''
-                    ) +
-                    N');',
+                    N' AND s.name =''' +
+                    @OutputSchemaName +
+                    N''';',
                 @StringToExecuteParams =
                     N'@r sysname OUTPUT';
 
