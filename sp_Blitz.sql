@@ -9867,7 +9867,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
                                                 WHERE LOWER(cmdshell_output) = ( SELECT LOWER([service_account])
 												                                 FROM   [sys].[dm_server_services]
 												                                 WHERE  [servicename] LIKE 'SQL Server%'
-												                                   AND [servicename] NOT LIKE 'SQL Server Agent%'
+												                                   AND [servicename] NOT LIKE 'SQL Server%Agent%'
 												                                   AND [servicename] NOT LIKE 'SQL Server Launchpad%'))
                                     BEGIN
 								    INSERT  INTO #BlitzResults
@@ -9913,7 +9913,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
                                                     FROM #localadmins 
                                                     WHERE LOWER(cmdshell_output) = ( SELECT LOWER([service_account])
 												                                     FROM   [sys].[dm_server_services]
-												                                     WHERE  [servicename] LIKE 'SQL Server Agent%'
+												                                     WHERE  [servicename] LIKE 'SQL Server%Agent%'
 												                                       AND [servicename] NOT LIKE 'SQL Server Launchpad%'))
                                         BEGIN
 								        INSERT  INTO #BlitzResults
@@ -9946,7 +9946,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
                                                 FROM #localadmins 
                                                 WHERE LOWER(cmdshell_output) = ( SELECT LOWER([service_account])
 												                                 FROM   [sys].[dm_server_services]
-												                                 WHERE  [servicename] LIKE 'SQL Server Agent%'
+												                                 WHERE  [servicename] LIKE 'SQL Server%Agent%'
 												                                   AND [servicename] NOT LIKE 'SQL Server Launchpad%'))
 										BEGIN
 								        INSERT  INTO #BlitzResults
