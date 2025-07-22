@@ -30,7 +30,7 @@ ALTER PROCEDURE [dbo].[sp_ineachdb]
   @VersionDate          datetime       = NULL OUTPUT,
   @VersionCheckMode     bit            = 0,
   @is_ag_writeable_copy bit            = 0,
-  @is_query_store_on	bit            = 0
+  @is_query_store_on	bit            = NULL
 -- WITH EXECUTE AS OWNER – maybe not a great idea, depending on the security of your system
 AS
 BEGIN
