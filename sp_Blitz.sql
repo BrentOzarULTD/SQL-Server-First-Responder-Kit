@@ -9939,11 +9939,11 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 									    /*had to use a different table name because SQL Server/SSMS complains when parsing that the table still exists when it gets to the create part*/
 									    IF OBJECT_ID('tempdb..#localadminsag') IS NOT NULL DROP TABLE #localadminsag;
 									    CREATE TABLE #localadminsag (cmdshell_output NVARCHAR(1000));
-										INSERT INTO #localadmins
+										INSERT INTO #localadminsag
 										EXEC /**/xp_cmdshell/**/ N'net localgroup administrators' /* added comments around command since some firewalls block this string TL 20210221 */
                                     
 										IF EXISTS (SELECT 1 
-                                                FROM #localadmins 
+                                                FROM #localadminsag 
                                                 WHERE LOWER(cmdshell_output) = ( SELECT LOWER([service_account])
 												                                 FROM   [sys].[dm_server_services]
 												                                 WHERE  [servicename] LIKE 'SQL Server%Agent%'
