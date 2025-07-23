@@ -9939,8 +9939,17 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 									    /*had to use a different table name because SQL Server/SSMS complains when parsing that the table still exists when it gets to the create part*/
 									    IF OBJECT_ID('tempdb..#localadminsag') IS NOT NULL DROP TABLE #localadminsag;
 									    CREATE TABLE #localadminsag (cmdshell_output NVARCHAR(1000));
-										INSERT INTO #localadminsag
-										EXEC /**/xp_cmdshell/**/ N'net localgroup administrators' /* added comments around command since some firewalls block this string TL 20210221 */
+										/* language specific call of xp cmdshell */
+										IF (SELECT os_language_version FROM sys.dm_os_windows_info) = 1031  /* os language code for German. Again, this is a very specific fix, see #3673  */
+										BEGIN
+											INSERT INTO #localadminsag
+											EXEC /**/xp_cmdshell/**/ N'net localgroup Administratoren' /* german */
+										END
+										ELSE
+										BEGIN
+											INSERT INTO #localadminsag
+											EXEC /**/xp_cmdshell/**/ N'net localgroup administrators' /* added comments around command since some firewalls block this string TL 20210221 */
+										END	
                                     
 										IF EXISTS (SELECT 1 
                                                 FROM #localadminsag 
