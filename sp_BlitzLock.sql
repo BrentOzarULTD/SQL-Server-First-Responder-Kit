@@ -589,19 +589,17 @@ BEGIN
                 @StringToExecute =
                     N'SELECT @r = o.name FROM ' +
                     @OutputDatabaseName +
-                    N'.sys.objects AS o WHERE o.type_desc = N''USER_TABLE'' AND o.name = ' +
+                    N'.sys.objects AS o inner join ' +
+                    @OutputDatabaseName +
+                    N'.sys.schemas as s on o.schema_id = s.schema_id WHERE o.type_desc = N''USER_TABLE'' AND o.name = ' +
                     QUOTENAME
                     (
                         @OutputTableName,
                         N''''
                     ) +
-                    N' AND o.schema_id = SCHEMA_ID(' +
-                    QUOTENAME
-                    (
-                        @OutputSchemaName,
-                        N''''
-                    ) +
-                    N');',
+                    N' AND s.name =''' +
+                    @OutputSchemaName +
+                    N''';',
                 @StringToExecuteParams =
                     N'@r sysname OUTPUT';
 
@@ -843,12 +841,12 @@ BEGIN
             )
             BEGIN
                 RAISERROR('Found synonym DeadlockFindings, dropping', 0, 1) WITH NOWAIT;
-                DROP SYNONYM DeadlockFindings;
+                DROP SYNONYM dbo.DeadlockFindings;
             END;
 
             RAISERROR('Creating synonym DeadlockFindings', 0, 1) WITH NOWAIT;
             SET @StringToExecute =
-                    N'CREATE SYNONYM DeadlockFindings FOR ' +
+                    N'CREATE SYNONYM dbo.DeadlockFindings FOR ' +
                     @OutputDatabaseName +
                     N'.' +
                     @OutputSchemaName +
@@ -870,12 +868,12 @@ BEGIN
             )
             BEGIN
                 RAISERROR('Found synonym DeadLockTbl, dropping', 0, 1) WITH NOWAIT;
-                DROP SYNONYM DeadLockTbl;
+                DROP SYNONYM dbo.DeadLockTbl;
             END;
 
             RAISERROR('Creating synonym DeadLockTbl', 0, 1) WITH NOWAIT;
             SET @StringToExecute =
-                    N'CREATE SYNONYM DeadLockTbl FOR ' +
+                    N'CREATE SYNONYM dbo.DeadLockTbl FOR ' +
                     @OutputDatabaseName +
                     N'.' +
                     @OutputSchemaName +
@@ -4105,7 +4103,7 @@ BEGIN
 
             RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
-            DROP SYNONYM DeadLockTbl;
+            DROP SYNONYM dbo.DeadLockTbl;
 
             SET @d = CONVERT(varchar(40), GETDATE(), 109);
             RAISERROR('Findings to table %s', 0, 1, @d) WITH NOWAIT;
@@ -4135,7 +4133,7 @@ BEGIN
 
             RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
-            DROP SYNONYM DeadlockFindings; /*done with inserting.*/
+            DROP SYNONYM dbo.DeadlockFindings; /*done with inserting.*/
         END;
         ELSE /*Output to database is not set output to client app*/
         BEGIN
