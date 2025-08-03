@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 124
-If you want to add a new check, start at 125.
+CURRENT HIGH CHECKID: 125
+If you want to add a new check, start at 126.
 
 | Priority | FindingsGroup           | Finding                                                         | URL                                                              | CheckID |
 | -------- | ----------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------- | ------- |
@@ -25,6 +25,7 @@ If you want to add a new check, start at 125.
 | 80       | Abnormal Design Pattern | Filter Columns Not In Index Definition                          | https://www.brentozar.com/go/IndexFeatures                       | 34      |
 | 80       | Abnormal Design Pattern | History Table With NonClustered Index                           | https://sqlserverfast.com/blog/hugo/2023/09/an-update-on-merge/  | 124     |
 | 90       | Statistics Warnings     | Low Sampling Rates                                              | https://www.brentozar.com/go/stats                               | 91      |
+| 90       | Statistics Warnings     | Persisted Sampling Rates                                        | https://www.youtube.com/watch?v=V5illj_KOJg&t=758s               | 125     |
 | 90       | Statistics Warnings     | Statistics Not Updated Recently                                 | https://www.brentozar.com/go/stats                               | 90      |
 | 90       | Statistics Warnings     | Statistics with NO RECOMPUTE                                    | https://www.brentozar.com/go/stats                               | 92      |
 | 100      | Over-Indexing           | NC index with High Writes:Reads                                 | https://www.brentozar.com/go/IndexHoarder                        | 48      |

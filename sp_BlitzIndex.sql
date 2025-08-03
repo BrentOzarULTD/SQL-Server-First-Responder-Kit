@@ -738,7 +738,8 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
 		  table_modify_date DATETIME NULL,
 		  no_recompute BIT NULL,
 		  has_filter BIT NULL,
-		  filter_definition NVARCHAR(MAX) NULL
+		  filter_definition NVARCHAR(MAX) NULL,
+		  has_persisted_sample BIT NULL
 		); 
 
 		CREATE TABLE #ComputedColumns
@@ -2279,7 +2280,7 @@ OPTION (RECOMPILE);';
 			INSERT #Statistics ( database_id, database_name, table_name, schema_name, index_name, column_names, statistics_name, last_statistics_update, 
 								days_since_last_stats_update, rows, rows_sampled, percent_sampled, histogram_steps, modification_counter, 
 								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date,
-								no_recompute, has_filter, filter_definition)
+								no_recompute, has_filter, filter_definition, has_persisted_sample)
 				SELECT DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
 				    @i_DatabaseName AS database_name,
 					obj.name AS table_name,
@@ -2306,7 +2307,12 @@ OPTION (RECOMPILE);';
 			        CONVERT(DATETIME, obj.modify_date) AS table_modify_date,
 					s.no_recompute,
 					s.has_filter,
-					s.filter_definition
+					s.filter_definition,
+					'
+					+ CASE WHEN (PARSENAME(@SQLServerProductVersion, 4) >= 15)
+					THEN N's.has_persisted_sample'
+					ELSE N'NULL AS has_persisted_sample' END
+			+ N'
 			FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
 			JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.objects obj
 			ON      s.object_id = obj.object_id
@@ -2354,7 +2360,7 @@ OPTION (RECOMPILE);';
 			INSERT #Statistics(database_id, database_name, table_name, schema_name, index_name, column_names, statistics_name, 
 								last_statistics_update, days_since_last_stats_update, rows, modification_counter, 
 								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date,
-								no_recompute, has_filter, filter_definition)
+								no_recompute, has_filter, filter_definition, has_persisted_sample)
 							SELECT DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
 							    @i_DatabaseName AS database_name,
 								obj.name AS table_name,
@@ -2379,9 +2385,11 @@ OPTION (RECOMPILE);';
 								'
 								+ CASE WHEN @SQLServerProductVersion NOT LIKE '9%' 
 								THEN N's.has_filter,
-									   s.filter_definition' 
+									   s.filter_definition,' 
 								ELSE N'NULL AS has_filter,
-								       NULL AS filter_definition' END 
+								       NULL AS filter_definition,' END
+								/* If we are on this branch, then we cannot have the has_persisted_sample column (it is a 2019+ column). */
+								+ N'NULL AS has_persisted_sample'
 						+ N'								
 						FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
 						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.sysindexes si
@@ -4454,7 +4462,7 @@ BEGIN
 			END;
 
         ----------------------------------------
-        --Statistics Info: Check_id 90-99
+        --Statistics Info: Check_id 90-99, as well as 125
         ----------------------------------------
 
         RAISERROR(N'check_id 90: Outdated statistics', 0,1) WITH NOWAIT;
@@ -4503,6 +4511,24 @@ BEGIN
 		  OR (s.rows > 1000000 AND s.percent_sampled < 1)
 		OPTION    ( RECOMPILE );
 
+        RAISERROR(N'check_id 125: Statistics with a persisted sample rate', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+		SELECT  125 AS check_id,
+				90 AS Priority,
+				'Statistics Warnings' AS findings_group,
+				'Persisted Sampling Rates',
+				s.database_name,
+				'https://www.youtube.com/watch?v=V5illj_KOJg&t=758s' AS URL,
+				'The statistics sample rate/amount has been persisted here. ' + CONVERT(NVARCHAR(100), s.percent_sampled) + '% of the rows were sampled during the last statistics update. This may indicate that somebody is doing statistics rocket surgery. Perhaps you would be better off updating statistics more frequently?' AS details,
+				QUOTENAME(database_name) + '.' + QUOTENAME(s.schema_name) + '.' + QUOTENAME(s.table_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_names) AS index_definition,
+				'N/A' AS secret_columns,
+				'N/A' AS index_usage_summary,
+				'N/A' AS index_size_summary
+		FROM #Statistics AS s
+		WHERE s.has_persisted_sample = 1
+		OPTION    ( RECOMPILE );
+
         RAISERROR(N'check_id 92: Statistics with NO RECOMPUTE', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
@@ -4520,7 +4546,6 @@ BEGIN
 		FROM #Statistics AS s
 		WHERE s.no_recompute = 1
 		OPTION    ( RECOMPILE );
-
 
 	     RAISERROR(N'check_id 94: Check Constraints That Reference Functions', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
