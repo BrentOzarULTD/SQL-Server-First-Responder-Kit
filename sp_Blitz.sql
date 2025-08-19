@@ -26,6 +26,7 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
     @SummaryMode TINYINT = 0 ,
     @BringThePain TINYINT = 0 ,
     @UsualDBOwner sysname = NULL ,
+	@UsualOwnerOfJobs sysname = NULL , -- This is to set the owner of Jobs is you have a different account than SA that you use as Default
 	@SkipBlockingChecks TINYINT = 1 ,
     @Debug TINYINT = 0 ,
     @Version     VARCHAR(30) = NULL OUTPUT,
@@ -1932,7 +1933,11 @@ AS
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 6) WITH NOWAIT;
+
 						
+						IF @UsualOwnerOfJobs IS NULL
+							SET @UsualOwnerOfJobs = SUSER_SNAME(0x01);
+
 						INSERT  INTO #BlitzResults
 								( CheckID ,
 								  Priority ,
@@ -1951,7 +1956,7 @@ AS
 										  + '] - meaning if their login is disabled or not available due to Active Directory problems, the job will stop working.' ) AS Details
 								FROM    msdb.dbo.sysjobs j
 								WHERE   j.enabled = 1
-										AND SUSER_SNAME(j.owner_sid) <> SUSER_SNAME(0x01);
+										AND SUSER_SNAME(j.owner_sid) <> @UsualOwnerOfJobs;
 					END;
 
 				/* --TOURSTOP06-- */
