@@ -864,12 +864,17 @@ AS
 						INSERT INTO #SkipChecks (CheckID) VALUES (6);  /* Security - Jobs Owned By Users per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
 						INSERT INTO #SkipChecks (CheckID) VALUES (21);  /* Informational - Database Encrypted per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
 						INSERT INTO #SkipChecks (CheckID) VALUES (24);  /* File Configuration - System Database on C Drive per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
+						INSERT INTO #SkipChecks (CheckID) VALUES (30);  /* SQL Agent Alerts cannot be configured on MI */
 						INSERT INTO #SkipChecks (CheckID) VALUES (50);  /* Max Server Memory Set Too High - because they max it out */
 						INSERT INTO #SkipChecks (CheckID) VALUES (55);  /* Security - Database Owner <> sa per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
+						INSERT INTO #SkipChecks (CheckID) VALUES (61);  /* SQL Agent Alerts cannot be configured on MI */
+						INSERT INTO #SkipChecks (CheckID) VALUES (73);  /* SQL Agent Failsafe Operator cannot be configured on MI */
 						INSERT INTO #SkipChecks (CheckID) VALUES (74);  /* TraceFlag On - because Azure Managed Instances go wild and crazy with the trace flags */
+						INSERT INTO #SkipChecks (CheckID) VALUES (96);  /* SQL Agent Alerts cannot be configured on MI */
 						INSERT INTO #SkipChecks (CheckID) VALUES (97);  /* Unusual SQL Server Edition */
 						INSERT INTO #SkipChecks (CheckID) VALUES (100);  /* Remote DAC disabled - but it's working anyway, details here: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1481 */
 						INSERT INTO #SkipChecks (CheckID) VALUES (186);  /* MSDB Backup History Purged Too Frequently */
+						INSERT INTO #SkipChecks (CheckID) VALUES (192);  /* IFI can not be set for data files and is always used for log files in MI */
 						INSERT INTO #SkipChecks (CheckID) VALUES (199);  /* Default trace, details here: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1481 */
 						INSERT INTO #SkipChecks (CheckID) VALUES (211);  /*Power Plan */
 						INSERT INTO #SkipChecks (CheckID, DatabaseName) VALUES (80, 'master');  /* Max file size set */
