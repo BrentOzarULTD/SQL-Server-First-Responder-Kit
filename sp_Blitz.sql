@@ -27,6 +27,7 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
     @BringThePain TINYINT = 0 ,
     @UsualDBOwner sysname = NULL ,
 	@UsualOwnerOfJobs sysname = NULL , -- This is to set the owner of Jobs is you have a different account than SA that you use as Default
+	@MaxPercentTembdbFileVariation DECIMAL(3,2) = 0.10, -- set to a decent Default percent, I went with ten as a good start
 	@SkipBlockingChecks TINYINT = 1 ,
     @Debug TINYINT = 0 ,
     @Version     VARCHAR(30) = NULL OUTPUT,
@@ -3207,11 +3208,10 @@ AS
 
 				BEGIN
 
-						IF ( SELECT COUNT (distinct [size])
+						IF (SELECT  (MAX((size * 8)) * 1.0)/(MIN((size * 8)) *1.0) - 1.0 
 							FROM   tempdb.sys.database_files
 							WHERE  type_desc = 'ROWS'
-							HAVING MAX((size * 8) / (1024. * 1024)) - MIN((size * 8) / (1024. * 1024)) > 1.
-							) <> 1
+							) > @MaxPercentTembdbFileVariation
 							BEGIN
 
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 183) WITH NOWAIT;
