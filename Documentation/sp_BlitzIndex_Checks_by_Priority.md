@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 125
-If you want to add a new check, start at 126.
+CURRENT HIGH CHECKID: 126
+If you want to add a new check, start at 127.
 
 | Priority | FindingsGroup           | Finding                                                         | URL                                                              | CheckID |
 | -------- | ----------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------- | ------- |
@@ -25,7 +25,7 @@ If you want to add a new check, start at 126.
 | 80       | Abnormal Design Pattern | Filter Columns Not In Index Definition                          | https://www.brentozar.com/go/IndexFeatures                       | 34      |
 | 80       | Abnormal Design Pattern | History Table With NonClustered Index                           | https://sqlserverfast.com/blog/hugo/2023/09/an-update-on-merge/  | 124     |
 | 90       | Statistics Warnings     | Low Sampling Rates                                              | https://www.brentozar.com/go/stats                               | 91      |
-| 90       | Statistics Warnings     | Persisted Sampling Rates                                        | https://www.youtube.com/watch?v=V5illj_KOJg&t=758s               | 125     |
+| 90       | Statistics Warnings     | Persisted Sampling Rates (Unexpected)                           | `https://www.youtube.com/watch?v=V5illj_KOJg&t=758s`             | 125     |
 | 90       | Statistics Warnings     | Statistics Not Updated Recently                                 | https://www.brentozar.com/go/stats                               | 90      |
 | 90       | Statistics Warnings     | Statistics with NO RECOMPUTE                                    | https://www.brentozar.com/go/stats                               | 92      |
 | 100      | Over-Indexing           | NC index with High Writes:Reads                                 | https://www.brentozar.com/go/IndexHoarder                        | 48      |
@@ -62,6 +62,7 @@ If you want to add a new check, start at 126.
 | 200      | Abnormal Design Pattern | Temporal Tables                                                 | https://www.brentozar.com/go/AbnormalPsychology                  | 110     |
 | 200      | Repeated Calculations   | Computed Columns Not Persisted                                  | https://www.brentozar.com/go/serialudf                           | 100     |
 | 200      | Statistics Warnings     | Statistics With Filters                                         | https://www.brentozar.com/go/stats                               | 93      |
+| 200      | Statistics Warnings     | Persisted Sampling Rates (Expected)                             | `https://www.youtube.com/watch?v=V5illj_KOJg&t=758s`             | 126     |
 | 200      | Over-Indexing           | High Ratio of Nulls                                             | https://www.brentozar.com/go/IndexHoarder                        | 25      |
 | 200      | Over-Indexing           | High Ratio of Strings                                           | https://www.brentozar.com/go/IndexHoarder                        | 27      |
 | 200      | Over-Indexing           | Wide Tables: 35+ cols or > 2000 non-LOB bytes                   | https://www.brentozar.com/go/IndexHoarder                        | 26      |
