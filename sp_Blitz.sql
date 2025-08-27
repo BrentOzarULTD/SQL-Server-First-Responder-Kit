@@ -3938,6 +3938,38 @@ AS
 
 					IF NOT EXISTS ( SELECT 1
 										 FROM   #SkipChecks
+										 WHERE  DatabaseName IS NULL AND CheckID = 270 )
+						AND EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_os_memory_health_history')
+						BEGIN
+
+							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 270) WITH NOWAIT;
+
+							INSERT  INTO #BlitzResults
+									( CheckID ,
+									  Priority ,
+									  FindingsGroup ,
+									  Finding ,
+									  URL ,
+									  Details
+									)
+									SELECT  270 AS CheckID ,
+											1 AS Priority ,
+											'Performance' AS FindingGroup ,
+											'Memory Dangerous Low Recently'  AS Finding ,
+											'https://www.brentozar.com/go/memhist' AS URL ,
+											CAST(SUM(1) AS NVARCHAR(10)) + N' instances of ' + CAST(severity_level_desc AS NVARCHAR(100))
+											+ N' severity level memory issues reported in the last 4 hours in sys.dm_os_memory_health_history.'
+									FROM sys.dm_os_memory_health_history
+									WHERE severity_level > 1
+									GROUP BY severity_level, severity_level_desc;
+						END;
+
+
+
+
+
+					IF NOT EXISTS ( SELECT 1
+										 FROM   #SkipChecks
 										 WHERE  DatabaseName IS NULL AND CheckID = 121 )
 						BEGIN
 
