@@ -175,6 +175,12 @@ BEGIN
     RETURN;
 END;
 
+IF(@UsualStatisticsSamplingPercent <= 0 OR @UsualStatisticsSamplingPercent > 100)
+BEGIN
+    RAISERROR('Invalid value for parameter @UsualStatisticsSamplingPercent. Expected: 1 to 100',12,1);
+    RETURN;
+END;
+
 IF(@OutputType = 'TABLE' AND NOT (@OutputTableName IS NULL AND @OutputSchemaName IS NULL AND @OutputDatabaseName IS NULL AND @OutputServerName IS NULL))
 BEGIN
 	RAISERROR(N'One or more output parameters specified in combination with TABLE output, changing to NONE output mode', 0,1) WITH NOWAIT;
@@ -4555,26 +4561,6 @@ BEGIN
 		)
 		OPTION    ( RECOMPILE );
 
-        RAISERROR(N'check_id 126: Persisted Sampling Rates (Expected)', 0,1) WITH NOWAIT;
-                INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
-                                               secret_columns, index_usage_summary, index_size_summary )
-		SELECT	126 AS check_id,
-				200 AS Priority,
-				'Statistics Warnings' AS findings_group,
-				'Persisted Sampling Rates (Expected)',
-				s.database_name,
-				'https://www.youtube.com/watch?v=V5illj_KOJg&t=758s' AS URL,
-				CONVERT(NVARCHAR(100), COUNT(*)) + ' statistic(s) with a persisted sample rate matching your desired persisted sample rate, ' + CONVERT(NVARCHAR(100), @UsualStatisticsSamplingPercent) + N'%. Set @UsualStatisticsSamplingPercent to NULL if you want to see all of them in this result set. Its default value is 100.' AS details,
-				s.database_name + N' (Entire database)' AS index_definition,
-				'N/A' AS secret_columns,
-				'N/A' AS index_usage_summary,
-				'N/A' AS index_size_summary
-		FROM #Statistics AS s
-		WHERE ABS(@UsualStatisticsSamplingPercent - s.persisted_sample_percent) <= 0.1
-		  AND @UsualStatisticsSamplingPercent IS NOT NULL
-		GROUP BY s.database_name
-		OPTION    ( RECOMPILE );
-
         RAISERROR(N'check_id 92: Statistics with NO RECOMPUTE', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
@@ -5662,6 +5648,28 @@ BEGIN
 				'N/A' AS index_size_summary
 		FROM #IndexSanity AS i
 		WHERE i.optimize_for_sequential_key = 1
+		OPTION    ( RECOMPILE );
+
+
+
+		RAISERROR(N'check_id 126: Persisted Sampling Rates (Expected)', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+		SELECT	126 AS check_id,
+				200 AS Priority,
+				'Statistics Warnings' AS findings_group,
+				'Persisted Sampling Rates (Expected)',
+				s.database_name,
+				'https://www.youtube.com/watch?v=V5illj_KOJg&t=758s' AS URL,
+				CONVERT(NVARCHAR(100), COUNT(*)) + ' statistic(s) with a persisted sample rate matching your desired persisted sample rate, ' + CONVERT(NVARCHAR(100), @UsualStatisticsSamplingPercent) + N'%. Set @UsualStatisticsSamplingPercent to NULL if you want to see all of them in this result set. Its default value is 100.' AS details,
+				s.database_name + N' (Entire database)' AS index_definition,
+				'N/A' AS secret_columns,
+				'N/A' AS index_usage_summary,
+				'N/A' AS index_size_summary
+		FROM #Statistics AS s
+		WHERE ABS(@UsualStatisticsSamplingPercent - s.persisted_sample_percent) <= 0.1
+		  AND @UsualStatisticsSamplingPercent IS NOT NULL
+		GROUP BY s.database_name
 		OPTION    ( RECOMPILE );
 
 
