@@ -4475,7 +4475,7 @@ BEGIN
 			END;
 
         ----------------------------------------
-        --Statistics Info: Check_id 90-99, as well as 125-126
+        --Statistics Info: Check_id 90-99, as well as 125
         ----------------------------------------
 
         RAISERROR(N'check_id 90: Outdated statistics', 0,1) WITH NOWAIT;
@@ -5651,7 +5651,7 @@ BEGIN
 		OPTION    ( RECOMPILE );
 
 
-
+        /* See check_id 125. */
 		RAISERROR(N'check_id 126: Persisted Sampling Rates (Expected)', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
