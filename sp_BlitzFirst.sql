@@ -2636,7 +2636,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 				'Server Performance' AS FindingGroup,
 				'Memory Dangerously Low Recently' AS Finding,
 				'https://www.brentozar.com/go/memhist' AS URL,
-				N'As recently as ' + CONVERT(NVARCHAR(19), snapshot_time, 120) + N', memory health issues are being reported in sys.dm_os_memory_health, indicating extreme memory pressure.' AS Details
+				N'As recently as ' + CONVERT(NVARCHAR(19), snapshot_time, 120) + N', memory health issues are being reported in sys.dm_os_memory_health_history, indicating extreme memory pressure.' AS Details
 			FROM sys.dm_os_memory_health_history
 			WHERE severity_level > 1;
 		END
