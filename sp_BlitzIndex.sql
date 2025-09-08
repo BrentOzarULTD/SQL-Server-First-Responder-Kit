@@ -4671,9 +4671,9 @@ BEGIN
             JOIN    #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
             WHERE    index_id NOT IN ( 0, 1 ) 
                     AND i.is_unique = 0
-					/*Skipping tables created in the last week, or modified in past 2 days*/
-					AND	i.create_date >= DATEADD(dd,-7,GETDATE()) 
-					AND i.modify_date > DATEADD(dd,-2,GETDATE()) 
+                    /*Skipping tables created in the last week, or modified in past 2 days*/
+                    AND	i.create_date < DATEADD(dd,-7,GETDATE()) 
+                    AND i.modify_date < DATEADD(dd,-2,GETDATE()) 
             OPTION    ( RECOMPILE );
             IF @percent_NC_indexes_unused >= 5 
             INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
@@ -4704,9 +4704,9 @@ BEGIN
                         WHERE    index_id NOT IN ( 0, 1 )
                                 AND i.is_unique = 0
                                 AND total_reads = 0
-								/*Skipping tables created in the last week, or modified in past 2 days*/
-								AND	i.create_date >= DATEADD(dd,-7,GETDATE()) 
-								AND i.modify_date > DATEADD(dd,-2,GETDATE())
+                                /*Skipping tables created in the last week, or modified in past 2 days*/
+                                AND	i.create_date < DATEADD(dd,-7,GETDATE()) 
+                                AND i.modify_date < DATEADD(dd,-2,GETDATE())
                         GROUP BY i.database_name 
                 OPTION    ( RECOMPILE );
 
@@ -4957,9 +4957,9 @@ BEGIN
                         AND i.index_id NOT IN (0,1) /*NCs only*/
                         AND i.is_unique = 0
                         AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
-						/*Skipping tables created in the last week, or modified in past 2 days*/
-						AND	i.create_date >= DATEADD(dd,-7,GETDATE()) 
-						AND i.modify_date > DATEADD(dd,-2,GETDATE())
+                        /*Skipping tables created in the last week, or modified in past 2 days*/
+                        AND	i.create_date < DATEADD(dd,-7,GETDATE()) 
+                        AND i.modify_date < DATEADD(dd,-2,GETDATE())
                 ORDER BY i.db_schema_object_indexid
                 OPTION    ( RECOMPILE );
 
