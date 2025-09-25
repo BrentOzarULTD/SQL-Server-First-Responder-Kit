@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 52
-If you want to add a new check, start at 53.
+CURRENT HIGH CHECKID: 53
+If you want to add a new check, start at 54.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|---------------------------------|---------------------------------------|-------------------------------------------------|----------|
@@ -36,6 +36,7 @@ If you want to add a new check, start at 53.
 | 50 | Query Problems | Re-Compilations/Sec High | https://www.brentozar.com/go/recompile | 16 |
 | 50 | Query Problems | Statistics Updated Recently | https://www.brentozar.com/go/stats | 44 |
 | 50 | Query Problems | High Percentage Of Runnable Queries | https://erikdarlingdata.com/go/RunnableQueue/ | 47 |
+| 50 | Server Performance | Azure Operation Ongoing | https://learn.microsoft.com/en-us/sql/relational-databases/system-dynamic-management-views/sys-dm-operation-status-azure-sql-database | 53 |
 | 50 | Server Performance | High CPU Utilization | https://www.brentozar.com/go/cpu | 24 |
 | 50 | Server Performance | High CPU Utilization - Non SQL Processes | https://www.brentozar.com/go/cpu | 28 |
 | 50 | Server Performance | Slow Data File Reads | https://www.brentozar.com/go/slow | 11 |
