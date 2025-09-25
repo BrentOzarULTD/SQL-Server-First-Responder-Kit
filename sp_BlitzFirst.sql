@@ -2592,6 +2592,27 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 	END
 
+    /* Server Performance - Azure Operation Ongoing  - CheckID 53 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 53',10,1) WITH NOWAIT;
+	END
+	IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_operation_status')
+		BEGIN
+			INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+			SELECT 53 AS CheckID,
+				50 AS Priority,
+				'Server Performance' AS FindingGroup,
+				'Azure Operation ' + CASE WHEN state IN (2, 3, 5) THEN 'Ended Recently' ELSE 'Ongoing' END AS Finding,
+				'https://learn.microsoft.com/en-us/sql/relational-databases/system-dynamic-management-views/sys-dm-operation-status-azure-sql-database' AS URL,
+				N'Operation: ' + operation + N' State: ' + state_desc + N' Percent Complete: ' + CAST(percent_complete AS NVARCHAR(10)) + @LineFeed
+                    + N' On: ' + CAST(resource_type_desc AS NVARCHAR(100)) + N':' + CAST(major_resource_id AS NVARCHAR(100)) + @LineFeed
+                    + N' Started: ' + CAST(start_time AS NVARCHAR(100)) + N' Last Modified Time: ' + CAST(last_modify_time AS NVARCHAR(100)) + @LineFeed
+                    + N' For more information, query SELECT * FROM sys.dm_operation_status; ' AS Details
+			FROM sys.dm_operation_status
+		END
+
+
     /* Potential Upcoming Problems - High Number of Connections - CheckID 49 */
 	IF (@Debug = 1)
 	BEGIN
