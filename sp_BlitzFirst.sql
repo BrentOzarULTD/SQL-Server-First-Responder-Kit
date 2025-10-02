@@ -47,7 +47,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.25', @VersionDate = '20250704';
+SELECT @Version = '8.26', @VersionDate = '20251002';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -1638,7 +1638,11 @@ BEGIN
                 'Maintenance Tasks Running' AS FindingGroup,
                 'Restore Running' AS Finding,
                 'https://www.brentozar.com/askbrent/backups/' AS URL,
-                'Restore of ' + COALESCE(DB_NAME(db.resource_database_id), 'Unknown Database') + ' database (' + COALESCE((SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id), 'Unknown') + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '. ' AS Details,
+                'Restore of ' + COALESCE(DB_NAME(db.resource_database_id),
+					(SELECT db1.name FROM sys.databases db1
+					LEFT OUTER JOIN sys.databases db2 ON db1.name <> db2.name AND db1.state_desc = db2.state_desc
+					WHERE db1.state_desc = 'RESTORING' AND db2.name IS NULL),
+					'Unknown Database') + ' database (' + COALESCE((SELECT CAST(CAST(SUM(size * 8.0 / 1024 / 1024) AS BIGINT) AS NVARCHAR) FROM #MasterFiles WHERE database_id = db.resource_database_id), 'Unknown ') + 'GB) is ' + CAST(r.percent_complete AS NVARCHAR(100)) + '% complete, has been running since ' + CAST(r.start_time AS NVARCHAR(100)) + '.' AS Details,
                 'KILL ' + CAST(r.session_id AS NVARCHAR(100)) + ';' AS HowToStopIt,
                 pl.query_plan AS QueryPlan,
                 r.start_time AS StartTime,
@@ -2588,6 +2592,27 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 	END
 
+    /* Server Performance - Azure Operation Ongoing  - CheckID 53 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 53',10,1) WITH NOWAIT;
+	END
+	IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_operation_status')
+		BEGIN
+			INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+			SELECT 53 AS CheckID,
+				50 AS Priority,
+				'Server Performance' AS FindingGroup,
+				'Azure Operation ' + CASE WHEN state IN (2, 3, 5) THEN 'Ended Recently' ELSE 'Ongoing' END AS Finding,
+				'https://learn.microsoft.com/en-us/sql/relational-databases/system-dynamic-management-views/sys-dm-operation-status-azure-sql-database' AS URL,
+				N'Operation: ' + operation + N' State: ' + state_desc + N' Percent Complete: ' + CAST(percent_complete AS NVARCHAR(10)) + @LineFeed
+                    + N' On: ' + CAST(resource_type_desc AS NVARCHAR(100)) + N':' + CAST(major_resource_id AS NVARCHAR(100)) + @LineFeed
+                    + N' Started: ' + CAST(start_time AS NVARCHAR(100)) + N' Last Modified Time: ' + CAST(last_modify_time AS NVARCHAR(100)) + @LineFeed
+                    + N' For more information, query SELECT * FROM sys.dm_operation_status; ' AS Details
+			FROM sys.dm_operation_status
+		END
+
+
     /* Potential Upcoming Problems - High Number of Connections - CheckID 49 */
 	IF (@Debug = 1)
 	BEGIN
@@ -2616,6 +2641,27 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			HAVING SUM(1) > @max_worker_threads;
 			END
 		END
+
+
+
+    /* Server Performance - Memory Dangerously Low Recently - CheckID 52 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 52',10,1) WITH NOWAIT;
+	END
+	IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_os_memory_health_history')
+		BEGIN
+			INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+			SELECT TOP 1 52 AS CheckID,
+				10 AS Priority,
+				'Server Performance' AS FindingGroup,
+				'Memory Dangerously Low Recently' AS Finding,
+				'https://www.brentozar.com/go/memhist' AS URL,
+				N'As recently as ' + CONVERT(NVARCHAR(19), snapshot_time, 120) + N', memory health issues are being reported in sys.dm_os_memory_health_history, indicating extreme memory pressure.' AS Details
+			FROM sys.dm_os_memory_health_history
+			WHERE severity_level > 1;
+		END
+
 
 	RAISERROR('Finished running investigatory queries',10,1) WITH NOWAIT;
 

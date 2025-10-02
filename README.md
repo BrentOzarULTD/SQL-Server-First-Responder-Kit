@@ -288,6 +288,7 @@ In addition to the [parameters common to many of the stored procedures](#paramet
 
 * @SkipPartitions = 1 - add this if you want to analyze large partitioned tables. We skip these by default for performance reasons.
 * @SkipStatistics = 0 - right now, by default, we skip statistics analysis because we've had some performance issues on this.
+* @UsualStatisticsSamplingPercent = 100 (default) - By default, @SkipStatistics = 0 with either @Mode = 0 or @Mode = 4 does not inform you of persisted statistics sample rates if that rate is 100. Use a different float if you usually persist a different sample percentage and do not want to be warned about it. Use NULL if you want to hear about every persisted sample rate.
 * @Filter = 0 (default) - 1=No low-usage warnings for objects with 0 reads. 2=Only warn for objects >= 500MB
 * @OutputDatabaseName, @OutputSchemaName, @OutputTableName - these only work for @Mode = 2, index usage detail.
 

@@ -23,6 +23,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
         /*Note:@Filter doesn't do anything unless @Mode=0*/
     @SkipPartitions BIT	= 0,
     @SkipStatistics BIT	= 1,
+    @UsualStatisticsSamplingPercent FLOAT = 100, /* FLOAT to match sys.dm_db_stats_properties. More detail later. 100 by default because Brent suggests that if people are persisting statistics at all, they are probably doing 100 in lots of places and not filtering that out would produce noise. */
     @GetAllDatabases BIT = 0,
 	@ShowColumnstoreOnly BIT = 0, /* Will show only the Row Group and Segment details for a table with a columnstore index. */
     @BringThePain BIT = 0,
@@ -49,7 +50,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.25', @VersionDate = '20250704';
+SELECT @Version = '8.26', @VersionDate = '20251002';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -171,6 +172,12 @@ RAISERROR(N'Starting run. %s', 0,1, @ScriptVersionName) WITH NOWAIT;
 IF(@OutputType NOT IN ('TABLE','NONE'))
 BEGIN
     RAISERROR('Invalid value for parameter @OutputType. Expected: (TABLE;NONE)',12,1);
+    RETURN;
+END;
+
+IF(@UsualStatisticsSamplingPercent <= 0 OR @UsualStatisticsSamplingPercent > 100)
+BEGIN
+    RAISERROR('Invalid value for parameter @UsualStatisticsSamplingPercent. Expected: 1 to 100',12,1);
     RETURN;
 END;
 
@@ -719,6 +726,7 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
 		CREATE TABLE #Statistics (
 		  database_id INT NOT NULL,
 		  database_name NVARCHAR(256) NOT NULL,
+          object_id INT NOT NULL,
 		  table_name NVARCHAR(128) NULL,
 		  schema_name NVARCHAR(128) NULL,
 		  index_name  NVARCHAR(128) NULL,
@@ -732,13 +740,15 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
 		  histogram_steps INT NULL,
 		  modification_counter BIGINT NULL,
 		  percent_modifications DECIMAL(18, 1) NULL,
-		  modifications_before_auto_update INT NULL,
+		  modifications_before_auto_update BIGINT NULL,
 		  index_type_desc NVARCHAR(128) NULL,
 		  table_create_date DATETIME NULL,
 		  table_modify_date DATETIME NULL,
 		  no_recompute BIT NULL,
 		  has_filter BIT NULL,
-		  filter_definition NVARCHAR(MAX) NULL
+		  filter_definition NVARCHAR(MAX) NULL,
+		  persisted_sample_percent FLOAT NULL,
+          is_incremental BIT NULL
 		); 
 
 		CREATE TABLE #ComputedColumns
@@ -2276,14 +2286,15 @@ OPTION (RECOMPILE);';
 		BEGIN
 		RAISERROR (N'Gathering Statistics Info With Newer Syntax.',0,1) WITH NOWAIT;
 		SET @dsql=N'USE ' + QUOTENAME(@DatabaseName) + N'; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-			INSERT #Statistics ( database_id, database_name, table_name, schema_name, index_name, column_names, statistics_name, last_statistics_update, 
+			INSERT #Statistics ( database_id, database_name, object_id, table_name, schema_name, index_name, column_names, statistics_name, last_statistics_update, 
 								days_since_last_stats_update, rows, rows_sampled, percent_sampled, histogram_steps, modification_counter, 
 								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date,
-								no_recompute, has_filter, filter_definition)
+								no_recompute, has_filter, filter_definition, persisted_sample_percent, is_incremental)
 				SELECT DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
-				    @i_DatabaseName AS database_name,
-					obj.name AS table_name,
-					sch.name AS schema_name,
+			        @i_DatabaseName AS database_name,
+			        obj.object_id,
+			        obj.name AS table_name,
+			        sch.name AS schema_name,
 			        ISNULL(i.name, ''System Or User Statistic'') AS index_name,
 			        ca.column_names AS column_names,
 			        s.name AS statistics_name,
@@ -2299,14 +2310,33 @@ OPTION (RECOMPILE);';
 			             ELSE ddsp.modification_counter
 			        END AS percent_modifications,
 			        CASE WHEN ddsp.rows < 500 THEN 500
-			             ELSE CAST(( ddsp.rows * .20 ) + 500 AS INT)
+			             ELSE CAST(( ddsp.rows * .20 ) + 500 AS BIGINT)
 			        END AS modifications_before_auto_update,
 			        ISNULL(i.type_desc, ''System Or User Statistic - N/A'') AS index_type_desc,
 			        CONVERT(DATETIME, obj.create_date) AS table_create_date,
 			        CONVERT(DATETIME, obj.modify_date) AS table_modify_date,
 					s.no_recompute,
 					s.has_filter,
-					s.filter_definition
+					s.filter_definition,
+					'
+					+ CASE WHEN EXISTS
+					  (
+						  /* We cannot trust checking version numbers, like we did above, because Azure disagrees. */
+						  SELECT 1
+						  FROM sys.all_columns AS all_cols
+						  WHERE all_cols.[object_id] = OBJECT_ID(N'sys.dm_db_stats_properties', N'IF') AND all_cols.[name] = N'persisted_sample_percent'
+					  )
+					  THEN N'ddsp.persisted_sample_percent,'
+					  ELSE N'NULL AS persisted_sample_percent,' END
+					+ CASE WHEN EXISTS
+					  (
+						  SELECT 1
+						  FROM sys.all_columns AS all_cols
+						  WHERE all_cols.[object_id] = OBJECT_ID(N'sys.stats', N'V') AND all_cols.[name] = N'is_incremental'
+					  )
+					  THEN N's.is_incremental'
+					  ELSE N'NULL AS is_incremental' END
+			+ N'
 			FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
 			JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.objects obj
 			ON      s.object_id = obj.object_id
@@ -2351,12 +2381,13 @@ OPTION (RECOMPILE);';
 			BEGIN
 			RAISERROR (N'Gathering Statistics Info With Older Syntax.',0,1) WITH NOWAIT;
 			SET @dsql=N'USE ' + QUOTENAME(@DatabaseName) + N'; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-			INSERT #Statistics(database_id, database_name, table_name, schema_name, index_name, column_names, statistics_name, 
+			INSERT #Statistics(database_id, database_name, object_id, table_name, schema_name, index_name, column_names, statistics_name, 
 								last_statistics_update, days_since_last_stats_update, rows, modification_counter, 
 								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date,
-								no_recompute, has_filter, filter_definition)
+								no_recompute, has_filter, filter_definition, persisted_sample_percent, is_incremental)
 							SELECT DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
 							    @i_DatabaseName AS database_name,
+								obj.object_id,
 								obj.name AS table_name,
 								sch.name AS schema_name,
 						        ISNULL(i.name, ''System Or User Statistic'') AS index_name,
@@ -2370,7 +2401,7 @@ OPTION (RECOMPILE);';
 						             ELSE si.rowmodctr
 						        END AS percent_modifications,
 						        CASE WHEN si.rowcnt < 500 THEN 500
-						             ELSE CAST(( si.rowcnt * .20 ) + 500 AS INT)
+						             ELSE CAST(( si.rowcnt * .20 ) + 500 AS BIGINT)
 						        END AS modifications_before_auto_update,
 						        ISNULL(i.type_desc, ''System Or User Statistic - N/A'') AS index_type_desc,
 						        CONVERT(DATETIME, obj.create_date) AS table_create_date,
@@ -2379,9 +2410,20 @@ OPTION (RECOMPILE);';
 								'
 								+ CASE WHEN @SQLServerProductVersion NOT LIKE '9%' 
 								THEN N's.has_filter,
-									   s.filter_definition' 
+									   s.filter_definition,' 
 								ELSE N'NULL AS has_filter,
-								       NULL AS filter_definition' END 
+								       NULL AS filter_definition,' END
+								/* Certainly NULL. This branch does not even join on the table that this column comes from. */
+								+ N'NULL AS persisted_sample_percent,
+                                '
+                                + CASE WHEN EXISTS
+                                  (
+                                      SELECT 1
+                                      FROM sys.all_columns AS all_cols
+                                      WHERE all_cols.[object_id] = OBJECT_ID(N'sys.stats', N'V') AND all_cols.[name] = N'is_incremental'
+                                  )
+                                  THEN N's.is_incremental'
+                                  ELSE N'NULL AS is_incremental' END
 						+ N'								
 						FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
 						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.sysindexes si
@@ -4454,7 +4496,7 @@ BEGIN
 			END;
 
         ----------------------------------------
-        --Statistics Info: Check_id 90-99
+        --Statistics Info: Check_id 90-99, as well as 125
         ----------------------------------------
 
         RAISERROR(N'check_id 90: Outdated statistics', 0,1) WITH NOWAIT;
@@ -4503,6 +4545,43 @@ BEGIN
 		  OR (s.rows > 1000000 AND s.percent_sampled < 1)
 		OPTION    ( RECOMPILE );
 
+        RAISERROR(N'check_id 125: Persisted Sampling Rates (Unexpected)', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+		SELECT  125 AS check_id,
+				90 AS Priority,
+				'Statistics Warnings' AS findings_group,
+				'Persisted Sampling Rates (Unexpected)',
+				s.database_name,
+				'https://www.youtube.com/watch?v=V5illj_KOJg&t=758s' AS URL,
+				'The persisted statistics sample rate is ' + CONVERT(NVARCHAR(100), s.persisted_sample_percent) + '%'
+				+ CASE WHEN @UsualStatisticsSamplingPercent IS NOT NULL
+				  	   THEN (N' rather than your expected @UsualStatisticsSamplingPercent value of ' + CONVERT(NVARCHAR(100), @UsualStatisticsSamplingPercent) + '%')
+					   ELSE ''
+					   END
+				+ N'. This may indicate that somebody is doing statistics rocket surgery. If not, consider updating statistics more frequently.' AS details,
+				QUOTENAME(database_name) + '.' + QUOTENAME(s.schema_name) + '.' + QUOTENAME(s.table_name) + '.' + QUOTENAME(s.index_name) + '.' + QUOTENAME(s.statistics_name) + '.' + QUOTENAME(s.column_names) AS index_definition,
+				'N/A' AS secret_columns,
+				'N/A' AS index_usage_summary,
+				'N/A' AS index_size_summary
+		FROM #Statistics AS s
+		/*
+		We have to do float comparison here, so it is time to explain why @UsualStatisticsSamplingPercent is a float.
+		The foremost reason is that it is a float because we are comparing it to the persisted_sample_percent column in sys.dm_db_stats_properties and that column is a float.
+		You may correctly object that CREATE STATISTICS with a decimal as your WITH SAMPLE [...] PERCENT is a syntax error and conclude that integers are enough.
+		However, `WITH SAMPLE [...] ROWS` is allowed with PERSIST_SAMPLE_PERCENT = ON and you can use that to persist a non-integer sample rate.
+		So, yes, we really have to use floats.
+		*/
+		WHERE
+		/* persisted_sample_percent is either zero or NULL when the statistic is not persisted.  */
+		s.persisted_sample_percent > 0.0001
+		AND
+		(
+			ABS(@UsualStatisticsSamplingPercent - s.persisted_sample_percent) > 0.1
+		  	OR @UsualStatisticsSamplingPercent IS NULL
+		)
+		OPTION    ( RECOMPILE );
+
         RAISERROR(N'check_id 92: Statistics with NO RECOMPUTE', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
@@ -4520,7 +4599,6 @@ BEGIN
 		FROM #Statistics AS s
 		WHERE s.no_recompute = 1
 		OPTION    ( RECOMPILE );
-
 
 	     RAISERROR(N'check_id 94: Check Constraints That Reference Functions', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
@@ -4593,9 +4671,9 @@ BEGIN
             JOIN    #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
             WHERE    index_id NOT IN ( 0, 1 ) 
                     AND i.is_unique = 0
-					/*Skipping tables created in the last week, or modified in past 2 days*/
-					AND	i.create_date >= DATEADD(dd,-7,GETDATE()) 
-					AND i.modify_date > DATEADD(dd,-2,GETDATE()) 
+                    /*Skipping tables created in the last week, or modified in past 2 days*/
+                    AND	i.create_date < DATEADD(dd,-7,GETDATE()) 
+                    AND i.modify_date < DATEADD(dd,-2,GETDATE()) 
             OPTION    ( RECOMPILE );
             IF @percent_NC_indexes_unused >= 5 
             INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
@@ -4626,9 +4704,9 @@ BEGIN
                         WHERE    index_id NOT IN ( 0, 1 )
                                 AND i.is_unique = 0
                                 AND total_reads = 0
-								/*Skipping tables created in the last week, or modified in past 2 days*/
-								AND	i.create_date >= DATEADD(dd,-7,GETDATE()) 
-								AND i.modify_date > DATEADD(dd,-2,GETDATE())
+                                /*Skipping tables created in the last week, or modified in past 2 days*/
+                                AND	i.create_date < DATEADD(dd,-7,GETDATE()) 
+                                AND i.modify_date < DATEADD(dd,-2,GETDATE())
                         GROUP BY i.database_name 
                 OPTION    ( RECOMPILE );
 
@@ -4879,9 +4957,9 @@ BEGIN
                         AND i.index_id NOT IN (0,1) /*NCs only*/
                         AND i.is_unique = 0
                         AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
-						/*Skipping tables created in the last week, or modified in past 2 days*/
-						AND	i.create_date >= DATEADD(dd,-7,GETDATE()) 
-						AND i.modify_date > DATEADD(dd,-2,GETDATE())
+                        /*Skipping tables created in the last week, or modified in past 2 days*/
+                        AND	i.create_date < DATEADD(dd,-7,GETDATE()) 
+                        AND i.modify_date < DATEADD(dd,-2,GETDATE())
                 ORDER BY i.db_schema_object_indexid
                 OPTION    ( RECOMPILE );
 
@@ -5594,6 +5672,70 @@ BEGIN
 		OPTION    ( RECOMPILE );
 
 
+        /* See check_id 125. */
+		RAISERROR(N'check_id 126: Persisted Sampling Rates (Expected)', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+		SELECT	126 AS check_id,
+				200 AS Priority,
+				'Statistics Warnings' AS findings_group,
+				'Persisted Sampling Rates (Expected)',
+				s.database_name,
+				'https://www.youtube.com/watch?v=V5illj_KOJg&t=758s' AS URL,
+				CONVERT(NVARCHAR(100), COUNT(*)) + ' statistic(s) with a persisted sample rate matching your desired persisted sample rate, ' + CONVERT(NVARCHAR(100), @UsualStatisticsSamplingPercent) + N'%. Set @UsualStatisticsSamplingPercent to NULL if you want to see all of them in this result set. Its default value is 100.' AS details,
+				s.database_name + N' (Entire database)' AS index_definition,
+				'N/A' AS secret_columns,
+				'N/A' AS index_usage_summary,
+				'N/A' AS index_size_summary
+		FROM #Statistics AS s
+		WHERE ABS(@UsualStatisticsSamplingPercent - s.persisted_sample_percent) <= 0.1
+		  AND @UsualStatisticsSamplingPercent IS NOT NULL
+		GROUP BY s.database_name
+		OPTION    ( RECOMPILE );
+
+		RAISERROR(N'check_id 127: Partitioned Table Without Incremental Statistics', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary, more_info )
+		SELECT  127 AS check_id,
+				200 AS Priority,
+				'Statistics Warnings' AS findings_group,
+				'Partitioned Table Without Incremental Statistics',
+				partitioned_tables.database_name,
+				'https://sqlperformance.com/2015/05/sql-statistics/improving-maintenance-incremental-statistics' AS URL,
+				'The table ' + QUOTENAME(partitioned_tables.schema_name) + '.' + QUOTENAME(partitioned_tables.object_name) + ' is partitioned, but '
+                + CONVERT(NVARCHAR(100), incremental_stats_counts.not_incremental_stats_count) + ' of its ' + CONVERT(NVARCHAR(100), incremental_stats_counts.stats_count) +
+                ' statistics are not incremental. If this is a sliding/rolling window table, then consider making the statistics incremental. If not, then investigate why this table is partitioned.' AS details,
+				partitioned_tables.object_name + N' (Entire table)' AS index_definition,
+				'N/A' AS secret_columns,
+				'N/A' AS index_usage_summary,
+				'N/A' AS index_size_summary,
+                partitioned_tables.more_info
+		FROM
+        (
+            SELECT s.database_id,
+                   s.object_id,
+                   COUNT(CASE WHEN s.is_incremental = 0 THEN 1 END) AS not_incremental_stats_count,
+                   COUNT(*) AS stats_count
+            FROM #Statistics AS s
+            GROUP BY s.database_id, s.object_id
+            HAVING COUNT(CASE WHEN s.is_incremental = 0 THEN 1 END) > 0
+        ) AS incremental_stats_counts
+        JOIN
+        (
+            /* Just get the tables. We do not need the indexes. */
+            SELECT DISTINCT i.database_name,
+                            i.database_id,
+                            i.object_id,
+                            i.schema_name,
+                            i.object_name,
+                            /* This is a little bit dishonest, since it tells us nothing about if the statistics are incremental. */
+                            i.more_info
+            FROM #IndexSanity AS i
+            WHERE i.partition_key_column_name IS NOT NULL
+        ) AS partitioned_tables
+        ON partitioned_tables.database_id = incremental_stats_counts.database_id AND partitioned_tables.object_id = incremental_stats_counts.object_id
+		/* No need for a GROUP BY. What we are joining on has exactly one row in each sub-query. */
+		OPTION    ( RECOMPILE );
 
 	END /* IF @Mode = 4 */
 

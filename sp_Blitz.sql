@@ -26,6 +26,7 @@ ALTER PROCEDURE [dbo].[sp_Blitz]
     @SummaryMode TINYINT = 0 ,
     @BringThePain TINYINT = 0 ,
     @UsualDBOwner sysname = NULL ,
+	@UsualOwnerOfJobs sysname = NULL , -- This is to set the owner of Jobs is you have a different account than SA that you use as Default
 	@SkipBlockingChecks TINYINT = 1 ,
     @Debug TINYINT = 0 ,
     @Version     VARCHAR(30) = NULL OUTPUT,
@@ -38,7 +39,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.25', @VersionDate = '20250704';
+	SELECT @Version = '8.26', @VersionDate = '20251002';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -864,12 +865,17 @@ AS
 						INSERT INTO #SkipChecks (CheckID) VALUES (6);  /* Security - Jobs Owned By Users per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
 						INSERT INTO #SkipChecks (CheckID) VALUES (21);  /* Informational - Database Encrypted per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
 						INSERT INTO #SkipChecks (CheckID) VALUES (24);  /* File Configuration - System Database on C Drive per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
+						INSERT INTO #SkipChecks (CheckID) VALUES (30);  /* SQL Agent Alerts cannot be configured on MI */
 						INSERT INTO #SkipChecks (CheckID) VALUES (50);  /* Max Server Memory Set Too High - because they max it out */
 						INSERT INTO #SkipChecks (CheckID) VALUES (55);  /* Security - Database Owner <> sa per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
+						INSERT INTO #SkipChecks (CheckID) VALUES (61);  /* SQL Agent Alerts cannot be configured on MI */
+						INSERT INTO #SkipChecks (CheckID) VALUES (73);  /* SQL Agent Failsafe Operator cannot be configured on MI */
 						INSERT INTO #SkipChecks (CheckID) VALUES (74);  /* TraceFlag On - because Azure Managed Instances go wild and crazy with the trace flags */
+						INSERT INTO #SkipChecks (CheckID) VALUES (96);  /* SQL Agent Alerts cannot be configured on MI */
 						INSERT INTO #SkipChecks (CheckID) VALUES (97);  /* Unusual SQL Server Edition */
 						INSERT INTO #SkipChecks (CheckID) VALUES (100);  /* Remote DAC disabled - but it's working anyway, details here: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1481 */
 						INSERT INTO #SkipChecks (CheckID) VALUES (186);  /* MSDB Backup History Purged Too Frequently */
+						INSERT INTO #SkipChecks (CheckID) VALUES (192);  /* IFI can not be set for data files and is always used for log files in MI */
 						INSERT INTO #SkipChecks (CheckID) VALUES (199);  /* Default trace, details here: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1481 */
 						INSERT INTO #SkipChecks (CheckID) VALUES (211);  /*Power Plan */
 						INSERT INTO #SkipChecks (CheckID, DatabaseName) VALUES (80, 'master');  /* Max file size set */
@@ -1932,7 +1938,11 @@ AS
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 6) WITH NOWAIT;
+
 						
+						IF @UsualOwnerOfJobs IS NULL
+							SET @UsualOwnerOfJobs = SUSER_SNAME(0x01);
+
 						INSERT  INTO #BlitzResults
 								( CheckID ,
 								  Priority ,
@@ -1951,7 +1961,7 @@ AS
 										  + '] - meaning if their login is disabled or not available due to Active Directory problems, the job will stop working.' ) AS Details
 								FROM    msdb.dbo.sysjobs j
 								WHERE   j.enabled = 1
-										AND SUSER_SNAME(j.owner_sid) <> SUSER_SNAME(0x01);
+										AND SUSER_SNAME(j.owner_sid) <> @UsualOwnerOfJobs;
 					END;
 
 				/* --TOURSTOP06-- */
@@ -3928,6 +3938,38 @@ AS
 
 					IF NOT EXISTS ( SELECT 1
 										 FROM   #SkipChecks
+										 WHERE  DatabaseName IS NULL AND CheckID = 270 )
+						AND EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_os_memory_health_history')
+						BEGIN
+
+							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 270) WITH NOWAIT;
+
+							INSERT  INTO #BlitzResults
+									( CheckID ,
+									  Priority ,
+									  FindingsGroup ,
+									  Finding ,
+									  URL ,
+									  Details
+									)
+									SELECT  270 AS CheckID ,
+											1 AS Priority ,
+											'Performance' AS FindingGroup ,
+											'Memory Dangerous Low Recently'  AS Finding ,
+											'https://www.brentozar.com/go/memhist' AS URL ,
+											CAST(SUM(1) AS NVARCHAR(10)) + N' instances of ' + CAST(severity_level_desc AS NVARCHAR(100))
+											+ N' severity level memory issues reported in the last 4 hours in sys.dm_os_memory_health_history.'
+									FROM sys.dm_os_memory_health_history
+									WHERE severity_level > 1
+									GROUP BY severity_level, severity_level_desc;
+						END;
+
+
+
+
+
+					IF NOT EXISTS ( SELECT 1
+										 FROM   #SkipChecks
 										 WHERE  DatabaseName IS NULL AND CheckID = 121 )
 						BEGIN
 
@@ -4971,7 +5013,7 @@ IF @ProductVersionMajor >= 10
 					END;
 				END;
 /* CheckID 258 - Security - SQL Server Service is running as LocalSystem or NT AUTHORITY\SYSTEM */
-IF @ProductVersionMajor >= 10 
+IF (@ProductVersionMajor >= 10 AND @IsWindowsOperatingSystem = 1)
 			   AND NOT EXISTS ( SELECT  1
 							    FROM    #SkipChecks
 							    WHERE   DatabaseName IS NULL AND CheckID = 258 )
@@ -5008,7 +5050,7 @@ IF @ProductVersionMajor >= 10
 				END;
 
 /* CheckID 259 - Security - SQL Server Agent Service is running as LocalSystem or NT AUTHORITY\SYSTEM */
-IF @ProductVersionMajor >= 10 
+IF (@ProductVersionMajor >= 10 AND @IsWindowsOperatingSystem = 1)
 			   AND NOT EXISTS ( SELECT  1
 							    FROM    #SkipChecks
 							    WHERE   DatabaseName IS NULL AND CheckID = 259 )
@@ -5081,7 +5123,7 @@ IF @ProductVersionMajor >= 10
 					END;
 
 /*This checks which service account SQL Server is running as.*/
-IF @ProductVersionMajor >= 10
+IF (@ProductVersionMajor >= 10 AND @IsWindowsOperatingSystem = 1)
 			   AND NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 169 )
@@ -5121,7 +5163,7 @@ IF @ProductVersionMajor >= 10
 					END;
 
 /*This checks which service account SQL Agent is running as.*/
-IF @ProductVersionMajor >= 10
+IF (@ProductVersionMajor >= 10 AND @IsWindowsOperatingSystem = 1)
 			   AND NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 170 )
@@ -9191,7 +9233,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 				''Server Info'' AS FindingsGroup ,
 				''Services'' AS Finding ,
 				'''' AS URL ,
-				N''Service: '' + servicename + N'' runs under service account '' + service_account + N''. Last startup time: '' + COALESCE(CAST(CASE WHEN YEAR(last_startup_time) <= 1753 THEN CAST(''17530101'' as datetime) ELSE CAST(last_startup_time AS DATETIME) END AS VARCHAR(50)), ''not shown.'') + ''. Startup type: '' + startup_type_desc + N'', currently '' + status_desc + ''.''
+				N''Service: '' + servicename + ISNULL((N'' runs under service account '' + service_account),'''') + N''. Last startup time: '' + COALESCE(CAST(CASE WHEN YEAR(last_startup_time) <= 1753 THEN CAST(''17530101'' as datetime) ELSE CAST(last_startup_time AS DATETIME) END AS VARCHAR(50)), ''not shown.'') + ''. Startup type: '' + startup_type_desc + N'', currently '' + status_desc + ''.''
 				FROM sys.dm_server_services OPTION (RECOMPILE);';
 										
 										IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
@@ -9867,7 +9909,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
                                                 WHERE LOWER(cmdshell_output) = ( SELECT LOWER([service_account])
 												                                 FROM   [sys].[dm_server_services]
 												                                 WHERE  [servicename] LIKE 'SQL Server%'
-												                                   AND [servicename] NOT LIKE 'SQL Server Agent%'
+												                                   AND [servicename] NOT LIKE 'SQL Server%Agent%'
 												                                   AND [servicename] NOT LIKE 'SQL Server Launchpad%'))
                                     BEGIN
 								    INSERT  INTO #BlitzResults
@@ -9913,7 +9955,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
                                                     FROM #localadmins 
                                                     WHERE LOWER(cmdshell_output) = ( SELECT LOWER([service_account])
 												                                     FROM   [sys].[dm_server_services]
-												                                     WHERE  [servicename] LIKE 'SQL Server Agent%'
+												                                     WHERE  [servicename] LIKE 'SQL Server%Agent%'
 												                                       AND [servicename] NOT LIKE 'SQL Server Launchpad%'))
                                         BEGIN
 								        INSERT  INTO #BlitzResults
@@ -9939,14 +9981,23 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 									    /*had to use a different table name because SQL Server/SSMS complains when parsing that the table still exists when it gets to the create part*/
 									    IF OBJECT_ID('tempdb..#localadminsag') IS NOT NULL DROP TABLE #localadminsag;
 									    CREATE TABLE #localadminsag (cmdshell_output NVARCHAR(1000));
-										INSERT INTO #localadmins
-										EXEC /**/xp_cmdshell/**/ N'net localgroup administrators' /* added comments around command since some firewalls block this string TL 20210221 */
+										/* language specific call of xp cmdshell */
+										IF (SELECT os_language_version FROM sys.dm_os_windows_info) = 1031  /* os language code for German. Again, this is a very specific fix, see #3673  */
+										BEGIN
+											INSERT INTO #localadminsag
+											EXEC /**/xp_cmdshell/**/ N'net localgroup Administratoren' /* german */
+										END
+										ELSE
+										BEGIN
+											INSERT INTO #localadminsag
+											EXEC /**/xp_cmdshell/**/ N'net localgroup administrators' /* added comments around command since some firewalls block this string TL 20210221 */
+										END	
                                     
 										IF EXISTS (SELECT 1 
-                                                FROM #localadmins 
+                                                FROM #localadminsag 
                                                 WHERE LOWER(cmdshell_output) = ( SELECT LOWER([service_account])
 												                                 FROM   [sys].[dm_server_services]
-												                                 WHERE  [servicename] LIKE 'SQL Server Agent%'
+												                                 WHERE  [servicename] LIKE 'SQL Server%Agent%'
 												                                   AND [servicename] NOT LIKE 'SQL Server Launchpad%'))
 										BEGIN
 								        INSERT  INTO #BlitzResults

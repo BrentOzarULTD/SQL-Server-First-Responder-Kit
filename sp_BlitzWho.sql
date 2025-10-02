@@ -22,7 +22,7 @@ ALTER PROCEDURE dbo.sp_BlitzWho
 	@CheckDateOverride DATETIMEOFFSET = NULL,
 	@ShowActualParameters BIT = 0,
 	@GetOuterCommand BIT = 0,
-	@GetLiveQueryPlan BIT = 0,
+	@GetLiveQueryPlan BIT = NULL,
 	@Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0,
@@ -33,7 +33,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.25', @VersionDate = '20250704';
+	SELECT @Version = '8.26', @VersionDate = '20251002';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -85,7 +85,8 @@ RETURN;
 END;    /* @Help = 1 */
 
 /* Get the major and minor build numbers */
-DECLARE  @ProductVersion NVARCHAR(128)
+DECLARE  @ProductVersion NVARCHAR(128) = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128))
+		,@EngineEdition INT = CAST(SERVERPROPERTY('EngineEdition') AS INT)
 		,@ProductVersionMajor DECIMAL(10,2)
 		,@ProductVersionMinor DECIMAL(10,2)
 		,@Platform NVARCHAR(8) /* Azure or NonAzure are acceptable */ = (SELECT CASE WHEN @@VERSION LIKE '%Azure%' THEN N'Azure' ELSE N'NonAzure' END AS [Platform])
@@ -122,7 +123,6 @@ DECLARE  @ProductVersion NVARCHAR(128)
 /* Let's get @SortOrder set to lower case here for comparisons later */
 SET @SortOrder = REPLACE(LOWER(@SortOrder), N' ', N'_');
 
-SET @ProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1,CHARINDEX('.', @ProductVersion) + 1 ),
     @ProductVersionMinor = PARSENAME(CONVERT(VARCHAR(32), @ProductVersion), 2)
 
@@ -132,6 +132,14 @@ SELECT
 	@OutputSchemaName = QUOTENAME(@OutputSchemaName),
 	@OutputTableName = QUOTENAME(@OutputTableName),
 	@LineFeed = CHAR(13) + CHAR(10);
+
+IF @GetLiveQueryPlan IS NULL
+	BEGIN
+		IF @ProductVersionMajor >= 16 OR @EngineEdition NOT IN (1, 2, 3, 4)
+			SET @GetLiveQueryPlan = 1;
+		ELSE
+			SET @GetLiveQueryPlan = 0;
+	END
 
 IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL
   AND EXISTS ( SELECT *
@@ -920,7 +928,7 @@ IF @ProductVersionMajor >= 11
 							END+N'
 			       derp.query_plan ,
 				   CAST(COALESCE(qs_live.Query_Plan, ' + CASE WHEN @GetLiveQueryPlan=1 
-				   		THEN '''<?No live query plan available. To turn on live plans, see https://www.BrentOzar.com/go/liveplans ?>'''
+				   		THEN '''<?No live query plan available for this query in sys.dm_exec_query_statistics_xml.?>'''
 						ELSE '''<?Live Query Plans were not retrieved. Set @GetLiveQueryPlan=1 to try and retrieve Live Query Plans ?>'''
 						END
 					+') AS XML
