@@ -145,7 +145,18 @@ DECLARE @StringToExecute NVARCHAR(MAX),
 	@get_thread_time_ms NVARCHAR(MAX) = N'',
 	@thread_time_ms FLOAT = 0,
 	@logical_processors INT = 0,
-	@max_worker_threads INT = 0;
+	@max_worker_threads INT = 0,
+    @is_windows_operating_system BIT = 1;
+
+IF EXISTS
+(
+    SELECT  1
+    FROM    sys.all_objects
+    WHERE   name = 'dm_os_host_info'
+)
+BEGIN
+    SELECT @is_windows_operating_system = CASE WHEN host_platform = 'Windows' THEN 1 ELSE 0 END FROM sys.dm_os_host_info;
+END;
 
 /* Sanitize our inputs */
 SELECT
@@ -2399,19 +2410,28 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			RAISERROR('Running CheckID 24',10,1) WITH NOWAIT;
 		END
 
+        /* Traditionally, we use 100 - SystemIdle here.
+        However, SystemIdle is always 0 on Linux.
+        So if we are on Linux, we use ProcessUtilization instead.
+		This is the approach found in
+		https://techcommunity.microsoft.com/blog/sqlserver/sql-server-cpu-usage-available-in-sys-dm-os-ring-buffers-dmv-starting-sql-server/825361 */
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
-        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%.', 100 - SystemIdle, 'https://www.brentozar.com/go/cpu'
+        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(CpuUsage AS NVARCHAR(20)) + N'%.', CpuUsage, 'https://www.brentozar.com/go/cpu'
+        FROM (
+            SELECT CASE WHEN @is_windows_operating_system = 1 THEN 100 - SystemIdle ELSE ProcessUtilization END AS CpuUsage
             FROM (
                 SELECT record,
-                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle,
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/ProcessUtilization)[1]', 'int') AS ProcessUtilization
                 FROM (
                     SELECT TOP 1 CONVERT(XML, record) AS record
                     FROM sys.dm_os_ring_buffers
                     WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
                     AND record LIKE '%<SystemHealth>%'
                     ORDER BY timestamp DESC) AS rb
-            ) AS y
-            WHERE 100 - SystemIdle >= 50;
+            ) AS ShreddedCpuXml
+        ) AS OsCpu
+        WHERE CpuUsage >= 50;
 
         /* CPU Utilization - CheckID 23 */
 		IF (@Debug = 1)
@@ -2423,7 +2443,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			WITH y
 				AS
 				 (
-					 SELECT      CONVERT(VARCHAR(5), 100 - ca.c.value('.', 'INT')) AS system_idle,
+                     /* See earlier comments about SystemIdle on Linux. */
+					 SELECT      CONVERT(VARCHAR(5), CASE WHEN @is_windows_operating_system = 1 THEN 100 - ca.c.value('.', 'INT') ELSE ca2.p.value('.', 'INT') END) AS cpu_usage,
 								 CONVERT(VARCHAR(30), rb.event_date) AS event_date,
 								 CONVERT(VARCHAR(8000), rb.record) AS record,
 								 event_date as event_date_raw
@@ -2436,6 +2457,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 									 WHERE  dorb.ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
 									 AND    record LIKE '%<SystemHealth>%' ) AS rb
 					 CROSS APPLY rb.record.nodes('/Record/SchedulerMonitorEvent/SystemHealth/SystemIdle') AS ca(c)
+                     CROSS APPLY rb.record.nodes('/Record/SchedulerMonitorEvent/SystemHealth/ProcessUtilization') AS ca2(p)
 				 )
 			INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL, HowToStopIt)
 			SELECT TOP 1 
@@ -2443,12 +2465,12 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 					250, 
 					'Server Info', 
 					'CPU Utilization', 
-					y.system_idle + N'%. Ring buffer details: ' + CAST(y.record AS NVARCHAR(4000)), 
-					y.system_idle	, 
+					y.cpu_usage + N'%. Ring buffer details: ' + CAST(y.record AS NVARCHAR(4000)), 
+					y.cpu_usage	, 
 					'https://www.brentozar.com/go/cpu',
 					STUFF(( SELECT TOP 2147483647
 							  CHAR(10) + CHAR(13)
-							+ y2.system_idle 
+							+ y2.cpu_usage
 							+ '% ON ' 
 							+ y2.event_date 
 							+ ' Ring buffer details:  '
@@ -2479,7 +2501,12 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     AND record LIKE '%<SystemHealth>%'
                     ORDER BY timestamp DESC) AS rb
             ) AS y
-            WHERE 100 - (y.SQLUsage + y.SystemIdle) >= 25;
+            WHERE 100 - (y.SQLUsage + y.SystemIdle) >= 25
+            /* SystemIdle is always 0 on Linux, as described earlier.
+            We therefore cannot distinguish between a totally idle Linux server and
+            a Linux server where SQL Server is being crushed by other CPU-heavy processes.
+            We therefore disable this check on Linux. */
+            AND @is_windows_operating_system = 1;
 		
         END; /* IF @Seconds < 30 */
 
@@ -3593,18 +3620,24 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		END
 
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
-        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'https://www.brentozar.com/go/cpu'
+        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(CpuUsage AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), CpuUsage, 'https://www.brentozar.com/go/cpu'
+        FROM (
+            SELECT record,
+                CASE WHEN @is_windows_operating_system = 1 THEN 100 - SystemIdle ELSE ProcessUtilization END AS CpuUsage
             FROM (
                 SELECT record,
-                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle,
+                    /* See earlier comments about SystemIdle on Linux. */
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/ProcessUtilization)[1]', 'int') AS ProcessUtilization
                 FROM (
                     SELECT TOP 1 CONVERT(XML, record) AS record
                     FROM sys.dm_os_ring_buffers
                     WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
                     AND record LIKE '%<SystemHealth>%'
                     ORDER BY timestamp DESC) AS rb
-            ) AS y
-            WHERE 100 - SystemIdle >= 50;
+            ) AS ShreddedCpuXml
+        ) AS OsCpu
+        WHERE CpuUsage >= 50;
 
         /* Server Performance - CPU Utilization CheckID 23 */
 		IF (@Debug = 1)
@@ -3613,17 +3646,23 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		END
 
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
-        SELECT 23, 250, 'Server Info', 'CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'https://www.brentozar.com/go/cpu'
+        SELECT 23, 250, 'Server Info', 'CPU Utilization', CAST(CpuUsage AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), CpuUsage, 'https://www.brentozar.com/go/cpu'
+        FROM (
+            SELECT record,
+                CASE WHEN @is_windows_operating_system = 1 THEN 100 - SystemIdle ELSE ProcessUtilization END AS CpuUsage
             FROM (
                 SELECT record,
-                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle,
+                    /* See earlier comments about SystemIdle on Linux. */
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/ProcessUtilization)[1]', 'int') AS ProcessUtilization
                 FROM (
                     SELECT TOP 1 CONVERT(XML, record) AS record
                     FROM sys.dm_os_ring_buffers
                     WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
                     AND record LIKE '%<SystemHealth>%'
                     ORDER BY timestamp DESC) AS rb
-            ) AS y;
+            ) AS ShreddedCpuXml
+        ) AS OsCpu;
 
 	END; /* IF @Seconds >= 30 */
 
