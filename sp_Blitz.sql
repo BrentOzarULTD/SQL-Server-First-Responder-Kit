@@ -6752,6 +6752,66 @@ IF @ProductVersionMajor >= 10
 					END;
 
 
+
+				IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 271 )
+					AND EXISTS (SELECT * FROM sys.all_columns WHERE name = 'group_max_tempdb_data_percent')
+						AND EXISTS (SELECT * FROM sys.all_columns WHERE name = 'group_max_tempdb_data_mb')
+					BEGIN
+						
+						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 271) WITH NOWAIT;
+						
+						IF EXISTS (SELECT * FROM sys.resource_governor_workload_groups
+									WHERE group_max_tempdb_data_percent <> 0
+									  AND group_max_tempdb_data_mb IS NULL)
+							BEGIN
+							DECLARE @TempDBfiles TABLE (config VARCHAR(50), data_files INT)
+							/* Valid configs */
+							INSERT INTO @TempDBfiles
+								SELECT 'Fixed predictable growth' AS config, SUM(1) AS data_files
+									FROM master.sys.master_files
+									WHERE database_id = DB_ID('tempdb')
+									  AND type = 0 /* data */
+									  AND max_size <> -1 /* only limited ones */
+									  AND growth <> 0 /* growth is set */
+									HAVING SUM(1) > 0
+								UNION ALL
+								SELECT 'Growth turned off' AS config, SUM(1) AS data_files
+									FROM master.sys.master_files
+									WHERE database_id = DB_ID('tempdb')
+									  AND type = 0 /* data */
+									  AND max_size = -1 /* unlimited */
+									  AND growth = 0
+									HAVING SUM(1) > 0;
+
+							IF 1 <> (SELECT COUNT(*) FROM @TempDBfiles)
+								OR (SELECT SUM(data_files) FROM @TempDBfiles) <> 
+									(SELECT SUM(1)
+										FROM master.sys.master_files
+										WHERE database_id = DB_ID('tempdb')
+										  AND type = 0 /* data */)
+								BEGIN
+									INSERT INTO #BlitzResults
+										( CheckID ,
+										  Priority ,
+										  DatabaseName ,
+										  FindingsGroup ,
+										  Finding ,
+										  URL ,
+										  Details
+										)														
+									SELECT 271 AS CheckID,
+										   170 AS Priority,
+										   'tempdb',
+										   'File Configuration' AS FindingsGroup,
+										   'TempDB Governor Config Problem' AS Finding,
+										   'https://www.BrentOzar.com/go/tempdbrg' AS URL,
+										   'Resource Governor is configured to cap TempDB usage by percent, but the TempDB file configuration will not allow that to take effect.' AS details
+								END
+							END
+					END
+
 				IF @CheckUserDatabaseObjects = 1
 					BEGIN
 
