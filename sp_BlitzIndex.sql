@@ -1953,7 +1953,7 @@ WITH
                   ON ty.user_type_id = co.user_type_id 
                 WHERE id_inner.index_handle = id.index_handle
                 AND   id_inner.object_id = id.object_id
-				AND   id_inner.database_id = DB_ID(''' +  QUOTENAME(@DatabaseName) + N''')
+				AND   id_inner.database_id = DB_ID(@i_DatabaseName)
                 AND   cn_inner.IndexColumnType = cn.IndexColumnType
                 FOR XML PATH('''')
                 ),
@@ -1991,7 +1991,7 @@ WITH
                ) x (n)
                CROSS APPLY n.nodes(''x'') node(v)
            )AS cn
-		   WHERE id.database_id = DB_ID(''' +  QUOTENAME(@DatabaseName) + N''')
+		   WHERE id.database_id = DB_ID(@i_DatabaseName)
            GROUP BY    
                id.index_handle,
                id.object_id,
@@ -2137,7 +2137,7 @@ OPTION (RECOMPILE);';
 		END;
 
         SET @dsql = N'
-            SELECT DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
+            SELECT DB_ID(@i_DatabaseName) AS [database_id], 
 			    @i_DatabaseName AS database_name,
 				s.name,
                 fk_object.name AS foreign_key_name,
@@ -2206,17 +2206,17 @@ OPTION (RECOMPILE);';
 		BEGIN
         SET @dsql = N'
                 SELECT 
-                    DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
+                    DB_ID(@i_DatabaseName) AS [database_id], 
 			        @i_DatabaseName AS database_name,
                     foreign_key_schema = 
                         s.name,
                     foreign_key_name = 
                         fk.name,
                     foreign_key_table = 
-                        OBJECT_NAME(fk.parent_object_id, DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N')),
+                        OBJECT_NAME(fk.parent_object_id, DB_ID(@i_DatabaseName)),
 					fk.parent_object_id,
 					foreign_key_referenced_table = 
-                        OBJECT_NAME(fk.referenced_object_id, DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N')),
+                        OBJECT_NAME(fk.referenced_object_id, DB_ID(@i_DatabaseName)),
 					fk.referenced_object_id
                 FROM ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_keys fk
                 JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s
@@ -2290,7 +2290,7 @@ OPTION (RECOMPILE);';
 								days_since_last_stats_update, rows, rows_sampled, percent_sampled, histogram_steps, modification_counter, 
 								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date,
 								no_recompute, has_filter, filter_definition, persisted_sample_percent, is_incremental)
-				SELECT DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
+				SELECT DB_ID(@i_DatabaseName) AS [database_id], 
 			        @i_DatabaseName AS database_name,
 			        obj.object_id,
 			        obj.name AS table_name,
@@ -2385,7 +2385,7 @@ OPTION (RECOMPILE);';
 								last_statistics_update, days_since_last_stats_update, rows, modification_counter, 
 								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date,
 								no_recompute, has_filter, filter_definition, persisted_sample_percent, is_incremental)
-							SELECT DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
+							SELECT DB_ID(@i_DatabaseName) AS [database_id], 
 							    @i_DatabaseName AS database_name,
 								obj.object_id,
 								obj.name AS table_name,
@@ -2518,7 +2518,7 @@ OPTION (RECOMPILE);';
 			BEGIN
 			RAISERROR (N'Gathering Temporal Table Info',0,1) WITH NOWAIT;
 			SET @dsql=N'SELECT ' + QUOTENAME(@DatabaseName,'''') + N' AS database_name,
-								   DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
+								   DB_ID(@i_DatabaseName) AS [database_id], 
 								   s.name AS schema_name,
 								   t.name AS table_name, 
 								   oa.hsn as history_schema_name,
@@ -2554,7 +2554,7 @@ OPTION (RECOMPILE);';
 			INSERT #TemporalTables ( database_name, database_id, schema_name, table_name, history_schema_name, 
 									 history_table_name, start_column_name, end_column_name, period_name, history_table_object_id )
 					
-			EXEC sp_executesql @dsql;
+			EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
         END;
 
              SET @dsql=N'SELECT DB_ID(@i_DatabaseName) AS [database_id], 
