@@ -237,7 +237,7 @@ CREATE TABLE #Warnings
     Id INT IDENTITY(1, 1) PRIMARY KEY CLUSTERED,
     CheckId INT,
     Priority INT,
-    DatabaseName VARCHAR(128),
+    DatabaseName NVARCHAR(128),
     Finding VARCHAR(256),
     Warning VARCHAR(8000)
 );
