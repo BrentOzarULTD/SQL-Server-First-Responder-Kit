@@ -2647,56 +2647,37 @@ BEGIN
             lock_types AS
         (
             SELECT
-                database_name =
-                    dp.database_name,
+                dp.database_name,
                 dow.object_name,
                 lock =
                     CASE
                         WHEN CHARINDEX(N':', dp.wait_resource) > 0
-                        THEN SUBSTRING
-                             (
-                                 dp.wait_resource,
-                                 1,
-                                 CHARINDEX(N':', dp.wait_resource) - 1
-                             )
+                        THEN LEFT(dp.wait_resource, CHARINDEX(N':', dp.wait_resource) - 1)
                         ELSE dp.wait_resource
                     END,
-                lock_count =
-                    CONVERT
-                    (
-                        nvarchar(20),
-                        COUNT_BIG(DISTINCT dp.event_date)
-                    )
+                lock_count = CONVERT(nvarchar(20), COUNT_BIG(DISTINCT dp.event_date))
             FROM #deadlock_process AS dp
             JOIN #deadlock_owner_waiter AS dow
-              ON (dp.id = dow.owner_id
-                  OR dp.victim_id = dow.waiter_id)
-              AND dp.event_date = dow.event_date
-            WHERE 1 = 1
-            AND (dp.database_name = @DatabaseName OR @DatabaseName IS NULL)
-            AND (dp.event_date >= @StartDate OR @StartDate IS NULL)
-            AND (dp.event_date < @EndDate OR @EndDate IS NULL)
-            AND (dp.client_app = @AppName OR @AppName IS NULL)
-            AND (dp.host_name = @HostName OR @HostName IS NULL)
-            AND (dp.login_name = @LoginName OR @LoginName IS NULL)
-            AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
-            AND dow.object_name IS NOT NULL
+              ON (dp.id = dow.owner_id OR dp.victim_id = dow.waiter_id)
+             AND dp.event_date = dow.event_date
+            WHERE (dp.database_name = @DatabaseName OR @DatabaseName IS NULL)
+              AND (dp.event_date >= @StartDate OR @StartDate IS NULL)
+              AND (dp.event_date < @EndDate OR @EndDate IS NULL)
+              AND (dp.client_app = @AppName OR @AppName IS NULL)
+              AND (dp.host_name = @HostName OR @HostName IS NULL)
+              AND (dp.login_name = @LoginName OR @LoginName IS NULL)
+              AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
+              AND dow.object_name IS NOT NULL
             GROUP BY
                 dp.database_name,
+                dow.object_name,
                 CASE
                     WHEN CHARINDEX(N':', dp.wait_resource) > 0
-                    THEN SUBSTRING
-                         (
-                             dp.wait_resource,
-                             1,
-                             CHARINDEX(N':', dp.wait_resource) - 1
-                         )
+                    THEN LEFT(dp.wait_resource, CHARINDEX(N':', dp.wait_resource) - 1)
                     ELSE dp.wait_resource
-                END,
-                dow.object_name
+                END
         )
-        INSERT
-            #deadlock_findings WITH(TABLOCKX)
+        INSERT #deadlock_findings WITH (TABLOCKX)
         (
             check_id,
             database_name,
@@ -2706,36 +2687,33 @@ BEGIN
             sort_order
         )
         SELECT
-            check_id = 7,
+            check_id      = 7,
             lt.database_name,
             lt.object_name,
             finding_group = N'Types of locks by object',
-            finding =
+            finding = 
                 N'This object has had ' +
-                STUFF
-                (
+                STUFF(
                     (
                         SELECT
-                            N', ' +
-                            lt2.lock_count +
-                            N' ' +
-                            lt2.lock
+                            N', ' + lt2.lock_count + N' ' + lt2.lock
                         FROM lock_types AS lt2
                         WHERE lt2.database_name = lt.database_name
-                        AND   lt2.object_name = lt.object_name
-                        FOR XML
-                            PATH(N''),
-                            TYPE
-                    ).value(N'.[1]', N'nvarchar(MAX)'),
-                    1,
-                    1,
-                    N''
+                          AND lt2.object_name   = lt.object_name
+                        FOR XML PATH(''), TYPE
+                    ).value('.', 'nvarchar(max)'),
+                    1, 2, N''
                 ) + N' locks.',
             sort_order = 
-                ROW_NUMBER()
-                OVER (ORDER BY CONVERT(bigint, lt.lock_count) DESC)
+                ROW_NUMBER() OVER (
+                    ORDER BY
+                        MAX(CONVERT(bigint, lt.lock_count)) DESC
+                )
         FROM lock_types AS lt
-        OPTION(RECOMPILE);
+        GROUP BY
+            lt.database_name,
+            lt.object_name
+        OPTION (RECOMPILE);
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
