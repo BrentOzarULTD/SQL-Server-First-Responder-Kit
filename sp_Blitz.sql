@@ -6778,12 +6778,7 @@ IF @ProductVersionMajor >= 10
 						
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 99) WITH NOWAIT;
 								
-								EXEC dbo.sp_MSforeachdb 'USE [?];
-								SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-								IF EXISTS (SELECT * FROM sys.tables WITH (NOLOCK) WHERE name = ''sysmergepublications'' )
-									IF EXISTS ( SELECT * FROM sysmergepublications WITH (NOLOCK) WHERE retention = 0)
-										INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
-										SELECT DISTINCT 99, DB_NAME(), 110, ''Performance'', ''Infinite merge replication metadata retention period'', ''https://www.brentozar.com/go/merge'', (''The ['' + DB_NAME() + ''] database has merge replication metadata retention period set to infinite - this can be the case of significant performance issues.'')';
+								EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; IF EXISTS (SELECT * FROM sys.tables WITH (NOLOCK) WHERE name = ''sysmergepublications'' ) IF EXISTS ( SELECT * FROM sysmergepublications WITH (NOLOCK) WHERE retention = 0) INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 99, DB_NAME(), 110, ''Performance'', ''Infinite merge replication metadata retention period'', ''https://www.brentozar.com/go/merge'', (''The ['' + DB_NAME() + ''] database has merge replication metadata retention period set to infinite - this can be the case of significant performance issues.'')';
 					        END;
 				        /*
 				        Note that by using sp_MSforeachdb, we're running the query in all
@@ -7048,12 +7043,11 @@ IF @ProductVersionMajor >= 10
 		                              ''Multiple Log Files on One Drive'',
 		                              ''https://www.brentozar.com/go/manylogs'',
 		                              (''The ['' + DB_NAME() + ''] database has multiple log files on the '' + LEFT(physical_name, 1) + '' drive. This is not a performance booster because log file access is sequential, not parallel.'')
-		                              FROM [?].sys.database_files
-									  WHERE type_desc = ''LOG''
+		                              FROM [?].sys.database_files WHERE type_desc = ''LOG''
 			                          AND ''?'' NOT IN (''rdsadmin'',''tempdb'')
 		                              GROUP BY LEFT(physical_name, 1)
-		                              HAVING COUNT(*) > 1 AND SUM(size) < 268435456
-									  OPTION (RECOMPILE);';
+		                              HAVING COUNT(*) > 1
+									  AND SUM(size) < 268435456 OPTION (RECOMPILE);';
 					        END;
 
 				        IF NOT EXISTS ( SELECT  1
