@@ -6754,17 +6754,21 @@ IF @ProductVersionMajor >= 10
 
 
 				IF NOT EXISTS ( SELECT  1
-								FROM    #SkipChecks
-								WHERE   DatabaseName IS NULL AND CheckID = 271 )
-					AND EXISTS (SELECT * FROM sys.all_columns WHERE name = 'group_max_tempdb_data_percent')
-						AND EXISTS (SELECT * FROM sys.all_columns WHERE name = 'group_max_tempdb_data_mb')
+							FROM    #SkipChecks
+							WHERE   DatabaseName IS NULL AND CheckID = 271 )
+				AND EXISTS (SELECT * FROM sys.all_columns WHERE name = 'group_max_tempdb_data_percent'
+				                    AND [object_id] = OBJECT_ID('sys.resource_governor_workload_groups'))
+					AND EXISTS (SELECT * FROM sys.all_columns WHERE name = 'group_max_tempdb_data_mb'
+					                AND [object_id] = OBJECT_ID('sys.resource_governor_workload_groups'))
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 271) WITH NOWAIT;
 						
-						IF EXISTS (SELECT * FROM sys.resource_governor_workload_groups
-									WHERE group_max_tempdb_data_percent <> 0
-									  AND group_max_tempdb_data_mb IS NULL)
+						SET @tsql = N'SELECT COUNT(1) FROM sys.resource_governor_workload_groups
+						WHERE group_max_tempdb_data_percent <> 0
+						  AND group_max_tempdb_data_mb IS NULL';
+						EXEC @ExecRet = sp_executesql @tsql;
+						IF @ExecRet > 0
 							BEGIN
 							DECLARE @TempDBfiles TABLE (config VARCHAR(50), data_files INT)
 							/* Valid configs */
