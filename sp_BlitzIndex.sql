@@ -5650,6 +5650,7 @@ BEGIN
 				'N/A' AS index_usage_summary,
 				'N/A' AS index_size_summary
 		FROM #TemporalTables AS t
+		ORDER BY t.database_name, t.schema_name, t.table_name
 		OPTION    ( RECOMPILE );
 
 		RAISERROR(N'check_id 121: Optimized For Sequential Keys.', 0,1) WITH NOWAIT;
