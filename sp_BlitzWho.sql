@@ -90,6 +90,7 @@ DECLARE  @ProductVersion NVARCHAR(128) = CAST(SERVERPROPERTY('ProductVersion') A
 		,@ProductVersionMajor DECIMAL(10,2)
 		,@ProductVersionMinor DECIMAL(10,2)
 		,@Platform NVARCHAR(8) /* Azure or NonAzure are acceptable */ = (SELECT CASE WHEN @@VERSION LIKE '%Azure%' THEN N'Azure' ELSE N'NonAzure' END AS [Platform])
+		,@AzureSQLDB BIT = (SELECT CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN 1 ELSE 0 END)
 		,@EnhanceFlag BIT = 0
 		,@BlockingCheck NVARCHAR(MAX)
 		,@StringToSelect NVARCHAR(MAX)
@@ -127,10 +128,10 @@ SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1,CHARINDEX('.', @Produ
     @ProductVersionMinor = PARSENAME(CONVERT(VARCHAR(32), @ProductVersion), 2)
 
 SELECT
-	@OutputTableNameQueryStats_View = QUOTENAME(@OutputTableName + '_Deltas'),
-	@OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
-	@OutputSchemaName = QUOTENAME(@OutputSchemaName),
-	@OutputTableName = QUOTENAME(@OutputTableName),
+	@OutputTableNameQueryStats_View = QUOTENAME(PARSENAME(@OutputTableName,1) + '_Deltas'),
+	@OutputDatabaseName = QUOTENAME(PARSENAME(@OutputDatabaseName,1)),
+	@OutputSchemaName = ISNULL(QUOTENAME(PARSENAME(@OutputSchemaName,1)),QUOTENAME(PARSENAME(@OutputTableName,2))),
+	@OutputTableName = QUOTENAME(PARSENAME(@OutputTableName,1)),
 	@LineFeed = CHAR(13) + CHAR(10);
 
 IF @GetLiveQueryPlan IS NULL
@@ -140,6 +141,20 @@ IF @GetLiveQueryPlan IS NULL
 		ELSE
 			SET @GetLiveQueryPlan = 0;
 	END
+
+IF @OutputTableName IS NOT NULL AND (@OutputDatabaseName IS NULL OR @OutputSchemaName IS NULL)
+	BEGIN
+		IF @OutputDatabaseName IS NULL AND @AzureSQLDB = 1
+			BEGIN
+			  /* If we're in Azure SQL DB then use the current database */
+			  SET @OutputDatabaseName = QUOTENAME(DB_NAME());
+			END;
+		IF @OutputSchemaName IS NULL AND @OutputDatabaseName = QUOTENAME(DB_NAME())
+			BEGIN
+			  /* If we're inserting records in the current database use the default schema */
+			  SET @OutputSchemaName = QUOTENAME(SCHEMA_NAME());
+			END;
+	END;
 
 IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL
   AND EXISTS ( SELECT *
