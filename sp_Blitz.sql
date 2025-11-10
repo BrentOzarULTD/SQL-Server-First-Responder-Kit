@@ -3742,6 +3742,14 @@ AS
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 94) WITH NOWAIT;
 
+						;WITH las_job_run AS (
+											SELECT  MAX(instance_id) AS instance_id, 
+													job_id, COUNT_BIG(*) AS job_executions,
+													SUM(CASE WHEN run_status = 0 THEN 1 ELSE 0 END) AS failed_executions
+											FROM msdb.dbo.sysjobhistory
+											WHERE step_id = 0
+											GROUP BY job_id
+											)
 						INSERT  INTO #BlitzResults
 								( CheckID ,
 								  Priority ,
@@ -3756,8 +3764,32 @@ AS
 										'Agent Jobs Without Failure Emails' AS Finding ,
 										'https://www.brentozar.com/go/alerts' AS URL ,
 										'The job ' + [name]
-										+ ' has not been set up to notify an operator if it fails.' AS Details
+										+ ' has not been set up to notify an operator if it fails.' 
+										+ CASE 
+											WHEN jh.run_date IS NULL OR jh.run_time IS NULL OR jh.run_status IS NULL THEN ''
+											ELSE N' Executions: '+ CAST(ljr.job_executions AS VARCHAR(30)) 
+												+ CASE ljr.failed_executions
+													WHEN 0 THEN N''
+													ELSE N' ('+CAST(ljr.failed_executions AS NVARCHAR(10)) + N' failed)'
+													END
+												+ N' - last execution started on '
+												+ CAST(CONVERT(DATE,CAST(jh.run_date AS NVARCHAR(8)),113) AS NVARCHAR(10)) 
+												+ N', at ' 
+												+ STUFF(STUFF(RIGHT(N'000000' + CAST(jh.run_time AS varchar(6)),6),3,0,N':'),6,0,N':')
+												+ N', with status "'
+												+ CASE jh.run_status 
+														WHEN 0 THEN N'Failed'
+														WHEN 1 THEN N'Succeeded'
+														WHEN 2 THEN N'Retry'
+														WHEN 3 THEN N'Canceled'
+														WHEN 4 THEN N'In Progress'
+													END +N'".'
+											END	AS Details
 								FROM    msdb.[dbo].[sysjobs] j
+										LEFT JOIN las_job_run ljr 
+											ON ljr.job_id = j.job_id
+										LEFT JOIN msdb.[dbo].[sysjobhistory] jh
+											ON ljr.job_id = jh.job_id AND ljr.instance_id = jh.instance_id
 								WHERE   j.enabled = 1
 										AND j.notify_email_operator_id = 0
 										AND j.notify_netsend_operator_id = 0
