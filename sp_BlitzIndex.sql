@@ -2140,49 +2140,61 @@ OPTION (RECOMPILE);';
 		END;
 
         SET @dsql = N'
-            SELECT DB_ID(@i_DatabaseName) AS [database_id], 
-			    @i_DatabaseName AS database_name,
-				s.name,
-                fk_object.name AS foreign_key_name,
-                parent_object.[object_id] AS parent_object_id,
-                parent_object.name AS parent_object_name,
-                referenced_object.[object_id] AS referenced_object_id,
-                referenced_object.name AS referenced_object_name,
-                fk.is_disabled,
-                fk.is_not_trusted,
-                fk.is_not_for_replication,
-                parent.fk_columns,
-                referenced.fk_columns,
-                [update_referential_action_desc],
-                [delete_referential_action_desc]
-            FROM ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_keys fk
-            JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects fk_object ON fk.object_id=fk_object.object_id
-            JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects parent_object ON fk.parent_object_id=parent_object.object_id
-            JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects referenced_object ON fk.referenced_object_id=referenced_object.object_id
-			JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s ON fk.schema_id=s.schema_id
-            CROSS APPLY ( SELECT  STUFF( (SELECT  N'', '' + c_parent.name AS fk_columns
-                                            FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_key_columns fkc 
-                                            JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c_parent ON fkc.parent_object_id=c_parent.[object_id]
-                                                AND fkc.parent_column_id=c_parent.column_id
-                                            WHERE    fk.parent_object_id=fkc.parent_object_id
-                                                AND fk.[object_id]=fkc.constraint_object_id
-                                            ORDER BY fkc.constraint_column_id 
-                                    FOR      XML PATH('''') ,
-                                              TYPE).value(''.'', ''nvarchar(max)''), 1, 1, '''')/*This is how we remove the first comma*/ ) parent ( fk_columns )
-            CROSS APPLY ( SELECT  STUFF( (SELECT  N'', '' + c_referenced.name AS fk_columns
-                                            FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.    foreign_key_columns fkc 
-                                            JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c_referenced ON fkc.referenced_object_id=c_referenced.[object_id]
-                                                AND fkc.referenced_column_id=c_referenced.column_id
-                                            WHERE    fk.referenced_object_id=fkc.referenced_object_id
-                                                and fk.[object_id]=fkc.constraint_object_id
-                                            ORDER BY fkc.constraint_column_id  /*order by col name, we don''t have anything better*/
-                                    FOR      XML PATH('''') ,
-                                              TYPE).value(''.'', ''nvarchar(max)''), 1, 1, '''') ) referenced ( fk_columns )
-            ' + CASE WHEN @ObjectID IS NOT NULL THEN 
-                    'WHERE fk.parent_object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' OR fk.referenced_object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' ' 
-                    ELSE N' ' END + '
-            ORDER BY parent_object_name, foreign_key_name
-			OPTION (RECOMPILE);';
+SELECT
+	DB_ID(@i_DatabaseName) AS [database_id], 
+	@i_DatabaseName AS database_name,
+	s.name,
+	fk_object.name AS foreign_key_name,
+	parent_object.[object_id] AS parent_object_id,
+	parent_object.name AS parent_object_name,
+	referenced_object.[object_id] AS referenced_object_id,
+	referenced_object.name AS referenced_object_name,
+	fk.is_disabled,
+	fk.is_not_trusted,
+	fk.is_not_for_replication,
+	parent.fk_columns,
+	referenced.fk_columns,
+	[update_referential_action_desc],
+	[delete_referential_action_desc]
+FROM ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_keys fk
+JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects fk_object ON fk.object_id=fk_object.object_id
+JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects parent_object ON fk.parent_object_id=parent_object.object_id
+JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects referenced_object ON fk.referenced_object_id=referenced_object.object_id
+JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s ON fk.schema_id=s.schema_id
+CROSS APPLY (
+	SELECT STUFF( (
+		SELECT N'', '' + c_parent.name AS fk_columns
+		FROM ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_key_columns fkc
+		JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c_parent
+			ON fkc.parent_object_id=c_parent.[object_id]
+			AND fkc.parent_column_id=c_parent.column_id
+		WHERE fk.parent_object_id=fkc.parent_object_id
+		  AND fk.[object_id]=fkc.constraint_object_id
+		ORDER BY fkc.constraint_column_id
+		FOR XML PATH(''''),
+			TYPE
+		).value(''.'', ''nvarchar(max)''), 1, 1, '''') /*This is how we remove the first comma*/
+	) parent ( fk_columns )
+CROSS APPLY (
+	SELECT STUFF( (
+		SELECT N'', '' + c_referenced.name AS fk_columns
+		FROM ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_key_columns fkc
+		JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c_referenced
+			ON fkc.referenced_object_id=c_referenced.[object_id]
+			AND fkc.referenced_column_id=c_referenced.column_id
+		WHERE fk.referenced_object_id=fkc.referenced_object_id
+		  AND fk.[object_id]=fkc.constraint_object_id
+		ORDER BY fkc.constraint_column_id /*order by col name, we don''t have anything better*/
+		FOR XML PATH(''''),
+			TYPE
+		).value(''.'', ''nvarchar(max)''), 1, 1, '''')
+	) referenced ( fk_columns )
+' + CASE
+	WHEN @ObjectID IS NOT NULL
+	THEN 'WHERE fk.parent_object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' OR fk.referenced_object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' ' 
+        ELSE N' ' END + '
+ORDER BY parent_object_name, foreign_key_name
+OPTION (RECOMPILE);';
         IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
 
