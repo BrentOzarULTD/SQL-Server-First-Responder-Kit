@@ -16,7 +16,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @ObjectName NVARCHAR(386) = NULL, /* 'dbname.schema.table' -- if you are lazy and want to fill in @DatabaseName, @SchemaName and @TableName, and since it's the first parameter can simply do: sp_BlitzIndex 'sch.table' */
     @DatabaseName NVARCHAR(128) = NULL, /*Defaults to current DB if not specified*/
     @SchemaName NVARCHAR(128) = NULL, /*Requires table_name as well.*/
-    @TableName NVARCHAR(128) = NULL,  /*Requires schema_name as well.*/
+    @TableName NVARCHAR(261) = NULL,  /*Requires schema_name as well.*/
     @Mode TINYINT=0, /*0=Diagnose, 1=Summarize, 2=Index Usage Detail, 3=Missing Index Detail, 4=Diagnose Details*/
         /*Note:@Mode doesn't matter if you're specifying schema_name and @TableName.*/
     @Filter TINYINT = 0, /* 0=no filter (default). 1=No low-usage warnings for objects with 0 reads. 2=Only warn for objects >= 500MB */
@@ -33,7 +33,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @OutputServerName NVARCHAR(256) = NULL ,
     @OutputDatabaseName NVARCHAR(256) = NULL ,
     @OutputSchemaName NVARCHAR(256) = NULL ,
-    @OutputTableName NVARCHAR(256) = NULL ,
+    @OutputTableName NVARCHAR(261) = NULL ,
 	@IncludeInactiveIndexes BIT = 0 /* Will skip indexes with no reads or writes */,
     @ShowAllMissingIndexRequests BIT = 0 /*Will make all missing index requests show up*/,
 	@ShowPartitionRanges BIT = 0 /* Will add partition range values column to columnstore visualization */,
@@ -134,12 +134,60 @@ DECLARE @PartitionCount INT;
 DECLARE @OptimizeForSequentialKey BIT = 0;
 DECLARE @ResumableIndexesDisappearAfter INT = 0;
 DECLARE @StringToExecute NVARCHAR(MAX);
+DECLARE @AzureSQLDB BIT = (SELECT CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN 1 ELSE 0 END);
 
 /* If user was lazy and just used @ObjectName with a fully qualified table name, then lets parse out the various parts */
 SET @DatabaseName = COALESCE(@DatabaseName, PARSENAME(@ObjectName, 3)) /* 3 = Database name */
 SET @SchemaName   = COALESCE(@SchemaName,   PARSENAME(@ObjectName, 2)) /* 2 = Schema name */
 SET @TableName    = COALESCE(@TableName,    PARSENAME(@ObjectName, 1)) /* 1 = Table name */
 
+/* Handle already quoted input if it wasn't fully qualified*/
+SET @DatabaseName = PARSENAME(@DatabaseName,1);
+SET @SchemaName   = ISNULL(PARSENAME(@SchemaName,1),PARSENAME(@TableName,2));
+SET @TableName    = PARSENAME(@TableName,1);
+
+/* If we're on Azure SQL DB let's cut people some slack */
+IF (@TableName IS NOT NULL AND @AzureSQLDB = 1 AND @DatabaseName IS NULL)
+   BEGIN
+        SET @DatabaseName = DB_NAME();
+   END;
+
+
+IF (@SchemaName IS NULL AND @TableName IS NOT NULL)
+   BEGIN
+       /* If the target is in the current database 
+  and there's just one table or view with this name, then we can grab the schema from sys.objects*/
+       IF ((SELECT COUNT(1) FROM [sys].[objects] 
+               WHERE [name] = @TableName AND [type] IN ('U','V'))=1 
+              AND @TableName IS NOT NULL  AND @DatabaseName = DB_NAME())
+          BEGIN
+              SELECT @SchemaName = SCHEMA_NAME([schema_id]) 
+               FROM [sys].[objects] 
+               WHERE [name] = @TableName AND [type] IN ('U','V');
+          END;
+        /* If the target isn't in the current database, then use dynamic T-SQL*/  
+        IF (@DatabaseName <> DB_NAME()) 
+          BEGIN
+               /*first make sure only one row is returned from sys.objects*/
+               SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                    SELECT @RowcountOUT = COUNT(1) FROM ' + QUOTENAME(@DatabaseName) + N'.[sys].[objects] 
+                    WHERE [name] = @TableName_IN AND [type] IN (''U'',''V'') OPTION  (RECOMPILE);';
+                SET @params = N'@TableName_IN NVARCHAR(128), @RowcountOUT BIGINT OUTPUT';
+                EXEC sp_executesql @dsql, @params, @TableName_IN = @TableName, @RowcountOUT = @Rowcount OUTPUT;
+
+                IF (@Rowcount = 1)
+                  BEGIN
+                      SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                      SELECT @SchemaName_OUT = s.[name] 
+                       FROM ' + QUOTENAME(@DatabaseName) + N'.[sys].[objects] o
+                       INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.[sys].[schemas] s
+                          ON o.[schema_id] = s.[schema_id]
+                       WHERE o.[name] = @TableName_IN AND o.[type] IN (''U'',''V'') OPTION  (RECOMPILE);';
+                      SET @params = N'@TableName_IN NVARCHAR(128), @SchemaName_OUT NVARCHAR(128) OUTPUT';
+                      EXEC sp_executesql @dsql, @params, @TableName_IN = @TableName, @SchemaName_OUT = @SchemaName OUTPUT;
+                   END;
+          END;  
+ END;
 
 /* Let's get @SortOrder set to lower case here for comparisons later */
 SET @SortOrder = REPLACE(LOWER(@SortOrder), N' ', N'_');
@@ -180,6 +228,26 @@ BEGIN
     RAISERROR('Invalid value for parameter @UsualStatisticsSamplingPercent. Expected: 1 to 100',12,1);
     RETURN;
 END;
+
+/* Some prep-work for output object names before checking if they're ok or not */
+IF (@OutputTableName IS NOT NULL)
+BEGIN
+     
+    /*Deal with potentially quoted object names*/
+    SET @OutputDatabaseName = PARSENAME(@OutputDatabaseName,1);
+    SET @OutputSchemaName = ISNULL(PARSENAME(@OutputSchemaName,1),PARSENAME(@OutputTableName,2));
+    SET @OutputTableName = PARSENAME(@OutputTableName,1);
+
+    /* Running on Azure SQL DB or outputting to current database? */
+    IF (@OutputDatabaseName IS NULL AND @AzureSQLDB = 1)
+    BEGIN
+        SET @OutputDatabaseName = DB_NAME();
+    END;
+    IF (@OutputSchemaName IS NULL AND @OutputDatabaseName = DB_NAME())
+      BEGIN
+          SET @OutputSchemaName = SCHEMA_NAME();
+      END;
+END; 
 
 IF(@OutputType = 'TABLE' AND NOT (@OutputTableName IS NULL AND @OutputSchemaName IS NULL AND @OutputDatabaseName IS NULL AND @OutputServerName IS NULL))
 BEGIN
