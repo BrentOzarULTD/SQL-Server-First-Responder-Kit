@@ -2177,8 +2177,8 @@ CROSS APPLY (SELECT STUFF( (SELECT N'', '' + c_referenced.name AS fk_columns
 		  AND fk.[object_id]=fkc.constraint_object_id
 		ORDER BY fkc.constraint_column_id /*order by col name, we don''t have anything better*/
 		FOR XML PATH(''''),
-			TYPE).value(''.'', ''nvarchar(max)''), 1, 1, '''')) referenced ( fk_columns )'
-+ CASE WHEN @ObjectID IS NOT NULL THEN
+			TYPE).value(''.'', ''nvarchar(max)''), 1, 1, '''')) referenced ( fk_columns )
+' + CASE WHEN @ObjectID IS NOT NULL THEN
 		'WHERE fk.parent_object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' OR fk.referenced_object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' ' 
         ELSE N' ' END + '
 ORDER BY parent_object_name, foreign_key_name
