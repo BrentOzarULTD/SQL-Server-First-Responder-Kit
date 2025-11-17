@@ -6827,10 +6827,10 @@ IF @ProductVersionMajor >= 10
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 271) WITH NOWAIT;
 						
-						SET @tsql = N'SELECT COUNT(1) FROM sys.resource_governor_workload_groups
+						SET @tsql = N'SELECT @ExecRet_Out = COUNT(1) FROM sys.resource_governor_workload_groups
 						WHERE group_max_tempdb_data_percent <> 0
 						  AND group_max_tempdb_data_mb IS NULL';
-						EXEC @ExecRet = sp_executesql @tsql;
+						EXEC @ExecRet = sp_executesql @tsql, N'@ExecRet_Out INT OUTPUT', @ExecRet_Out = @ExecRet OUTPUT;
 						IF @ExecRet > 0
 							BEGIN
 							DECLARE @TempDBfiles TABLE (config VARCHAR(50), data_files INT)
