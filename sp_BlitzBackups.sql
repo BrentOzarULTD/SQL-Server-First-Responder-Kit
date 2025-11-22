@@ -24,7 +24,7 @@ AS
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.26', @VersionDate = '20251002';
+	SELECT @Version = '8.27', @VersionDate = '20251122';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -237,7 +237,7 @@ CREATE TABLE #Warnings
     Id INT IDENTITY(1, 1) PRIMARY KEY CLUSTERED,
     CheckId INT,
     Priority INT,
-    DatabaseName VARCHAR(128),
+    DatabaseName NVARCHAR(128),
     Finding VARCHAR(256),
     Warning VARCHAR(8000)
 );

@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 270.
-If you want to add a new one, start at 271.
+CURRENT HIGH CHECKID: 272.
+If you want to add a new one, start at 273.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
@@ -87,6 +87,7 @@ If you want to add a new one, start at 271.
 | 100 | Performance | Many Plans for One Query | https://www.BrentOzar.com/go/parameterization | 160 |
 | 100 | Performance | Max Memory Set Too High | https://www.BrentOzar.com/go/max | 50 |
 | 100 | Performance | Memory Pressure Affecting Queries | https://www.BrentOzar.com/go/grants | 117 |
+| 100 | Performance | Optimized Locking Not Fully Set Up | https://www.BrentOzar.com/go/optimizedlocking | 272 |
 | 100 | Performance | Partitioned database with non-aligned indexes | https://www.BrentOzar.com/go/aligned | 72 |
 | 100 | Performance | Repetitive Maintenance Tasks | https://ola.hallengren.com | 181 |
 | 100 | Performance | Resource Governor Enabled | https://www.BrentOzar.com/go/rg | 10 |
@@ -131,6 +132,7 @@ If you want to add a new one, start at 271.
 | 170 | File Configuration | High VLF Count | https://www.BrentOzar.com/go/vlf | 69 |
 | 170 | File Configuration | Multiple Log Files on One Drive | https://www.BrentOzar.com/go/manylogs | 41 |
 | 170 | File Configuration | System Database on C Drive | https://www.BrentOzar.com/go/drivec | 24 |
+| 170 | File Configuration | TempDB Governor Config Problem | https://www.BrentOzar.com/go/tempdbrg | 271 |
 | 170 | File Configuration | TempDB Has >16 Data Files | https://www.BrentOzar.com/go/tempdb | 175 |
 | 170 | File Configuration | TempDB Only Has 1 Data File | https://www.BrentOzar.com/go/tempdb | 40 |
 | 170 | File Configuration | TempDB Unevenly Sized Data Files | https://www.BrentOzar.com/go/tempdb | 183 |
