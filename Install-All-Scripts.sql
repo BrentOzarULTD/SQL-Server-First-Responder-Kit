@@ -4943,6 +4943,7 @@ IF EXISTS (SELECT * FROM sys.all_columns WHERE name = 'is_optimized_locking_on' 
 				BEGIN
 					IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 272) WITH NOWAIT;
 						
+					SET @StringToExecute = N'
 					INSERT    INTO [#BlitzResults]
 							( [CheckID] ,
 								[Priority] ,
@@ -4955,13 +4956,15 @@ IF EXISTS (SELECT * FROM sys.all_columns WHERE name = 'is_optimized_locking_on' 
 					SELECT
 					272 AS [CheckID] ,
 					100 AS [Priority] ,
-					'Performance' AS [FindingsGroup] ,
-					'Optimized Locking Not Fully Set Up' AS [Finding] ,
+					''Performance'' AS [FindingsGroup] ,
+					''Optimized Locking Not Fully Set Up'' AS [Finding] ,
 					name,
-					'https://www.brentozar.com/go/optimizedlocking' AS [URL] ,
-					'RCSI should be enabled on this database to get the full benefits of optimized locking.'  AS [Details]
+					''https://www.brentozar.com/go/optimizedlocking'' AS [URL] ,
+					''RCSI should be enabled on this database to get the full benefits of optimized locking.''  AS [Details]
 					FROM sys.databases
-					WHERE is_optimized_locking_on = 1 AND is_read_committed_snapshot_on = 0;
+					WHERE is_optimized_locking_on = 1 AND is_read_committed_snapshot_on = 0;'
+
+					EXEC(@StringToExecute);
 				END; 
 
 /* Check if target recovery interval <> 60 */
