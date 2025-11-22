@@ -283,7 +283,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.26', @VersionDate = '20251002';
+SELECT @Version = '8.27', @VersionDate = '20251122';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)

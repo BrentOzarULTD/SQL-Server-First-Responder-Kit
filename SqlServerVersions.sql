@@ -42,11 +42,13 @@ INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
     /*2025*/
-    (17, 925, 'RC1', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-09-17', '2025-12-31', '2025-12-31', 'SQL Server 2025', 'Preview RC1'),
-    (17, 900, 'RC0', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-08-20', '2025-12-31', '2025-12-31', 'SQL Server 2025', 'Preview RC0'),
-    (17, 800, 'CTP 2.1', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-06-16', '2025-12-31', '2025-12-31', 'SQL Server 2025', 'Preview CTP 2.1'),
-    (17, 700, 'CTP 2.0', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-05-19', '2025-12-31', '2025-12-31', 'SQL Server 2025', 'Preview CTP 2.0'),
+    (17, 1000, 'RTM', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-11-18', '2031-01-06', '2036-01-06', 'SQL Server 2025', 'RTM'),
+    (17, 925, 'RC1', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-09-17', '2025-11-18', '2025-11-18', 'SQL Server 2025', 'Preview RC1'),
+    (17, 900, 'RC0', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-08-20', '2025-11-18', '2025-11-18', 'SQL Server 2025', 'Preview RC0'),
+    (17, 800, 'CTP 2.1', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-06-16', '2025-11-18', '2025-11-18', 'SQL Server 2025', 'Preview CTP 2.1'),
+    (17, 700, 'CTP 2.0', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-05-19', '2025-11-18', '2025-11-18', 'SQL Server 2025', 'Preview CTP 2.0'),
     /*2022*/
+    (16, 4225, 'CU22', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate22', '2025-11-13', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 22'),
     (16, 4215, 'CU21', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate21', '2025-09-11', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 21'),
     (16, 4205, 'CU20', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate20', '2025-07-10', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 20'),
     (16, 4200, 'CU19 GDR', 'https://support.microsoft.com/en-us/help/5058721', '2025-07-08', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 19 GDR'),
