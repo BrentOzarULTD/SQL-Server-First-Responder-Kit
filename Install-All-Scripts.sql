@@ -39,7 +39,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.26', @VersionDate = '20251002';
+	SELECT @Version = '8.27', @VersionDate = '20251122';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -570,8 +570,7 @@ AS
         SELECT
 		    DB_NAME(d.database_id)
         FROM sys.databases AS d
-        WHERE (DB_NAME(d.database_id) LIKE 'rdsadmin%'
-		         OR LOWER(d.name) IN ('dbatools', 'dbadmin', 'dbmaintenance'))
+        WHERE LOWER(d.name) IN ('dbatools', 'dbadmin', 'dbmaintenance', 'rdsadmin')
 		OPTION(RECOMPILE);
 
 		/*Skip checks for database where we don't have read permissions*/
@@ -2047,7 +2046,9 @@ AS
 					  ''Performance'' AS FindingsGroup,
 					  ''Server Triggers Enabled'' AS Finding,
 					  ''https://www.brentozar.com/go/logontriggers/'' AS URL,
-					  (''Server Trigger ['' + [name] ++ ''] is enabled.  Make sure you understand what that trigger is doing - the less work it does, the better.'') AS Details FROM sys.server_triggers WHERE is_disabled = 0 AND is_ms_shipped = 0  OPTION (RECOMPILE);';
+					  (''Server Trigger ['' + [name] ++ ''] is enabled.  Make sure you understand what that trigger is doing - the less work it does, the better.'') AS Details
+					  FROM sys.server_triggers
+					  WHERE is_disabled = 0 AND is_ms_shipped = 0 AND name NOT LIKE ''rds^_%'' ESCAPE ''^'' OPTION (RECOMPILE);';
 
 								IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
 								IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
@@ -2706,7 +2707,8 @@ AS
 										  + '. Tables in the master database may not be restored in the event of a disaster.' ) AS Details
 								FROM    master.sys.tables
 								WHERE   is_ms_shipped = 0
-                                  AND   name NOT IN ('CommandLog','SqlServerVersions','$ndo$srvproperty');
+                                  AND   name NOT IN ('CommandLog','SqlServerVersions','$ndo$srvproperty')
+								  AND	name NOT LIKE 'rds^_%' ESCAPE '^';
 								  /* That last one is the Dynamics NAV licensing table: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2426 */
 					END;
 
@@ -3740,6 +3742,14 @@ AS
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 94) WITH NOWAIT;
 
+						;WITH las_job_run AS (
+											SELECT  MAX(instance_id) AS instance_id, 
+													job_id, COUNT_BIG(*) AS job_executions,
+													SUM(CASE WHEN run_status = 0 THEN 1 ELSE 0 END) AS failed_executions
+											FROM msdb.dbo.sysjobhistory
+											WHERE step_id = 0
+											GROUP BY job_id
+											)
 						INSERT  INTO #BlitzResults
 								( CheckID ,
 								  Priority ,
@@ -3754,8 +3764,32 @@ AS
 										'Agent Jobs Without Failure Emails' AS Finding ,
 										'https://www.brentozar.com/go/alerts' AS URL ,
 										'The job ' + [name]
-										+ ' has not been set up to notify an operator if it fails.' AS Details
+										+ ' has not been set up to notify an operator if it fails.' 
+										+ CASE 
+											WHEN jh.run_date IS NULL OR jh.run_time IS NULL OR jh.run_status IS NULL THEN ''
+											ELSE N' Executions: '+ CAST(ljr.job_executions AS VARCHAR(30)) 
+												+ CASE ljr.failed_executions
+													WHEN 0 THEN N''
+													ELSE N' ('+CAST(ljr.failed_executions AS NVARCHAR(10)) + N' failed)'
+													END
+												+ N' - last execution started on '
+												+ CAST(CONVERT(DATE,CAST(jh.run_date AS NVARCHAR(8)),113) AS NVARCHAR(10)) 
+												+ N', at ' 
+												+ STUFF(STUFF(RIGHT(N'000000' + CAST(jh.run_time AS varchar(6)),6),3,0,N':'),6,0,N':')
+												+ N', with status "'
+												+ CASE jh.run_status 
+														WHEN 0 THEN N'Failed'
+														WHEN 1 THEN N'Succeeded'
+														WHEN 2 THEN N'Retry'
+														WHEN 3 THEN N'Canceled'
+														WHEN 4 THEN N'In Progress'
+													END +N'".'
+											END	AS Details
 								FROM    msdb.[dbo].[sysjobs] j
+										LEFT JOIN las_job_run ljr 
+											ON ljr.job_id = j.job_id
+										LEFT JOIN msdb.[dbo].[sysjobhistory] jh
+											ON ljr.job_id = jh.job_id AND ljr.instance_id = jh.instance_id
 								WHERE   j.enabled = 1
 										AND j.notify_email_operator_id = 0
 										AND j.notify_netsend_operator_id = 0
@@ -4883,12 +4917,12 @@ AS
 								SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 								   SELECT ' + CAST(@CurrentCheckID AS NVARCHAR(200)) + ', d.[name], ' + CAST(@CurrentPriority AS NVARCHAR(200)) + ', ''Non-Default Database Config'', ''' + @CurrentFinding + ''',''' + @CurrentURL + ''',''' + COALESCE(@CurrentDetails, 'This database setting is not the default.') + '''
 									FROM sys.databases d
-									WHERE d.database_id > 4 AND d.state = 0 AND (d.[' + @CurrentName + '] NOT IN (0, 60) OR d.[' + @CurrentName + '] IS NULL) OPTION (RECOMPILE);';
+									WHERE d.database_id > 4 AND DB_NAME(d.database_id) != ''rdsadmin'' AND d.state = 0 AND (d.[' + @CurrentName + '] NOT IN (0, 60) OR d.[' + @CurrentName + '] IS NULL) OPTION (RECOMPILE);';
 							ELSE
 								SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 								   SELECT ' + CAST(@CurrentCheckID AS NVARCHAR(200)) + ', d.[name], ' + CAST(@CurrentPriority AS NVARCHAR(200)) + ', ''Non-Default Database Config'', ''' + @CurrentFinding + ''',''' + @CurrentURL + ''',''' + COALESCE(@CurrentDetails, 'This database setting is not the default.') + '''
 									FROM sys.databases d
-									WHERE d.database_id > 4 AND d.state = 0 AND (d.[' + @CurrentName + '] <> ' + @CurrentDefaultValue + ' OR d.[' + @CurrentName + '] IS NULL) OPTION (RECOMPILE);';
+									WHERE d.database_id > 4 AND DB_NAME(d.database_id) != ''rdsadmin'' AND d.state = 0 AND (d.[' + @CurrentName + '] <> ' + @CurrentDefaultValue + ' OR d.[' + @CurrentName + '] IS NULL) OPTION (RECOMPILE);';
 						
 							IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
 							IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
@@ -4900,6 +4934,35 @@ AS
 
 						CLOSE DatabaseDefaultsLoop;
 						DEALLOCATE DatabaseDefaultsLoop;
+
+/* CheckID 272 - Performance - Optimized Locking Not Fully Set Up */
+IF EXISTS (SELECT * FROM sys.all_columns WHERE name = 'is_optimized_locking_on' AND object_id = OBJECT_ID('sys.databases'))
+			   AND NOT EXISTS ( SELECT  1
+							    FROM    #SkipChecks
+							    WHERE   DatabaseName IS NULL AND CheckID = 272 )
+				BEGIN
+					IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 272) WITH NOWAIT;
+						
+					INSERT    INTO [#BlitzResults]
+							( [CheckID] ,
+								[Priority] ,
+								[FindingsGroup] ,
+								[Finding] ,
+								[DatabaseName] ,
+								[URL] ,
+								[Details] )
+
+					SELECT
+					272 AS [CheckID] ,
+					100 AS [Priority] ,
+					'Performance' AS [FindingsGroup] ,
+					'Optimized Locking Not Fully Set Up' AS [Finding] ,
+					name,
+					'https://www.brentozar.com/go/optimizedlocking' AS [URL] ,
+					'RCSI should be enabled on this database to get the full benefits of optimized locking.'  AS [Details]
+					FROM sys.databases
+					WHERE is_optimized_locking_on = 1 AND is_read_committed_snapshot_on = 0;
+				END; 
 
 /* Check if target recovery interval <> 60 */
 IF
@@ -6752,6 +6815,70 @@ IF @ProductVersionMajor >= 10
 					END;
 
 
+
+				IF NOT EXISTS ( SELECT  1
+							FROM    #SkipChecks
+							WHERE   DatabaseName IS NULL AND CheckID = 271 )
+				AND EXISTS (SELECT * FROM sys.all_columns WHERE name = 'group_max_tempdb_data_percent'
+				                    AND [object_id] = OBJECT_ID('sys.resource_governor_workload_groups'))
+					AND EXISTS (SELECT * FROM sys.all_columns WHERE name = 'group_max_tempdb_data_mb'
+					                AND [object_id] = OBJECT_ID('sys.resource_governor_workload_groups'))
+					BEGIN
+						
+						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 271) WITH NOWAIT;
+						
+						SET @tsql = N'SELECT @ExecRet_Out = COUNT(1) FROM sys.resource_governor_workload_groups
+						WHERE group_max_tempdb_data_percent <> 0
+						  AND group_max_tempdb_data_mb IS NULL';
+						EXEC @ExecRet = sp_executesql @tsql, N'@ExecRet_Out INT OUTPUT', @ExecRet_Out = @ExecRet OUTPUT;
+						IF @ExecRet > 0
+							BEGIN
+							DECLARE @TempDBfiles TABLE (config VARCHAR(50), data_files INT)
+							/* Valid configs */
+							INSERT INTO @TempDBfiles
+								SELECT 'Fixed predictable growth' AS config, SUM(1) AS data_files
+									FROM master.sys.master_files
+									WHERE database_id = DB_ID('tempdb')
+									  AND type = 0 /* data */
+									  AND max_size <> -1 /* only limited ones */
+									  AND growth <> 0 /* growth is set */
+									HAVING SUM(1) > 0
+								UNION ALL
+								SELECT 'Growth turned off' AS config, SUM(1) AS data_files
+									FROM master.sys.master_files
+									WHERE database_id = DB_ID('tempdb')
+									  AND type = 0 /* data */
+									  AND max_size = -1 /* unlimited */
+									  AND growth = 0
+									HAVING SUM(1) > 0;
+
+							IF 1 <> (SELECT COUNT(*) FROM @TempDBfiles)
+								OR (SELECT SUM(data_files) FROM @TempDBfiles) <> 
+									(SELECT SUM(1)
+										FROM master.sys.master_files
+										WHERE database_id = DB_ID('tempdb')
+										  AND type = 0 /* data */)
+								BEGIN
+									INSERT INTO #BlitzResults
+										( CheckID ,
+										  Priority ,
+										  DatabaseName ,
+										  FindingsGroup ,
+										  Finding ,
+										  URL ,
+										  Details
+										)														
+									SELECT 271 AS CheckID,
+										   170 AS Priority,
+										   'tempdb',
+										   'File Configuration' AS FindingsGroup,
+										   'TempDB Governor Config Problem' AS Finding,
+										   'https://www.BrentOzar.com/go/tempdbrg' AS URL,
+										   'Resource Governor is configured to cap TempDB usage by percent, but the TempDB file configuration will not allow that to take effect.' AS details
+								END
+							END
+					END
+
 				IF @CheckUserDatabaseObjects = 1
 					BEGIN
 
@@ -6813,7 +6940,7 @@ IF @ProductVersionMajor >= 10
 		                              ''https://www.brentozar.com/go/querystore'',
 		                              (''The new SQL Server 2016 Query Store feature has not been enabled on this database.'')
 		                              FROM [?].sys.database_query_store_options WHERE desired_state = 0
-									  AND N''?'' NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'') OPTION (RECOMPILE)';
+									  AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''rdsadmin'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'') OPTION (RECOMPILE)';
 							END;
 
 						IF NOT EXISTS ( SELECT  1
@@ -6845,6 +6972,7 @@ IF @ProductVersionMajor >= 10
 		                              FROM [?].sys.database_query_store_options
 									  WHERE desired_state <> 0
 									  AND wait_stats_capture_mode = 0
+									  AND ''?'' != ''rdsadmin''
 									  OPTION (RECOMPILE)';
 							END;
                     
@@ -6876,6 +7004,7 @@ IF @ProductVersionMajor >= 10
 		                              FROM [?].sys.database_query_store_options
 									  WHERE desired_state <> 0
 									  AND actual_state <> 2
+									  AND ''?'' != ''rdsadmin''
 									  OPTION (RECOMPILE)';
 							END;
 
@@ -6907,6 +7036,7 @@ IF @ProductVersionMajor >= 10
 		                              FROM [?].sys.database_query_store_options
 									  WHERE desired_state <> 0
 									  AND desired_state <> actual_state 
+									  AND ''?'' != ''rdsadmin''
 									  OPTION (RECOMPILE)';
 							END;
 
@@ -6942,6 +7072,7 @@ IF @ProductVersionMajor >= 10
 		                              FROM [?].sys.database_query_store_options
 									  WHERE desired_state <> 0 /* No point in checking this if Query Store is off. */
 									  AND query_capture_mode_desc <> ''AUTO''
+									  AND ''?'' != ''rdsadmin''
 									  OPTION (RECOMPILE)';
 							END;
 						
@@ -6972,7 +7103,9 @@ IF @ProductVersionMajor >= 10
 													''https://www.brentozar.com/go/cleanup'',
 													(''SQL 2016 RTM has a bug involving dumps that happen every time Query Store cleanup jobs run. This is fixed in CU1 and later: https://sqlserverupdates.com/sql-server-2016-updates/'')
 													FROM    sys.databases AS d
-													WHERE   d.is_query_store_on = 1 OPTION (RECOMPILE);';
+													WHERE   d.is_query_store_on = 1
+													AND		d.name != ''rdsadmin''
+													OPTION (RECOMPILE);';
 							
 							IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
 							IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
@@ -7008,7 +7141,7 @@ IF @ProductVersionMajor >= 10
 		                              FROM [?].sys.database_query_store_options dqso
 										join master.sys.databases D on D.name = N''?''
 									  WHERE ((dqso.actual_state = 0 AND D.is_query_store_on = 1) OR (dqso.actual_state <> 0 AND D.is_query_store_on = 0))
-									  AND N''?'' NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'') OPTION (RECOMPILE)';
+									  AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''rdsadmin'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'') OPTION (RECOMPILE)';
 							END;
 
 				        IF NOT EXISTS ( SELECT  1
@@ -7036,7 +7169,7 @@ IF @ProductVersionMajor >= 10
 		                              ''https://www.brentozar.com/go/manylogs'',
 		                              (''The ['' + DB_NAME() + ''] database has multiple log files on the '' + LEFT(physical_name, 1) + '' drive. This is not a performance booster because log file access is sequential, not parallel.'')
 		                              FROM [?].sys.database_files WHERE type_desc = ''LOG''
-			                            AND N''?'' <> ''[tempdb]''
+			                            AND ''?'' NOT IN (''rdsadmin'',''tempdb'')
 		                              GROUP BY LEFT(physical_name, 1)
 		                              HAVING COUNT(*) > 1 
 									     AND SUM(size) < 268435456 OPTION (RECOMPILE);';
@@ -7068,6 +7201,7 @@ IF @ProductVersionMajor >= 10
 			                            (''The ['' + DB_NAME() + ''] database has multiple data files in one filegroup, but they are not all set up to grow in identical amounts.  This can lead to uneven file activity inside the filegroup.'')
 			                            FROM [?].sys.database_files
 			                            WHERE type_desc = ''ROWS''
+										AND ''?'' != ''rdsadmin''
 			                            GROUP BY data_space_id
 			                            HAVING COUNT(DISTINCT growth) > 1 OR COUNT(DISTINCT is_percent_growth) > 1 OPTION (RECOMPILE);';
 					        END;
@@ -7096,7 +7230,9 @@ IF @ProductVersionMajor >= 10
 		                                ''https://www.brentozar.com/go/percentgrowth'' AS URL,
 		                                ''The ['' + DB_NAME() + ''] database file '' + f.physical_name + '' has grown to '' + CONVERT(NVARCHAR(20), CONVERT(NUMERIC(38, 2), (f.size / 128.) / 1024.)) + '' GB, and is using percent filegrowth settings. This can lead to slow performance during growths if Instant File Initialization is not enabled.''
 		                                FROM    [?].sys.database_files f
-		                                WHERE   is_percent_growth = 1 and size > 128000  OPTION (RECOMPILE);';
+		                                WHERE   is_percent_growth = 1 and size > 128000
+										AND		''?'' != ''rdsadmin''
+										OPTION (RECOMPILE);';
 					            END;
 
                             /* addition by Henrik Staun Poulsen, Stovi Software */
@@ -7124,7 +7260,9 @@ IF @ProductVersionMajor >= 10
 		                                ''https://www.brentozar.com/go/percentgrowth'' AS URL,
 										''The ['' + DB_NAME() + ''] database file '' + f.physical_name + '' is using 1MB filegrowth settings, but it has grown to '' + CAST((CAST(f.size AS BIGINT) * 8 / 1000000) AS NVARCHAR(10)) + '' GB. Time to up the growth amount.''
 										FROM    [?].sys.database_files f
-                                        WHERE is_percent_growth = 0 and growth=128 and size > 128000  OPTION (RECOMPILE);';
+                                        WHERE is_percent_growth = 0 and growth=128 and size > 128000
+										AND	   ''?'' != ''rdsadmin''
+										OPTION (RECOMPILE);';
 					            END;
 
 				        IF NOT EXISTS ( SELECT  1
@@ -7154,7 +7292,9 @@ IF @ProductVersionMajor >= 10
 		                                  ''Enterprise Edition Features In Use'',
 		                                  ''https://www.brentozar.com/go/ee'',
 		                                  (''The ['' + DB_NAME() + ''] database is using '' + feature_name + ''.  If this database is restored onto a Standard Edition server, the restore will fail on versions prior to 2016 SP1.'')
-		                                  FROM [?].sys.dm_db_persisted_sku_features OPTION (RECOMPILE);';
+		                                  FROM [?].sys.dm_db_persisted_sku_features
+										  WHERE ''?'' != ''rdsadmin''
+										  OPTION (RECOMPILE);';
 							        END;
 					        END;
 
@@ -7212,8 +7352,9 @@ IF @ProductVersionMajor >= 10
 							          ''https://www.brentozar.com/go/repl'',
 							          (''['' + DB_NAME() + ''] has MSreplication_objects tables in it, indicating it is a replication subscriber.'')
 							          FROM [?].sys.tables
-							          WHERE name = ''dbo.MSreplication_objects'' AND ''?'' <> ''master'' OPTION (RECOMPILE)';
-
+							          WHERE name = ''dbo.MSreplication_objects''
+									  AND ''?'' NOT IN (''master'', ''rdsadmin'')
+									  OPTION (RECOMPILE)';
 					        END;
 
 						IF NOT EXISTS ( SELECT  1
@@ -7241,7 +7382,9 @@ IF @ProductVersionMajor >= 10
 			''https://www.brentozar.com/go/trig'',
 			(''The ['' + DB_NAME() + ''] database has '' + CAST(SUM(1) AS NVARCHAR(50)) + '' triggers.'')
 			FROM [?].sys.triggers t INNER JOIN [?].sys.objects o ON t.parent_id = o.object_id
-			INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id WHERE t.is_ms_shipped = 0 AND DB_NAME() != ''ReportServer''
+			INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id
+			WHERE t.is_ms_shipped = 0
+			AND ''?'' NOT IN (''rdsadmin'', ''ReportServer'')
 			HAVING SUM(1) > 0 OPTION (RECOMPILE)';
 							END;
 
@@ -7271,7 +7414,9 @@ IF @ProductVersionMajor >= 10
 		  ''Plan Guides Failing'',
 		  ''https://www.brentozar.com/go/misguided'',
 		  (''The ['' + DB_NAME() + ''] database has plan guides that are no longer valid, so the queries involved may be failing silently.'')
-		  FROM [?].sys.plan_guides g CROSS APPLY fn_validate_plan_guide(g.plan_guide_id) OPTION (RECOMPILE)';
+		  FROM [?].sys.plan_guides g CROSS APPLY fn_validate_plan_guide(g.plan_guide_id)
+		  WHERE ''?'' != ''rdsadmin''
+		  OPTION (RECOMPILE)';
 							END;
 
 						IF NOT EXISTS ( SELECT  1
@@ -7299,7 +7444,9 @@ IF @ProductVersionMajor >= 10
 		  ''https://www.brentozar.com/go/hypo'',
 		  (''The index ['' + DB_NAME() + ''].['' + s.name + ''].['' + o.name + ''].['' + i.name + ''] is a leftover hypothetical index from the Index Tuning Wizard or Database Tuning Advisor.  This index is not actually helping performance and should be removed.'')
 		  from [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id
-		  WHERE i.is_hypothetical = 1 OPTION (RECOMPILE);';
+		  WHERE i.is_hypothetical = 1
+		  AND ''?'' != ''rdsadmin''
+		  OPTION (RECOMPILE);';
 							END;
 
 						IF NOT EXISTS ( SELECT  1
@@ -7355,7 +7502,9 @@ IF @ProductVersionMajor >= 10
 		  ''https://www.brentozar.com/go/trust'',
 		  (''The ['' + DB_NAME() + ''] database has foreign keys that were probably disabled, data was changed, and then the key was enabled again.  Simply enabling the key is not enough for the optimizer to use this key - we have to alter the table using the WITH CHECK CHECK CONSTRAINT parameter.'')
 		  from [?].sys.foreign_keys i INNER JOIN [?].sys.objects o ON i.parent_object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id
-		  WHERE i.is_not_trusted = 1 AND i.is_not_for_replication = 0 AND i.is_disabled = 0 AND N''?'' NOT IN (''master'', ''model'', ''msdb'', ''ReportServer'', ''ReportServerTempDB'') OPTION (RECOMPILE);';
+		  WHERE i.is_not_trusted = 1 AND i.is_not_for_replication = 0 AND i.is_disabled = 0 AND ''?''
+		  NOT IN (''master'', ''model'', ''msdb'', ''rdsadmin'', ''ReportServer'', ''ReportServerTempDB'')
+		  OPTION (RECOMPILE);';
 							END;
 
 						IF NOT EXISTS ( SELECT  1
@@ -7844,8 +7993,10 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 									INNER JOIN #DatabaseScopedConfigurationDefaults def1 ON dsc.configuration_id = def1.configuration_id
 									LEFT OUTER JOIN #DatabaseScopedConfigurationDefaults def ON dsc.configuration_id = def.configuration_id AND (cast(dsc.value as nvarchar(100)) = cast(def.default_value as nvarchar(100)) OR dsc.value IS NULL) AND (dsc.value_for_secondary = def.default_value_for_secondary OR dsc.value_for_secondary IS NULL)
 									LEFT OUTER JOIN #SkipChecks sk ON (sk.CheckID IS NULL OR def.CheckID = sk.CheckID) AND (sk.DatabaseName IS NULL OR sk.DatabaseName = DB_NAME())
-									WHERE def.configuration_id IS NULL AND sk.CheckID IS NULL ORDER BY 1
-									 OPTION (RECOMPILE);';
+									WHERE def.configuration_id IS NULL AND sk.CheckID IS NULL
+									AND ''?'' != ''rdsadmin''
+									ORDER BY 1
+									OPTION (RECOMPILE);';
 			END;
 
 			/* Check 218 - Show me the dodgy SET Options */
@@ -7882,6 +8033,7 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 							OR sm.uses_quoted_identifier <> 1
 							)
 						AND o.is_ms_shipped = 0
+						AND ''?'' != ''rdsadmin''
 					HAVING COUNT(1) > 0;';
 			END; --of Check 218.
 
@@ -7913,7 +8065,9 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
                             + CAST(iro.sql_text AS NVARCHAR(1000)) AS Details
 					FROM sys.index_resumable_operations iro
 					JOIN sys.objects o ON iro.[object_id] = o.[object_id]
-					WHERE iro.state <> 0;';
+					WHERE iro.state <> 0
+					AND ''?'' != ''rdsadmin''
+					;';
 			END; --of Check 225.
 
 			--/* Check 220 - Statistics Without Histograms */
@@ -7947,7 +8101,7 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
    --                   WHERE o.is_ms_shipped = 0 AND o.type_desc = ''USER_TABLE''
    --                     AND h.object_id IS NULL
    --                     AND 0 < (SELECT SUM(row_count) FROM sys.dm_db_partition_stats ps WHERE ps.object_id = o.object_id)
-   --                     AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''tempdb'')
+   --                     AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''rdsadmin'', ''tempdb'')
    --                   HAVING COUNT(DISTINCT o.object_id) > 0;';
 			--END; --of Check 220.
 
@@ -8562,6 +8716,7 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 										CASE WHEN [T].[TraceFlag] = '652'  THEN '652 enabled globally, which disables pre-fetching during index scans. This is usually a very bad idea.'
 											 WHEN [T].[TraceFlag] = '661'  THEN '661 enabled globally, which disables ghost record removal, causing the database to grow in size. This is usually a very bad idea.'
 										     WHEN [T].[TraceFlag] = '834'  AND @ColumnStoreIndexesInUse = 1 THEN '834 is enabled globally, but you also have columnstore indexes. That combination is not recommended by Microsoft.'
+											 WHEN [T].[TraceFlag] = '834'  AND @CheckUserDatabaseObjects = 0 THEN '834 is enabled globally, but @CheckUserDatabaseObjects was set to 0, so we skipped checking if any databases have columnstore indexes. That combination is not recommended by Microsoft.'
 											 WHEN [T].[TraceFlag] = '1117' THEN '1117 enabled globally, which grows all files in a filegroup at the same time.'
 											 WHEN [T].[TraceFlag] = '1118' THEN '1118 enabled globally, which tries to reduce SGAM waits.'
 											 WHEN [T].[TraceFlag] = '1211' THEN '1211 enabled globally, which disables lock escalation when you least expect it. This is usually a very bad idea.'
@@ -8575,10 +8730,12 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 											 WHEN [T].[TraceFlag] = '3226' THEN '3226 enabled globally, which keeps the event log clean by not reporting successful backups.'
 											 WHEN [T].[TraceFlag] = '3505' THEN '3505 enabled globally, which disables Checkpoints. This is usually a very bad idea.'
 											 WHEN [T].[TraceFlag] = '4199' THEN '4199 enabled globally, which enables non-default Query Optimizer fixes, changing query plans from the default behaviors.'
+											 WHEN [T].[TraceFlag] = '7745' AND @CheckUserDatabaseObjects = 0 THEN '7745 enabled globally, which makes shutdowns/failovers quicker by not waiting for Query Store to flush to disk. This good idea loses you the non-flushed Query Store data. @CheckUserDatabaseObjects was set to 0, so we skipped checking if any databases have Query Store enabled.'
 											 WHEN [T].[TraceFlag] = '7745' AND @QueryStoreInUse = 1 THEN '7745 enabled globally, which makes shutdowns/failovers quicker by not waiting for Query Store to flush to disk. This good idea loses you the non-flushed Query Store data.'
 											 WHEN [T].[TraceFlag] = '7745' AND  @ProductVersionMajor > 12 THEN '7745 enabled globally, which is for Query Store. None of your databases have Query Store enabled, so why do you have this turned on?'
 											 WHEN [T].[TraceFlag] = '7745' AND  @ProductVersionMajor <= 12 THEN '7745 enabled globally, which is for Query Store. Query Store does not exist on your SQL Server version, so why do you have this turned on?'
 											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor > 14 THEN '7752 enabled globally, which is for Query Store. However, it has no effect in your SQL Server version. Consider turning it off.'
+											 WHEN [T].[TraceFlag] = '7752' AND @CheckUserDatabaseObjects = 0 THEN '7752 enabled globally, which stops queries needing to wait on Query Store loading up after database recovery. @CheckUserDatabaseObjects was set to 0, so we skipped checking if any databases have Query Store enabled.'
 											 WHEN [T].[TraceFlag] = '7752' AND @QueryStoreInUse = 1 THEN '7752 enabled globally, which stops queries needing to wait on Query Store loading up after database recovery.'
 											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor > 12 THEN '7752 enabled globally, which is for Query Store. None of your databases have Query Store enabled, so why do you have this turned on?'
 											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor <= 12 THEN '7752 enabled globally, which is for Query Store. Query Store does not exist on your SQL Server version, so why do you have this turned on?'
@@ -10617,7 +10774,7 @@ AS
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
-SELECT @Version = '8.26', @VersionDate = '20251002';
+SELECT @Version = '8.27', @VersionDate = '20251122';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -11495,7 +11652,7 @@ AS
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.26', @VersionDate = '20251002';
+	SELECT @Version = '8.27', @VersionDate = '20251122';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -11708,7 +11865,7 @@ CREATE TABLE #Warnings
     Id INT IDENTITY(1, 1) PRIMARY KEY CLUSTERED,
     CheckId INT,
     Priority INT,
-    DatabaseName VARCHAR(128),
+    DatabaseName NVARCHAR(128),
     Finding VARCHAR(256),
     Warning VARCHAR(8000)
 );
@@ -13279,7 +13436,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.26', @VersionDate = '20251002';
+SELECT @Version = '8.27', @VersionDate = '20251122';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -20632,7 +20789,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @ObjectName NVARCHAR(386) = NULL, /* 'dbname.schema.table' -- if you are lazy and want to fill in @DatabaseName, @SchemaName and @TableName, and since it's the first parameter can simply do: sp_BlitzIndex 'sch.table' */
     @DatabaseName NVARCHAR(128) = NULL, /*Defaults to current DB if not specified*/
     @SchemaName NVARCHAR(128) = NULL, /*Requires table_name as well.*/
-    @TableName NVARCHAR(128) = NULL,  /*Requires schema_name as well.*/
+    @TableName NVARCHAR(261) = NULL,  /*Requires schema_name as well.*/
     @Mode TINYINT=0, /*0=Diagnose, 1=Summarize, 2=Index Usage Detail, 3=Missing Index Detail, 4=Diagnose Details*/
         /*Note:@Mode doesn't matter if you're specifying schema_name and @TableName.*/
     @Filter TINYINT = 0, /* 0=no filter (default). 1=No low-usage warnings for objects with 0 reads. 2=Only warn for objects >= 500MB */
@@ -20649,7 +20806,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @OutputServerName NVARCHAR(256) = NULL ,
     @OutputDatabaseName NVARCHAR(256) = NULL ,
     @OutputSchemaName NVARCHAR(256) = NULL ,
-    @OutputTableName NVARCHAR(256) = NULL ,
+    @OutputTableName NVARCHAR(261) = NULL ,
 	@IncludeInactiveIndexes BIT = 0 /* Will skip indexes with no reads or writes */,
     @ShowAllMissingIndexRequests BIT = 0 /*Will make all missing index requests show up*/,
 	@ShowPartitionRanges BIT = 0 /* Will add partition range values column to columnstore visualization */,
@@ -20666,7 +20823,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.26', @VersionDate = '20251002';
+SELECT @Version = '8.27', @VersionDate = '20251122';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -20750,12 +20907,60 @@ DECLARE @PartitionCount INT;
 DECLARE @OptimizeForSequentialKey BIT = 0;
 DECLARE @ResumableIndexesDisappearAfter INT = 0;
 DECLARE @StringToExecute NVARCHAR(MAX);
+DECLARE @AzureSQLDB BIT = (SELECT CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN 1 ELSE 0 END);
 
 /* If user was lazy and just used @ObjectName with a fully qualified table name, then lets parse out the various parts */
 SET @DatabaseName = COALESCE(@DatabaseName, PARSENAME(@ObjectName, 3)) /* 3 = Database name */
 SET @SchemaName   = COALESCE(@SchemaName,   PARSENAME(@ObjectName, 2)) /* 2 = Schema name */
 SET @TableName    = COALESCE(@TableName,    PARSENAME(@ObjectName, 1)) /* 1 = Table name */
 
+/* Handle already quoted input if it wasn't fully qualified*/
+SET @DatabaseName = PARSENAME(@DatabaseName,1);
+SET @SchemaName   = ISNULL(PARSENAME(@SchemaName,1),PARSENAME(@TableName,2));
+SET @TableName    = PARSENAME(@TableName,1);
+
+/* If we're on Azure SQL DB let's cut people some slack */
+IF (@TableName IS NOT NULL AND @AzureSQLDB = 1 AND @DatabaseName IS NULL)
+   BEGIN
+        SET @DatabaseName = DB_NAME();
+   END;
+
+
+IF (@SchemaName IS NULL AND @TableName IS NOT NULL)
+   BEGIN
+       /* If the target is in the current database 
+  and there's just one table or view with this name, then we can grab the schema from sys.objects*/
+       IF ((SELECT COUNT(1) FROM [sys].[objects] 
+               WHERE [name] = @TableName AND [type] IN ('U','V'))=1 
+              AND @TableName IS NOT NULL  AND @DatabaseName = DB_NAME())
+          BEGIN
+              SELECT @SchemaName = SCHEMA_NAME([schema_id]) 
+               FROM [sys].[objects] 
+               WHERE [name] = @TableName AND [type] IN ('U','V');
+          END;
+        /* If the target isn't in the current database, then use dynamic T-SQL*/  
+        IF (@DatabaseName <> DB_NAME()) 
+          BEGIN
+               /*first make sure only one row is returned from sys.objects*/
+               SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                    SELECT @RowcountOUT = COUNT(1) FROM ' + QUOTENAME(@DatabaseName) + N'.[sys].[objects] 
+                    WHERE [name] = @TableName_IN AND [type] IN (''U'',''V'') OPTION  (RECOMPILE);';
+                SET @params = N'@TableName_IN NVARCHAR(128), @RowcountOUT BIGINT OUTPUT';
+                EXEC sp_executesql @dsql, @params, @TableName_IN = @TableName, @RowcountOUT = @Rowcount OUTPUT;
+
+                IF (@Rowcount = 1)
+                  BEGIN
+                      SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                      SELECT @SchemaName_OUT = s.[name] 
+                       FROM ' + QUOTENAME(@DatabaseName) + N'.[sys].[objects] o
+                       INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.[sys].[schemas] s
+                          ON o.[schema_id] = s.[schema_id]
+                       WHERE o.[name] = @TableName_IN AND o.[type] IN (''U'',''V'') OPTION  (RECOMPILE);';
+                      SET @params = N'@TableName_IN NVARCHAR(128), @SchemaName_OUT NVARCHAR(128) OUTPUT';
+                      EXEC sp_executesql @dsql, @params, @TableName_IN = @TableName, @SchemaName_OUT = @SchemaName OUTPUT;
+                   END;
+          END;  
+ END;
 
 /* Let's get @SortOrder set to lower case here for comparisons later */
 SET @SortOrder = REPLACE(LOWER(@SortOrder), N' ', N'_');
@@ -20796,6 +21001,26 @@ BEGIN
     RAISERROR('Invalid value for parameter @UsualStatisticsSamplingPercent. Expected: 1 to 100',12,1);
     RETURN;
 END;
+
+/* Some prep-work for output object names before checking if they're ok or not */
+IF (@OutputTableName IS NOT NULL)
+BEGIN
+     
+    /*Deal with potentially quoted object names*/
+    SET @OutputDatabaseName = PARSENAME(@OutputDatabaseName,1);
+    SET @OutputSchemaName = ISNULL(PARSENAME(@OutputSchemaName,1),PARSENAME(@OutputTableName,2));
+    SET @OutputTableName = PARSENAME(@OutputTableName,1);
+
+    /* Running on Azure SQL DB or outputting to current database? */
+    IF (@OutputDatabaseName IS NULL AND @AzureSQLDB = 1)
+    BEGIN
+        SET @OutputDatabaseName = DB_NAME();
+    END;
+    IF (@OutputSchemaName IS NULL AND @OutputDatabaseName = DB_NAME())
+      BEGIN
+          SET @OutputSchemaName = SCHEMA_NAME();
+      END;
+END; 
 
 IF(@OutputType = 'TABLE' AND NOT (@OutputTableName IS NULL AND @OutputSchemaName IS NULL AND @OutputDatabaseName IS NULL AND @OutputServerName IS NULL))
 BEGIN
@@ -20945,6 +21170,7 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
               is_spatial BIT NOT NULL,
               is_NC_columnstore BIT NOT NULL,
               is_CX_columnstore BIT NOT NULL,
+              is_JSON BIT NOT NULL,
               is_in_memory_oltp BIT NOT NULL ,
               is_disabled BIT NOT NULL ,
               is_hypothetical BIT NOT NULL ,
@@ -20986,6 +21212,7 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
                     ELSE N'' END + CASE WHEN is_XML = 1 THEN N'[XML] '
                     ELSE N'' END + CASE WHEN is_spatial = 1 THEN N'[SPATIAL] '
                     ELSE N'' END + CASE WHEN is_NC_columnstore = 1 THEN N'[COLUMNSTORE] '
+                    ELSE N'' END + CASE WHEN is_json = 1 THEN N'[JSON] '
                     ELSE N'' END + CASE WHEN is_in_memory_oltp = 1 THEN N'[IN-MEMORY] '
                     ELSE N'' END + CASE WHEN is_disabled = 1 THEN N'[DISABLED] '
                     ELSE N'' END + CASE WHEN is_hypothetical = 1 THEN N'[HYPOTHETICAL] '
@@ -22030,6 +22257,7 @@ BEGIN TRY
                         CASE when si.type = 4 THEN 1 ELSE 0 END AS is_spatial,
                         CASE when si.type = 6 THEN 1 ELSE 0 END AS is_NC_columnstore,
                         CASE when si.type = 5 then 1 else 0 end as is_CX_columnstore,
+                        CASE when si.type = 9 then 1 else 0 end as is_JSON,
                         CASE when si.data_space_id = 0 then 1 else 0 end as is_in_memory_oltp,
                         si.is_disabled,
                         si.is_hypothetical, 
@@ -22063,8 +22291,8 @@ BEGIN TRY
                         LEFT JOIN sys.dm_db_index_usage_stats AS us WITH (NOLOCK) ON si.[object_id] = us.[object_id]
                                                                        AND si.index_id = us.index_id
                                                                        AND us.database_id = ' + CAST(@DatabaseID AS NVARCHAR(10)) + N'
-                WHERE    si.[type] IN ( 0, 1, 2, 3, 4, 5, 6 ) 
-                /* Heaps, clustered, nonclustered, XML, spatial, Cluster Columnstore, NC Columnstore */ ' +
+                WHERE    si.[type] IN ( 0, 1, 2, 3, 4, 5, 6, 9 ) 
+                /* Heaps, clustered, nonclustered, XML, spatial, Cluster Columnstore, NC Columnstore, JSON */ ' +
                 CASE WHEN @TableName IS NOT NULL THEN N' and so.name=' + QUOTENAME(@TableName,N'''') + N' ' ELSE N'' END +
                 CASE WHEN ( @IncludeInactiveIndexes = 0
                             AND @Mode IN (0, 4)
@@ -22092,7 +22320,7 @@ BEGIN TRY
                 PRINT SUBSTRING(@dsql, 36000, 40000);
             END;
         INSERT    #IndexSanity ( [database_id], [object_id], [index_id], [index_type], [database_name], [schema_name], [object_name],
-                                index_name, is_indexed_view, is_unique, is_primary_key, is_unique_constraint, is_XML, is_spatial, is_NC_columnstore, is_CX_columnstore, is_in_memory_oltp,
+                                index_name, is_indexed_view, is_unique, is_primary_key, is_unique_constraint, is_XML, is_spatial, is_NC_columnstore, is_CX_columnstore, is_JSON, is_in_memory_oltp,
                                 is_disabled, is_hypothetical, is_padded, fill_factor, filter_definition,  [optimize_for_sequential_key], user_seeks, user_scans, 
                                 user_lookups, user_updates, last_user_seek, last_user_scan, last_user_lookup, last_user_update,
                                 create_date, modify_date )
@@ -22569,7 +22797,7 @@ WITH
                   ON ty.user_type_id = co.user_type_id 
                 WHERE id_inner.index_handle = id.index_handle
                 AND   id_inner.object_id = id.object_id
-				AND   id_inner.database_id = DB_ID(''' +  QUOTENAME(@DatabaseName) + N''')
+				AND   id_inner.database_id = DB_ID(@i_DatabaseName)
                 AND   cn_inner.IndexColumnType = cn.IndexColumnType
                 FOR XML PATH('''')
                 ),
@@ -22607,7 +22835,7 @@ WITH
                ) x (n)
                CROSS APPLY n.nodes(''x'') node(v)
            )AS cn
-		   WHERE id.database_id = DB_ID(''' +  QUOTENAME(@DatabaseName) + N''')
+		   WHERE id.database_id = DB_ID(@i_DatabaseName)
            GROUP BY    
                id.index_handle,
                id.object_id,
@@ -22753,48 +22981,48 @@ OPTION (RECOMPILE);';
 		END;
 
         SET @dsql = N'
-            SELECT DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
-			    @i_DatabaseName AS database_name,
+			SELECT DB_ID(@i_DatabaseName) AS [database_id], 
+				@i_DatabaseName AS database_name,
 				s.name,
-                fk_object.name AS foreign_key_name,
-                parent_object.[object_id] AS parent_object_id,
-                parent_object.name AS parent_object_name,
-                referenced_object.[object_id] AS referenced_object_id,
-                referenced_object.name AS referenced_object_name,
-                fk.is_disabled,
-                fk.is_not_trusted,
-                fk.is_not_for_replication,
-                parent.fk_columns,
-                referenced.fk_columns,
-                [update_referential_action_desc],
-                [delete_referential_action_desc]
-            FROM ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_keys fk
-            JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects fk_object ON fk.object_id=fk_object.object_id
-            JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects parent_object ON fk.parent_object_id=parent_object.object_id
-            JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects referenced_object ON fk.referenced_object_id=referenced_object.object_id
+				fk_object.name AS foreign_key_name,
+				parent_object.[object_id] AS parent_object_id,
+				parent_object.name AS parent_object_name,
+				referenced_object.[object_id] AS referenced_object_id,
+				referenced_object.name AS referenced_object_name,
+				fk.is_disabled,
+				fk.is_not_trusted,
+				fk.is_not_for_replication,
+				parent.fk_columns,
+				referenced.fk_columns,
+				[update_referential_action_desc],
+				[delete_referential_action_desc]
+			FROM ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_keys fk
+			JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects fk_object ON fk.object_id=fk_object.object_id
+			JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects parent_object ON fk.parent_object_id=parent_object.object_id
+			JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects referenced_object ON fk.referenced_object_id=referenced_object.object_id
 			JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s ON fk.schema_id=s.schema_id
-            CROSS APPLY ( SELECT  STUFF( (SELECT  N'', '' + c_parent.name AS fk_columns
-                                            FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_key_columns fkc 
-                                            JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c_parent ON fkc.parent_object_id=c_parent.[object_id]
-                                                AND fkc.parent_column_id=c_parent.column_id
-                                            WHERE    fk.parent_object_id=fkc.parent_object_id
-                                                AND fk.[object_id]=fkc.constraint_object_id
-                                            ORDER BY fkc.constraint_column_id 
-                                    FOR      XML PATH('''') ,
-                                              TYPE).value(''.'', ''nvarchar(max)''), 1, 1, '''')/*This is how we remove the first comma*/ ) parent ( fk_columns )
-            CROSS APPLY ( SELECT  STUFF( (SELECT  N'', '' + c_referenced.name AS fk_columns
-                                            FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.    foreign_key_columns fkc 
-                                            JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c_referenced ON fkc.referenced_object_id=c_referenced.[object_id]
-                                                AND fkc.referenced_column_id=c_referenced.column_id
-                                            WHERE    fk.referenced_object_id=fkc.referenced_object_id
-                                                and fk.[object_id]=fkc.constraint_object_id
-                                            ORDER BY fkc.constraint_column_id  /*order by col name, we don''t have anything better*/
-                                    FOR      XML PATH('''') ,
-                                              TYPE).value(''.'', ''nvarchar(max)''), 1, 1, '''') ) referenced ( fk_columns )
-            ' + CASE WHEN @ObjectID IS NOT NULL THEN 
-                    'WHERE fk.parent_object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' OR fk.referenced_object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' ' 
-                    ELSE N' ' END + '
-            ORDER BY parent_object_name, foreign_key_name
+			CROSS APPLY ( SELECT  STUFF( (SELECT  N'', '' + c_parent.name AS fk_columns
+											FROM	' + QUOTENAME(@DatabaseName) + N'.sys.foreign_key_columns fkc 
+											JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c_parent ON fkc.parent_object_id=c_parent.[object_id]
+												AND fkc.parent_column_id=c_parent.column_id
+											WHERE	fk.parent_object_id=fkc.parent_object_id
+												AND fk.[object_id]=fkc.constraint_object_id
+											ORDER BY fkc.constraint_column_id 
+									FOR	  XML PATH('''') ,
+											  TYPE).value(''.'', ''nvarchar(max)''), 1, 1, '''')/*This is how we remove the first comma*/ ) parent ( fk_columns )
+			CROSS APPLY ( SELECT  STUFF( (SELECT  N'', '' + c_referenced.name AS fk_columns
+											FROM	' + QUOTENAME(@DatabaseName) + N'.sys.foreign_key_columns fkc 
+											JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c_referenced ON fkc.referenced_object_id=c_referenced.[object_id]
+												AND fkc.referenced_column_id=c_referenced.column_id
+											WHERE	fk.referenced_object_id=fkc.referenced_object_id
+												and fk.[object_id]=fkc.constraint_object_id
+											ORDER BY fkc.constraint_column_id  /*order by col name, we don''t have anything better*/
+									FOR	  XML PATH('''') ,
+											  TYPE).value(''.'', ''nvarchar(max)''), 1, 1, '''') ) referenced ( fk_columns )
+			' + CASE WHEN @ObjectID IS NOT NULL THEN 
+					'WHERE fk.parent_object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' OR fk.referenced_object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' ' 
+					ELSE N' ' END + '
+			ORDER BY parent_object_name, foreign_key_name
 			OPTION (RECOMPILE);';
         IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
@@ -22822,17 +23050,17 @@ OPTION (RECOMPILE);';
 		BEGIN
         SET @dsql = N'
                 SELECT 
-                    DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
+                    DB_ID(@i_DatabaseName) AS [database_id], 
 			        @i_DatabaseName AS database_name,
                     foreign_key_schema = 
                         s.name,
                     foreign_key_name = 
                         fk.name,
                     foreign_key_table = 
-                        OBJECT_NAME(fk.parent_object_id, DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N')),
+                        OBJECT_NAME(fk.parent_object_id, DB_ID(@i_DatabaseName)),
 					fk.parent_object_id,
 					foreign_key_referenced_table = 
-                        OBJECT_NAME(fk.referenced_object_id, DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N')),
+                        OBJECT_NAME(fk.referenced_object_id, DB_ID(@i_DatabaseName)),
 					fk.referenced_object_id
                 FROM ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_keys fk
                 JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s
@@ -22906,7 +23134,7 @@ OPTION (RECOMPILE);';
 								days_since_last_stats_update, rows, rows_sampled, percent_sampled, histogram_steps, modification_counter, 
 								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date,
 								no_recompute, has_filter, filter_definition, persisted_sample_percent, is_incremental)
-				SELECT DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
+				SELECT DB_ID(@i_DatabaseName) AS [database_id], 
 			        @i_DatabaseName AS database_name,
 			        obj.object_id,
 			        obj.name AS table_name,
@@ -23001,7 +23229,7 @@ OPTION (RECOMPILE);';
 								last_statistics_update, days_since_last_stats_update, rows, modification_counter, 
 								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date,
 								no_recompute, has_filter, filter_definition, persisted_sample_percent, is_incremental)
-							SELECT DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
+							SELECT DB_ID(@i_DatabaseName) AS [database_id], 
 							    @i_DatabaseName AS database_name,
 								obj.object_id,
 								obj.name AS table_name,
@@ -23134,7 +23362,7 @@ OPTION (RECOMPILE);';
 			BEGIN
 			RAISERROR (N'Gathering Temporal Table Info',0,1) WITH NOWAIT;
 			SET @dsql=N'SELECT ' + QUOTENAME(@DatabaseName,'''') + N' AS database_name,
-								   DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
+								   DB_ID(@i_DatabaseName) AS [database_id], 
 								   s.name AS schema_name,
 								   t.name AS table_name, 
 								   oa.hsn as history_schema_name,
@@ -23170,7 +23398,7 @@ OPTION (RECOMPILE);';
 			INSERT #TemporalTables ( database_name, database_id, schema_name, table_name, history_schema_name, 
 									 history_table_name, start_column_name, end_column_name, period_name, history_table_object_id )
 					
-			EXEC sp_executesql @dsql;
+			EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
         END;
 
              SET @dsql=N'SELECT DB_ID(@i_DatabaseName) AS [database_id], 
@@ -26266,6 +26494,7 @@ BEGIN
 				'N/A' AS index_usage_summary,
 				'N/A' AS index_size_summary
 		FROM #TemporalTables AS t
+		ORDER BY t.database_name, t.schema_name, t.table_name
 		OPTION    ( RECOMPILE );
 
 		RAISERROR(N'check_id 121: Optimized For Sequential Keys.', 0,1) WITH NOWAIT;
@@ -27597,7 +27826,7 @@ BEGIN
     SET XACT_ABORT OFF;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-    SELECT @Version = '8.26', @VersionDate = '20251002';
+    SELECT @Version = '8.27', @VersionDate = '20251122';
 
     IF @VersionCheckMode = 1
     BEGIN
@@ -30202,56 +30431,37 @@ BEGIN
             lock_types AS
         (
             SELECT
-                database_name =
-                    dp.database_name,
+                dp.database_name,
                 dow.object_name,
                 lock =
                     CASE
                         WHEN CHARINDEX(N':', dp.wait_resource) > 0
-                        THEN SUBSTRING
-                             (
-                                 dp.wait_resource,
-                                 1,
-                                 CHARINDEX(N':', dp.wait_resource) - 1
-                             )
+                        THEN LEFT(dp.wait_resource, CHARINDEX(N':', dp.wait_resource) - 1)
                         ELSE dp.wait_resource
                     END,
-                lock_count =
-                    CONVERT
-                    (
-                        nvarchar(20),
-                        COUNT_BIG(DISTINCT dp.event_date)
-                    )
+                lock_count = CONVERT(nvarchar(20), COUNT_BIG(DISTINCT dp.event_date))
             FROM #deadlock_process AS dp
             JOIN #deadlock_owner_waiter AS dow
-              ON (dp.id = dow.owner_id
-                  OR dp.victim_id = dow.waiter_id)
-              AND dp.event_date = dow.event_date
-            WHERE 1 = 1
-            AND (dp.database_name = @DatabaseName OR @DatabaseName IS NULL)
-            AND (dp.event_date >= @StartDate OR @StartDate IS NULL)
-            AND (dp.event_date < @EndDate OR @EndDate IS NULL)
-            AND (dp.client_app = @AppName OR @AppName IS NULL)
-            AND (dp.host_name = @HostName OR @HostName IS NULL)
-            AND (dp.login_name = @LoginName OR @LoginName IS NULL)
-            AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
-            AND dow.object_name IS NOT NULL
+              ON (dp.id = dow.owner_id OR dp.victim_id = dow.waiter_id)
+             AND dp.event_date = dow.event_date
+            WHERE (dp.database_name = @DatabaseName OR @DatabaseName IS NULL)
+              AND (dp.event_date >= @StartDate OR @StartDate IS NULL)
+              AND (dp.event_date < @EndDate OR @EndDate IS NULL)
+              AND (dp.client_app = @AppName OR @AppName IS NULL)
+              AND (dp.host_name = @HostName OR @HostName IS NULL)
+              AND (dp.login_name = @LoginName OR @LoginName IS NULL)
+              AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
+              AND dow.object_name IS NOT NULL
             GROUP BY
                 dp.database_name,
+                dow.object_name,
                 CASE
                     WHEN CHARINDEX(N':', dp.wait_resource) > 0
-                    THEN SUBSTRING
-                         (
-                             dp.wait_resource,
-                             1,
-                             CHARINDEX(N':', dp.wait_resource) - 1
-                         )
+                    THEN LEFT(dp.wait_resource, CHARINDEX(N':', dp.wait_resource) - 1)
                     ELSE dp.wait_resource
-                END,
-                dow.object_name
+                END
         )
-        INSERT
-            #deadlock_findings WITH(TABLOCKX)
+        INSERT #deadlock_findings WITH (TABLOCKX)
         (
             check_id,
             database_name,
@@ -30261,36 +30471,33 @@ BEGIN
             sort_order
         )
         SELECT
-            check_id = 7,
+            check_id      = 7,
             lt.database_name,
             lt.object_name,
             finding_group = N'Types of locks by object',
-            finding =
+            finding = 
                 N'This object has had ' +
-                STUFF
-                (
+                STUFF(
                     (
                         SELECT
-                            N', ' +
-                            lt2.lock_count +
-                            N' ' +
-                            lt2.lock
+                            N', ' + lt2.lock_count + N' ' + lt2.lock
                         FROM lock_types AS lt2
                         WHERE lt2.database_name = lt.database_name
-                        AND   lt2.object_name = lt.object_name
-                        FOR XML
-                            PATH(N''),
-                            TYPE
-                    ).value(N'.[1]', N'nvarchar(MAX)'),
-                    1,
-                    1,
-                    N''
+                          AND lt2.object_name   = lt.object_name
+                        FOR XML PATH(''), TYPE
+                    ).value('.', 'nvarchar(max)'),
+                    1, 2, N''
                 ) + N' locks.',
             sort_order = 
-                ROW_NUMBER()
-                OVER (ORDER BY CONVERT(bigint, lt.lock_count) DESC)
+                ROW_NUMBER() OVER (
+                    ORDER BY
+                        MAX(CONVERT(bigint, lt.lock_count)) DESC
+                )
         FROM lock_types AS lt
-        OPTION(RECOMPILE);
+        GROUP BY
+            lt.database_name,
+            lt.object_name
+        OPTION (RECOMPILE);
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
@@ -32139,7 +32346,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.26', @VersionDate = '20251002';
+	SELECT @Version = '8.27', @VersionDate = '20251122';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -32196,6 +32403,7 @@ DECLARE  @ProductVersion NVARCHAR(128) = CAST(SERVERPROPERTY('ProductVersion') A
 		,@ProductVersionMajor DECIMAL(10,2)
 		,@ProductVersionMinor DECIMAL(10,2)
 		,@Platform NVARCHAR(8) /* Azure or NonAzure are acceptable */ = (SELECT CASE WHEN @@VERSION LIKE '%Azure%' THEN N'Azure' ELSE N'NonAzure' END AS [Platform])
+		,@AzureSQLDB BIT = (SELECT CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN 1 ELSE 0 END)
 		,@EnhanceFlag BIT = 0
 		,@BlockingCheck NVARCHAR(MAX)
 		,@StringToSelect NVARCHAR(MAX)
@@ -32233,10 +32441,10 @@ SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1,CHARINDEX('.', @Produ
     @ProductVersionMinor = PARSENAME(CONVERT(VARCHAR(32), @ProductVersion), 2)
 
 SELECT
-	@OutputTableNameQueryStats_View = QUOTENAME(@OutputTableName + '_Deltas'),
-	@OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
-	@OutputSchemaName = QUOTENAME(@OutputSchemaName),
-	@OutputTableName = QUOTENAME(@OutputTableName),
+	@OutputTableNameQueryStats_View = QUOTENAME(PARSENAME(@OutputTableName,1) + '_Deltas'),
+	@OutputDatabaseName = QUOTENAME(PARSENAME(@OutputDatabaseName,1)),
+	@OutputSchemaName = ISNULL(QUOTENAME(PARSENAME(@OutputSchemaName,1)),QUOTENAME(PARSENAME(@OutputTableName,2))),
+	@OutputTableName = QUOTENAME(PARSENAME(@OutputTableName,1)),
 	@LineFeed = CHAR(13) + CHAR(10);
 
 IF @GetLiveQueryPlan IS NULL
@@ -32246,6 +32454,20 @@ IF @GetLiveQueryPlan IS NULL
 		ELSE
 			SET @GetLiveQueryPlan = 0;
 	END
+
+IF @OutputTableName IS NOT NULL AND (@OutputDatabaseName IS NULL OR @OutputSchemaName IS NULL)
+	BEGIN
+		IF @OutputDatabaseName IS NULL AND @AzureSQLDB = 1
+			BEGIN
+			  /* If we're in Azure SQL DB then use the current database */
+			  SET @OutputDatabaseName = QUOTENAME(DB_NAME());
+			END;
+		IF @OutputSchemaName IS NULL AND @OutputDatabaseName = QUOTENAME(DB_NAME())
+			BEGIN
+			  /* If we're inserting records in the current database use the default schema */
+			  SET @OutputSchemaName = QUOTENAME(SCHEMA_NAME());
+			END;
+	END;
 
 IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL
   AND EXISTS ( SELECT *
@@ -33560,7 +33782,7 @@ SET STATISTICS XML OFF;
 
 /*Versioning details*/
 
-SELECT @Version = '8.26', @VersionDate = '20251002';
+SELECT @Version = '8.27', @VersionDate = '20251122';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -35230,7 +35452,7 @@ BEGIN
   SET NOCOUNT ON;
   SET STATISTICS XML OFF;
 
-  SELECT @Version = '8.26', @VersionDate = '20251002';
+  SELECT @Version = '8.27', @VersionDate = '20251122';
   
   IF(@VersionCheckMode = 1)
   BEGIN
@@ -35610,11 +35832,13 @@ INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
     /*2025*/
-    (17, 925, 'RC1', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-09-17', '2025-12-31', '2025-12-31', 'SQL Server 2025', 'Preview RC1'),
-    (17, 900, 'RC0', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-08-20', '2025-12-31', '2025-12-31', 'SQL Server 2025', 'Preview RC0'),
-    (17, 800, 'CTP 2.1', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-06-16', '2025-12-31', '2025-12-31', 'SQL Server 2025', 'Preview CTP 2.1'),
-    (17, 700, 'CTP 2.0', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-05-19', '2025-12-31', '2025-12-31', 'SQL Server 2025', 'Preview CTP 2.0'),
+    (17, 1000, 'RTM', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-11-18', '2031-01-06', '2036-01-06', 'SQL Server 2025', 'RTM'),
+    (17, 925, 'RC1', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-09-17', '2025-11-18', '2025-11-18', 'SQL Server 2025', 'Preview RC1'),
+    (17, 900, 'RC0', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-08-20', '2025-11-18', '2025-11-18', 'SQL Server 2025', 'Preview RC0'),
+    (17, 800, 'CTP 2.1', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-06-16', '2025-11-18', '2025-11-18', 'SQL Server 2025', 'Preview CTP 2.1'),
+    (17, 700, 'CTP 2.0', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-05-19', '2025-11-18', '2025-11-18', 'SQL Server 2025', 'Preview CTP 2.0'),
     /*2022*/
+    (16, 4225, 'CU22', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate22', '2025-11-13', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 22'),
     (16, 4215, 'CU21', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate21', '2025-09-11', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 21'),
     (16, 4205, 'CU20', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate20', '2025-07-10', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 20'),
     (16, 4200, 'CU19 GDR', 'https://support.microsoft.com/en-us/help/5058721', '2025-07-08', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 19 GDR'),
@@ -36112,7 +36336,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.26', @VersionDate = '20251002';
+SELECT @Version = '8.27', @VersionDate = '20251122';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -36210,7 +36434,18 @@ DECLARE @StringToExecute NVARCHAR(MAX),
 	@get_thread_time_ms NVARCHAR(MAX) = N'',
 	@thread_time_ms FLOAT = 0,
 	@logical_processors INT = 0,
-	@max_worker_threads INT = 0;
+	@max_worker_threads INT = 0,
+    @is_windows_operating_system BIT = 1;
+
+IF EXISTS
+(
+    SELECT  1
+    FROM    sys.all_objects
+    WHERE   name = 'dm_os_host_info'
+)
+BEGIN
+    SELECT @is_windows_operating_system = CASE WHEN host_platform = 'Windows' THEN 1 ELSE 0 END FROM sys.dm_os_host_info;
+END;
 
 /* Sanitize our inputs */
 SELECT
@@ -38464,19 +38699,28 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			RAISERROR('Running CheckID 24',10,1) WITH NOWAIT;
 		END
 
+        /* Traditionally, we use 100 - SystemIdle here.
+        However, SystemIdle is always 0 on Linux.
+        So if we are on Linux, we use ProcessUtilization instead.
+		This is the approach found in
+		https://techcommunity.microsoft.com/blog/sqlserver/sql-server-cpu-usage-available-in-sys-dm-os-ring-buffers-dmv-starting-sql-server/825361 */
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
-        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%.', 100 - SystemIdle, 'https://www.brentozar.com/go/cpu'
+        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(CpuUsage AS NVARCHAR(20)) + N'%.', CpuUsage, 'https://www.brentozar.com/go/cpu'
+        FROM (
+            SELECT CASE WHEN @is_windows_operating_system = 1 THEN 100 - SystemIdle ELSE ProcessUtilization END AS CpuUsage
             FROM (
                 SELECT record,
-                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle,
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/ProcessUtilization)[1]', 'int') AS ProcessUtilization
                 FROM (
                     SELECT TOP 1 CONVERT(XML, record) AS record
                     FROM sys.dm_os_ring_buffers
                     WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
                     AND record LIKE '%<SystemHealth>%'
                     ORDER BY timestamp DESC) AS rb
-            ) AS y
-            WHERE 100 - SystemIdle >= 50;
+            ) AS ShreddedCpuXml
+        ) AS OsCpu
+        WHERE CpuUsage >= 50;
 
         /* CPU Utilization - CheckID 23 */
 		IF (@Debug = 1)
@@ -38488,7 +38732,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			WITH y
 				AS
 				 (
-					 SELECT      CONVERT(VARCHAR(5), 100 - ca.c.value('.', 'INT')) AS system_idle,
+                     /* See earlier comments about SystemIdle on Linux. */
+					 SELECT      CONVERT(VARCHAR(5), CASE WHEN @is_windows_operating_system = 1 THEN 100 - ca.c.value('.', 'INT') ELSE ca2.p.value('.', 'INT') END) AS cpu_usage,
 								 CONVERT(VARCHAR(30), rb.event_date) AS event_date,
 								 CONVERT(VARCHAR(8000), rb.record) AS record,
 								 event_date as event_date_raw
@@ -38501,6 +38746,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 									 WHERE  dorb.ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
 									 AND    record LIKE '%<SystemHealth>%' ) AS rb
 					 CROSS APPLY rb.record.nodes('/Record/SchedulerMonitorEvent/SystemHealth/SystemIdle') AS ca(c)
+                     CROSS APPLY rb.record.nodes('/Record/SchedulerMonitorEvent/SystemHealth/ProcessUtilization') AS ca2(p)
 				 )
 			INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL, HowToStopIt)
 			SELECT TOP 1 
@@ -38508,12 +38754,12 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 					250, 
 					'Server Info', 
 					'CPU Utilization', 
-					y.system_idle + N'%. Ring buffer details: ' + CAST(y.record AS NVARCHAR(4000)), 
-					y.system_idle	, 
+					y.cpu_usage + N'%. Ring buffer details: ' + CAST(y.record AS NVARCHAR(4000)), 
+					y.cpu_usage	, 
 					'https://www.brentozar.com/go/cpu',
 					STUFF(( SELECT TOP 2147483647
 							  CHAR(10) + CHAR(13)
-							+ y2.system_idle 
+							+ y2.cpu_usage
 							+ '% ON ' 
 							+ y2.event_date 
 							+ ' Ring buffer details:  '
@@ -38544,7 +38790,12 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     AND record LIKE '%<SystemHealth>%'
                     ORDER BY timestamp DESC) AS rb
             ) AS y
-            WHERE 100 - (y.SQLUsage + y.SystemIdle) >= 25;
+            WHERE 100 - (y.SQLUsage + y.SystemIdle) >= 25
+            /* SystemIdle is always 0 on Linux, as described earlier.
+            We therefore cannot distinguish between a totally idle Linux server and
+            a Linux server where SQL Server is being crushed by other CPU-heavy processes.
+            We therefore disable this check on Linux. */
+            AND @is_windows_operating_system = 1;
 		
         END; /* IF @Seconds < 30 */
 
@@ -38625,7 +38876,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 											 N' this is likely due to an Index operation in Progress', -1;
 					END
 					ELSE
-					BEGIN
+					BEGIN;
 						THROW;
 					END
 				END CATCH
@@ -39658,18 +39909,24 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		END
 
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
-        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'https://www.brentozar.com/go/cpu'
+        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(CpuUsage AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), CpuUsage, 'https://www.brentozar.com/go/cpu'
+        FROM (
+            SELECT record,
+                CASE WHEN @is_windows_operating_system = 1 THEN 100 - SystemIdle ELSE ProcessUtilization END AS CpuUsage
             FROM (
                 SELECT record,
-                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle,
+                    /* See earlier comments about SystemIdle on Linux. */
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/ProcessUtilization)[1]', 'int') AS ProcessUtilization
                 FROM (
                     SELECT TOP 1 CONVERT(XML, record) AS record
                     FROM sys.dm_os_ring_buffers
                     WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
                     AND record LIKE '%<SystemHealth>%'
                     ORDER BY timestamp DESC) AS rb
-            ) AS y
-            WHERE 100 - SystemIdle >= 50;
+            ) AS ShreddedCpuXml
+        ) AS OsCpu
+        WHERE CpuUsage >= 50;
 
         /* Server Performance - CPU Utilization CheckID 23 */
 		IF (@Debug = 1)
@@ -39678,17 +39935,23 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		END
 
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
-        SELECT 23, 250, 'Server Info', 'CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'https://www.brentozar.com/go/cpu'
+        SELECT 23, 250, 'Server Info', 'CPU Utilization', CAST(CpuUsage AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), CpuUsage, 'https://www.brentozar.com/go/cpu'
+        FROM (
+            SELECT record,
+                CASE WHEN @is_windows_operating_system = 1 THEN 100 - SystemIdle ELSE ProcessUtilization END AS CpuUsage
             FROM (
                 SELECT record,
-                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle,
+                    /* See earlier comments about SystemIdle on Linux. */
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/ProcessUtilization)[1]', 'int') AS ProcessUtilization
                 FROM (
                     SELECT TOP 1 CONVERT(XML, record) AS record
                     FROM sys.dm_os_ring_buffers
                     WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
                     AND record LIKE '%<SystemHealth>%'
                     ORDER BY timestamp DESC) AS rb
-            ) AS y;
+            ) AS ShreddedCpuXml
+        ) AS OsCpu;
 
 	END; /* IF @Seconds >= 30 */
 

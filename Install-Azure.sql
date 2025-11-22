@@ -37,7 +37,7 @@ AS
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
-SELECT @Version = '8.26', @VersionDate = '20251002';
+SELECT @Version = '8.27', @VersionDate = '20251122';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -1174,7 +1174,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.26', @VersionDate = '20251002';
+SELECT @Version = '8.27', @VersionDate = '20251122';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -8558,7 +8558,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.26', @VersionDate = '20251002';
+SELECT @Version = '8.27', @VersionDate = '20251122';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -8656,7 +8656,18 @@ DECLARE @StringToExecute NVARCHAR(MAX),
 	@get_thread_time_ms NVARCHAR(MAX) = N'',
 	@thread_time_ms FLOAT = 0,
 	@logical_processors INT = 0,
-	@max_worker_threads INT = 0;
+	@max_worker_threads INT = 0,
+    @is_windows_operating_system BIT = 1;
+
+IF EXISTS
+(
+    SELECT  1
+    FROM    sys.all_objects
+    WHERE   name = 'dm_os_host_info'
+)
+BEGIN
+    SELECT @is_windows_operating_system = CASE WHEN host_platform = 'Windows' THEN 1 ELSE 0 END FROM sys.dm_os_host_info;
+END;
 
 /* Sanitize our inputs */
 SELECT
@@ -10910,19 +10921,28 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			RAISERROR('Running CheckID 24',10,1) WITH NOWAIT;
 		END
 
+        /* Traditionally, we use 100 - SystemIdle here.
+        However, SystemIdle is always 0 on Linux.
+        So if we are on Linux, we use ProcessUtilization instead.
+		This is the approach found in
+		https://techcommunity.microsoft.com/blog/sqlserver/sql-server-cpu-usage-available-in-sys-dm-os-ring-buffers-dmv-starting-sql-server/825361 */
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
-        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%.', 100 - SystemIdle, 'https://www.brentozar.com/go/cpu'
+        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(CpuUsage AS NVARCHAR(20)) + N'%.', CpuUsage, 'https://www.brentozar.com/go/cpu'
+        FROM (
+            SELECT CASE WHEN @is_windows_operating_system = 1 THEN 100 - SystemIdle ELSE ProcessUtilization END AS CpuUsage
             FROM (
                 SELECT record,
-                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle,
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/ProcessUtilization)[1]', 'int') AS ProcessUtilization
                 FROM (
                     SELECT TOP 1 CONVERT(XML, record) AS record
                     FROM sys.dm_os_ring_buffers
                     WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
                     AND record LIKE '%<SystemHealth>%'
                     ORDER BY timestamp DESC) AS rb
-            ) AS y
-            WHERE 100 - SystemIdle >= 50;
+            ) AS ShreddedCpuXml
+        ) AS OsCpu
+        WHERE CpuUsage >= 50;
 
         /* CPU Utilization - CheckID 23 */
 		IF (@Debug = 1)
@@ -10934,7 +10954,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			WITH y
 				AS
 				 (
-					 SELECT      CONVERT(VARCHAR(5), 100 - ca.c.value('.', 'INT')) AS system_idle,
+                     /* See earlier comments about SystemIdle on Linux. */
+					 SELECT      CONVERT(VARCHAR(5), CASE WHEN @is_windows_operating_system = 1 THEN 100 - ca.c.value('.', 'INT') ELSE ca2.p.value('.', 'INT') END) AS cpu_usage,
 								 CONVERT(VARCHAR(30), rb.event_date) AS event_date,
 								 CONVERT(VARCHAR(8000), rb.record) AS record,
 								 event_date as event_date_raw
@@ -10947,6 +10968,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 									 WHERE  dorb.ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
 									 AND    record LIKE '%<SystemHealth>%' ) AS rb
 					 CROSS APPLY rb.record.nodes('/Record/SchedulerMonitorEvent/SystemHealth/SystemIdle') AS ca(c)
+                     CROSS APPLY rb.record.nodes('/Record/SchedulerMonitorEvent/SystemHealth/ProcessUtilization') AS ca2(p)
 				 )
 			INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL, HowToStopIt)
 			SELECT TOP 1 
@@ -10954,12 +10976,12 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 					250, 
 					'Server Info', 
 					'CPU Utilization', 
-					y.system_idle + N'%. Ring buffer details: ' + CAST(y.record AS NVARCHAR(4000)), 
-					y.system_idle	, 
+					y.cpu_usage + N'%. Ring buffer details: ' + CAST(y.record AS NVARCHAR(4000)), 
+					y.cpu_usage	, 
 					'https://www.brentozar.com/go/cpu',
 					STUFF(( SELECT TOP 2147483647
 							  CHAR(10) + CHAR(13)
-							+ y2.system_idle 
+							+ y2.cpu_usage
 							+ '% ON ' 
 							+ y2.event_date 
 							+ ' Ring buffer details:  '
@@ -10990,7 +11012,12 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                     AND record LIKE '%<SystemHealth>%'
                     ORDER BY timestamp DESC) AS rb
             ) AS y
-            WHERE 100 - (y.SQLUsage + y.SystemIdle) >= 25;
+            WHERE 100 - (y.SQLUsage + y.SystemIdle) >= 25
+            /* SystemIdle is always 0 on Linux, as described earlier.
+            We therefore cannot distinguish between a totally idle Linux server and
+            a Linux server where SQL Server is being crushed by other CPU-heavy processes.
+            We therefore disable this check on Linux. */
+            AND @is_windows_operating_system = 1;
 		
         END; /* IF @Seconds < 30 */
 
@@ -11071,7 +11098,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 											 N' this is likely due to an Index operation in Progress', -1;
 					END
 					ELSE
-					BEGIN
+					BEGIN;
 						THROW;
 					END
 				END CATCH
@@ -12104,18 +12131,24 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		END
 
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
-        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'https://www.brentozar.com/go/cpu'
+        SELECT 24, 50, 'Server Performance', 'High CPU Utilization', CAST(CpuUsage AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), CpuUsage, 'https://www.brentozar.com/go/cpu'
+        FROM (
+            SELECT record,
+                CASE WHEN @is_windows_operating_system = 1 THEN 100 - SystemIdle ELSE ProcessUtilization END AS CpuUsage
             FROM (
                 SELECT record,
-                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle,
+                    /* See earlier comments about SystemIdle on Linux. */
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/ProcessUtilization)[1]', 'int') AS ProcessUtilization
                 FROM (
                     SELECT TOP 1 CONVERT(XML, record) AS record
                     FROM sys.dm_os_ring_buffers
                     WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
                     AND record LIKE '%<SystemHealth>%'
                     ORDER BY timestamp DESC) AS rb
-            ) AS y
-            WHERE 100 - SystemIdle >= 50;
+            ) AS ShreddedCpuXml
+        ) AS OsCpu
+        WHERE CpuUsage >= 50;
 
         /* Server Performance - CPU Utilization CheckID 23 */
 		IF (@Debug = 1)
@@ -12124,17 +12157,23 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		END
 
         INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, Details, DetailsInt, URL)
-        SELECT 23, 250, 'Server Info', 'CPU Utilization', CAST(100 - SystemIdle AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), 100 - SystemIdle, 'https://www.brentozar.com/go/cpu'
+        SELECT 23, 250, 'Server Info', 'CPU Utilization', CAST(CpuUsage AS NVARCHAR(20)) + N'%. Ring buffer details: ' + CAST(record AS NVARCHAR(4000)), CpuUsage, 'https://www.brentozar.com/go/cpu'
+        FROM (
+            SELECT record,
+                CASE WHEN @is_windows_operating_system = 1 THEN 100 - SystemIdle ELSE ProcessUtilization END AS CpuUsage
             FROM (
                 SELECT record,
-                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS SystemIdle,
+                    /* See earlier comments about SystemIdle on Linux. */
+                    record.value('(./Record/SchedulerMonitorEvent/SystemHealth/ProcessUtilization)[1]', 'int') AS ProcessUtilization
                 FROM (
                     SELECT TOP 1 CONVERT(XML, record) AS record
                     FROM sys.dm_os_ring_buffers
                     WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
                     AND record LIKE '%<SystemHealth>%'
                     ORDER BY timestamp DESC) AS rb
-            ) AS y;
+            ) AS ShreddedCpuXml
+        ) AS OsCpu;
 
 	END; /* IF @Seconds >= 30 */
 
@@ -13651,7 +13690,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @ObjectName NVARCHAR(386) = NULL, /* 'dbname.schema.table' -- if you are lazy and want to fill in @DatabaseName, @SchemaName and @TableName, and since it's the first parameter can simply do: sp_BlitzIndex 'sch.table' */
     @DatabaseName NVARCHAR(128) = NULL, /*Defaults to current DB if not specified*/
     @SchemaName NVARCHAR(128) = NULL, /*Requires table_name as well.*/
-    @TableName NVARCHAR(128) = NULL,  /*Requires schema_name as well.*/
+    @TableName NVARCHAR(261) = NULL,  /*Requires schema_name as well.*/
     @Mode TINYINT=0, /*0=Diagnose, 1=Summarize, 2=Index Usage Detail, 3=Missing Index Detail, 4=Diagnose Details*/
         /*Note:@Mode doesn't matter if you're specifying schema_name and @TableName.*/
     @Filter TINYINT = 0, /* 0=no filter (default). 1=No low-usage warnings for objects with 0 reads. 2=Only warn for objects >= 500MB */
@@ -13668,7 +13707,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @OutputServerName NVARCHAR(256) = NULL ,
     @OutputDatabaseName NVARCHAR(256) = NULL ,
     @OutputSchemaName NVARCHAR(256) = NULL ,
-    @OutputTableName NVARCHAR(256) = NULL ,
+    @OutputTableName NVARCHAR(261) = NULL ,
 	@IncludeInactiveIndexes BIT = 0 /* Will skip indexes with no reads or writes */,
     @ShowAllMissingIndexRequests BIT = 0 /*Will make all missing index requests show up*/,
 	@ShowPartitionRanges BIT = 0 /* Will add partition range values column to columnstore visualization */,
@@ -13685,7 +13724,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.26', @VersionDate = '20251002';
+SELECT @Version = '8.27', @VersionDate = '20251122';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -13769,12 +13808,60 @@ DECLARE @PartitionCount INT;
 DECLARE @OptimizeForSequentialKey BIT = 0;
 DECLARE @ResumableIndexesDisappearAfter INT = 0;
 DECLARE @StringToExecute NVARCHAR(MAX);
+DECLARE @AzureSQLDB BIT = (SELECT CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN 1 ELSE 0 END);
 
 /* If user was lazy and just used @ObjectName with a fully qualified table name, then lets parse out the various parts */
 SET @DatabaseName = COALESCE(@DatabaseName, PARSENAME(@ObjectName, 3)) /* 3 = Database name */
 SET @SchemaName   = COALESCE(@SchemaName,   PARSENAME(@ObjectName, 2)) /* 2 = Schema name */
 SET @TableName    = COALESCE(@TableName,    PARSENAME(@ObjectName, 1)) /* 1 = Table name */
 
+/* Handle already quoted input if it wasn't fully qualified*/
+SET @DatabaseName = PARSENAME(@DatabaseName,1);
+SET @SchemaName   = ISNULL(PARSENAME(@SchemaName,1),PARSENAME(@TableName,2));
+SET @TableName    = PARSENAME(@TableName,1);
+
+/* If we're on Azure SQL DB let's cut people some slack */
+IF (@TableName IS NOT NULL AND @AzureSQLDB = 1 AND @DatabaseName IS NULL)
+   BEGIN
+        SET @DatabaseName = DB_NAME();
+   END;
+
+
+IF (@SchemaName IS NULL AND @TableName IS NOT NULL)
+   BEGIN
+       /* If the target is in the current database 
+  and there's just one table or view with this name, then we can grab the schema from sys.objects*/
+       IF ((SELECT COUNT(1) FROM [sys].[objects] 
+               WHERE [name] = @TableName AND [type] IN ('U','V'))=1 
+              AND @TableName IS NOT NULL  AND @DatabaseName = DB_NAME())
+          BEGIN
+              SELECT @SchemaName = SCHEMA_NAME([schema_id]) 
+               FROM [sys].[objects] 
+               WHERE [name] = @TableName AND [type] IN ('U','V');
+          END;
+        /* If the target isn't in the current database, then use dynamic T-SQL*/  
+        IF (@DatabaseName <> DB_NAME()) 
+          BEGIN
+               /*first make sure only one row is returned from sys.objects*/
+               SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                    SELECT @RowcountOUT = COUNT(1) FROM ' + QUOTENAME(@DatabaseName) + N'.[sys].[objects] 
+                    WHERE [name] = @TableName_IN AND [type] IN (''U'',''V'') OPTION  (RECOMPILE);';
+                SET @params = N'@TableName_IN NVARCHAR(128), @RowcountOUT BIGINT OUTPUT';
+                EXEC sp_executesql @dsql, @params, @TableName_IN = @TableName, @RowcountOUT = @Rowcount OUTPUT;
+
+                IF (@Rowcount = 1)
+                  BEGIN
+                      SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                      SELECT @SchemaName_OUT = s.[name] 
+                       FROM ' + QUOTENAME(@DatabaseName) + N'.[sys].[objects] o
+                       INNER JOIN ' + QUOTENAME(@DatabaseName) + N'.[sys].[schemas] s
+                          ON o.[schema_id] = s.[schema_id]
+                       WHERE o.[name] = @TableName_IN AND o.[type] IN (''U'',''V'') OPTION  (RECOMPILE);';
+                      SET @params = N'@TableName_IN NVARCHAR(128), @SchemaName_OUT NVARCHAR(128) OUTPUT';
+                      EXEC sp_executesql @dsql, @params, @TableName_IN = @TableName, @SchemaName_OUT = @SchemaName OUTPUT;
+                   END;
+          END;  
+ END;
 
 /* Let's get @SortOrder set to lower case here for comparisons later */
 SET @SortOrder = REPLACE(LOWER(@SortOrder), N' ', N'_');
@@ -13815,6 +13902,26 @@ BEGIN
     RAISERROR('Invalid value for parameter @UsualStatisticsSamplingPercent. Expected: 1 to 100',12,1);
     RETURN;
 END;
+
+/* Some prep-work for output object names before checking if they're ok or not */
+IF (@OutputTableName IS NOT NULL)
+BEGIN
+     
+    /*Deal with potentially quoted object names*/
+    SET @OutputDatabaseName = PARSENAME(@OutputDatabaseName,1);
+    SET @OutputSchemaName = ISNULL(PARSENAME(@OutputSchemaName,1),PARSENAME(@OutputTableName,2));
+    SET @OutputTableName = PARSENAME(@OutputTableName,1);
+
+    /* Running on Azure SQL DB or outputting to current database? */
+    IF (@OutputDatabaseName IS NULL AND @AzureSQLDB = 1)
+    BEGIN
+        SET @OutputDatabaseName = DB_NAME();
+    END;
+    IF (@OutputSchemaName IS NULL AND @OutputDatabaseName = DB_NAME())
+      BEGIN
+          SET @OutputSchemaName = SCHEMA_NAME();
+      END;
+END; 
 
 IF(@OutputType = 'TABLE' AND NOT (@OutputTableName IS NULL AND @OutputSchemaName IS NULL AND @OutputDatabaseName IS NULL AND @OutputServerName IS NULL))
 BEGIN
@@ -13964,6 +14071,7 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
               is_spatial BIT NOT NULL,
               is_NC_columnstore BIT NOT NULL,
               is_CX_columnstore BIT NOT NULL,
+              is_JSON BIT NOT NULL,
               is_in_memory_oltp BIT NOT NULL ,
               is_disabled BIT NOT NULL ,
               is_hypothetical BIT NOT NULL ,
@@ -14005,6 +14113,7 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
                     ELSE N'' END + CASE WHEN is_XML = 1 THEN N'[XML] '
                     ELSE N'' END + CASE WHEN is_spatial = 1 THEN N'[SPATIAL] '
                     ELSE N'' END + CASE WHEN is_NC_columnstore = 1 THEN N'[COLUMNSTORE] '
+                    ELSE N'' END + CASE WHEN is_json = 1 THEN N'[JSON] '
                     ELSE N'' END + CASE WHEN is_in_memory_oltp = 1 THEN N'[IN-MEMORY] '
                     ELSE N'' END + CASE WHEN is_disabled = 1 THEN N'[DISABLED] '
                     ELSE N'' END + CASE WHEN is_hypothetical = 1 THEN N'[HYPOTHETICAL] '
@@ -15049,6 +15158,7 @@ BEGIN TRY
                         CASE when si.type = 4 THEN 1 ELSE 0 END AS is_spatial,
                         CASE when si.type = 6 THEN 1 ELSE 0 END AS is_NC_columnstore,
                         CASE when si.type = 5 then 1 else 0 end as is_CX_columnstore,
+                        CASE when si.type = 9 then 1 else 0 end as is_JSON,
                         CASE when si.data_space_id = 0 then 1 else 0 end as is_in_memory_oltp,
                         si.is_disabled,
                         si.is_hypothetical, 
@@ -15082,8 +15192,8 @@ BEGIN TRY
                         LEFT JOIN sys.dm_db_index_usage_stats AS us WITH (NOLOCK) ON si.[object_id] = us.[object_id]
                                                                        AND si.index_id = us.index_id
                                                                        AND us.database_id = ' + CAST(@DatabaseID AS NVARCHAR(10)) + N'
-                WHERE    si.[type] IN ( 0, 1, 2, 3, 4, 5, 6 ) 
-                /* Heaps, clustered, nonclustered, XML, spatial, Cluster Columnstore, NC Columnstore */ ' +
+                WHERE    si.[type] IN ( 0, 1, 2, 3, 4, 5, 6, 9 ) 
+                /* Heaps, clustered, nonclustered, XML, spatial, Cluster Columnstore, NC Columnstore, JSON */ ' +
                 CASE WHEN @TableName IS NOT NULL THEN N' and so.name=' + QUOTENAME(@TableName,N'''') + N' ' ELSE N'' END +
                 CASE WHEN ( @IncludeInactiveIndexes = 0
                             AND @Mode IN (0, 4)
@@ -15111,7 +15221,7 @@ BEGIN TRY
                 PRINT SUBSTRING(@dsql, 36000, 40000);
             END;
         INSERT    #IndexSanity ( [database_id], [object_id], [index_id], [index_type], [database_name], [schema_name], [object_name],
-                                index_name, is_indexed_view, is_unique, is_primary_key, is_unique_constraint, is_XML, is_spatial, is_NC_columnstore, is_CX_columnstore, is_in_memory_oltp,
+                                index_name, is_indexed_view, is_unique, is_primary_key, is_unique_constraint, is_XML, is_spatial, is_NC_columnstore, is_CX_columnstore, is_JSON, is_in_memory_oltp,
                                 is_disabled, is_hypothetical, is_padded, fill_factor, filter_definition,  [optimize_for_sequential_key], user_seeks, user_scans, 
                                 user_lookups, user_updates, last_user_seek, last_user_scan, last_user_lookup, last_user_update,
                                 create_date, modify_date )
@@ -15588,7 +15698,7 @@ WITH
                   ON ty.user_type_id = co.user_type_id 
                 WHERE id_inner.index_handle = id.index_handle
                 AND   id_inner.object_id = id.object_id
-				AND   id_inner.database_id = DB_ID(''' +  QUOTENAME(@DatabaseName) + N''')
+				AND   id_inner.database_id = DB_ID(@i_DatabaseName)
                 AND   cn_inner.IndexColumnType = cn.IndexColumnType
                 FOR XML PATH('''')
                 ),
@@ -15626,7 +15736,7 @@ WITH
                ) x (n)
                CROSS APPLY n.nodes(''x'') node(v)
            )AS cn
-		   WHERE id.database_id = DB_ID(''' +  QUOTENAME(@DatabaseName) + N''')
+		   WHERE id.database_id = DB_ID(@i_DatabaseName)
            GROUP BY    
                id.index_handle,
                id.object_id,
@@ -15772,48 +15882,48 @@ OPTION (RECOMPILE);';
 		END;
 
         SET @dsql = N'
-            SELECT DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
-			    @i_DatabaseName AS database_name,
+			SELECT DB_ID(@i_DatabaseName) AS [database_id], 
+				@i_DatabaseName AS database_name,
 				s.name,
-                fk_object.name AS foreign_key_name,
-                parent_object.[object_id] AS parent_object_id,
-                parent_object.name AS parent_object_name,
-                referenced_object.[object_id] AS referenced_object_id,
-                referenced_object.name AS referenced_object_name,
-                fk.is_disabled,
-                fk.is_not_trusted,
-                fk.is_not_for_replication,
-                parent.fk_columns,
-                referenced.fk_columns,
-                [update_referential_action_desc],
-                [delete_referential_action_desc]
-            FROM ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_keys fk
-            JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects fk_object ON fk.object_id=fk_object.object_id
-            JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects parent_object ON fk.parent_object_id=parent_object.object_id
-            JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects referenced_object ON fk.referenced_object_id=referenced_object.object_id
+				fk_object.name AS foreign_key_name,
+				parent_object.[object_id] AS parent_object_id,
+				parent_object.name AS parent_object_name,
+				referenced_object.[object_id] AS referenced_object_id,
+				referenced_object.name AS referenced_object_name,
+				fk.is_disabled,
+				fk.is_not_trusted,
+				fk.is_not_for_replication,
+				parent.fk_columns,
+				referenced.fk_columns,
+				[update_referential_action_desc],
+				[delete_referential_action_desc]
+			FROM ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_keys fk
+			JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects fk_object ON fk.object_id=fk_object.object_id
+			JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects parent_object ON fk.parent_object_id=parent_object.object_id
+			JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects referenced_object ON fk.referenced_object_id=referenced_object.object_id
 			JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s ON fk.schema_id=s.schema_id
-            CROSS APPLY ( SELECT  STUFF( (SELECT  N'', '' + c_parent.name AS fk_columns
-                                            FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_key_columns fkc 
-                                            JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c_parent ON fkc.parent_object_id=c_parent.[object_id]
-                                                AND fkc.parent_column_id=c_parent.column_id
-                                            WHERE    fk.parent_object_id=fkc.parent_object_id
-                                                AND fk.[object_id]=fkc.constraint_object_id
-                                            ORDER BY fkc.constraint_column_id 
-                                    FOR      XML PATH('''') ,
-                                              TYPE).value(''.'', ''nvarchar(max)''), 1, 1, '''')/*This is how we remove the first comma*/ ) parent ( fk_columns )
-            CROSS APPLY ( SELECT  STUFF( (SELECT  N'', '' + c_referenced.name AS fk_columns
-                                            FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.    foreign_key_columns fkc 
-                                            JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c_referenced ON fkc.referenced_object_id=c_referenced.[object_id]
-                                                AND fkc.referenced_column_id=c_referenced.column_id
-                                            WHERE    fk.referenced_object_id=fkc.referenced_object_id
-                                                and fk.[object_id]=fkc.constraint_object_id
-                                            ORDER BY fkc.constraint_column_id  /*order by col name, we don''t have anything better*/
-                                    FOR      XML PATH('''') ,
-                                              TYPE).value(''.'', ''nvarchar(max)''), 1, 1, '''') ) referenced ( fk_columns )
-            ' + CASE WHEN @ObjectID IS NOT NULL THEN 
-                    'WHERE fk.parent_object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' OR fk.referenced_object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' ' 
-                    ELSE N' ' END + '
-            ORDER BY parent_object_name, foreign_key_name
+			CROSS APPLY ( SELECT  STUFF( (SELECT  N'', '' + c_parent.name AS fk_columns
+											FROM	' + QUOTENAME(@DatabaseName) + N'.sys.foreign_key_columns fkc 
+											JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c_parent ON fkc.parent_object_id=c_parent.[object_id]
+												AND fkc.parent_column_id=c_parent.column_id
+											WHERE	fk.parent_object_id=fkc.parent_object_id
+												AND fk.[object_id]=fkc.constraint_object_id
+											ORDER BY fkc.constraint_column_id 
+									FOR	  XML PATH('''') ,
+											  TYPE).value(''.'', ''nvarchar(max)''), 1, 1, '''')/*This is how we remove the first comma*/ ) parent ( fk_columns )
+			CROSS APPLY ( SELECT  STUFF( (SELECT  N'', '' + c_referenced.name AS fk_columns
+											FROM	' + QUOTENAME(@DatabaseName) + N'.sys.foreign_key_columns fkc 
+											JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns c_referenced ON fkc.referenced_object_id=c_referenced.[object_id]
+												AND fkc.referenced_column_id=c_referenced.column_id
+											WHERE	fk.referenced_object_id=fkc.referenced_object_id
+												and fk.[object_id]=fkc.constraint_object_id
+											ORDER BY fkc.constraint_column_id  /*order by col name, we don''t have anything better*/
+									FOR	  XML PATH('''') ,
+											  TYPE).value(''.'', ''nvarchar(max)''), 1, 1, '''') ) referenced ( fk_columns )
+			' + CASE WHEN @ObjectID IS NOT NULL THEN 
+					'WHERE fk.parent_object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' OR fk.referenced_object_id=' + CAST(@ObjectID AS NVARCHAR(30)) + N' ' 
+					ELSE N' ' END + '
+			ORDER BY parent_object_name, foreign_key_name
 			OPTION (RECOMPILE);';
         IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
@@ -15841,17 +15951,17 @@ OPTION (RECOMPILE);';
 		BEGIN
         SET @dsql = N'
                 SELECT 
-                    DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
+                    DB_ID(@i_DatabaseName) AS [database_id], 
 			        @i_DatabaseName AS database_name,
                     foreign_key_schema = 
                         s.name,
                     foreign_key_name = 
                         fk.name,
                     foreign_key_table = 
-                        OBJECT_NAME(fk.parent_object_id, DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N')),
+                        OBJECT_NAME(fk.parent_object_id, DB_ID(@i_DatabaseName)),
 					fk.parent_object_id,
 					foreign_key_referenced_table = 
-                        OBJECT_NAME(fk.referenced_object_id, DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N')),
+                        OBJECT_NAME(fk.referenced_object_id, DB_ID(@i_DatabaseName)),
 					fk.referenced_object_id
                 FROM ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_keys fk
                 JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s
@@ -15925,7 +16035,7 @@ OPTION (RECOMPILE);';
 								days_since_last_stats_update, rows, rows_sampled, percent_sampled, histogram_steps, modification_counter, 
 								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date,
 								no_recompute, has_filter, filter_definition, persisted_sample_percent, is_incremental)
-				SELECT DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
+				SELECT DB_ID(@i_DatabaseName) AS [database_id], 
 			        @i_DatabaseName AS database_name,
 			        obj.object_id,
 			        obj.name AS table_name,
@@ -16020,7 +16130,7 @@ OPTION (RECOMPILE);';
 								last_statistics_update, days_since_last_stats_update, rows, modification_counter, 
 								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date,
 								no_recompute, has_filter, filter_definition, persisted_sample_percent, is_incremental)
-							SELECT DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
+							SELECT DB_ID(@i_DatabaseName) AS [database_id], 
 							    @i_DatabaseName AS database_name,
 								obj.object_id,
 								obj.name AS table_name,
@@ -16153,7 +16263,7 @@ OPTION (RECOMPILE);';
 			BEGIN
 			RAISERROR (N'Gathering Temporal Table Info',0,1) WITH NOWAIT;
 			SET @dsql=N'SELECT ' + QUOTENAME(@DatabaseName,'''') + N' AS database_name,
-								   DB_ID(N' + QUOTENAME(@DatabaseName,'''') + N') AS [database_id], 
+								   DB_ID(@i_DatabaseName) AS [database_id], 
 								   s.name AS schema_name,
 								   t.name AS table_name, 
 								   oa.hsn as history_schema_name,
@@ -16189,7 +16299,7 @@ OPTION (RECOMPILE);';
 			INSERT #TemporalTables ( database_name, database_id, schema_name, table_name, history_schema_name, 
 									 history_table_name, start_column_name, end_column_name, period_name, history_table_object_id )
 					
-			EXEC sp_executesql @dsql;
+			EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
         END;
 
              SET @dsql=N'SELECT DB_ID(@i_DatabaseName) AS [database_id], 
@@ -19285,6 +19395,7 @@ BEGIN
 				'N/A' AS index_usage_summary,
 				'N/A' AS index_size_summary
 		FROM #TemporalTables AS t
+		ORDER BY t.database_name, t.schema_name, t.table_name
 		OPTION    ( RECOMPILE );
 
 		RAISERROR(N'check_id 121: Optimized For Sequential Keys.', 0,1) WITH NOWAIT;
@@ -20616,7 +20727,7 @@ BEGIN
     SET XACT_ABORT OFF;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-    SELECT @Version = '8.26', @VersionDate = '20251002';
+    SELECT @Version = '8.27', @VersionDate = '20251122';
 
     IF @VersionCheckMode = 1
     BEGIN
@@ -23221,56 +23332,37 @@ BEGIN
             lock_types AS
         (
             SELECT
-                database_name =
-                    dp.database_name,
+                dp.database_name,
                 dow.object_name,
                 lock =
                     CASE
                         WHEN CHARINDEX(N':', dp.wait_resource) > 0
-                        THEN SUBSTRING
-                             (
-                                 dp.wait_resource,
-                                 1,
-                                 CHARINDEX(N':', dp.wait_resource) - 1
-                             )
+                        THEN LEFT(dp.wait_resource, CHARINDEX(N':', dp.wait_resource) - 1)
                         ELSE dp.wait_resource
                     END,
-                lock_count =
-                    CONVERT
-                    (
-                        nvarchar(20),
-                        COUNT_BIG(DISTINCT dp.event_date)
-                    )
+                lock_count = CONVERT(nvarchar(20), COUNT_BIG(DISTINCT dp.event_date))
             FROM #deadlock_process AS dp
             JOIN #deadlock_owner_waiter AS dow
-              ON (dp.id = dow.owner_id
-                  OR dp.victim_id = dow.waiter_id)
-              AND dp.event_date = dow.event_date
-            WHERE 1 = 1
-            AND (dp.database_name = @DatabaseName OR @DatabaseName IS NULL)
-            AND (dp.event_date >= @StartDate OR @StartDate IS NULL)
-            AND (dp.event_date < @EndDate OR @EndDate IS NULL)
-            AND (dp.client_app = @AppName OR @AppName IS NULL)
-            AND (dp.host_name = @HostName OR @HostName IS NULL)
-            AND (dp.login_name = @LoginName OR @LoginName IS NULL)
-            AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
-            AND dow.object_name IS NOT NULL
+              ON (dp.id = dow.owner_id OR dp.victim_id = dow.waiter_id)
+             AND dp.event_date = dow.event_date
+            WHERE (dp.database_name = @DatabaseName OR @DatabaseName IS NULL)
+              AND (dp.event_date >= @StartDate OR @StartDate IS NULL)
+              AND (dp.event_date < @EndDate OR @EndDate IS NULL)
+              AND (dp.client_app = @AppName OR @AppName IS NULL)
+              AND (dp.host_name = @HostName OR @HostName IS NULL)
+              AND (dp.login_name = @LoginName OR @LoginName IS NULL)
+              AND (dow.object_name = @ObjectName OR @ObjectName IS NULL)
+              AND dow.object_name IS NOT NULL
             GROUP BY
                 dp.database_name,
+                dow.object_name,
                 CASE
                     WHEN CHARINDEX(N':', dp.wait_resource) > 0
-                    THEN SUBSTRING
-                         (
-                             dp.wait_resource,
-                             1,
-                             CHARINDEX(N':', dp.wait_resource) - 1
-                         )
+                    THEN LEFT(dp.wait_resource, CHARINDEX(N':', dp.wait_resource) - 1)
                     ELSE dp.wait_resource
-                END,
-                dow.object_name
+                END
         )
-        INSERT
-            #deadlock_findings WITH(TABLOCKX)
+        INSERT #deadlock_findings WITH (TABLOCKX)
         (
             check_id,
             database_name,
@@ -23280,36 +23372,33 @@ BEGIN
             sort_order
         )
         SELECT
-            check_id = 7,
+            check_id      = 7,
             lt.database_name,
             lt.object_name,
             finding_group = N'Types of locks by object',
-            finding =
+            finding = 
                 N'This object has had ' +
-                STUFF
-                (
+                STUFF(
                     (
                         SELECT
-                            N', ' +
-                            lt2.lock_count +
-                            N' ' +
-                            lt2.lock
+                            N', ' + lt2.lock_count + N' ' + lt2.lock
                         FROM lock_types AS lt2
                         WHERE lt2.database_name = lt.database_name
-                        AND   lt2.object_name = lt.object_name
-                        FOR XML
-                            PATH(N''),
-                            TYPE
-                    ).value(N'.[1]', N'nvarchar(MAX)'),
-                    1,
-                    1,
-                    N''
+                          AND lt2.object_name   = lt.object_name
+                        FOR XML PATH(''), TYPE
+                    ).value('.', 'nvarchar(max)'),
+                    1, 2, N''
                 ) + N' locks.',
             sort_order = 
-                ROW_NUMBER()
-                OVER (ORDER BY CONVERT(bigint, lt.lock_count) DESC)
+                ROW_NUMBER() OVER (
+                    ORDER BY
+                        MAX(CONVERT(bigint, lt.lock_count)) DESC
+                )
         FROM lock_types AS lt
-        OPTION(RECOMPILE);
+        GROUP BY
+            lt.database_name,
+            lt.object_name
+        OPTION (RECOMPILE);
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
@@ -25158,7 +25247,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.26', @VersionDate = '20251002';
+	SELECT @Version = '8.27', @VersionDate = '20251122';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -25215,6 +25304,7 @@ DECLARE  @ProductVersion NVARCHAR(128) = CAST(SERVERPROPERTY('ProductVersion') A
 		,@ProductVersionMajor DECIMAL(10,2)
 		,@ProductVersionMinor DECIMAL(10,2)
 		,@Platform NVARCHAR(8) /* Azure or NonAzure are acceptable */ = (SELECT CASE WHEN @@VERSION LIKE '%Azure%' THEN N'Azure' ELSE N'NonAzure' END AS [Platform])
+		,@AzureSQLDB BIT = (SELECT CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN 1 ELSE 0 END)
 		,@EnhanceFlag BIT = 0
 		,@BlockingCheck NVARCHAR(MAX)
 		,@StringToSelect NVARCHAR(MAX)
@@ -25252,10 +25342,10 @@ SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1,CHARINDEX('.', @Produ
     @ProductVersionMinor = PARSENAME(CONVERT(VARCHAR(32), @ProductVersion), 2)
 
 SELECT
-	@OutputTableNameQueryStats_View = QUOTENAME(@OutputTableName + '_Deltas'),
-	@OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
-	@OutputSchemaName = QUOTENAME(@OutputSchemaName),
-	@OutputTableName = QUOTENAME(@OutputTableName),
+	@OutputTableNameQueryStats_View = QUOTENAME(PARSENAME(@OutputTableName,1) + '_Deltas'),
+	@OutputDatabaseName = QUOTENAME(PARSENAME(@OutputDatabaseName,1)),
+	@OutputSchemaName = ISNULL(QUOTENAME(PARSENAME(@OutputSchemaName,1)),QUOTENAME(PARSENAME(@OutputTableName,2))),
+	@OutputTableName = QUOTENAME(PARSENAME(@OutputTableName,1)),
 	@LineFeed = CHAR(13) + CHAR(10);
 
 IF @GetLiveQueryPlan IS NULL
@@ -25265,6 +25355,20 @@ IF @GetLiveQueryPlan IS NULL
 		ELSE
 			SET @GetLiveQueryPlan = 0;
 	END
+
+IF @OutputTableName IS NOT NULL AND (@OutputDatabaseName IS NULL OR @OutputSchemaName IS NULL)
+	BEGIN
+		IF @OutputDatabaseName IS NULL AND @AzureSQLDB = 1
+			BEGIN
+			  /* If we're in Azure SQL DB then use the current database */
+			  SET @OutputDatabaseName = QUOTENAME(DB_NAME());
+			END;
+		IF @OutputSchemaName IS NULL AND @OutputDatabaseName = QUOTENAME(DB_NAME())
+			BEGIN
+			  /* If we're inserting records in the current database use the default schema */
+			  SET @OutputSchemaName = QUOTENAME(SCHEMA_NAME());
+			END;
+	END;
 
 IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL
   AND EXISTS ( SELECT *
