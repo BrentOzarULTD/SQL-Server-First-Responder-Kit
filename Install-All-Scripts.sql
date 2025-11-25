@@ -39,7 +39,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.27', @VersionDate = '20251122';
+	SELECT @Version = '8.28', @VersionDate = '20251124';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -10777,7 +10777,7 @@ AS
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
-SELECT @Version = '8.27', @VersionDate = '20251122';
+SELECT @Version = '8.28', @VersionDate = '20251124';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -11655,7 +11655,7 @@ AS
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.27', @VersionDate = '20251122';
+	SELECT @Version = '8.28', @VersionDate = '20251124';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -13439,7 +13439,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.27', @VersionDate = '20251122';
+SELECT @Version = '8.28', @VersionDate = '20251124';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -20826,7 +20826,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.27', @VersionDate = '20251122';
+SELECT @Version = '8.28', @VersionDate = '20251124';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -20917,10 +20917,25 @@ SET @DatabaseName = COALESCE(@DatabaseName, PARSENAME(@ObjectName, 3)) /* 3 = Da
 SET @SchemaName   = COALESCE(@SchemaName,   PARSENAME(@ObjectName, 2)) /* 2 = Schema name */
 SET @TableName    = COALESCE(@TableName,    PARSENAME(@ObjectName, 1)) /* 1 = Table name */
 
-/* Handle already quoted input if it wasn't fully qualified*/
-SET @DatabaseName = PARSENAME(@DatabaseName,1);
-SET @SchemaName   = ISNULL(PARSENAME(@SchemaName,1),PARSENAME(@TableName,2));
-SET @TableName    = PARSENAME(@TableName,1);
+/* Handle already quoted input if it wasn't fully qualified - only if @ObjectName is null*/
+IF (@ObjectName IS NULL)
+   BEGIN
+        SELECT @DatabaseName = CASE WHEN @DatabaseName LIKE N'\[%\]' ESCAPE N'\' THEN PARSENAME(@DatabaseName,1) ELSE @DatabaseName 
+                               END,
+               @SchemaName   = ISNULL(
+                                     CASE /*only apply parsename if the schema is actually quoted*/
+                                      WHEN @SchemaName LIKE N'\[%\]' ESCAPE N'\' THEN  PARSENAME(@SchemaName,1) ELSE @SchemaName 
+                                     END,
+                                     CASE /*if we already have @TableName in the form of [some.schema].[some.table]*/
+                                      WHEN @TableName LIKE N'\[%\].\[%\]' ESCAPE N'\' THEN PARSENAME(@TableName,2)
+                                      /*I'm making an assumption here that people who use . in their naming conventions would have one in each object name*/
+                                      WHEN LEN(@TableName)- LEN(REPLACE(@TableName,'.','')) = 1 THEN PARSENAME(@TableName,2) ELSE NULL 
+                                     END),
+               @TableName    = CASE 
+                                 WHEN @TableName LIKE N'\[%\].\[%\]' ESCAPE N'\' OR @TableName LIKE N'\[%\]' ESCAPE N'\' THEN PARSENAME(@TableName,1)
+                                 WHEN LEN(@TableName)- LEN(REPLACE(@TableName,'.','')) = 1 THEN PARSENAME(@TableName,1) ELSE @TableName 
+                                END;
+END;
 
 /* If we're on Azure SQL DB let's cut people some slack */
 IF (@TableName IS NOT NULL AND @AzureSQLDB = 1 AND @DatabaseName IS NULL)
@@ -27829,7 +27844,7 @@ BEGIN
     SET XACT_ABORT OFF;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-    SELECT @Version = '8.27', @VersionDate = '20251122';
+    SELECT @Version = '8.28', @VersionDate = '20251124';
 
     IF @VersionCheckMode = 1
     BEGIN
@@ -32349,7 +32364,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.27', @VersionDate = '20251122';
+	SELECT @Version = '8.28', @VersionDate = '20251124';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -33785,7 +33800,7 @@ SET STATISTICS XML OFF;
 
 /*Versioning details*/
 
-SELECT @Version = '8.27', @VersionDate = '20251122';
+SELECT @Version = '8.28', @VersionDate = '20251124';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -35455,7 +35470,7 @@ BEGIN
   SET NOCOUNT ON;
   SET STATISTICS XML OFF;
 
-  SELECT @Version = '8.27', @VersionDate = '20251122';
+  SELECT @Version = '8.28', @VersionDate = '20251124';
   
   IF(@VersionCheckMode = 1)
   BEGIN
@@ -36339,7 +36354,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.27', @VersionDate = '20251122';
+SELECT @Version = '8.28', @VersionDate = '20251124';
 
 IF(@VersionCheckMode = 1)
 BEGIN
