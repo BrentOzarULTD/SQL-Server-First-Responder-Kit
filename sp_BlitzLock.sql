@@ -42,7 +42,7 @@ BEGIN
     SET XACT_ABORT OFF;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-    SELECT @Version = '8.27', @VersionDate = '20251122';
+    SELECT @Version = '8.28', @VersionDate = '20251124';
 
     IF @VersionCheckMode = 1
     BEGIN
