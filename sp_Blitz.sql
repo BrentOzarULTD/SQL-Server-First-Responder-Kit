@@ -3550,6 +3550,79 @@ AS
 
 					END;
 
+                IF NOT EXISTS ( SELECT  1
+                                FROM    #SkipChecks
+                                WHERE   DatabaseName IS NULL AND CheckID = 273 )
+                                /* No checking for if the AG DMVs exist. We already use some of them elsewhere without checking. */
+                    BEGIN
+
+                        IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 273) WITH NOWAIT;
+
+                        INSERT  INTO #BlitzResults
+                                ( CheckID ,
+                                  Priority ,
+                                  FindingsGroup ,
+                                  Finding ,
+                                  URL ,
+                                  Details
+                                )
+                                SELECT DISTINCT 273 AS CheckID ,
+                                        /*
+                                        In theory, we could probably put a comma-separated list of databases here.
+                                        But the group name should be enough.
+                                        */
+                                        150 AS Priority ,
+                                        'Performance' AS FindingsGroup ,
+                                        'Missing Read-Only Routing URL' AS Finding ,
+                                        'https://learn.microsoft.com/en-us/sql/database-engine/availability-groups/windows/configure-read-only-routing-for-an-availability-group-sql-server?view=sql-server-ver17#RORReplicaProperties' AS URL ,
+                                        ( 'Replica ' + QUOTENAME(ar.replica_server_name) +
+                                          ' of Availability Group ' + QUOTENAME(ag.[name]) +
+                                          ' is set to READ_ONLY when secondary. However, it has no read-only routing URL.' +
+                                          ' Maybe this is intentional, but you certainly do not have read-only routing working here.'
+                                        ) AS Details
+                                FROM    sys.availability_replicas AS ar
+                                        JOIN    sys.availability_groups AS ag ON ar.group_id = ag.group_id
+                                WHERE   ar.read_only_routing_url IS NULL
+                                        AND ar.secondary_role_allow_connections = 1 /* READ_ONLY */
+                    END;
+
+                IF NOT EXISTS ( SELECT  1
+                                FROM    #SkipChecks
+                                WHERE   DatabaseName IS NULL AND CheckID = 274 )
+                    BEGIN
+
+                        IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 274) WITH NOWAIT;
+
+                        INSERT  INTO #BlitzResults
+                                ( CheckID ,
+                                  Priority ,
+                                  FindingsGroup ,
+                                  Finding ,
+                                  URL ,
+                                  Details
+                                )
+                                SELECT DISTINCT 274 AS CheckID ,
+                                        /*
+                                        In theory, we could probably put a comma-separated list of databases here.
+                                        But the group name should be enough.
+                                        */
+                                        150 AS Priority ,
+                                        'Performance' AS FindingsGroup ,
+                                        'Missing Read-Only Routing List' AS Finding ,
+                                        'https://learn.microsoft.com/en-us/sql/database-engine/availability-groups/windows/configure-read-only-routing-for-an-availability-group-sql-server?view=sql-server-ver17#RORReplicaProperties' AS URL ,
+                                        ( 'Replica ' + QUOTENAME(ar.replica_server_name) +
+                                          ' of Availability Group ' + QUOTENAME(ag.[name]) +
+                                          ' has a read-only routing URL, but no read-only routing lists.' +
+                                          ' Is your read-only routing configuration unfinished?'
+                                        ) AS Details
+                                FROM    sys.availability_replicas AS ar
+                                        JOIN    sys.availability_groups AS ag ON ar.group_id = ag.group_id
+                                WHERE   NOT EXISTS (SELECT   1
+                                                    FROM     sys.availability_read_only_routing_lists AS arorl
+                                                    WHERE    arorl.replica_id = ar.replica_id )
+                                        AND ar.read_only_routing_url IS NOT NULL
+                    END;
+
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 55 )
