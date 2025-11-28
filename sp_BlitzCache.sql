@@ -876,6 +876,7 @@ CREATE TABLE #ai_configuration
  AI_Database_Scoped_Credential_Name NVARCHAR(500),
  AI_System_Prompt_Override NVARCHAR(4000),
  AI_Parameters NVARCHAR(4000),
+ Payload_Template_Override NVARCHAR(4000),
  Timeout_Seconds TINYINT,
  DefaultModel BIT DEFAULT 0);
 
@@ -885,6 +886,7 @@ DECLARE
     @AIConfigTableName NVARCHAR(258) = CASE WHEN @AIConfig IS NULL THEN NULL ELSE PARSENAME(@AIConfig, 1) END,
     @AISystemPrompt NVARCHAR(4000),
     @AIParameters NVARCHAR(4000),
+    @AIPayloadTemplate NVARCHAR(MAX),
     @AITimeoutSeconds TINYINT,
     @AIAdviceText NVARCHAR(MAX);
 
@@ -892,10 +894,11 @@ DECLARE
 IF @AIConfig IS NOT NULL
 BEGIN
    RAISERROR(N'Reading values from AI Configuration Table', 0, 1) WITH NOWAIT;
-   SET @config_sql = N'INSERT INTO #ai_configuration SELECT Id, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_System_Prompt_Override, AI_Parameters, Timeout_Seconds, DefaultModel FROM '
+   SET @config_sql = N'INSERT INTO #ai_configuration (Id, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_System_Prompt_Override, AI_Parameters, Payload_Template_Override, Timeout_Seconds, DefaultModel)
+        SELECT Id, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_System_Prompt_Override, AI_Parameters, Payload_Template_Override, Timeout_Seconds, DefaultModel FROM '
         + CASE WHEN @AIConfigDatabaseName IS NOT NULL THEN (QUOTENAME(@AIConfigDatabaseName) + N'.') ELSE N'' END
         + CASE WHEN @AIConfigSchemaName IS NOT NULL THEN (QUOTENAME(@AIConfigSchemaName) + N'.') ELSE N'' END
-        + QUOTENAME(@AIConfigTableName) + N' WHERE DefaultModel = 1 OR AI_Model = @AIModel ; ';
+        + QUOTENAME(@AIConfigTableName) + N' WHERE (@AIModel IS NULL AND DefaultModel = 1) OR @AIModel IN (AI_Model, Nickname) ; ';
    EXEC sp_executesql @config_sql, N'@AIModel NVARCHAR(100)', @AIModel;
 END;
 
@@ -905,6 +908,9 @@ IF @AI > 0
     RAISERROR(N'Setting up AI configuration defaults', 0, 1) WITH NOWAIT;
 
     SELECT @ExpertMode = 1, @KeepCRLF = 1;
+
+    IF @Debug = 2
+        SELECT N'ai_configuration' AS TableLabel, * FROM #ai_configuration;
 
     IF @AI = 1 AND NOT EXISTS(SELECT * FROM sys.all_objects WHERE name = 'sp_invoke_external_rest_endpoint')
         BEGIN
@@ -916,29 +922,38 @@ IF @AI > 0
         END
 
     IF @AIModel IS NULL
+        /* Check the config table */
         SELECT TOP 1 @AIModel = AI_Model, @AIURL = AI_URL,
             @AICredential = AI_Database_Scoped_Credential_Name,
             @AISystemPrompt = AI_System_Prompt_Override,
             @AIParameters = AI_Parameters,
-            @AITimeoutSeconds = COALESCE(Timeout_Seconds, 30)
+            @AITimeoutSeconds = COALESCE(Timeout_Seconds, 30),
+            @AIPayloadTemplate = Payload_Template_Override
             FROM #ai_configuration
             WHERE DefaultModel = 1
             ORDER BY Id;
     ELSE
-        SELECT TOP 1 @AIURL = COALESCE(@AIURL, AI_URL),
+        SELECT TOP 1 @AIModel = AI_Model, 
+            @AIURL = COALESCE(@AIURL, AI_URL),
             @AICredential = COALESCE(@AICredential, AI_Database_Scoped_Credential_Name),
             @AISystemPrompt = AI_System_Prompt_Override,
             @AIParameters = AI_Parameters,
-            @AITimeoutSeconds = COALESCE(Timeout_Seconds, 30)
+            @AITimeoutSeconds = COALESCE(Timeout_Seconds, 30),
+            @AIPayloadTemplate = Payload_Template_Override
             FROM #ai_configuration
-            WHERE AI_Model = @AIModel
             ORDER BY Id;
         
+    IF @AIModel IS NULL
+        SET @AIModel = N'gpt-4.1-mini';
+    
     IF @AIURL IS NULL OR @AIURL NOT LIKE N'http%'
         SET @AIURL = N'https://api.openai.com/v1/chat/completions';
 
     IF @AICredential IS NULL OR @AICredential NOT LIKE 'http%'
         SET @AICredential = N'https://api.openai.com';
+
+    IF @AITimeoutSeconds IS NULL OR @AITimeoutSeconds < 1 OR @AITimeoutSeconds > 230
+        SET @AITimeoutSeconds = 30;
 
     IF @AISystemPrompt IS NULL OR @AISystemPrompt = N''
         SET @AISystemPrompt = N'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
@@ -947,7 +962,22 @@ IF @AI > 0
     
     Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.';
 
-    IF @Debug IN (1,2) OR (@AI = 1 AND (@AIModel IS NULL OR @AIURL IS NULL OR @AISystemPrompt IS NULL OR @AICredential IS NULL))
+    IF @AIPayloadTemplate IS NULL
+        SET @AIPayloadTemplate = N'{
+                    "model": "@AIModel",
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "@AISystemPrompt"
+                        },
+                        {
+                            "role": "user",
+                            "content": "@CurrentAIPrompt"
+                        }
+                    ]
+                }';
+
+    IF @Debug = 2 OR (@AI = 1 AND (@AIModel IS NULL OR @AIURL IS NULL OR @AISystemPrompt IS NULL OR @AICredential IS NULL OR @AIPayloadTemplate IS NULL))
         BEGIN
 		    PRINT N'@AIModel: ';
             PRINT @AIModel;
@@ -961,9 +991,11 @@ IF @AI > 0
             PRINT @AITimeoutSeconds;
 		    PRINT N'@AISystemPrompt: ';
             PRINT @AISystemPrompt;
+            PRINT N'@AIPayloadTemplate: ';
+            PRINT @AIPayloadTemplate;
         END;
 
-    IF @AI = 1 AND (@AIModel IS NULL OR @AIURL IS NULL OR @AISystemPrompt IS NULL OR @AICredential IS NULL)
+    IF @AI = 1 AND (@AIModel IS NULL OR @AIURL IS NULL OR @AISystemPrompt IS NULL OR @AICredential IS NULL OR @AIPayloadTemplate IS NULL)
         BEGIN
             RAISERROR('@AI is set to 1, but not all of the necessary configuration is included.',12,1);
             RETURN;
@@ -5175,30 +5207,15 @@ Thank you.'
                 SET @AIResponseJSON = NULL;
                 SET @AIResponse = NULL;
                 
-                /* Build the JSON payload for the API call. Escape special characters in the prompt for JSON: */
-                SET @CurrentAIPrompt = REPLACE(@CurrentAIPrompt, '\', '\\');
-                SET @CurrentAIPrompt = REPLACE(@CurrentAIPrompt, '"', '\"');
-                SET @CurrentAIPrompt = REPLACE(@CurrentAIPrompt, CHAR(13), '\r');
-                SET @CurrentAIPrompt = REPLACE(@CurrentAIPrompt, CHAR(10), '\n');
-                SET @CurrentAIPrompt = REPLACE(@CurrentAIPrompt, CHAR(9), '\t');
-                
-                /* Build payload based on API type (OpenAI-compatible format works for most providers) */
-                SET @AIPayload = N'{
-                    "model": "' + @AIModel + N'",
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": "' + REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(@AISystemPrompt, '\', '\\'), '"', '\"'), CHAR(13), '\r'), CHAR(10), '\n'), CHAR(9), '\t') + N'"
-                        },
-                        {
-                            "role": "user",
-                            "content": "' + @CurrentAIPrompt + N'"
-                        }
-                    ]
-                }';
+                /* Build payload using the template. */
+                SET @AIPayload = REPLACE(@AIPayloadTemplate, N'@AIModel', @AIModel);
+                SET @AIPayload = REPLACE(@AIPayload, N'@AISystemPrompt',  REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(@AISystemPrompt, '\', '\\'), '"', '\"'), CHAR(13), '\r'), CHAR(10), '\n'), CHAR(9), '\t'));
+                SET @AIPayload = REPLACE(@AIPayload, N'@CurrentAIPrompt',  REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(@CurrentAIPrompt, '\', '\\'), '"', '\"'), CHAR(13), '\r'), CHAR(10), '\n'), CHAR(9), '\t'));
+                --SET @AIPayload = REPLACE(@AIPayload, N'@CurrentAIPrompt', @CurrentAIPrompt);
                 
                 IF @Debug = 2
                 BEGIN
+                    SELECT @AIPayload AS AIPayload;
                     RAISERROR('AI Payload (first 4000 chars):', 0, 1) WITH NOWAIT;
                     PRINT LEFT(@AIPayload, 4000);
                 END;
@@ -5225,22 +5242,22 @@ Thank you.'
                 OpenAI format: {"choices":[{"message":{"content":"..."}}]} */
                 IF @AIResponseJSON IS NOT NULL
                 BEGIN
+                    /* Try OpenAI ChatGPT chat completion by default: */
                     SET @AIAdviceText = (SELECT c.Content
                         FROM OPENJSON(@AIResponseJSON, '$.result.choices')
                         WITH (
                             Content nvarchar(max) '$.message.content'
                         ) AS c);
 
-                    IF @Debug = 2
-                    BEGIN
-                        SELECT '@AIResponseJSON parsed with OPENJSON:' AS Label, c.Content
-                        FROM OPENJSON(@AIResponseJSON, '$.response.result.choices')
-                        WITH (
-                            Content nvarchar(max) '$.message.content'
-                        ) AS c;
-                    END;
+                    /* No data? How about Google Gemini: */
+                    IF @AIAdviceText IS NULL
+                        SET @AIAdviceText = (SELECT TOP 1 p.[text]
+                            FROM OPENJSON(@AIResponseJSON, '$.result.candidates') AS cand
+                            CROSS APPLY OPENJSON(cand.value, '$.content.parts')
+                                   WITH ([text] nvarchar(max) '$.text') AS p);
 
-                    /* If we couldn't parse it, check for error codes */
+
+                    /* If we still couldn't parse it, check for error codes */
                     IF @AIAdviceText IS NULL
                     BEGIN
                         DECLARE @ErrorMessage NVARCHAR(MAX);
@@ -5512,11 +5529,14 @@ BEGIN
 		QueryPlan AS [Query Plan], 
 		missing_indexes AS [Missing Indexes],
 		implicit_conversion_info AS [Implicit Conversion Info],
-		cached_execution_parameters AS [Cached Execution Parameters], 
+		cached_execution_parameters AS [Cached Execution Parameters], '
+        + CASE WHEN @AI = 2 THEN N'
         [AI Prompt] = (
-            SELECT (@AISystemPrompt + NCHAR(13) + NCHAR(10) + NCHAR(13) + NCHAR(10) + ai_prompt) AS [text()] FOR XML PATH(''ai_prompt''), TYPE),
+            SELECT (@AISystemPrompt + NCHAR(13) + NCHAR(10) + NCHAR(13) + NCHAR(10) + ai_prompt) AS [text()] FOR XML PATH(''ai_prompt''), TYPE),' ELSE N'' END
+        + CASE WHEN @AI = 1 THEN N'
         [AI Advice] = CASE WHEN ai_advice IS NULL THEN NULL ELSE (
-            SELECT ai_advice AS [text()] FOR XML PATH(''ai_advice''), TYPE) END, ' + @nl;
+            SELECT ai_advice AS [text()] FOR XML PATH(''ai_advice''), TYPE) END, ' ELSE N'' END
+        + @nl;
 
     IF @ExpertMode = 2 /* Opserver */
     BEGIN
@@ -5645,9 +5665,13 @@ BEGIN
         QueryPlanHash AS [Query Plan Hash],
         StatementStartOffset,
         StatementEndOffset,
-		PlanGenerationNum,
+		PlanGenerationNum, '
+        + CASE WHEN @AI <> 2 THEN N'
+        [AI Prompt] = (
+            SELECT (@AISystemPrompt + NCHAR(13) + NCHAR(10) + NCHAR(13) + NCHAR(10) + ai_prompt) AS [text()] FOR XML PATH(''ai_prompt''), TYPE),' ELSE N'' END
+        + CASE WHEN @AI = 1 THEN N'
         [AI Raw Response] = CASE WHEN ai_raw_response IS NULL THEN NULL ELSE (
-            SELECT ai_raw_response AS [text()] FOR XML PATH(''ai_raw_response''), TYPE) END, 
+            SELECT ai_raw_response AS [text()] FOR XML PATH(''ai_raw_response''), TYPE) END, ' ELSE N'' END + N'
 		[Remove Plan Handle From Cache],
 		[Remove SQL Handle From Cache]';
 END;
