@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 272.
-If you want to add a new one, start at 273.
+CURRENT HIGH CHECKID: 274.
+If you want to add a new one, start at 275.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
@@ -127,6 +127,8 @@ If you want to add a new one, start at 273.
 | 150 | Performance | Stats Updated Asynchronously | https://www.BrentOzar.com/go/asyncstats | 17 |
 | 150 | Performance | Triggers on Tables | https://www.BrentOzar.com/go/trig | 32 |
 | 150 | Performance | Inconsistent Query Store metadata |  | 235 |
+| 150 | Performance | Missing Read-Only Routing URL | https://learn.microsoft.com/en-us/sql/database-engine/availability-groups/windows/configure-read-only-routing-for-an-availability-group-sql-server?view=sql-server-ver17#RORReplicaProperties | 273 |
+| 150 | Performance | Missing Read-Only Routing List | https://learn.microsoft.com/en-us/sql/database-engine/availability-groups/windows/configure-read-only-routing-for-an-availability-group-sql-server?view=sql-server-ver17#RORReplicaProperties | 274 |
 | 170 | File Configuration | File growth set to 1MB | https://www.BrentOzar.com/go/percentgrowth | 158 |
 | 170 | File Configuration | File growth set to percent | https://www.BrentOzar.com/go/percentgrowth | 82 |
 | 170 | File Configuration | High VLF Count | https://www.BrentOzar.com/go/vlf | 69 |
