@@ -278,7 +278,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @AI TINYINT = 0, /* 1 = ask for advice, 2 = build prompt but don't actually call AI. Only works with a single query plan: automatically sets @ExpertMode = 1, @KeepCRLF = 1. */
     @AIModel VARCHAR(200) = NULL, /* Defaults to gpt-4.1-mini */
     @AIURL VARCHAR(200) = NULL, /* Defaults to https://api.openai.com/v1/chat/completions */
-    @AICredential VARCHAR(200) = NULL, /* Defaults to 'https://api.openai.com' */
+    @AICredential VARCHAR(200) = NULL, /* Defaults to 'https://api.openai.com/' or the root of your AIURL, trailing slash included */
     @AIConfig NVARCHAR(500) = NULL, /* Table where AI config data is stored - can be in the format db.schema.table, schema.table, or just table. */
 	@Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
@@ -492,7 +492,7 @@ IF @Help = 1
 	UNION ALL
 	SELECT N'@AICredential',
 			N'VARCHAR(200)',
-			N'The database scoped credential that you configured. Defaults to https://api.openai.com. Must be a subset of the @AIURL parameter.'
+			N'The database scoped credential that you configured. Defaults to https://api.openai.com/ or the root URL of your @AIURL, trailing slash included. Must be a subset of the @AIURL parameter.'
 
 	UNION ALL
 	SELECT N'@Version',
@@ -927,7 +927,7 @@ IF @AI > 0
             @AICredential = AI_Database_Scoped_Credential_Name,
             @AISystemPrompt = AI_System_Prompt_Override,
             @AIParameters = AI_Parameters,
-            @AITimeoutSeconds = COALESCE(Timeout_Seconds, 30),
+            @AITimeoutSeconds = COALESCE(Timeout_Seconds, 230),
             @AIPayloadTemplate = Payload_Template_Override
             FROM #ai_configuration
             WHERE DefaultModel = 1
@@ -938,22 +938,23 @@ IF @AI > 0
             @AICredential = COALESCE(@AICredential, AI_Database_Scoped_Credential_Name),
             @AISystemPrompt = AI_System_Prompt_Override,
             @AIParameters = AI_Parameters,
-            @AITimeoutSeconds = COALESCE(Timeout_Seconds, 30),
+            @AITimeoutSeconds = COALESCE(Timeout_Seconds, 230),
             @AIPayloadTemplate = Payload_Template_Override
             FROM #ai_configuration
             ORDER BY Id;
         
     IF @AIModel IS NULL
-        SET @AIModel = N'gpt-4.1-mini';
+        SET @AIModel = N'gpt-5-nano';
     
     IF @AIURL IS NULL OR @AIURL NOT LIKE N'http%'
         SET @AIURL = N'https://api.openai.com/v1/chat/completions';
 
-    IF @AICredential IS NULL OR @AICredential NOT LIKE 'http%'
-        SET @AICredential = N'https://api.openai.com';
+    /* Try to guess the credential based on the root of their URL: */
+    IF @AICredential IS NULL
+        SET @AICredential = LEFT(@AIURL, CHARINDEX('/', @AIURL, CHARINDEX('://', @AIURL) + 3));
 
     IF @AITimeoutSeconds IS NULL OR @AITimeoutSeconds < 1 OR @AITimeoutSeconds > 230
-        SET @AITimeoutSeconds = 30;
+        SET @AITimeoutSeconds = 230;
 
     IF @AISystemPrompt IS NULL OR @AISystemPrompt = N''
         SET @AISystemPrompt = N'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
@@ -962,7 +963,17 @@ IF @AI > 0
     
     Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.';
 
-    IF @AIPayloadTemplate IS NULL
+    IF @AIURL LIKE 'https://generativelanguage.googleapis.com%' AND @AIPayloadTemplate IS NULL
+        SET @AIPayloadTemplate = N'{
+          "contents": [
+            {
+              "parts": [
+                {"text": "@AISystemPrompt @CurrentAIPrompt"}
+              ]
+            }
+          ]
+        }';
+    ELSE IF @AIPayloadTemplate IS NULL /* Default to ChatGPT format */
         SET @AIPayloadTemplate = N'{
                     "model": "@AIModel",
                     "messages": [
@@ -5191,7 +5202,7 @@ Thank you.'
         DECLARE @AIErrorMessage NVARCHAR(4000);
         
         DECLARE ai_cursor CURSOR LOCAL FAST_FORWARD FOR
-        SELECT SqlHandle, QueryHash, PlanHandle, ai_prompt, COALESCE(QueryType, N'') + N' - ' + LEFT(QueryText, 100)
+        SELECT DISTINCT SqlHandle, QueryHash, PlanHandle, ai_prompt, COALESCE(QueryType, N'') + N' - ' + LEFT(QueryText, 100)
         FROM ##BlitzCacheProcs
         WHERE SPID = @@SPID
         AND QueryPlan IS NOT NULL
