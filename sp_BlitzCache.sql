@@ -5252,9 +5252,8 @@ Thank you.'
                 
                 IF @Debug = 2
                 BEGIN
-                    SELECT @AIPayload AS AIPayload;
-                    RAISERROR('AI Payload (first 4000 chars):', 0, 1) WITH NOWAIT;
-                    PRINT LEFT(@AIPayload, 4000);
+                    SELECT @CurrentQueryClipped AS CurrentQueryClipped, @AIPayload AS AIPayload, 
+                        LEN(@AIPayload) AS AIPayload_Length, DATALENGTH(@AIPayload) AS AIPayload_DataLength;
                 END;
                 
                 RAISERROR('Calling AI endpoint for query plan analysis on query: ', 0, 1) WITH NOWAIT;
