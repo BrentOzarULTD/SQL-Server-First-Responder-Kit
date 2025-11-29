@@ -237,6 +237,7 @@ CREATE TABLE ##BlitzCacheProcs (
     	Pattern NVARCHAR(20),
         ai_prompt NVARCHAR(MAX),
         ai_advice NVARCHAR(MAX),
+        ai_payload NVARCHAR(MAX),
         ai_raw_response NVARCHAR(MAX)
     );
 GO 
@@ -878,6 +879,7 @@ CREATE TABLE #ai_configuration
  AI_Parameters NVARCHAR(4000),
  Payload_Template_Override NVARCHAR(4000),
  Timeout_Seconds TINYINT,
+ Context INT,
  DefaultModel BIT DEFAULT 0);
 
 DECLARE
@@ -888,14 +890,15 @@ DECLARE
     @AIParameters NVARCHAR(4000),
     @AIPayloadTemplate NVARCHAR(MAX),
     @AITimeoutSeconds TINYINT,
-    @AIAdviceText NVARCHAR(MAX);
+    @AIAdviceText NVARCHAR(MAX),
+    @AIContext INT;
 
 
 IF @AIConfig IS NOT NULL
 BEGIN
    RAISERROR(N'Reading values from AI Configuration Table', 0, 1) WITH NOWAIT;
-   SET @config_sql = N'INSERT INTO #ai_configuration (Id, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_System_Prompt_Override, AI_Parameters, Payload_Template_Override, Timeout_Seconds, DefaultModel)
-        SELECT Id, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_System_Prompt_Override, AI_Parameters, Payload_Template_Override, Timeout_Seconds, DefaultModel FROM '
+   SET @config_sql = N'INSERT INTO #ai_configuration (Id, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_System_Prompt_Override, AI_Parameters, Payload_Template_Override, Timeout_Seconds, Context, DefaultModel)
+        SELECT Id, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_System_Prompt_Override, AI_Parameters, Payload_Template_Override, Timeout_Seconds, Context, DefaultModel FROM '
         + CASE WHEN @AIConfigDatabaseName IS NOT NULL THEN (QUOTENAME(@AIConfigDatabaseName) + N'.') ELSE N'' END
         + CASE WHEN @AIConfigSchemaName IS NOT NULL THEN (QUOTENAME(@AIConfigSchemaName) + N'.') ELSE N'' END
         + QUOTENAME(@AIConfigTableName) + N' WHERE (@AIModel IS NULL AND DefaultModel = 1) OR @AIModel IN (AI_Model, Nickname) ; ';
@@ -928,6 +931,7 @@ IF @AI > 0
             @AISystemPrompt = AI_System_Prompt_Override,
             @AIParameters = AI_Parameters,
             @AITimeoutSeconds = COALESCE(Timeout_Seconds, 230),
+            @AIContext = Context,
             @AIPayloadTemplate = Payload_Template_Override
             FROM #ai_configuration
             WHERE DefaultModel = 1
@@ -939,6 +943,7 @@ IF @AI > 0
             @AISystemPrompt = AI_System_Prompt_Override,
             @AIParameters = AI_Parameters,
             @AITimeoutSeconds = COALESCE(Timeout_Seconds, 230),
+            @AIContext = Context,
             @AIPayloadTemplate = Payload_Template_Override
             FROM #ai_configuration
             ORDER BY Id;
@@ -947,7 +952,10 @@ IF @AI > 0
         SET @AIModel = N'gpt-5-nano';
     
     IF @AIURL IS NULL OR @AIURL NOT LIKE N'http%'
-        SET @AIURL = N'https://api.openai.com/v1/chat/completions';
+        SET @AIURL = CASE 
+            WHEN @AIModel LIKE 'gemini%' THEN N'https://generativelanguage.googleapis.com/v1beta/models/' + @AIModel + N':generateContent'
+            ELSE N'https://api.openai.com/v1/chat/completions' /* Default to ChatGPT */
+            END;
 
     /* Try to guess the credential based on the root of their URL: */
     IF @AICredential IS NULL
@@ -963,7 +971,7 @@ IF @AI > 0
     
     Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.';
 
-    IF @AIURL LIKE 'https://generativelanguage.googleapis.com%' AND @AIPayloadTemplate IS NULL
+    IF @AIModel LIKE 'gemini%' AND @AIPayloadTemplate IS NULL
         SET @AIPayloadTemplate = N'{
           "contents": [
             {
@@ -990,20 +998,9 @@ IF @AI > 0
 
     IF @Debug = 2 OR (@AI = 1 AND (@AIModel IS NULL OR @AIURL IS NULL OR @AISystemPrompt IS NULL OR @AICredential IS NULL OR @AIPayloadTemplate IS NULL))
         BEGIN
-		    PRINT N'@AIModel: ';
-            PRINT @AIModel;
-		    PRINT N'@AIURL: ';
-            PRINT @AIURL;
-		    PRINT N'@AICredential: ';
-            PRINT @AICredential;
-		    PRINT N'@AIParameters: ';
-            PRINT @AIParameters;
-		    PRINT N'@AITimeoutSeconds: ';
-            PRINT @AITimeoutSeconds;
-		    PRINT N'@AISystemPrompt: ';
-            PRINT @AISystemPrompt;
-            PRINT N'@AIPayloadTemplate: ';
-            PRINT @AIPayloadTemplate;
+            SELECT @AIModel AS AIModel, @AIURL AS AIUrl, @AICredential AS AICredential,
+                @AIContext AS AIContext, @AIParameters AS AIParameters, @AITimeoutSeconds AS AITimeoutSeconds,
+                @AISystemPrompt AS AISystemPrompt, @AIPayloadTemplate AS AIPayloadTemplate;
         END;
 
     IF @AI = 1 AND (@AIModel IS NULL OR @AIURL IS NULL OR @AISystemPrompt IS NULL OR @AICredential IS NULL OR @AIPayloadTemplate IS NULL)
@@ -5290,7 +5287,7 @@ Thank you.'
 
                 /* Store the response in the the ai_advice column */
                 UPDATE ##BlitzCacheProcs
-                SET ai_advice = @AIAdviceText, ai_raw_response = @AIResponseJSON
+                SET ai_advice = @AIAdviceText, ai_raw_response = @AIResponseJSON, ai_payload = @AIPayload
                 WHERE SPID = @@SPID
                 AND ((@CurrentSqlHandle IS NOT NULL AND SqlHandle = @CurrentSqlHandle)
                      OR (@CurrentSqlHandle IS NULL AND SqlHandle IS NULL))
@@ -5311,7 +5308,7 @@ Thank you.'
 
                 -- Store the error message in ai_advice so the user knows what happened
                 UPDATE ##BlitzCacheProcs
-                SET ai_advice = @AIErrorMessage, ai_raw_response = @AIResponseJSON
+                SET ai_advice = @AIErrorMessage, ai_raw_response = @AIResponseJSON, ai_payload = @AIPayload
                 WHERE SPID = @@SPID
                 AND ((@CurrentSqlHandle IS NOT NULL AND SqlHandle = @CurrentSqlHandle)
                      OR (@CurrentSqlHandle IS NULL AND SqlHandle IS NULL))
@@ -5681,6 +5678,8 @@ BEGIN
         [AI Prompt] = (
             SELECT (@AISystemPrompt + NCHAR(13) + NCHAR(10) + NCHAR(13) + NCHAR(10) + ai_prompt) AS [text()] FOR XML PATH(''ai_prompt''), TYPE),' ELSE N'' END
         + CASE WHEN @AI = 1 THEN N'
+        [AI Payload] = CASE WHEN ai_payload IS NULL THEN NULL ELSE (
+            SELECT ai_payload AS [text()] FOR XML PATH(''ai_payload''), TYPE) END,
         [AI Raw Response] = CASE WHEN ai_raw_response IS NULL THEN NULL ELSE (
             SELECT ai_raw_response AS [text()] FOR XML PATH(''ai_raw_response''), TYPE) END, ' ELSE N'' END + N'
 		[Remove Plan Handle From Cache],
