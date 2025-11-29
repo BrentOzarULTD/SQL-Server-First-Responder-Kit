@@ -7632,6 +7632,10 @@ ELSE
 					AvgSpills MONEY,
 					QueryPlanCost FLOAT,
 					Pattern NVARCHAR(20),
+                    ai_prompt NVARCHAR(MAX),
+                    ai_advice NVARCHAR(MAX),
+                    ai_payload NVARCHAR(MAX),
+                    ai_raw_response NVARCHAR(MAX),
 					JoinKey AS ServerName + Cast(CheckDate AS NVARCHAR(50)),
 					CONSTRAINT [PK_' + REPLACE(REPLACE(@OutputTableName,N'[',N''),N']',N'') + N'] PRIMARY KEY CLUSTERED(ID ASC));'
 				  );
@@ -7749,6 +7753,70 @@ END ';
                     EXEC(@StringToExecute);
                 END            
             
+            /* If the table doesn't have the new ai_prompt column, add it. See Github #3669. */
+            SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+            SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''ai_prompt'')
+                ALTER TABLE ' + @ObjectFullName + N' ADD ai_prompt NVARCHAR(MAX) NULL;';
+            IF @ValidOutputServer = 1
+				BEGIN
+					SET @StringToExecute = REPLACE(@StringToExecute,'''ai_prompt''','''''ai_prompt''''');
+					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
+					EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+                END;
+            ELSE
+                BEGIN
+                    EXEC(@StringToExecute);
+                END;
+
+            /* If the table doesn't have the new ai_advice column, add it. See Github #3669. */
+            SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+            SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''ai_advice'')
+                ALTER TABLE ' + @ObjectFullName + N' ADD ai_advice NVARCHAR(MAX) NULL;';
+            IF @ValidOutputServer = 1
+				BEGIN
+					SET @StringToExecute = REPLACE(@StringToExecute,'''ai_advice''','''''ai_advice''''');
+					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
+					EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+                END;
+            ELSE
+                BEGIN
+                    EXEC(@StringToExecute);
+                END;
+
+            /* If the table doesn't have the new ai_payload column, add it. See Github #3669. */
+            SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+            SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''ai_payload'')
+                ALTER TABLE ' + @ObjectFullName + N' ADD ai_payload NVARCHAR(MAX) NULL;';
+            IF @ValidOutputServer = 1
+				BEGIN
+					SET @StringToExecute = REPLACE(@StringToExecute,'''ai_payload''','''''ai_payload''''');
+					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
+					EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+                END;
+            ELSE
+                BEGIN
+                    EXEC(@StringToExecute);
+                END;
+
+            /* If the table doesn't have the new ai_raw_response column, add it. See Github #3669. */
+            SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+            SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''ai_raw_response'')
+                ALTER TABLE ' + @ObjectFullName + N' ADD ai_raw_response NVARCHAR(MAX) NULL;';
+            IF @ValidOutputServer = 1
+				BEGIN
+					SET @StringToExecute = REPLACE(@StringToExecute,'''ai_raw_response''','''''ai_raw_response''''');
+					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
+					EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+                END;
+            ELSE
+                BEGIN
+                    EXEC(@StringToExecute);
+                END;
+
             IF @CheckDateOverride IS NULL
                 BEGIN
                     SET @CheckDateOverride = SYSDATETIMEOFFSET();
@@ -7768,14 +7836,14 @@ END ';
 					+ ' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
                     + ' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
                     + ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern ) '
+                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern, ai_prompt, ai_advice, ai_payload, ai_raw_response ) '
                     + 'SELECT TOP (@Top) '
                     + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), '''') + ', @CheckDateOverride, '
                     + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), '''') + ', '
                     + ' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
                     + ' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
                     + ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, CAST(QueryPlan AS NVARCHAR(MAX)), NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern '
+                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern, ai_prompt, ai_advice, ai_payload, ai_raw_response '
                     + ' FROM ##BlitzCacheProcs '
                     + ' WHERE 1=1 ';
 
@@ -7836,14 +7904,14 @@ END ';
 					+ ' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
                     + ' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
                     + ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern ) '
+                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern, ai_prompt, ai_advice, ai_payload, ai_raw_response ) '
                     + 'SELECT TOP (@Top) '
                     + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), '''') + ', @CheckDateOverride, '
                     + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), '''') + ', '
                     + ' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
                     + ' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
                     + ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern '
+                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern, ai_prompt, ai_advice, ai_payload, ai_raw_response '
                     + ' FROM ##BlitzCacheProcs '
                     + ' WHERE 1=1 ';
 
@@ -7985,22 +8053,26 @@ END ';
 						TotalSpills BIGINT,
 						AvgSpills MONEY,
 						QueryPlanCost FLOAT,
-						Pattern NVARCHAR(20),                    
-						JoinKey AS ServerName + Cast(CheckDate AS NVARCHAR(50)),
+						Pattern NVARCHAR(20),
+                        ai_prompt NVARCHAR(MAX),
+                        ai_advice NVARCHAR(MAX),
+                        ai_payload NVARCHAR(MAX),
+                        ai_raw_response NVARCHAR(MAX),
+                        JoinKey AS ServerName + Cast(CheckDate AS NVARCHAR(50)),
 						CONSTRAINT [PK_' + REPLACE(REPLACE(@OutputTableName,'[',''),']','') + '] PRIMARY KEY CLUSTERED(ID ASC));';
 					SET @StringToExecute +=	N' INSERT '
 						+ @OutputTableName
 						+ ' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
 						+ ' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
 						+ ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-						+ ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern ) '
+						+ ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern, ai_prompt, ai_advice, ai_payload, ai_raw_response ) '
 						+ 'SELECT TOP (@Top) '
 						+ QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), '''') + ', @CheckDateOverride, '
 						+ QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), '''') + ', '
 						+ ' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
 						+ ' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
 						+ ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-						+ ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern '
+						+ ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern, ai_prompt, ai_advice, ai_payload, ai_raw_response '
 						+ ' FROM ##BlitzCacheProcs '
 						+ ' WHERE 1=1 ';
                         
