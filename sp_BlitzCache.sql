@@ -5111,7 +5111,7 @@ BEGIN
     RAISERROR('Building AI prompts for query plans', 0, 1) WITH NOWAIT;
     
     /* Update ai_prompt column with query metrics for rows that have query plans */
-    UPDATE ##BlitzCacheProcs
+    UPDATE p
     SET ai_prompt = N'Here are the performance metrics we are seeing in production, as measured by the plan cache:
 
 Database: ' + ISNULL(DatabaseName, N'Unknown') + N'
@@ -5172,16 +5172,45 @@ Here are the warnings that popular query analysis tool sp_BlitzCache detected an
 Query Text (which is cut off for long queries):
 ' + ISNULL(LEFT(QueryText, 4000), N'N/A') + N'
 
+' + CASE WHEN QueryType LIKE N'Statement (parent%' THEN N' The above query is part of a batch, stored procedure, or function, so other queries may show up in the query plan. However, those other queries are irrelevant here. Focus on this specific query above, because it is one of the most resource-intensive queries in the batch. The execution plan below includes other statements in the batch, but ignore those and focus only the query above and its specific plan in the batch below. ' ELSE N' ' END + N'
+
 XML Execution Plan:
 ' + ISNULL(CAST(QueryPlan AS NVARCHAR(MAX)), N'N/A') + N'
 
 Thank you.'
-    WHERE SPID = @@SPID
-    AND QueryPlan IS NOT NULL
+    FROM ##BlitzCacheProcs p
+    WHERE p.SPID = @@SPID
+    AND p.QueryPlan IS NOT NULL
+    AND NOT (p.QueryType LIKE 'Procedure or Function:%'     /* This and the below exists query makes sure that we don't get advice for parent procs, only their statements, if the statements are in our result set. */
+        AND EXISTS
+        (
+            SELECT 1
+            FROM ##BlitzCacheProcs AS S
+            WHERE
+                S.SPID         = p.SPID
+                AND S.DatabaseName = p.DatabaseName
+                AND S.PlanHandle   = p.PlanHandle
+                AND S.QueryType LIKE 'Statement (parent %'
+                AND
+                    /* Procedure name from "Procedure or Function: [dbo].[usp_X]" */
+                    LTRIM(RTRIM(SUBSTRING(
+                        p.QueryType,
+                        CHARINDEX(':', p.QueryType) + 1,
+                        8000
+                    ))) =
+                    /* Procedure name from "Statement (parent [dbo].[usp_X])" */
+                    LTRIM(RTRIM(SUBSTRING(
+                        S.QueryType,
+                        LEN('Statement (parent ') + 1,
+                        CHARINDEX(')', S.QueryType, LEN('Statement (parent ') + 1)
+                          - (LEN('Statement (parent ') + 1)
+                    )))
+        )
+    )
     OPTION (RECOMPILE);
 
     IF @Debug = 2
-        SELECT 'Before Calling AI' AS ai_stage, SqlHandle, QueryHash, PlanHandle, QueryPlan, ai_prompt, ai_advice, ai_raw_response
+        SELECT 'After setting up ai_prompt, before calling AI' AS ai_stage, SqlHandle, QueryHash, PlanHandle, QueryPlan, ai_prompt, ai_advice, ai_raw_response
             FROM ##BlitzCacheProcs
             WHERE SPID = @@SPID;
         
@@ -5332,7 +5361,6 @@ Thank you.'
                 FROM ##BlitzCacheProcs
                 WHERE SPID = @@SPID;
         
-        RAISERROR('AI analysis complete', 0, 1) WITH NOWAIT;
     END;
     ELSE
     BEGIN
