@@ -2841,7 +2841,11 @@ BEGIN
 		missing_indexes XML,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX),
-		Pattern NVARCHAR(20)
+		Pattern NVARCHAR(20),
+        ai_prompt NVARCHAR(MAX),
+        ai_advice NVARCHAR(MAX),
+        ai_payload NVARCHAR(MAX),
+        ai_raw_response NVARCHAR(MAX)
     );
 END;
 ELSE
