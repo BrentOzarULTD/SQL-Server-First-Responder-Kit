@@ -261,7 +261,6 @@ If you want to add a new one, start at 273.
 | 200 | Performance | SSAS/SSIS/SSRS Installed | https://www.BrentOzar.com/go/services | 224 |
 | 200 | Reliability | Extended Stored Procedures in Master | https://www.BrentOzar.com/go/clr | 105 |
 | 200 | Reliability | Resumable Index Operation Paused | https://www.BrentOzar.com/go/resumable | 225 |
-| 200 | Surface Area | Endpoints Configured | https://www.BrentOzar.com/go/endpoints/ | 9 |
 | 210 | Non-Default Database Config | ANSI NULL Default Enabled | https://www.BrentOzar.com/go/dbdefaults | 135 |
 | 210 | Non-Default Database Config | Auto Create Stats Incremental Enabled | https://www.BrentOzar.com/go/dbdefaults | 134 |
 | 210 | Non-Default Database Config | Change Data Capture Enabled | https://www.BrentOzar.com/go/dbdefaults | 140 |
