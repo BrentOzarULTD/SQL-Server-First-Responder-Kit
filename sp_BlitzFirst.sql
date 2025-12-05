@@ -1792,7 +1792,9 @@ BEGIN
 
         IF EXISTS (SELECT * FROM sys.dm_exec_requests WHERE total_elapsed_time > 5000 AND request_id > 0)
            
-            DROP TABLE IF EXISTS #BlitzFirstTmpSession
+            IF OBJECT_ID('tempdb..#BlitzFirstTmpSession', 'U') IS NOT NULL
+				DROP TABLE #BlitzFirstTmpSession;
+
             SELECT DISTINCT  request_session_id, resource_database_id
             INTO #BlitzFirstTmpSession
             FROM    sys.dm_tran_locks
