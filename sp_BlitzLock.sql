@@ -1586,8 +1586,8 @@ BEGIN
             dp.event_date,
             proc_name = ca.dp.value('@procname', 'nvarchar(1024)'),
             sql_handle = ca.dp.value('@sqlhandle', 'nvarchar(131)'),
-            stmtstart = ca.dp.value('@stmtstart', 'nvarchar(131)'),
-            stmtend = ca.dp.value('@stmtend', 'nvarchar(131)')
+            stmtstart = ca.dp.value('@stmtstart', 'int'),
+            stmtend = ca.dp.value('@stmtend', 'int')
         INTO #deadlock_stack
         FROM #deadlock_process AS dp
         CROSS APPLY dp.process_xml.nodes('//executionStack/frame') AS ca(dp)
