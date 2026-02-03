@@ -42,12 +42,16 @@ INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
     /*2025*/
+    (17, 4006, 'CU1 v2', 'https://learn.microsoft.com/troubleshoot/sql/releases/sqlserver-2025/cumulativeupdate1', '2026-01-29', '2031-01-06', '2036-01-06', 'SQL Server 2025', 'Cumulative Update 1 v2'),
+    (17, 4005, 'CU1', 'https://learn.microsoft.com/troubleshoot/sql/releases/sqlserver-2025/cumulativeupdate1', '2026-01-15', '2031-01-06', '2036-01-06', 'SQL Server 2025', 'Cumulative Update 1 (Removed)'),
     (17, 1000, 'RTM', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-11-18', '2031-01-06', '2036-01-06', 'SQL Server 2025', 'RTM'),
     (17, 925, 'RC1', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-09-17', '2025-11-18', '2025-11-18', 'SQL Server 2025', 'Preview RC1'),
     (17, 900, 'RC0', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-08-20', '2025-11-18', '2025-11-18', 'SQL Server 2025', 'Preview RC0'),
     (17, 800, 'CTP 2.1', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-06-16', '2025-11-18', '2025-11-18', 'SQL Server 2025', 'Preview CTP 2.1'),
     (17, 700, 'CTP 2.0', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-05-19', '2025-11-18', '2025-11-18', 'SQL Server 2025', 'Preview CTP 2.0'),
     /*2022*/
+    (16, 4236, 'CU23 v2', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate23', '2026-01-29', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 23 v2'),
+    (16, 4235, 'CU23', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate23', '2026-01-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 23 (Removed)'),
     (16, 4225, 'CU22', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate22', '2025-11-13', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 22'),
     (16, 4215, 'CU21', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate21', '2025-09-11', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 21'),
     (16, 4205, 'CU20', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate20', '2025-07-10', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 20'),
@@ -77,6 +81,7 @@ VALUES
     (16, 1050, 'RTM GDR', 'https://support.microsoft.com/kb/5021522', '2023-02-14', '2028-01-11', '2033-01-11', 'SQL Server 2022 GDR', 'RTM'),
     (16, 1000, 'RTM', '', '2022-11-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'RTM'),
     /*2019*/
+    (15, 4455, 'CU32 GDR', 'https://support.microsoft.com/help/5068404', '2025-09-09', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 32 GDR'),
     (15, 4445, 'CU32 GDR', 'https://support.microsoft.com/kb/5065222', '2025-09-09', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 32 GDR'),
     (15, 4440, 'CU32 GDR', 'https://support.microsoft.com/kb/5063757', '2025-08-12', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 32 GDR'),
     (15, 4435, 'CU32 GDR', 'https://support.microsoft.com/kb/5058722', '2025-07-08', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 32 GDR'),
@@ -120,6 +125,7 @@ VALUES
     (15, 2070, 'GDR', 'https://support.microsoft.com/en-us/help/4517790', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM GDR '),
     (15, 2000, 'RTM ', '', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM '),
     /*2017*/
+    (14, 3515, 'RTM CU31 GDR', 'https://support.microsoft.com/help/5068402', '2025-09-09', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
     (14, 3505, 'RTM CU31 GDR', 'https://support.microsoft.com/kb/5065225', '2025-09-09', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
     (14, 3500, 'RTM CU31 GDR', 'https://support.microsoft.com/kb/5063759', '2025-08-12', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
     (14, 3495, 'RTM CU31 GDR', 'https://support.microsoft.com/kb/5058714', '2025-07-08', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
@@ -368,6 +374,7 @@ VALUES
     (11, 2218, 'RTM MS12-070: GDR Security Update', 'https://support.microsoft.com/en-us/help/2716442', '2012-10-09', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM MS12-070: GDR Security Update'),
     (11, 2100, 'RTM ', '', '2012-03-06', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM '),
     /*2008 R2*/
+    (10, 6560, 'SP3 GDR: January 6 2018', 'http://support.microsoft.com/help/4057113', '2015-07-14', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'SP3 GDR: January 6 2018'),
     (10, 6529, 'SP3 MS15-058: QFE Security Update', 'https://support.microsoft.com/en-us/help/3045314', '2015-07-14', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'Service Pack 3 MS15-058: QFE Security Update'),
     (10, 6220, 'SP3 MS15-058: QFE Security Update', 'https://support.microsoft.com/en-us/help/3045316', '2015-07-14', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'Service Pack 3 MS15-058: QFE Security Update'),
     (10, 6000, 'SP3 ', 'https://support.microsoft.com/en-us/help/2979597', '2014-09-26', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'Service Pack 3 '),

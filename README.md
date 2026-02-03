@@ -189,6 +189,7 @@ Other common parameters include:
 
 In addition to the [parameters common to many of the stored procedures](#parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_BlitzCache:
 
+* @AskAI - when set to 2, returns a prompt you can copy into your favorite LLM to get advice on the query. When set to 1, we'll actually call the LLM for you on SQL Server 2025 or newer, or Azure SQL DB. [Instructions on setting that up.](https://www.brentozar.com/archive/2025/12/get-chatgpts-advice-on-your-queries-with-sp_blitzcache/)
 * @OnlyQueryHashes - if you want to examine specific query plans, you can pass in a comma-separated list of them in a string.
 * @IgnoreQueryHashes - if you know some queries suck and you don't want to see them, you can pass in a comma-separated list of them.
 * @OnlySqlHandles, @IgnoreSqlHandles - just like the above two params

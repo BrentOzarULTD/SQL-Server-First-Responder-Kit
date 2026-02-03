@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 127
-If you want to add a new check, start at 128.
+CURRENT HIGH CHECKID: 128
+If you want to add a new check, start at 129.
 
 | Priority | FindingsGroup           | Finding                                                         | URL                                                                                            | CheckID |
 | -------- | ----------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------- |
@@ -36,6 +36,7 @@ If you want to add a new check, start at 128.
 | 100      | Indexes Worth Reviewing | Low Fill Factor on Nonclustered Index                           | https://www.brentozar.com/go/SelfLoathing                                                      | 40      |
 | 100      | Indexes Worth Reviewing | Medium Active Heap                                              | https://www.brentozar.com/go/SelfLoathing                                                      | 45      |
 | 100      | Indexes Worth Reviewing | Small Active Heap                                               | https://www.brentozar.com/go/SelfLoathing                                                      | 46      |
+| 100      | Indexes Worth Reviewing | Heap with PAGE compression                                      | https://vladdba.com/PageCompressedHeaps                                                        | 128     |
 | 100      | Forced Serialization    | Computed Column with Scalar UDF                                 | https://www.brentozar.com/go/serialudf                                                         | 99      |
 | 100      | Forced Serialization    | Check Constraint with Scalar UDF                                | https://www.brentozar.com/go/computedscalar                                                    | 94      |
 | 150      | Abnormal Design Pattern | Cascading Updates or Deletes                                    | https://www.brentozar.com/go/AbnormalPsychology                                                | 71      |

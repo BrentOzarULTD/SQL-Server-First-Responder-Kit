@@ -39,7 +39,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.28', @VersionDate = '20251124';
+	SELECT @Version = '8.29', @VersionDate = '20260203';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -3319,9 +3319,9 @@ AS
 										'Linked Server Configured' AS Finding ,
 										'https://www.brentozar.com/go/link' AS URL ,
 										+CASE WHEN l.remote_name = 'sa'
-											  THEN COALESCE(s.data_source, s.provider)
+											  THEN COALESCE(s.data_source, s.name, s.provider)
 												   + ' is configured as a linked server. Check its security configuration as it is connecting with sa, because any user who queries it will get admin-level permissions.'
-											  ELSE COALESCE(s.data_source, s.provider)
+											  ELSE COALESCE(s.data_source, s.name, s.provider)
 												   + ' is configured as a linked server. Check its security configuration to make sure it isn''t connecting with SA or some other bone-headed administrative login, because any user who queries it might get admin-level permissions.'
 										 END AS Details
 								FROM    sys.servers s
@@ -6802,8 +6802,8 @@ IF @ProductVersionMajor >= 10
 							       'https://www.BrentOzar.com/go/ag' AS URL,
 							       ag.name + N' AG replica server ' + 
 										ar.replica_server_name + N' is ' + 
-										CASE WHEN DATEDIFF(SECOND, drs.last_commit_time, ps.last_commit_time) < 200 THEN (CAST(DATEDIFF(SECOND, drs.last_commit_time, ps.last_commit_time) AS NVARCHAR(10)) + N' seconds ')
-										ELSE (CAST(DATEDIFF(MINUTE, drs.last_commit_time, ps.last_commit_time) AS NVARCHAR(10)) + N' minutes ') END
+										CASE WHEN DATEDIFF(SECOND, ISNULL (drs.last_commit_time, drs.Last_hardened_time), ps.last_commit_time) < 200 THEN (CAST(DATEDIFF(SECOND, drs.last_commit_time, ps.last_commit_time) AS NVARCHAR(10)) + N' seconds ')
+										ELSE (CAST(DATEDIFF(MINUTE, ISNULL (drs.last_commit_time, drs.Last_hardened_time), ps.last_commit_time) AS NVARCHAR(10)) + N' minutes ') END
 										+ N' behind the primary.'
 										AS details
 							FROM sys.dm_hadr_database_replica_states AS drs
@@ -6814,7 +6814,7 @@ IF @ProductVersionMajor >= 10
 								AND drs.database_id = ps.database_id
 								AND ps.is_local = 1 /* Primary */
 							WHERE drs.is_local = 0 /* Secondary */
-							  AND DATEDIFF(SECOND, drs.last_commit_time, ps.last_commit_time) > 60;
+							  AND DATEDIFF(SECOND,ISNULL (drs.last_commit_time, drs.Last_hardened_time), ps.last_commit_time) > 60
 					END;
 
 
@@ -10777,7 +10777,7 @@ AS
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
-SELECT @Version = '8.28', @VersionDate = '20251124';
+SELECT @Version = '8.29', @VersionDate = '20260203';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -11655,7 +11655,7 @@ AS
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.28', @VersionDate = '20251124';
+	SELECT @Version = '8.29', @VersionDate = '20260203';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -13390,7 +13390,11 @@ CREATE TABLE ##BlitzCacheProcs (
 		missing_indexes XML,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX),
-    	Pattern NVARCHAR(20)
+    	Pattern NVARCHAR(20),
+        ai_prompt NVARCHAR(MAX),
+        ai_advice NVARCHAR(MAX),
+        ai_payload NVARCHAR(MAX),
+        ai_raw_response NVARCHAR(MAX)
     );
 GO 
 
@@ -13425,9 +13429,14 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @SkipAnalysis BIT = 0 ,
     @BringThePain BIT = 0 ,
     @MinimumExecutionCount INT = 0,
-	@Debug BIT = 0,
+	@Debug TINYINT = 0, /* 0 = no debugging info, 1 = normal debugging info, 2 = AI debugging info */
 	@CheckDateOverride DATETIMEOFFSET = NULL,
 	@MinutesBack INT = NULL,
+    @AI TINYINT = 0, /* 1 = ask for advice, 2 = build prompt but don't actually call AI. Only works with a single query plan: automatically sets @ExpertMode = 1, @KeepCRLF = 1. */
+    @AIModel VARCHAR(200) = NULL, /* Defaults to gpt-4.1-mini */
+    @AIURL VARCHAR(200) = NULL, /* Defaults to https://api.openai.com/v1/chat/completions */
+    @AICredential VARCHAR(200) = NULL, /* Defaults to 'https://api.openai.com/' or the root of your AIURL, trailing slash included */
+    @AIConfig NVARCHAR(500) = NULL, /* Table where AI config data is stored - can be in the format db.schema.table, schema.table, or just table. */
 	@Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
 	@VersionCheckMode BIT = 0,
@@ -13439,7 +13448,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.28', @VersionDate = '20251124';
+SELECT @Version = '8.29', @VersionDate = '20260203';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -13457,19 +13466,13 @@ IF @Help = 1
 	This script displays your most resource-intensive queries from the plan cache,
 	and points to ways you can tune these queries to make them faster.
 
-
 	To learn more, visit http://FirstResponderKit.org where you can download new
 	versions for free, watch training videos on how it works, get more info on
 	the findings, contribute your own code, and more.
 
 	Known limitations of this version:
-	 - SQL Server 2008 and 2008R2 have a bug in trigger stats, so that output is
-	   excluded by default.
 	 - @IgnoreQueryHashes and @OnlyQueryHashes require a CSV list of hashes
 	   with no spaces between the hash values.
-
-	Unknown limitations of this version:
-	 - May or may not be vulnerable to the wick effect.
 
 	Changes - for the full list of improvements and fixes in this version, see:
 	https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/
@@ -13621,12 +13624,32 @@ IF @Help = 1
 	UNION ALL
 	SELECT N'@Debug',
 			N'BIT',
-			N'Setting this to 1 will print dynamic SQL and select data from all tables used.'
+			N'Setting this to 1 will print dynamic SQL and select data from all tables used. Setting to 2 will debug AI calls.'
 
 	UNION ALL
 	SELECT N'@MinutesBack',
 			N'INT',
 			N'How many minutes back to begin plan cache analysis. If you put in a positive number, we''ll flip it to negative.'
+
+	UNION ALL
+	SELECT N'@AI',
+			N'TINYINT',
+			N'1 = ask for advice. Only works with a single query plan for now. Automatically sets @ExpertMode = 1, @KeepCRLF = 1.'
+
+	UNION ALL
+	SELECT N'@AIModel',
+			N'VARCHAR(200)',
+			N'Defaults to gpt-4.1-mini. Can accept other models, or if you have a dbo.AI_Services table, we will look up services there.'
+
+	UNION ALL
+	SELECT N'@AIURL',
+			N'VARCHAR(200)',
+			N'Defaults to https://api.openai.com/v1/chat/completions. Can accept other URLs, or if you have a dbo.AI_Services table, we will look up services there.'
+
+	UNION ALL
+	SELECT N'@AICredential',
+			N'VARCHAR(200)',
+			N'The database scoped credential that you configured. Defaults to https://api.openai.com/ or the root URL of your @AIURL, trailing slash included. Must be a subset of the @AIURL parameter.'
 
 	UNION ALL
 	SELECT N'@Version',
@@ -13879,7 +13902,12 @@ IF @Help = 1
 	UNION ALL
 	SELECT N'Warnings',
 			N'VARCHAR(MAX)',
-			N'A list of individual warnings generated by this query.' ;
+			N'A list of individual warnings generated by this query.'
+
+	UNION ALL
+	SELECT N'AI Advice',
+			N'NVARCHAR(MAX)',
+			N'If called with @AI parameters, the results from your AI provider.' ;
 
 
            
@@ -13917,7 +13945,14 @@ IF @Help = 1
 	SELECT N'Unused Memory Grant Warning' AS [Configuration Parameter] ,
 			N'10' ,
 			N'Percent' ,
-			N'Triggers an "Unused Memory Grant Warning" when a query uses >= X percent of its memory grant.';
+			N'Triggers an "Unused Memory Grant Warning" when a query uses >= X percent of its memory grant.'
+
+	UNION ALL
+	SELECT N'AIModel Default' AS [Configuration Parameter] ,
+			N'1' ,
+			N'URL' ,
+			N'Default provider is https://api.openai.com/v1/chat/completions. Override goes in the value_varchar_1, override system prompt in value_varchar_2. We use the lowest value column first.'
+
 	RETURN;
 	END; /* IF @Help = 1  */
 
@@ -13950,7 +13985,6 @@ BEGIN
     SET @HideSummary = 1;
 END;
 
-
 /* Lets get @SortOrder set to lower case here for comparisons later */
 SET @SortOrder = LOWER(@SortOrder);
 
@@ -13970,6 +14004,168 @@ IF (
    BEGIN
          SET @Top = 10;
    END;
+
+
+IF OBJECT_ID ('tempdb..#configuration') IS NOT NULL
+    DROP TABLE #configuration;
+
+CREATE TABLE #configuration (
+    parameter_name VARCHAR(100),
+    value DECIMAL(38,0)
+);
+
+DECLARE @config_sql NVARCHAR(MAX)
+IF @ConfigurationDatabaseName IS NOT NULL
+BEGIN
+   RAISERROR(N'Reading values from Configuration Table', 0, 1) WITH NOWAIT;
+   SET @config_sql = N'INSERT INTO #configuration SELECT parameter_name, value FROM '
+        + QUOTENAME(@ConfigurationDatabaseName)
+        + '.' + QUOTENAME(@ConfigurationSchemaName)
+        + '.' + QUOTENAME(@ConfigurationTableName)
+        + ' ; ' ;
+   EXEC(@config_sql);
+END;
+
+CREATE TABLE #ai_configuration
+(Id INT PRIMARY KEY CLUSTERED,
+ AI_Model NVARCHAR(100) INDEX AI_Model,
+ AI_URL NVARCHAR(500),
+ AI_Database_Scoped_Credential_Name NVARCHAR(500),
+ AI_System_Prompt_Override NVARCHAR(4000),
+ AI_Parameters NVARCHAR(4000),
+ Payload_Template_Override NVARCHAR(4000),
+ Timeout_Seconds TINYINT,
+ Context INT,
+ DefaultModel BIT DEFAULT 0);
+
+DECLARE
+    @AIConfigDatabaseName NVARCHAR(128) = CASE WHEN @AIConfig IS NULL THEN NULL ELSE PARSENAME(@AIConfig, 3) END,
+    @AIConfigSchemaName NVARCHAR(258) = CASE WHEN @AIConfig IS NULL THEN NULL ELSE PARSENAME(@AIConfig, 2) END,
+    @AIConfigTableName NVARCHAR(258) = CASE WHEN @AIConfig IS NULL THEN NULL ELSE PARSENAME(@AIConfig, 1) END,
+    @AISystemPrompt NVARCHAR(4000),
+    @AIParameters NVARCHAR(4000),
+    @AIPayloadTemplate NVARCHAR(MAX),
+    @AITimeoutSeconds TINYINT,
+    @AIAdviceText NVARCHAR(MAX),
+    @AIContext INT;
+
+
+IF @AIConfig IS NOT NULL
+BEGIN
+   RAISERROR(N'Reading values from AI Configuration Table', 0, 1) WITH NOWAIT;
+   SET @config_sql = N'INSERT INTO #ai_configuration (Id, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_System_Prompt_Override, AI_Parameters, Payload_Template_Override, Timeout_Seconds, Context, DefaultModel)
+        SELECT Id, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_System_Prompt_Override, AI_Parameters, Payload_Template_Override, Timeout_Seconds, Context, DefaultModel FROM '
+        + CASE WHEN @AIConfigDatabaseName IS NOT NULL THEN (QUOTENAME(@AIConfigDatabaseName) + N'.') ELSE N'' END
+        + CASE WHEN @AIConfigSchemaName IS NOT NULL THEN (QUOTENAME(@AIConfigSchemaName) + N'.') ELSE N'' END
+        + QUOTENAME(@AIConfigTableName) + N' WHERE (@AIModel IS NULL AND DefaultModel = 1) OR @AIModel IN (AI_Model, Nickname) ; ';
+   EXEC sp_executesql @config_sql, N'@AIModel NVARCHAR(100)', @AIModel;
+END;
+
+
+IF @AI > 0
+    BEGIN
+    RAISERROR(N'Setting up AI configuration defaults', 0, 1) WITH NOWAIT;
+
+    SELECT @ExpertMode = 1, @KeepCRLF = 1;
+
+    IF @Debug = 2
+        SELECT N'ai_configuration' AS TableLabel, * FROM #ai_configuration;
+
+    IF @AI = 1 AND NOT EXISTS(SELECT * FROM sys.all_objects WHERE name = 'sp_invoke_external_rest_endpoint')
+        BEGIN
+        /* If someone was ambitious and they wanted to code a drop-in replacement for that stored proc,
+        and use it in earlier versions of SQL Server, they could, and just use the same name and
+        parameters, and we'd use it. I'm not coding support for different proc names. */
+        SET @AI = 2
+        RAISERROR(N'@AI was set to 1, but sp_invoke_external_rest_endpoint does not exist here, so we can''t call AI services. Setting @AI to 2 instead to just generate prompts.', 0, 1) WITH NOWAIT;
+        END
+
+    IF @AIModel IS NULL
+        /* Check the config table */
+        SELECT TOP 1 @AIModel = AI_Model, @AIURL = AI_URL,
+            @AICredential = AI_Database_Scoped_Credential_Name,
+            @AISystemPrompt = AI_System_Prompt_Override,
+            @AIParameters = AI_Parameters,
+            @AITimeoutSeconds = COALESCE(Timeout_Seconds, 230),
+            @AIContext = Context,
+            @AIPayloadTemplate = Payload_Template_Override
+            FROM #ai_configuration
+            WHERE DefaultModel = 1
+            ORDER BY Id;
+    ELSE
+        SELECT TOP 1 @AIModel = AI_Model, 
+            @AIURL = COALESCE(@AIURL, AI_URL),
+            @AICredential = COALESCE(@AICredential, AI_Database_Scoped_Credential_Name),
+            @AISystemPrompt = AI_System_Prompt_Override,
+            @AIParameters = AI_Parameters,
+            @AITimeoutSeconds = COALESCE(Timeout_Seconds, 230),
+            @AIContext = Context,
+            @AIPayloadTemplate = Payload_Template_Override
+            FROM #ai_configuration
+            ORDER BY Id;
+        
+    IF @AIModel IS NULL
+        SET @AIModel = N'gpt-5-nano';
+    
+    IF @AIURL IS NULL OR @AIURL NOT LIKE N'http%'
+        SET @AIURL = CASE 
+            WHEN @AIModel LIKE 'gemini%' THEN N'https://generativelanguage.googleapis.com/v1beta/models/' + @AIModel + N':generateContent'
+            ELSE N'https://api.openai.com/v1/chat/completions' /* Default to ChatGPT */
+            END;
+
+    /* Try to guess the credential based on the root of their URL: */
+    IF @AICredential IS NULL
+        SET @AICredential = LEFT(@AIURL, CHARINDEX('/', @AIURL, CHARINDEX('://', @AIURL) + 3));
+
+    IF @AITimeoutSeconds IS NULL OR @AITimeoutSeconds < 1 OR @AITimeoutSeconds > 230
+        SET @AITimeoutSeconds = 230;
+
+    IF @AISystemPrompt IS NULL OR @AISystemPrompt = N''
+        SET @AISystemPrompt = N'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
+
+    You have a query that isn''t performing to end user expectations. You have been tasked with making serious improvements to it, quickly. You are not allowed to change server-level settings or make frivolous suggestions like updating statistics. Instead, you need to focus on query changes or index changes. 
+    
+    Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.';
+
+    IF @AIModel LIKE 'gemini%' AND @AIPayloadTemplate IS NULL
+        SET @AIPayloadTemplate = N'{
+          "contents": [
+            {
+              "parts": [
+                {"text": "@AISystemPrompt @CurrentAIPrompt"}
+              ]
+            }
+          ]
+        }';
+    ELSE IF @AIPayloadTemplate IS NULL /* Default to ChatGPT format */
+        SET @AIPayloadTemplate = N'{
+                    "model": "@AIModel",
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "@AISystemPrompt"
+                        },
+                        {
+                            "role": "user",
+                            "content": "@CurrentAIPrompt"
+                        }
+                    ]
+                }';
+
+    IF @Debug = 2 OR (@AI = 1 AND (@AIModel IS NULL OR @AIURL IS NULL OR @AISystemPrompt IS NULL OR @AICredential IS NULL OR @AIPayloadTemplate IS NULL))
+        BEGIN
+            SELECT @AIModel AS AIModel, @AIURL AS AIUrl, @AICredential AS AICredential,
+                @AIContext AS AIContext, @AIParameters AS AIParameters, @AITimeoutSeconds AS AITimeoutSeconds,
+                @AISystemPrompt AS AISystemPrompt, @AIPayloadTemplate AS AIPayloadTemplate;
+        END;
+
+    IF @AI = 1 AND (@AIModel IS NULL OR @AIURL IS NULL OR @AISystemPrompt IS NULL OR @AICredential IS NULL OR @AIPayloadTemplate IS NULL)
+        BEGIN
+            RAISERROR('@AI is set to 1, but not all of the necessary configuration is included.',12,1);
+            RETURN;
+        END;
+
+    END
 
 
 /* If they want to sort by query hash, populate the @OnlyQueryHashes list for them */
@@ -14043,9 +14239,9 @@ BEGIN
     RETURN;
 END;
 
-RAISERROR(N'Checking @MinutesBack validity.', 0, 1) WITH NOWAIT;
 IF @MinutesBack IS NOT NULL
     BEGIN
+        RAISERROR(N'Checking @MinutesBack validity.', 0, 1) WITH NOWAIT;
         IF @MinutesBack > 0
             BEGIN
                 RAISERROR(N'Setting @MinutesBack to a negative number', 0, 1) WITH NOWAIT;
@@ -14073,12 +14269,14 @@ DECLARE @DurationFilter_i INT,
         @user_perm_percent DECIMAL(10,2),
         @is_tokenstore_big BIT = 0,
         @sort NVARCHAR(MAX) = N'',
-		@sort_filter NVARCHAR(MAX) = N'';
+		@sort_filter NVARCHAR(MAX) = N'',
+        @AIPayload NVARCHAR(MAX),
+        @AIResponse NVARCHAR(MAX);
 
 
 IF @SortOrder = 'sp_BlitzIndex'
 BEGIN
-	RAISERROR(N'OUTSTANDING!', 0, 1) WITH NOWAIT;
+	RAISERROR(N'Called for sp_BlitzIndex', 0, 1) WITH NOWAIT;
 	SET @SortOrder = 'reads';
 	SET @NoobSaibot = 1;
 
@@ -14214,9 +14412,6 @@ IF OBJECT_ID('tempdb..#p') IS NOT NULL
 IF OBJECT_ID ('tempdb..#checkversion') IS NOT NULL
     DROP TABLE #checkversion;
 
-IF OBJECT_ID ('tempdb..#configuration') IS NOT NULL
-    DROP TABLE #configuration;
-
 IF OBJECT_ID ('tempdb..#stored_proc_info') IS NOT NULL
     DROP TABLE #stored_proc_info;
 
@@ -14300,11 +14495,6 @@ CREATE TABLE #checkversion (
     minor AS PARSENAME(CONVERT(VARCHAR(32), version), 3),
     build AS PARSENAME(CONVERT(VARCHAR(32), version), 2),
     revision AS PARSENAME(CONVERT(VARCHAR(32), version), 1)
-);
-
-CREATE TABLE #configuration (
-    parameter_name VARCHAR(100),
-    value DECIMAL(38,0)
 );
 
 CREATE TABLE #plan_creation
@@ -14886,17 +15076,6 @@ BEGIN
 			   OPTION (RECOMPILE) ;
         END;
    END;
-END;
-
-IF @ConfigurationDatabaseName IS NOT NULL
-BEGIN
-   RAISERROR(N'Reading values from Configuration Database', 0, 1) WITH NOWAIT;
-   DECLARE @config_sql NVARCHAR(MAX) = N'INSERT INTO #configuration SELECT parameter_name, value FROM '
-        + QUOTENAME(@ConfigurationDatabaseName)
-        + '.' + QUOTENAME(@ConfigurationSchemaName)
-        + '.' + QUOTENAME(@ConfigurationTableName)
-        + ' ; ' ;
-   EXEC(@config_sql);
 END;
 
 RAISERROR(N'Setting up variables', 0, 1) WITH NOWAIT;
@@ -15818,7 +15997,11 @@ BEGIN
 		missing_indexes XML,
         SetOptions VARCHAR(MAX),
         Warnings VARCHAR(MAX),
-		Pattern NVARCHAR(20)
+		Pattern NVARCHAR(20),
+        ai_prompt NVARCHAR(MAX),
+        ai_advice NVARCHAR(MAX),
+        ai_payload NVARCHAR(MAX),
+        ai_raw_response NVARCHAR(MAX)
     );
 END;
 ELSE
@@ -18081,6 +18264,280 @@ AND SPID = @@SPID
 OPTION (RECOMPILE);
 
 
+
+/* Artificial Intelligence: Like Sony Aibo, But For Your Database */
+IF @AI >= 1
+BEGIN
+    RAISERROR('Building AI prompts for query plans', 0, 1) WITH NOWAIT;
+    
+    /* Update ai_prompt column with query metrics for rows that have query plans */
+    UPDATE p
+    SET ai_prompt = N'Here are the performance metrics we are seeing in production, as measured by the plan cache:
+
+Database: ' + ISNULL(DatabaseName, N'Unknown') + N'
+Query Type: ' + ISNULL(QueryType, N'Unknown') + N'
+Execution Count: ' + ISNULL(CAST(ExecutionCount AS NVARCHAR(30)), N'N/A') + N'
+Executions Per Minute: ' + ISNULL(CAST(ExecutionsPerMinute AS NVARCHAR(30)), N'N/A') + N'
+
+CPU Metrics:
+- Total CPU (ms): ' + ISNULL(CAST(TotalCPU AS NVARCHAR(30)), N'N/A') + N'
+- Average CPU (ms): ' + ISNULL(CAST(AverageCPU AS NVARCHAR(30)), N'N/A') + N'
+- Min Worker Time (ms): ' + ISNULL(CAST(min_worker_time AS NVARCHAR(30)), N'N/A') + N'
+- Max Worker Time (ms): ' + ISNULL(CAST(max_worker_time AS NVARCHAR(30)), N'N/A') + N'
+
+Duration Metrics:
+- Total Duration (ms): ' + ISNULL(CAST(TotalDuration AS NVARCHAR(30)), N'N/A') + N'
+- Average Duration (ms): ' + ISNULL(CAST(AverageDuration AS NVARCHAR(30)), N'N/A') + N'
+- Min Elapsed Time (ms): ' + ISNULL(CAST(min_elapsed_time AS NVARCHAR(30)), N'N/A') + N'
+- Max Elapsed Time (ms): ' + ISNULL(CAST(max_elapsed_time AS NVARCHAR(30)), N'N/A') + N'
+
+I/O Metrics:
+- Total Reads: ' + ISNULL(CAST(TotalReads AS NVARCHAR(30)), N'N/A') + N'
+- Average Reads: ' + ISNULL(CAST(AverageReads AS NVARCHAR(30)), N'N/A') + N'
+- Total Writes: ' + ISNULL(CAST(TotalWrites AS NVARCHAR(30)), N'N/A') + N'
+- Average Writes: ' + ISNULL(CAST(AverageWrites AS NVARCHAR(30)), N'N/A') + N'
+
+Row Statistics:
+- Total Returned Rows: ' + ISNULL(CAST(TotalReturnedRows AS NVARCHAR(30)), N'N/A') + N'
+- Average Returned Rows: ' + ISNULL(CAST(AverageReturnedRows AS NVARCHAR(30)), N'N/A') + N'
+- Min Returned Rows: ' + ISNULL(CAST(MinReturnedRows AS NVARCHAR(30)), N'N/A') + N'
+- Max Returned Rows: ' + ISNULL(CAST(MaxReturnedRows AS NVARCHAR(30)), N'N/A') + N'
+- Estimated Rows: ' + ISNULL(CAST(estimated_rows AS NVARCHAR(30)), N'N/A') + N'
+
+Memory Grant Info:
+- Min Grant KB: ' + ISNULL(CAST(MinGrantKB AS NVARCHAR(30)), N'N/A') + N'
+- Max Grant KB: ' + ISNULL(CAST(MaxGrantKB AS NVARCHAR(30)), N'N/A') + N'
+- Min Used Grant KB: ' + ISNULL(CAST(MinUsedGrantKB AS NVARCHAR(30)), N'N/A') + N'
+- Max Used Grant KB: ' + ISNULL(CAST(MaxUsedGrantKB AS NVARCHAR(30)), N'N/A') + N'
+- Percent Memory Grant Used: ' + ISNULL(CAST(PercentMemoryGrantUsed AS NVARCHAR(30)), N'N/A') + N'%
+
+Spill Info:
+- Min Spills: ' + ISNULL(CAST(MinSpills AS NVARCHAR(30)), N'N/A') + N'
+- Max Spills: ' + ISNULL(CAST(MaxSpills AS NVARCHAR(30)), N'N/A') + N'
+- Total Spills: ' + ISNULL(CAST(TotalSpills AS NVARCHAR(30)), N'N/A') + N'
+- Avg Spills: ' + ISNULL(CAST(AvgSpills AS NVARCHAR(30)), N'N/A') + N'
+
+Plan Info:
+- Query Plan Cost: ' + ISNULL(CAST(QueryPlanCost AS NVARCHAR(30)), N'N/A') + N'
+- Plan Creation Time: ' + ISNULL(CONVERT(NVARCHAR(30), PlanCreationTime, 120), N'N/A') + N'
+- Plan Age (hours): ' + ISNULL(CAST(PlanCreationTimeHours AS NVARCHAR(30)), N'N/A') + N'
+- Last Execution Time: ' + ISNULL(CONVERT(NVARCHAR(30), LastExecutionTime, 120), N'N/A') + N'
+- Number of Plans: ' + ISNULL(CAST(NumberOfPlans AS NVARCHAR(30)), N'N/A') + N'
+- Number of Distinct Plans: ' + ISNULL(CAST(NumberOfDistinctPlans AS NVARCHAR(30)), N'N/A') + N'
+- Is Parallel: ' + CASE WHEN is_parallel = 1 THEN N'Yes' ELSE N'No' END + N'
+- Is Trivial Plan: ' + CASE WHEN is_trivial = 1 THEN N'Yes' ELSE N'No' END + N'
+
+Here are the warnings that popular query analysis tool sp_BlitzCache detected and suggested that we focus on - although there may be more issues, too: ' + ISNULL(Warnings, N'None') + N'
+
+Query Text (which is cut off for long queries):
+' + ISNULL(LEFT(QueryText, 4000), N'N/A') + N'
+
+' + CASE WHEN QueryType LIKE N'Statement (parent%' THEN N' The above query is part of a batch, stored procedure, or function, so other queries may show up in the query plan. However, those other queries are irrelevant here. Focus on this specific query above, because it is one of the most resource-intensive queries in the batch. The execution plan below includes other statements in the batch, but ignore those and focus only the query above and its specific plan in the batch below. ' ELSE N' ' END + N'
+
+XML Execution Plan:
+' + ISNULL(CAST(QueryPlan AS NVARCHAR(MAX)), N'N/A') + N'
+
+Thank you.'
+    FROM ##BlitzCacheProcs p
+    WHERE p.SPID = @@SPID
+    AND p.QueryPlan IS NOT NULL
+    AND NOT (p.QueryType LIKE 'Procedure or Function:%'     /* This and the below exists query makes sure that we don't get advice for parent procs, only their statements, if the statements are in our result set. */
+        AND EXISTS
+        (
+            SELECT 1
+            FROM ##BlitzCacheProcs AS S
+            WHERE
+                S.SPID         = p.SPID
+                AND S.DatabaseName = p.DatabaseName
+                AND S.PlanHandle   = p.PlanHandle
+                AND S.QueryType LIKE 'Statement (parent %'
+                AND
+                    /* Procedure name from "Procedure or Function: [dbo].[usp_X]" */
+                    LTRIM(RTRIM(SUBSTRING(
+                        p.QueryType,
+                        CHARINDEX(':', p.QueryType) + 1,
+                        8000
+                    ))) =
+                    /* Procedure name from "Statement (parent [dbo].[usp_X])" */
+                    LTRIM(RTRIM(SUBSTRING(
+                        S.QueryType,
+                        LEN('Statement (parent ') + 1,
+                        CHARINDEX(')', S.QueryType, LEN('Statement (parent ') + 1)
+                          - (LEN('Statement (parent ') + 1)
+                    )))
+        )
+    )
+    OPTION (RECOMPILE);
+
+    IF @Debug = 2
+        SELECT 'After setting up ai_prompt, before calling AI' AS ai_stage, SqlHandle, QueryHash, PlanHandle, QueryPlan, ai_prompt, ai_advice, ai_raw_response
+            FROM ##BlitzCacheProcs
+            WHERE SPID = @@SPID;
+        
+    IF @AI = 1
+    BEGIN
+        RAISERROR('Calling AI endpoint for query plan analysis - starting loop', 0, 1) WITH NOWAIT;
+
+        DECLARE @CurrentSqlHandle VARBINARY(64);
+        DECLARE @CurrentQueryHash BINARY(8);
+        DECLARE @CurrentPlanHandle VARBINARY(64);
+        DECLARE @CurrentAIPrompt NVARCHAR(MAX);
+        DECLARE @CurrentQueryClipped NVARCHAR(200);
+        DECLARE @AIResponseJSON NVARCHAR(MAX);
+        DECLARE @AIReturnValue INT;
+        DECLARE @AIErrorMessage NVARCHAR(4000);
+        
+        DECLARE ai_cursor CURSOR LOCAL FAST_FORWARD FOR
+        SELECT DISTINCT SqlHandle, QueryHash, PlanHandle, ai_prompt, COALESCE(QueryType, N'') + N' - ' + LEFT(QueryText, 100)
+        FROM ##BlitzCacheProcs
+        WHERE SPID = @@SPID
+        AND QueryPlan IS NOT NULL
+        AND ai_prompt IS NOT NULL;
+        
+        OPEN ai_cursor;
+        
+        FETCH NEXT FROM ai_cursor INTO @CurrentSqlHandle, @CurrentQueryHash, @CurrentPlanHandle, @CurrentAIPrompt, @CurrentQueryClipped;
+        
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            BEGIN TRY
+                SET @AIResponseJSON = NULL;
+                SET @AIResponse = NULL;
+                
+                /* Build payload using the template. */
+                SET @AIPayload = REPLACE(@AIPayloadTemplate, N'@AIModel', @AIModel);
+                SET @AIPayload = REPLACE(@AIPayload, N'@AISystemPrompt',  REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(@AISystemPrompt, '\', '\\'), '"', '\"'), CHAR(13), '\r'), CHAR(10), '\n'), CHAR(9), '\t'));
+                SET @AIPayload = REPLACE(@AIPayload, N'@CurrentAIPrompt',  REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(@CurrentAIPrompt, '\', '\\'), '"', '\"'), CHAR(13), '\r'), CHAR(10), '\n'), CHAR(9), '\t'));
+                --SET @AIPayload = REPLACE(@AIPayload, N'@CurrentAIPrompt', @CurrentAIPrompt);
+                
+                IF @Debug = 2
+                BEGIN
+                    SELECT @CurrentQueryClipped AS CurrentQueryClipped, @AIPayload AS AIPayload, 
+                        LEN(@AIPayload) AS AIPayload_Length, DATALENGTH(@AIPayload) AS AIPayload_DataLength;
+                END;
+                
+                RAISERROR('Calling AI endpoint for query plan analysis on query: ', 0, 1) WITH NOWAIT;
+                RAISERROR(@CurrentQueryClipped, 0, 1) WITH NOWAIT;
+
+                EXEC @AIReturnValue = sp_invoke_external_rest_endpoint
+                    @url = @AIURL,
+                    @method = 'POST',
+                    @payload = @AIPayload,
+                    @headers = N'{"Content-Type":"application/json"}',
+                    @credential = @AICredential,
+                    @timeout = @AITimeoutSeconds,
+                    @response = @AIResponseJSON OUTPUT;
+
+                
+                IF @Debug = 2
+                BEGIN
+                    PRINT N'API Response (first 4000 chars): ' + @nl + LEFT(ISNULL(@AIResponseJSON, N'NULL'), 4000);
+                END;
+
+                /* Parse the response to extract the AI's advice
+                OpenAI format: {"choices":[{"message":{"content":"..."}}]} */
+                IF @AIResponseJSON IS NOT NULL
+                BEGIN
+                    /* Try OpenAI ChatGPT chat completion by default: */
+                    SET @AIAdviceText = (SELECT c.Content
+                        FROM OPENJSON(@AIResponseJSON, '$.result.choices')
+                        WITH (
+                            Content nvarchar(max) '$.message.content'
+                        ) AS c);
+
+                    /* No data? How about Google Gemini: */
+                    IF @AIAdviceText IS NULL
+                        SET @AIAdviceText = (SELECT TOP 1 p.[text]
+                            FROM OPENJSON(@AIResponseJSON, '$.result.candidates') AS cand
+                            CROSS APPLY OPENJSON(cand.value, '$.content.parts')
+                                   WITH ([text] nvarchar(max) '$.text') AS p);
+
+
+                    /* If we still couldn't parse it, check for error codes */
+                    IF @AIAdviceText IS NULL
+                    BEGIN
+                        DECLARE @ErrorMessage NVARCHAR(MAX);
+                        SELECT @ErrorMessage = JSON_VALUE(@AIResponseJSON, '$.result.error.message');
+                    
+                        IF @ErrorMessage IS NULL
+                            SELECT @ErrorMessage = JSON_VALUE(@AIResponseJSON, '$.error.message');
+                    
+                        IF @ErrorMessage IS NOT NULL
+                            SET @AIAdviceText = N'API Error: ' + @ErrorMessage;
+                        ELSE
+                            SET @AIAdviceText = N'Unable to parse API response. Raw response stored for debugging.';
+                    END;
+                END
+                ELSE
+                BEGIN
+                    SET @AIAdviceText = N'No response received from AI service.';
+                END;
+
+                /* Store the response in the the ai_advice column */
+                UPDATE ##BlitzCacheProcs
+                SET ai_advice = @AIAdviceText, ai_raw_response = @AIResponseJSON, ai_payload = @AIPayload
+                WHERE SPID = @@SPID
+                AND ((@CurrentSqlHandle IS NOT NULL AND SqlHandle = @CurrentSqlHandle)
+                     OR (@CurrentSqlHandle IS NULL AND SqlHandle IS NULL))
+                AND ((@CurrentQueryHash IS NOT NULL AND QueryHash = @CurrentQueryHash)
+                     OR (@CurrentQueryHash IS NULL AND QueryHash IS NULL))
+                AND ((@CurrentPlanHandle IS NOT NULL AND PlanHandle = @CurrentPlanHandle)
+                     OR (@CurrentPlanHandle IS NULL AND PlanHandle IS NULL))
+                OPTION (RECOMPILE);
+
+            END TRY
+            BEGIN CATCH
+                SET @AIErrorMessage = N'Error calling AI service: ' + ERROR_MESSAGE();
+            
+                IF @Debug = 1
+                BEGIN
+                    PRINT @AIErrorMessage;
+                END;
+
+                -- Store the error message in ai_advice so the user knows what happened
+                UPDATE ##BlitzCacheProcs
+                SET ai_advice = @AIErrorMessage, ai_raw_response = @AIResponseJSON, ai_payload = @AIPayload
+                WHERE SPID = @@SPID
+                AND ((@CurrentSqlHandle IS NOT NULL AND SqlHandle = @CurrentSqlHandle)
+                     OR (@CurrentSqlHandle IS NULL AND SqlHandle IS NULL))
+                AND ((@CurrentQueryHash IS NOT NULL AND QueryHash = @CurrentQueryHash)
+                     OR (@CurrentQueryHash IS NULL AND QueryHash IS NULL))
+                AND ((@CurrentPlanHandle IS NOT NULL AND PlanHandle = @CurrentPlanHandle)
+                     OR (@CurrentPlanHandle IS NULL AND PlanHandle IS NULL))
+                OPTION (RECOMPILE);
+            END CATCH;
+
+            FETCH NEXT FROM ai_cursor INTO @CurrentSqlHandle, @CurrentQueryHash, @CurrentPlanHandle, @CurrentAIPrompt, @CurrentQueryClipped;
+        END;
+
+        CLOSE ai_cursor;
+        DEALLOCATE ai_cursor;
+
+        RAISERROR('AI analysis complete', 0, 1) WITH NOWAIT;
+                        
+        IF @Debug = 2
+            SELECT 'After Calling AI' AS ai_stage, SqlHandle, QueryHash, PlanHandle, QueryPlan, ai_prompt, ai_advice, ai_raw_response
+                FROM ##BlitzCacheProcs
+                WHERE SPID = @@SPID;
+        
+    END;
+    ELSE
+    BEGIN
+        /* @AI = 2: Just update ai_advice to indicate prompt-only mode */
+        UPDATE ##BlitzCacheProcs
+        SET ai_advice = N'AI prompt generated but not sent (running with @AI = 2). Review the ai_prompt column for the prompt that would be sent.'
+        WHERE SPID = @@SPID
+        AND QueryPlan IS NOT NULL
+        OPTION (RECOMPILE);
+    END;
+END;
+
+
+
+
+
+
+
 Results:
 IF @ExportToExcel = 1
 BEGIN
@@ -18267,7 +18724,14 @@ BEGIN
 		QueryPlan AS [Query Plan], 
 		missing_indexes AS [Missing Indexes],
 		implicit_conversion_info AS [Implicit Conversion Info],
-		cached_execution_parameters AS [Cached Execution Parameters], ' + @nl;
+		cached_execution_parameters AS [Cached Execution Parameters], '
+        + CASE WHEN @AI = 2 THEN N'
+        [AI Prompt] = (
+            SELECT (@AISystemPrompt + NCHAR(13) + NCHAR(10) + NCHAR(13) + NCHAR(10) + ai_prompt) AS [text()] FOR XML PATH(''ai_prompt''), TYPE),' ELSE N'' END
+        + CASE WHEN @AI = 1 THEN N'
+        [AI Advice] = CASE WHEN ai_advice IS NULL THEN NULL ELSE (
+            SELECT ai_advice AS [text()] FOR XML PATH(''ai_advice''), TYPE) END, ' ELSE N'' END
+        + @nl;
 
     IF @ExpertMode = 2 /* Opserver */
     BEGIN
@@ -18396,7 +18860,15 @@ BEGIN
         QueryPlanHash AS [Query Plan Hash],
         StatementStartOffset,
         StatementEndOffset,
-		PlanGenerationNum,
+		PlanGenerationNum, '
+        + CASE WHEN @AI <> 2 THEN N'
+        [AI Prompt] = (
+            SELECT (@AISystemPrompt + NCHAR(13) + NCHAR(10) + NCHAR(13) + NCHAR(10) + ai_prompt) AS [text()] FOR XML PATH(''ai_prompt''), TYPE),' ELSE N'' END
+        + CASE WHEN @AI = 1 THEN N'
+        [AI Payload] = CASE WHEN ai_payload IS NULL THEN NULL ELSE (
+            SELECT ai_payload AS [text()] FOR XML PATH(''ai_payload''), TYPE) END,
+        [AI Raw Response] = CASE WHEN ai_raw_response IS NULL THEN NULL ELSE (
+            SELECT ai_raw_response AS [text()] FOR XML PATH(''ai_raw_response''), TYPE) END, ' ELSE N'' END + N'
 		[Remove Plan Handle From Cache],
 		[Remove SQL Handle From Cache]';
 END;
@@ -18452,7 +18924,7 @@ IF @Debug = 1
     END;
 IF(@OutputType <> 'NONE')
 BEGIN 
-    EXEC  sp_executesql @sql, N'@Top INT, @spid INT, @MinimumExecutionCount INT, @min_back INT', @Top, @@SPID, @MinimumExecutionCount, @MinutesBack;
+    EXEC  sp_executesql @sql, N'@Top INT, @spid INT, @MinimumExecutionCount INT, @min_back INT, @AISystemPrompt NVARCHAR(4000)', @Top, @@SPID, @MinimumExecutionCount, @MinutesBack, @AISystemPrompt;
 END;
 
 /*
@@ -19603,17 +20075,20 @@ IF @Debug = 1
 		FROM   ##BlitzCacheProcs
 		OPTION ( RECOMPILE );
 		
-		SELECT '#statements' AS table_name, *
-		FROM #statements AS s
-		OPTION (RECOMPILE);
+        IF @SkipAnalysis = 0
+            BEGIN
+		    SELECT '#statements' AS table_name, *
+		    FROM #statements AS s
+		    OPTION (RECOMPILE);
 
-		SELECT '#query_plan' AS table_name, *
-		FROM #query_plan AS qp
-		OPTION (RECOMPILE);
+		    SELECT '#query_plan' AS table_name, *
+		    FROM #query_plan AS qp
+		    OPTION (RECOMPILE);
 		
-		SELECT '#relop' AS table_name, *
-		FROM #relop AS r
-		OPTION (RECOMPILE);
+		    SELECT '#relop' AS table_name, *
+		    FROM #relop AS r
+		    OPTION (RECOMPILE);
+            END
 
 		SELECT '#only_query_hashes' AS table_name, *
 		FROM   #only_query_hashes
@@ -20344,6 +20819,10 @@ ELSE
 					AvgSpills MONEY,
 					QueryPlanCost FLOAT,
 					Pattern NVARCHAR(20),
+                    ai_prompt NVARCHAR(MAX),
+                    ai_advice NVARCHAR(MAX),
+                    ai_payload NVARCHAR(MAX),
+                    ai_raw_response NVARCHAR(MAX),
 					JoinKey AS ServerName + Cast(CheckDate AS NVARCHAR(50)),
 					CONSTRAINT [PK_' + REPLACE(REPLACE(@OutputTableName,N'[',N''),N']',N'') + N'] PRIMARY KEY CLUSTERED(ID ASC));'
 				  );
@@ -20461,6 +20940,70 @@ END ';
                     EXEC(@StringToExecute);
                 END            
             
+            /* If the table doesn't have the new ai_prompt column, add it. See Github #3669. */
+            SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+            SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''ai_prompt'')
+                ALTER TABLE ' + @ObjectFullName + N' ADD ai_prompt NVARCHAR(MAX) NULL;';
+            IF @ValidOutputServer = 1
+				BEGIN
+					SET @StringToExecute = REPLACE(@StringToExecute,'''ai_prompt''','''''ai_prompt''''');
+					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
+					EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+                END;
+            ELSE
+                BEGIN
+                    EXEC(@StringToExecute);
+                END;
+
+            /* If the table doesn't have the new ai_advice column, add it. See Github #3669. */
+            SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+            SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''ai_advice'')
+                ALTER TABLE ' + @ObjectFullName + N' ADD ai_advice NVARCHAR(MAX) NULL;';
+            IF @ValidOutputServer = 1
+				BEGIN
+					SET @StringToExecute = REPLACE(@StringToExecute,'''ai_advice''','''''ai_advice''''');
+					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
+					EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+                END;
+            ELSE
+                BEGIN
+                    EXEC(@StringToExecute);
+                END;
+
+            /* If the table doesn't have the new ai_payload column, add it. See Github #3669. */
+            SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+            SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''ai_payload'')
+                ALTER TABLE ' + @ObjectFullName + N' ADD ai_payload NVARCHAR(MAX) NULL;';
+            IF @ValidOutputServer = 1
+				BEGIN
+					SET @StringToExecute = REPLACE(@StringToExecute,'''ai_payload''','''''ai_payload''''');
+					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
+					EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+                END;
+            ELSE
+                BEGIN
+                    EXEC(@StringToExecute);
+                END;
+
+            /* If the table doesn't have the new ai_raw_response column, add it. See Github #3669. */
+            SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
+            SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
+                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''ai_raw_response'')
+                ALTER TABLE ' + @ObjectFullName + N' ADD ai_raw_response NVARCHAR(MAX) NULL;';
+            IF @ValidOutputServer = 1
+				BEGIN
+					SET @StringToExecute = REPLACE(@StringToExecute,'''ai_raw_response''','''''ai_raw_response''''');
+					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
+					EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+                END;
+            ELSE
+                BEGIN
+                    EXEC(@StringToExecute);
+                END;
+
             IF @CheckDateOverride IS NULL
                 BEGIN
                     SET @CheckDateOverride = SYSDATETIMEOFFSET();
@@ -20480,14 +21023,14 @@ END ';
 					+ ' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
                     + ' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
                     + ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern ) '
+                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern, ai_prompt, ai_advice, ai_payload, ai_raw_response ) '
                     + 'SELECT TOP (@Top) '
                     + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), '''') + ', @CheckDateOverride, '
                     + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), '''') + ', '
                     + ' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
                     + ' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
                     + ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, CAST(QueryPlan AS NVARCHAR(MAX)), NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern '
+                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern, ai_prompt, ai_advice, ai_payload, ai_raw_response '
                     + ' FROM ##BlitzCacheProcs '
                     + ' WHERE 1=1 ';
 
@@ -20548,14 +21091,14 @@ END ';
 					+ ' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
                     + ' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
                     + ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern ) '
+                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern, ai_prompt, ai_advice, ai_payload, ai_raw_response ) '
                     + 'SELECT TOP (@Top) '
                     + QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), '''') + ', @CheckDateOverride, '
                     + QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), '''') + ', '
                     + ' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
                     + ' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
                     + ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern '
+                    + ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern, ai_prompt, ai_advice, ai_payload, ai_raw_response '
                     + ' FROM ##BlitzCacheProcs '
                     + ' WHERE 1=1 ';
 
@@ -20697,22 +21240,26 @@ END ';
 						TotalSpills BIGINT,
 						AvgSpills MONEY,
 						QueryPlanCost FLOAT,
-						Pattern NVARCHAR(20),                    
-						JoinKey AS ServerName + Cast(CheckDate AS NVARCHAR(50)),
+						Pattern NVARCHAR(20),
+                        ai_prompt NVARCHAR(MAX),
+                        ai_advice NVARCHAR(MAX),
+                        ai_payload NVARCHAR(MAX),
+                        ai_raw_response NVARCHAR(MAX),
+                        JoinKey AS ServerName + Cast(CheckDate AS NVARCHAR(50)),
 						CONSTRAINT [PK_' + REPLACE(REPLACE(@OutputTableName,'[',''),']','') + '] PRIMARY KEY CLUSTERED(ID ASC));';
 					SET @StringToExecute +=	N' INSERT '
 						+ @OutputTableName
 						+ ' (ServerName, CheckDate, Version, QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, CPUWeight, AverageDuration, TotalDuration, DurationWeight, PercentDurationByType, AverageReads, TotalReads, ReadWeight, PercentReadsByType, '
 						+ ' AverageWrites, TotalWrites, WriteWeight, PercentWritesByType, ExecutionCount, ExecutionWeight, PercentExecutionsByType, '
 						+ ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-						+ ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern ) '
+						+ ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern, ai_prompt, ai_advice, ai_payload, ai_raw_response ) '
 						+ 'SELECT TOP (@Top) '
 						+ QUOTENAME(CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)), '''') + ', @CheckDateOverride, '
 						+ QUOTENAME(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), '''') + ', '
 						+ ' QueryType, DatabaseName, AverageCPU, TotalCPU, PercentCPUByType, PercentCPU, AverageDuration, TotalDuration, PercentDuration, PercentDurationByType, AverageReads, TotalReads, PercentReads, PercentReadsByType, '
 						+ ' AverageWrites, TotalWrites, PercentWrites, PercentWritesByType, ExecutionCount, PercentExecutions, PercentExecutionsByType, '
 						+ ' ExecutionsPerMinute, PlanCreationTime, LastExecutionTime, LastCompletionTime, PlanHandle, SqlHandle, QueryHash, QueryPlanHash, StatementStartOffset, StatementEndOffset, PlanGenerationNum, MinReturnedRows, MaxReturnedRows, AverageReturnedRows, TotalReturnedRows, QueryText, QueryPlan, NumberOfPlans, NumberOfDistinctPlans, Warnings, '
-						+ ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern '
+						+ ' SerialRequiredMemory, SerialDesiredMemory, MinGrantKB, MaxGrantKB, MinUsedGrantKB, MaxUsedGrantKB, PercentMemoryGrantUsed, AvgMaxMemoryGrant, MinSpills, MaxSpills, TotalSpills, AvgSpills, QueryPlanCost, Pattern, ai_prompt, ai_advice, ai_payload, ai_raw_response '
 						+ ' FROM ##BlitzCacheProcs '
 						+ ' WHERE 1=1 ';
                         
@@ -20826,7 +21373,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.28', @VersionDate = '20251124';
+SELECT @Version = '8.29', @VersionDate = '20260203';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -21188,7 +21735,7 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
               is_spatial BIT NOT NULL,
               is_NC_columnstore BIT NOT NULL,
               is_CX_columnstore BIT NOT NULL,
-              is_JSON BIT NOT NULL,
+              is_json BIT NOT NULL,
               is_in_memory_oltp BIT NOT NULL ,
               is_disabled BIT NOT NULL ,
               is_hypothetical BIT NOT NULL ,
@@ -22275,7 +22822,7 @@ BEGIN TRY
                         CASE when si.type = 4 THEN 1 ELSE 0 END AS is_spatial,
                         CASE when si.type = 6 THEN 1 ELSE 0 END AS is_NC_columnstore,
                         CASE when si.type = 5 then 1 else 0 end as is_CX_columnstore,
-                        CASE when si.type = 9 then 1 else 0 end as is_JSON,
+                        CASE when si.type = 9 then 1 else 0 end as is_json,
                         CASE when si.data_space_id = 0 then 1 else 0 end as is_in_memory_oltp,
                         si.is_disabled,
                         si.is_hypothetical, 
@@ -22338,7 +22885,7 @@ BEGIN TRY
                 PRINT SUBSTRING(@dsql, 36000, 40000);
             END;
         INSERT    #IndexSanity ( [database_id], [object_id], [index_id], [index_type], [database_name], [schema_name], [object_name],
-                                index_name, is_indexed_view, is_unique, is_primary_key, is_unique_constraint, is_XML, is_spatial, is_NC_columnstore, is_CX_columnstore, is_JSON, is_in_memory_oltp,
+                                index_name, is_indexed_view, is_unique, is_primary_key, is_unique_constraint, is_XML, is_spatial, is_NC_columnstore, is_CX_columnstore, is_json, is_in_memory_oltp,
                                 is_disabled, is_hypothetical, is_padded, fill_factor, filter_definition,  [optimize_for_sequential_key], user_seeks, user_scans, 
                                 user_lookups, user_updates, last_user_seek, last_user_scan, last_user_lookup, last_user_update,
                                 create_date, modify_date )
@@ -23970,7 +24517,6 @@ FROM    #IndexSanity si
 
 IF @Debug = 1
 BEGIN
-    SELECT '#BlitzIndexResults' AS table_name, * FROM  #BlitzIndexResults AS bir;
     SELECT '#IndexSanity' AS table_name, * FROM  #IndexSanity;
     SELECT '#IndexPartitionSanity' AS table_name, * FROM  #IndexPartitionSanity;
     SELECT '#IndexSanitySize' AS table_name, * FROM  #IndexSanitySize;
@@ -25158,6 +25704,29 @@ BEGIN
                             )
 						OPTION    ( RECOMPILE );
 
+
+                RAISERROR(N'check_id 128: Heaps with PAGE compression.', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+                        SELECT  128 AS check_id, 
+                                i.index_sanity_id,
+                                100 AS Priority,
+                                N'Indexes Worth Reviewing' AS findings_group,
+                                N'Heap with PAGE compression' AS finding, 
+                                [database_name] AS [Database Name],
+                                N'https://vladdba.com/PageCompressedHeaps' AS URL,
+                                N'Should this table be a heap? ' + db_schema_object_indexid AS details, 
+                                i.index_definition, 
+                                'N/A' AS secret_columns,
+                                i.index_usage_summary,
+                                sz.index_size_summary
+                        FROM    #IndexSanity i
+                        JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                        WHERE    i.index_id = 0 
+                                AND (i.total_reads > 0 OR i.user_updates > 0) /*it doesn't matter that much if it's not active*/
+								AND sz.data_compression_desc LIKE '%PAGE%' /*using LIKE here because there are some variations for this value*/
+                OPTION    ( RECOMPILE );
+
 	            RAISERROR(N'check_id 48: Nonclustered indexes with a bad read to write ratio', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
@@ -25224,7 +25793,7 @@ BEGIN
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                index_usage_summary, index_size_summary, create_tsql, more_info, sample_query_plan )
                         
-                        SELECT check_id, t.index_sanity_id, t.check_id, t.findings_group, t.finding, t.[Database Name], t.URL, t.details, t.[definition],
+                        SELECT check_id, t.index_sanity_id, t.Priority, t.findings_group, t.finding, t.[Database Name], t.URL, t.details, t.[definition],
                                 index_estimated_impact, t.index_size_summary, create_tsql, more_info, sample_query_plan
                         FROM
                         (
@@ -25499,8 +26068,7 @@ BEGIN
 		FROM #ComputedColumns AS cc
 		WHERE cc.is_function = 1
 		OPTION    ( RECOMPILE );
-
-
+        
 
 	END /* IF @Mode IN (0, 4) DIAGNOSE priorities 1-100 */
 
@@ -26675,6 +27243,11 @@ BEGIN
 
         END;
 
+        IF (@Debug = 1)
+          BEGIN
+              SELECT '#BlitzIndexResults' AS table_name, * FROM  #BlitzIndexResults;
+          END;
+
         RAISERROR(N'Returning results.', 0,1) WITH NOWAIT;
             
         /*Return results.*/
@@ -27844,7 +28417,7 @@ BEGIN
     SET XACT_ABORT OFF;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-    SELECT @Version = '8.28', @VersionDate = '20251124';
+    SELECT @Version = '8.29', @VersionDate = '20260203';
 
     IF @VersionCheckMode = 1
     BEGIN
@@ -28586,50 +29159,65 @@ BEGIN
                 IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
                 EXECUTE sys.sp_executesql
                     @StringToExecute;
+            END;
 
-                /*table created.*/
+            /*
+            Check for BlitzLockFindings table - runs regardless of whether main table existed
+            This was moved outside the ELSE block to fix issue where pre-existing deadlocks
+            table would skip BlitzLockFindings creation, causing synonym errors
+            Must filter by schema to avoid finding table in wrong schema
+            Note: @OutputSchemaName is already QUOTENAMEd at this point, so use PARSENAME to get raw name
+            */
+            SET @r = NULL; /*Reset - SELECT with no rows doesn't overwrite variable*/
+
+			SELECT
+                @StringToExecute =
+                    N'SELECT @r = o.name FROM ' +
+                    @OutputDatabaseName +
+                    N'.sys.objects AS o
+                    INNER JOIN ' +
+                    @OutputDatabaseName +
+                    N'.sys.schemas AS s
+                      ON o.schema_id = s.schema_id
+                    WHERE o.type_desc = N''USER_TABLE''
+                    AND o.name = N''BlitzLockFindings''
+                    AND s.name = N''' +
+                    PARSENAME(@OutputSchemaName, 1) +
+                    N'''',
+                @StringToExecuteParams =
+                    N'@r sysname OUTPUT';
+
+            IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
+            EXECUTE sys.sp_executesql
+                @StringToExecute,
+                @StringToExecuteParams,
+                @r OUTPUT;
+
+            IF (@r IS NULL) /*if table does not exist*/
+            BEGIN
                 SELECT
+                    @OutputTableFindings =
+                        QUOTENAME(N'BlitzLockFindings'),
                     @StringToExecute =
-                        N'SELECT @r = o.name FROM ' +
+                        N'USE ' +
                         @OutputDatabaseName +
-                        N'.sys.objects AS o
-                          WHERE o.type_desc = N''USER_TABLE''
-                          AND o.name = N''BlitzLockFindings''',
-                    @StringToExecuteParams =
-                        N'@r sysname OUTPUT';
+                        N';
+                        CREATE TABLE ' +
+                        @OutputSchemaName +
+                        N'.' +
+                        @OutputTableFindings +
+                        N' (
+                               ServerName nvarchar(256),
+                               check_id INT,
+                               database_name nvarchar(256),
+                               object_name nvarchar(1000),
+                               finding_group nvarchar(100),
+                               finding nvarchar(4000)
+                           );';
 
                 IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
                 EXECUTE sys.sp_executesql
-                    @StringToExecute,
-                    @StringToExecuteParams,
-                    @r OUTPUT;
-
-                IF (@r IS NULL) /*if table does not exist*/
-                BEGIN
-                    SELECT
-                        @OutputTableFindings =
-                            QUOTENAME(N'BlitzLockFindings'),
-                        @StringToExecute =
-                            N'USE ' +
-                            @OutputDatabaseName +
-                            N';
-                            CREATE TABLE ' +
-                            @OutputSchemaName +
-                            N'.' +
-                            @OutputTableFindings +
-                            N' (
-                                   ServerName nvarchar(256),
-                                   check_id INT,
-                                   database_name nvarchar(256),
-                                   object_name nvarchar(1000),
-                                   finding_group nvarchar(100),
-                                   finding nvarchar(4000)
-                               );';
-
-                    IF @Debug = 1 BEGIN PRINT @StringToExecute; END;
-                    EXECUTE sys.sp_executesql
-                        @StringToExecute;
-                END;
+                    @StringToExecute;
             END;
 
             /*create synonym for deadlockfindings.*/
@@ -29100,6 +29688,21 @@ BEGIN
            @xe OUTPUT,
            @xd OUTPUT;
 
+		/*This is a reasonable question to ask.*/
+		IF  @xe IS NULL
+		AND @xd IS NULL
+		BEGIN
+		    RAISERROR
+			(
+			    'No rows found in %s.%s.%s. Try again later.',
+				11,
+				1,
+				@TargetDatabaseName,
+				@TargetSchemaName,
+				@TargetTableName
+		    ) WITH NOWAIT;
+			RETURN;
+		END;
 
         /* Build dynamic SQL to extract the XML  */  
         IF  @xe = 1
@@ -32364,7 +32967,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.28', @VersionDate = '20251124';
+	SELECT @Version = '8.29', @VersionDate = '20260203';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -33800,7 +34403,7 @@ SET STATISTICS XML OFF;
 
 /*Versioning details*/
 
-SELECT @Version = '8.28', @VersionDate = '20251124';
+SELECT @Version = '8.29', @VersionDate = '20260203';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -35470,7 +36073,7 @@ BEGIN
   SET NOCOUNT ON;
   SET STATISTICS XML OFF;
 
-  SELECT @Version = '8.28', @VersionDate = '20251124';
+  SELECT @Version = '8.29', @VersionDate = '20260203';
   
   IF(@VersionCheckMode = 1)
   BEGIN
@@ -35850,12 +36453,16 @@ INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
     /*2025*/
+    (17, 4006, 'CU1 v2', 'https://learn.microsoft.com/troubleshoot/sql/releases/sqlserver-2025/cumulativeupdate1', '2026-01-29', '2031-01-06', '2036-01-06', 'SQL Server 2025', 'Cumulative Update 1 v2'),
+    (17, 4005, 'CU1', 'https://learn.microsoft.com/troubleshoot/sql/releases/sqlserver-2025/cumulativeupdate1', '2026-01-15', '2031-01-06', '2036-01-06', 'SQL Server 2025', 'Cumulative Update 1 (Removed)'),
     (17, 1000, 'RTM', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-11-18', '2031-01-06', '2036-01-06', 'SQL Server 2025', 'RTM'),
     (17, 925, 'RC1', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-09-17', '2025-11-18', '2025-11-18', 'SQL Server 2025', 'Preview RC1'),
     (17, 900, 'RC0', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-08-20', '2025-11-18', '2025-11-18', 'SQL Server 2025', 'Preview RC0'),
     (17, 800, 'CTP 2.1', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-06-16', '2025-11-18', '2025-11-18', 'SQL Server 2025', 'Preview CTP 2.1'),
     (17, 700, 'CTP 2.0', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-05-19', '2025-11-18', '2025-11-18', 'SQL Server 2025', 'Preview CTP 2.0'),
     /*2022*/
+    (16, 4236, 'CU23 v2', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate23', '2026-01-29', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 23 v2'),
+    (16, 4235, 'CU23', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate23', '2026-01-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 23 (Removed)'),
     (16, 4225, 'CU22', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate22', '2025-11-13', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 22'),
     (16, 4215, 'CU21', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate21', '2025-09-11', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 21'),
     (16, 4205, 'CU20', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate20', '2025-07-10', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 20'),
@@ -35885,6 +36492,7 @@ VALUES
     (16, 1050, 'RTM GDR', 'https://support.microsoft.com/kb/5021522', '2023-02-14', '2028-01-11', '2033-01-11', 'SQL Server 2022 GDR', 'RTM'),
     (16, 1000, 'RTM', '', '2022-11-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'RTM'),
     /*2019*/
+    (15, 4455, 'CU32 GDR', 'https://support.microsoft.com/help/5068404', '2025-09-09', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 32 GDR'),
     (15, 4445, 'CU32 GDR', 'https://support.microsoft.com/kb/5065222', '2025-09-09', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 32 GDR'),
     (15, 4440, 'CU32 GDR', 'https://support.microsoft.com/kb/5063757', '2025-08-12', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 32 GDR'),
     (15, 4435, 'CU32 GDR', 'https://support.microsoft.com/kb/5058722', '2025-07-08', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 32 GDR'),
@@ -35928,6 +36536,7 @@ VALUES
     (15, 2070, 'GDR', 'https://support.microsoft.com/en-us/help/4517790', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM GDR '),
     (15, 2000, 'RTM ', '', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM '),
     /*2017*/
+    (14, 3515, 'RTM CU31 GDR', 'https://support.microsoft.com/help/5068402', '2025-09-09', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
     (14, 3505, 'RTM CU31 GDR', 'https://support.microsoft.com/kb/5065225', '2025-09-09', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
     (14, 3500, 'RTM CU31 GDR', 'https://support.microsoft.com/kb/5063759', '2025-08-12', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
     (14, 3495, 'RTM CU31 GDR', 'https://support.microsoft.com/kb/5058714', '2025-07-08', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
@@ -36176,6 +36785,7 @@ VALUES
     (11, 2218, 'RTM MS12-070: GDR Security Update', 'https://support.microsoft.com/en-us/help/2716442', '2012-10-09', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM MS12-070: GDR Security Update'),
     (11, 2100, 'RTM ', '', '2012-03-06', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM '),
     /*2008 R2*/
+    (10, 6560, 'SP3 GDR: January 6 2018', 'http://support.microsoft.com/help/4057113', '2015-07-14', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'SP3 GDR: January 6 2018'),
     (10, 6529, 'SP3 MS15-058: QFE Security Update', 'https://support.microsoft.com/en-us/help/3045314', '2015-07-14', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'Service Pack 3 MS15-058: QFE Security Update'),
     (10, 6220, 'SP3 MS15-058: QFE Security Update', 'https://support.microsoft.com/en-us/help/3045316', '2015-07-14', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'Service Pack 3 MS15-058: QFE Security Update'),
     (10, 6000, 'SP3 ', 'https://support.microsoft.com/en-us/help/2979597', '2014-09-26', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'Service Pack 3 '),
@@ -36354,7 +36964,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.28', @VersionDate = '20251124';
+SELECT @Version = '8.29', @VersionDate = '20260203';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -38098,6 +38708,19 @@ BEGIN
 		END
 
         IF EXISTS (SELECT * FROM sys.dm_exec_requests WHERE total_elapsed_time > 5000 AND request_id > 0)
+           
+            IF OBJECT_ID('tempdb..#BlitzFirstTmpSession', 'U') IS NOT NULL
+				DROP TABLE #BlitzFirstTmpSession;
+
+            SELECT DISTINCT  request_session_id, resource_database_id
+            INTO #BlitzFirstTmpSession
+            FROM    sys.dm_tran_locks
+            WHERE resource_type = N'DATABASE'
+            AND     request_mode = N'S'
+            AND     request_status = N'GRANT'
+            AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE';
+
+           
             INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
             SELECT 8 AS CheckID,
                 50 AS Priority,
@@ -38117,13 +38740,7 @@ BEGIN
                 s.open_tran AS OpenTransactionCount
             FROM sys.sysprocesses s
             INNER JOIN sys.dm_exec_connections c ON s.spid = c.session_id
-            INNER JOIN (
-            SELECT DISTINCT request_session_id, resource_database_id
-            FROM    sys.dm_tran_locks
-            WHERE resource_type = N'DATABASE'
-            AND     request_mode = N'S'
-            AND     request_status = N'GRANT'
-            AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.spid = db.request_session_id
+            INNER JOIN #BlitzFirstTmpSession AS db ON s.spid = db.request_session_id
             WHERE s.status = 'sleeping'
             AND s.open_tran > 0
             AND s.last_batch < DATEADD(ss, -10, SYSDATETIME())

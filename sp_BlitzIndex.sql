@@ -50,7 +50,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.28', @VersionDate = '20251124';
+SELECT @Version = '8.29', @VersionDate = '20260203';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -412,7 +412,7 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
               is_spatial BIT NOT NULL,
               is_NC_columnstore BIT NOT NULL,
               is_CX_columnstore BIT NOT NULL,
-              is_JSON BIT NOT NULL,
+              is_json BIT NOT NULL,
               is_in_memory_oltp BIT NOT NULL ,
               is_disabled BIT NOT NULL ,
               is_hypothetical BIT NOT NULL ,
@@ -1499,7 +1499,7 @@ BEGIN TRY
                         CASE when si.type = 4 THEN 1 ELSE 0 END AS is_spatial,
                         CASE when si.type = 6 THEN 1 ELSE 0 END AS is_NC_columnstore,
                         CASE when si.type = 5 then 1 else 0 end as is_CX_columnstore,
-                        CASE when si.type = 9 then 1 else 0 end as is_JSON,
+                        CASE when si.type = 9 then 1 else 0 end as is_json,
                         CASE when si.data_space_id = 0 then 1 else 0 end as is_in_memory_oltp,
                         si.is_disabled,
                         si.is_hypothetical, 
@@ -1562,7 +1562,7 @@ BEGIN TRY
                 PRINT SUBSTRING(@dsql, 36000, 40000);
             END;
         INSERT    #IndexSanity ( [database_id], [object_id], [index_id], [index_type], [database_name], [schema_name], [object_name],
-                                index_name, is_indexed_view, is_unique, is_primary_key, is_unique_constraint, is_XML, is_spatial, is_NC_columnstore, is_CX_columnstore, is_JSON, is_in_memory_oltp,
+                                index_name, is_indexed_view, is_unique, is_primary_key, is_unique_constraint, is_XML, is_spatial, is_NC_columnstore, is_CX_columnstore, is_json, is_in_memory_oltp,
                                 is_disabled, is_hypothetical, is_padded, fill_factor, filter_definition,  [optimize_for_sequential_key], user_seeks, user_scans, 
                                 user_lookups, user_updates, last_user_seek, last_user_scan, last_user_lookup, last_user_update,
                                 create_date, modify_date )
@@ -3194,7 +3194,6 @@ FROM    #IndexSanity si
 
 IF @Debug = 1
 BEGIN
-    SELECT '#BlitzIndexResults' AS table_name, * FROM  #BlitzIndexResults AS bir;
     SELECT '#IndexSanity' AS table_name, * FROM  #IndexSanity;
     SELECT '#IndexPartitionSanity' AS table_name, * FROM  #IndexPartitionSanity;
     SELECT '#IndexSanitySize' AS table_name, * FROM  #IndexSanitySize;
@@ -4382,6 +4381,29 @@ BEGIN
                             )
 						OPTION    ( RECOMPILE );
 
+
+                RAISERROR(N'check_id 128: Heaps with PAGE compression.', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+                        SELECT  128 AS check_id, 
+                                i.index_sanity_id,
+                                100 AS Priority,
+                                N'Indexes Worth Reviewing' AS findings_group,
+                                N'Heap with PAGE compression' AS finding, 
+                                [database_name] AS [Database Name],
+                                N'https://vladdba.com/PageCompressedHeaps' AS URL,
+                                N'Should this table be a heap? ' + db_schema_object_indexid AS details, 
+                                i.index_definition, 
+                                'N/A' AS secret_columns,
+                                i.index_usage_summary,
+                                sz.index_size_summary
+                        FROM    #IndexSanity i
+                        JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                        WHERE    i.index_id = 0 
+                                AND (i.total_reads > 0 OR i.user_updates > 0) /*it doesn't matter that much if it's not active*/
+								AND sz.data_compression_desc LIKE '%PAGE%' /*using LIKE here because there are some variations for this value*/
+                OPTION    ( RECOMPILE );
+
 	            RAISERROR(N'check_id 48: Nonclustered indexes with a bad read to write ratio', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                secret_columns, index_usage_summary, index_size_summary )
@@ -4448,7 +4470,7 @@ BEGIN
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                                index_usage_summary, index_size_summary, create_tsql, more_info, sample_query_plan )
                         
-                        SELECT check_id, t.index_sanity_id, t.check_id, t.findings_group, t.finding, t.[Database Name], t.URL, t.details, t.[definition],
+                        SELECT check_id, t.index_sanity_id, t.Priority, t.findings_group, t.finding, t.[Database Name], t.URL, t.details, t.[definition],
                                 index_estimated_impact, t.index_size_summary, create_tsql, more_info, sample_query_plan
                         FROM
                         (
@@ -4723,8 +4745,7 @@ BEGIN
 		FROM #ComputedColumns AS cc
 		WHERE cc.is_function = 1
 		OPTION    ( RECOMPILE );
-
-
+        
 
 	END /* IF @Mode IN (0, 4) DIAGNOSE priorities 1-100 */
 
@@ -5898,6 +5919,11 @@ BEGIN
                     );
 
         END;
+
+        IF (@Debug = 1)
+          BEGIN
+              SELECT '#BlitzIndexResults' AS table_name, * FROM  #BlitzIndexResults;
+          END;
 
         RAISERROR(N'Returning results.', 0,1) WITH NOWAIT;
             

@@ -47,7 +47,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.28', @VersionDate = '20251124';
+SELECT @Version = '8.29', @VersionDate = '20260203';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -1791,6 +1791,19 @@ BEGIN
 		END
 
         IF EXISTS (SELECT * FROM sys.dm_exec_requests WHERE total_elapsed_time > 5000 AND request_id > 0)
+           
+            IF OBJECT_ID('tempdb..#BlitzFirstTmpSession', 'U') IS NOT NULL
+				DROP TABLE #BlitzFirstTmpSession;
+
+            SELECT DISTINCT  request_session_id, resource_database_id
+            INTO #BlitzFirstTmpSession
+            FROM    sys.dm_tran_locks
+            WHERE resource_type = N'DATABASE'
+            AND     request_mode = N'S'
+            AND     request_status = N'GRANT'
+            AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE';
+
+           
             INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt, StartTime, LoginName, NTUserName, ProgramName, HostName, DatabaseID, DatabaseName, QueryText, OpenTransactionCount)
             SELECT 8 AS CheckID,
                 50 AS Priority,
@@ -1810,13 +1823,7 @@ BEGIN
                 s.open_tran AS OpenTransactionCount
             FROM sys.sysprocesses s
             INNER JOIN sys.dm_exec_connections c ON s.spid = c.session_id
-            INNER JOIN (
-            SELECT DISTINCT request_session_id, resource_database_id
-            FROM    sys.dm_tran_locks
-            WHERE resource_type = N'DATABASE'
-            AND     request_mode = N'S'
-            AND     request_status = N'GRANT'
-            AND     request_owner_type = N'SHARED_TRANSACTION_WORKSPACE') AS db ON s.spid = db.request_session_id
+            INNER JOIN #BlitzFirstTmpSession AS db ON s.spid = db.request_session_id
             WHERE s.status = 'sleeping'
             AND s.open_tran > 0
             AND s.last_batch < DATEADD(ss, -10, SYSDATETIME())

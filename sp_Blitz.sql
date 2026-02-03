@@ -39,7 +39,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.28', @VersionDate = '20251124';
+	SELECT @Version = '8.29', @VersionDate = '20260203';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -3319,9 +3319,9 @@ AS
 										'Linked Server Configured' AS Finding ,
 										'https://www.brentozar.com/go/link' AS URL ,
 										+CASE WHEN l.remote_name = 'sa'
-											  THEN COALESCE(s.data_source, s.provider)
+											  THEN COALESCE(s.data_source, s.name, s.provider)
 												   + ' is configured as a linked server. Check its security configuration as it is connecting with sa, because any user who queries it will get admin-level permissions.'
-											  ELSE COALESCE(s.data_source, s.provider)
+											  ELSE COALESCE(s.data_source, s.name, s.provider)
 												   + ' is configured as a linked server. Check its security configuration to make sure it isn''t connecting with SA or some other bone-headed administrative login, because any user who queries it might get admin-level permissions.'
 										 END AS Details
 								FROM    sys.servers s
@@ -6802,8 +6802,8 @@ IF @ProductVersionMajor >= 10
 							       'https://www.BrentOzar.com/go/ag' AS URL,
 							       ag.name + N' AG replica server ' + 
 										ar.replica_server_name + N' is ' + 
-										CASE WHEN DATEDIFF(SECOND, drs.last_commit_time, ps.last_commit_time) < 200 THEN (CAST(DATEDIFF(SECOND, drs.last_commit_time, ps.last_commit_time) AS NVARCHAR(10)) + N' seconds ')
-										ELSE (CAST(DATEDIFF(MINUTE, drs.last_commit_time, ps.last_commit_time) AS NVARCHAR(10)) + N' minutes ') END
+										CASE WHEN DATEDIFF(SECOND, ISNULL (drs.last_commit_time, drs.Last_hardened_time), ps.last_commit_time) < 200 THEN (CAST(DATEDIFF(SECOND, drs.last_commit_time, ps.last_commit_time) AS NVARCHAR(10)) + N' seconds ')
+										ELSE (CAST(DATEDIFF(MINUTE, ISNULL (drs.last_commit_time, drs.Last_hardened_time), ps.last_commit_time) AS NVARCHAR(10)) + N' minutes ') END
 										+ N' behind the primary.'
 										AS details
 							FROM sys.dm_hadr_database_replica_states AS drs
@@ -6814,7 +6814,7 @@ IF @ProductVersionMajor >= 10
 								AND drs.database_id = ps.database_id
 								AND ps.is_local = 1 /* Primary */
 							WHERE drs.is_local = 0 /* Secondary */
-							  AND DATEDIFF(SECOND, drs.last_commit_time, ps.last_commit_time) > 60;
+							  AND DATEDIFF(SECOND,ISNULL (drs.last_commit_time, drs.Last_hardened_time), ps.last_commit_time) > 60
 					END;
 
 
