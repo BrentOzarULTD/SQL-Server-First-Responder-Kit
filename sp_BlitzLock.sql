@@ -205,6 +205,12 @@ BEGIN
                 THEN 0
                 ELSE 1
             END,
+        @CanReadMSDB bit = 
+            (
+              SELECT COUNT(1) 
+              FROM fn_my_permissions(N'msdb.dbo.sysjobsteps', N'OBJECT') AS fmp 
+              WHERE fmp.permission_name = N'SELECT'
+            ),
         @d varchar(40) = '',
         @StringToExecute nvarchar(4000) = N'',
         @StringToExecuteParams nvarchar(500) = N'',
@@ -2131,6 +2137,7 @@ BEGIN
         (
                 @Azure = 0
             AND @RDS = 0
+            AND @CanReadMSDB = 1
         )
         BEGIN
             SET @StringToExecute =
