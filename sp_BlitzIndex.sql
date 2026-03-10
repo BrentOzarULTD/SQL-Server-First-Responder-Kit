@@ -330,6 +330,9 @@ IF OBJECT_ID('tempdb..#IndexCreateTsql') IS NOT NULL
 IF OBJECT_ID('tempdb..#DatabaseList') IS NOT NULL 
     DROP TABLE #DatabaseList;
 
+IF OBJECT_ID('tempdb..#DatabasesNoAccess') IS NOT NULL 
+    DROP TABLE #DatabasesNoAccess;
+
 IF OBJECT_ID('tempdb..#Statistics') IS NOT NULL 
     DROP TABLE #Statistics;
 
@@ -800,7 +803,10 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
         CREATE TABLE #DatabaseList (
 			DatabaseName NVARCHAR(256),
             secondary_role_allow_connections_desc NVARCHAR(50)
+        );
 
+        CREATE TABLE #DatabasesNoAccess (
+			DatabaseName NVARCHAR(256)
         );
 
 		CREATE TABLE #PartitionCompressionInfo (
@@ -983,6 +989,42 @@ IF @GetAllDatabases = 1
 		AND LOWER(name) NOT IN('dbatools', 'dbadmin', 'dbmaintenance', 'gcloud_cloudsqladmin')
         AND is_distributor = 0
 		OPTION    ( RECOMPILE );
+
+        /*Check if sysadmin 
+           ( logins with ##MS_DatabaseConnector## or CONNECT ANY DATABASE can still be denied CONNECT on a per-database basis) */
+        IF IS_SRVROLEMEMBER ('sysadmin') = 0
+            BEGIN
+                RAISERROR(N'Not a member of the sysadmin role. Checking which databases can be accessed.', 0, 1) WITH NOWAIT;
+                DECLARE db_access_cursor CURSOR FAST_FORWARD FOR
+                  SELECT DatabaseName FROM #DatabaseList
+                OPEN db_access_cursor
+                FETCH NEXT FROM db_access_cursor INTO @DatabaseName
+            
+                WHILE @@FETCH_STATUS = 0
+                BEGIN
+                   /*yes, it would've been simpler just checking for SELECT permissions on user databases,
+                      but SELECT isn't required for system catalog views if the login has VIEW ANY DEFINITION*/
+                    SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; 
+                                 SELECT @RowCountOut = COUNT(1) FROM ' +QUOTENAME(@DatabaseName)+N'.[sys].[indexes] 
+                                 WHERE [object_id] = 123 OPTION (RECOMPILE);'; /*the object_id doesn't matter, just checking access*/
+                    SET @params = N'@RowcountOUT BIGINT OUTPUT';
+                    BEGIN TRY
+                       EXEC sp_executesql @dsql,@params, @RowcountOUT = @Rowcount OUTPUT;
+                    END TRY
+                    BEGIN CATCH
+                       INSERT INTO #DatabasesNoAccess (DatabaseName) VALUES (@DatabaseName);
+                       RAISERROR(N'Skipping database %s due to lack of permissions.', 0, 1, @DatabaseName) WITH NOWAIT;
+                    END CATCH;
+                    FETCH NEXT FROM db_access_cursor INTO @DatabaseName;
+                END;
+                CLOSE db_access_cursor;
+                DEALLOCATE db_access_cursor;
+    
+                /*Removing the databases we can't access from #DatabaseList*/
+                DELETE FROM #DatabaseList 
+                WHERE DatabaseName IN (SELECT DatabaseName 
+                                       FROM #DatabasesNoAccess);
+            END;
 
         /* Skip non-readable databases in an AG - see Github issue #1160 */
         IF EXISTS (SELECT * FROM sys.all_objects o INNER JOIN sys.all_columns c ON o.object_id = c.object_id AND o.name = 'dm_hadr_availability_replica_states' AND c.name = 'role_desc')
