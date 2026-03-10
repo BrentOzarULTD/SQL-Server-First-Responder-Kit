@@ -3443,11 +3443,7 @@ BEGIN
                     CONVERT(NVARCHAR(6), CONVERT(MONEY, iro.percent_complete)) + N'% complete after ' +
                     CONVERT(NVARCHAR(30), iro.total_execution_time) +
                     N' minute(s). ' + 
-                    CASE WHEN @ResumableIndexesDisappearAfter > 0
-                        THEN N' Will be automatically removed by the database server at ' + CONVERT(NVARCHAR(50), (DATEADD(mi, @ResumableIndexesDisappearAfter, iro.last_pause_time)), 121) + N'. '
-                        ELSE N' Will not be automatically removed by the database server. '
-                    END
-                    + N'This blocks DDL and can pile up ghosts.'
+                    N'This blocks DDL and can pile up ghosts.'
                 WHEN 1 THEN
                     N' since ' + CONVERT(NVARCHAR(50), iro.last_pause_time, 120) + N'. ' +
                     CONVERT(NVARCHAR(6), CONVERT(MONEY, iro.percent_complete)) + N'% complete' +
@@ -3461,6 +3457,10 @@ BEGIN
                          THEN N'. It is probably still running, perhaps updating statistics.'
                          ELSE N' after ' + CONVERT(NVARCHAR(30), iro.total_execution_time)
                               + N' minute(s). This blocks DDL, fails transactions needing table-level X locks, and can pile up ghosts.'
+                    END +
+                    CASE WHEN @ResumableIndexesDisappearAfter > 0
+                        THEN N' Will be automatically removed by the database server at ' + CONVERT(NVARCHAR(50), (DATEADD(mi, @ResumableIndexesDisappearAfter, iro.last_pause_time)), 121) + N'. '
+                        ELSE N' Will not be automatically removed by the database server. '
                     END
                 ELSE N' which is an undocumented resumable index state description.'
                 END AS details,
