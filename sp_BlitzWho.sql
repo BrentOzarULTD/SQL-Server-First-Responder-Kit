@@ -91,6 +91,7 @@ DECLARE  @ProductVersion NVARCHAR(128) = CAST(SERVERPROPERTY('ProductVersion') A
 		,@ProductVersionMinor DECIMAL(10,2)
 		,@Platform NVARCHAR(8) /* Azure or NonAzure are acceptable */ = (SELECT CASE WHEN @@VERSION LIKE '%Azure%' THEN N'Azure' ELSE N'NonAzure' END AS [Platform])
 		,@AzureSQLDB BIT = (SELECT CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN 1 ELSE 0 END)
+		,@CanReadMSDB BIT = (SELECT COUNT(1) FROM fn_my_permissions(N'msdb.dbo.sysjobs', N'OBJECT') AS fmp WHERE fmp.permission_name = N'SELECT')
 		,@EnhanceFlag BIT = 0
 		,@BlockingCheck NVARCHAR(MAX)
 		,@StringToExecute NVARCHAR(MAX)
@@ -740,7 +741,7 @@ BEGIN
 			       s.host_name ,
 			       s.login_name ,
 			       s.nt_user_name ,'
-		IF @Platform = 'NonAzure'
+		IF @Platform = 'NonAzure' AND @CanReadMSDB = 1
 		BEGIN
 		SET @StringToExecute +=
 				   N'program_name = COALESCE((
@@ -983,7 +984,7 @@ IF @ProductVersionMajor >= 11
 			       s.host_name ,
 			       s.login_name ,
 			       s.nt_user_name ,'
-		IF @Platform = 'NonAzure'
+		IF @Platform = 'NonAzure' AND @CanReadMSDB = 1
 		BEGIN
 		SET @StringToExecute +=
 				   N'program_name = COALESCE((
