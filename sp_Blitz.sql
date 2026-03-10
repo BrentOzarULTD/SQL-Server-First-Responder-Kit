@@ -570,7 +570,7 @@ AS
         SELECT
 		    DB_NAME(d.database_id)
         FROM sys.databases AS d
-        WHERE LOWER(d.name) IN ('dbatools', 'dbadmin', 'dbmaintenance', 'rdsadmin')
+        WHERE LOWER(d.name) IN ('dbatools', 'dbadmin', 'dbmaintenance', 'gcloud_cloudsqladmin', 'rdsadmin')
 		OPTION(RECOMPILE);
 
 		/*Skip checks for database where we don't have read permissions*/
@@ -4918,12 +4918,12 @@ AS
 								SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 								   SELECT ' + CAST(@CurrentCheckID AS NVARCHAR(200)) + ', d.[name], ' + CAST(@CurrentPriority AS NVARCHAR(200)) + ', ''Non-Default Database Config'', ''' + @CurrentFinding + ''',''' + @CurrentURL + ''',''' + COALESCE(@CurrentDetails, 'This database setting is not the default.') + '''
 									FROM sys.databases d
-									WHERE d.database_id > 4 AND DB_NAME(d.database_id) != ''rdsadmin'' AND d.state = 0 AND (d.[' + @CurrentName + '] NOT IN (0, 60) OR d.[' + @CurrentName + '] IS NULL) OPTION (RECOMPILE);';
+									WHERE d.database_id > 4 AND DB_NAME(d.database_id) NOT IN (''gcloud_cloudsqladmin'',''rdsadmin'') AND d.state = 0 AND (d.[' + @CurrentName + '] NOT IN (0, 60) OR d.[' + @CurrentName + '] IS NULL) OPTION (RECOMPILE);';
 							ELSE
 								SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 								   SELECT ' + CAST(@CurrentCheckID AS NVARCHAR(200)) + ', d.[name], ' + CAST(@CurrentPriority AS NVARCHAR(200)) + ', ''Non-Default Database Config'', ''' + @CurrentFinding + ''',''' + @CurrentURL + ''',''' + COALESCE(@CurrentDetails, 'This database setting is not the default.') + '''
 									FROM sys.databases d
-									WHERE d.database_id > 4 AND DB_NAME(d.database_id) != ''rdsadmin'' AND d.state = 0 AND (d.[' + @CurrentName + '] <> ' + @CurrentDefaultValue + ' OR d.[' + @CurrentName + '] IS NULL) OPTION (RECOMPILE);';
+									WHERE d.database_id > 4 AND DB_NAME(d.database_id) NOT IN (''gcloud_cloudsqladmin'',''rdsadmin'') AND d.state = 0 AND (d.[' + @CurrentName + '] <> ' + @CurrentDefaultValue + ' OR d.[' + @CurrentName + '] IS NULL) OPTION (RECOMPILE);';
 						
 							IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
 							IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
@@ -6947,7 +6947,7 @@ IF @ProductVersionMajor >= 10
 		                              ''https://www.brentozar.com/go/querystore'',
 		                              (''The new SQL Server 2016 Query Store feature has not been enabled on this database.'')
 		                              FROM [?].sys.database_query_store_options WHERE desired_state = 0
-									  AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''rdsadmin'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'') OPTION (RECOMPILE)';
+									  AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''rdsadmin'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'', ''gcloud_cloudsqladmin'') OPTION (RECOMPILE)';
 							END;
 
 						IF NOT EXISTS ( SELECT  1
@@ -6979,7 +6979,7 @@ IF @ProductVersionMajor >= 10
 		                              FROM [?].sys.database_query_store_options
 									  WHERE desired_state <> 0
 									  AND wait_stats_capture_mode = 0
-									  AND ''?'' != ''rdsadmin''
+									  AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 									  OPTION (RECOMPILE)';
 							END;
                     
@@ -7011,7 +7011,7 @@ IF @ProductVersionMajor >= 10
 		                              FROM [?].sys.database_query_store_options
 									  WHERE desired_state <> 0
 									  AND actual_state <> 2
-									  AND ''?'' != ''rdsadmin''
+									  AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 									  OPTION (RECOMPILE)';
 							END;
 
@@ -7043,7 +7043,7 @@ IF @ProductVersionMajor >= 10
 		                              FROM [?].sys.database_query_store_options
 									  WHERE desired_state <> 0
 									  AND desired_state <> actual_state 
-									  AND ''?'' != ''rdsadmin''
+									  AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 									  OPTION (RECOMPILE)';
 							END;
 
@@ -7079,7 +7079,7 @@ IF @ProductVersionMajor >= 10
 		                              FROM [?].sys.database_query_store_options
 									  WHERE desired_state <> 0 /* No point in checking this if Query Store is off. */
 									  AND query_capture_mode_desc <> ''AUTO''
-									  AND ''?'' != ''rdsadmin''
+									  AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 									  OPTION (RECOMPILE)';
 							END;
 						
@@ -7167,7 +7167,7 @@ IF @ProductVersionMajor >= 10
 													(''SQL 2016 RTM has a bug involving dumps that happen every time Query Store cleanup jobs run. This is fixed in CU1 and later: https://sqlserverupdates.com/sql-server-2016-updates/'')
 													FROM    sys.databases AS d
 													WHERE   d.is_query_store_on = 1
-													AND		d.name != ''rdsadmin''
+													AND		d.name NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 													OPTION (RECOMPILE);';
 							
 							IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
@@ -7204,7 +7204,7 @@ IF @ProductVersionMajor >= 10
 		                              FROM [?].sys.database_query_store_options dqso
 										join master.sys.databases D on D.name = N''?''
 									  WHERE ((dqso.actual_state = 0 AND D.is_query_store_on = 1) OR (dqso.actual_state <> 0 AND D.is_query_store_on = 0))
-									  AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''rdsadmin'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'') OPTION (RECOMPILE)';
+									  AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''rdsadmin'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'', ''gcloud_cloudsqladmin'') OPTION (RECOMPILE)';
 							END;
 
 				        IF NOT EXISTS ( SELECT  1
@@ -7232,7 +7232,7 @@ IF @ProductVersionMajor >= 10
 		                              ''https://www.brentozar.com/go/manylogs'',
 		                              (''The ['' + DB_NAME() + ''] database has multiple log files on the '' + LEFT(physical_name, 1) + '' drive. This is not a performance booster because log file access is sequential, not parallel.'')
 		                              FROM [?].sys.database_files WHERE type_desc = ''LOG''
-			                            AND ''?'' NOT IN (''rdsadmin'',''tempdb'')
+			                            AND ''?'' NOT IN (''gcloud_cloudsqladmin'',''rdsadmin'',''tempdb'')
 		                              GROUP BY LEFT(physical_name, 1)
 		                              HAVING COUNT(*) > 1 
 									     AND SUM(size) < 268435456 OPTION (RECOMPILE);';
@@ -7264,7 +7264,7 @@ IF @ProductVersionMajor >= 10
 			                            (''The ['' + DB_NAME() + ''] database has multiple data files in one filegroup, but they are not all set up to grow in identical amounts.  This can lead to uneven file activity inside the filegroup.'')
 			                            FROM [?].sys.database_files
 			                            WHERE type_desc = ''ROWS''
-										AND ''?'' != ''rdsadmin''
+										AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 			                            GROUP BY data_space_id
 			                            HAVING COUNT(DISTINCT growth) > 1 OR COUNT(DISTINCT is_percent_growth) > 1 OPTION (RECOMPILE);';
 					        END;
@@ -7294,7 +7294,7 @@ IF @ProductVersionMajor >= 10
 		                                ''The ['' + DB_NAME() + ''] database file '' + f.physical_name + '' has grown to '' + CONVERT(NVARCHAR(20), CONVERT(NUMERIC(38, 2), (f.size / 128.) / 1024.)) + '' GB, and is using percent filegrowth settings. This can lead to slow performance during growths if Instant File Initialization is not enabled.''
 		                                FROM    [?].sys.database_files f
 		                                WHERE   is_percent_growth = 1 and size > 128000
-										AND		''?'' != ''rdsadmin''
+										AND		''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 										OPTION (RECOMPILE);';
 					            END;
 
@@ -7324,7 +7324,7 @@ IF @ProductVersionMajor >= 10
 										''The ['' + DB_NAME() + ''] database file '' + f.physical_name + '' is using 1MB filegrowth settings, but it has grown to '' + CAST((CAST(f.size AS BIGINT) * 8 / 1000000) AS NVARCHAR(10)) + '' GB. Time to up the growth amount.''
 										FROM    [?].sys.database_files f
                                         WHERE is_percent_growth = 0 and growth=128 and size > 128000
-										AND	   ''?'' != ''rdsadmin''
+										AND	   ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 										OPTION (RECOMPILE);';
 					            END;
 
@@ -7356,7 +7356,7 @@ IF @ProductVersionMajor >= 10
 		                                  ''https://www.brentozar.com/go/ee'',
 		                                  (''The ['' + DB_NAME() + ''] database is using '' + feature_name + ''.  If this database is restored onto a Standard Edition server, the restore will fail on versions prior to 2016 SP1.'')
 		                                  FROM [?].sys.dm_db_persisted_sku_features
-										  WHERE ''?'' != ''rdsadmin''
+										  WHERE ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 										  OPTION (RECOMPILE);';
 							        END;
 					        END;
@@ -7416,7 +7416,7 @@ IF @ProductVersionMajor >= 10
 							          (''['' + DB_NAME() + ''] has MSreplication_objects tables in it, indicating it is a replication subscriber.'')
 							          FROM [?].sys.tables
 							          WHERE name = ''MSreplication_objects''
-									  AND ''?'' NOT IN (''master'', ''rdsadmin'')
+									  AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''master'', ''rdsadmin'')
 									  OPTION (RECOMPILE)';
 					        END;
 
@@ -7447,7 +7447,7 @@ IF @ProductVersionMajor >= 10
 			FROM [?].sys.triggers t INNER JOIN [?].sys.objects o ON t.parent_id = o.object_id
 			INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id
 			WHERE t.is_ms_shipped = 0
-			AND ''?'' NOT IN (''rdsadmin'', ''ReportServer'')
+			AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'', ''ReportServer'')
 			HAVING SUM(1) > 0 OPTION (RECOMPILE)';
 							END;
 
@@ -7478,7 +7478,7 @@ IF @ProductVersionMajor >= 10
 		  ''https://www.brentozar.com/go/misguided'',
 		  (''The ['' + DB_NAME() + ''] database has plan guides that are no longer valid, so the queries involved may be failing silently.'')
 		  FROM [?].sys.plan_guides g CROSS APPLY fn_validate_plan_guide(g.plan_guide_id)
-		  WHERE ''?'' != ''rdsadmin''
+		  WHERE ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 		  OPTION (RECOMPILE)';
 							END;
 
@@ -7508,7 +7508,7 @@ IF @ProductVersionMajor >= 10
 		  (''The index ['' + DB_NAME() + ''].['' + s.name + ''].['' + o.name + ''].['' + i.name + ''] is a leftover hypothetical index from the Index Tuning Wizard or Database Tuning Advisor.  This index is not actually helping performance and should be removed.'')
 		  from [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id
 		  WHERE i.is_hypothetical = 1
-		  AND ''?'' != ''rdsadmin''
+		  AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 		  OPTION (RECOMPILE);';
 							END;
 
@@ -7566,7 +7566,7 @@ IF @ProductVersionMajor >= 10
 		  (''The ['' + DB_NAME() + ''] database has foreign keys that were probably disabled, data was changed, and then the key was enabled again.  Simply enabling the key is not enough for the optimizer to use this key - we have to alter the table using the WITH CHECK CHECK CONSTRAINT parameter.'')
 		  from [?].sys.foreign_keys i INNER JOIN [?].sys.objects o ON i.parent_object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id
 		  WHERE i.is_not_trusted = 1 AND i.is_not_for_replication = 0 AND i.is_disabled = 0 AND ''?''
-		  NOT IN (''master'', ''model'', ''msdb'', ''rdsadmin'', ''ReportServer'', ''ReportServerTempDB'')
+		  NOT IN (''gcloud_cloudsqladmin'', ''master'', ''model'', ''msdb'', ''rdsadmin'', ''ReportServer'', ''ReportServerTempDB'')
 		  OPTION (RECOMPILE);';
 							END;
 
@@ -8056,7 +8056,7 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 									LEFT OUTER JOIN #DatabaseScopedConfigurationDefaults def ON dsc.configuration_id = def.configuration_id AND (cast(dsc.value as nvarchar(100)) = cast(def.default_value as nvarchar(100)) OR dsc.value IS NULL) AND (dsc.value_for_secondary = def.default_value_for_secondary OR dsc.value_for_secondary IS NULL)
 									LEFT OUTER JOIN #SkipChecks sk ON (sk.CheckID IS NULL OR def.CheckID = sk.CheckID) AND (sk.DatabaseName IS NULL OR sk.DatabaseName = DB_NAME())
 									WHERE def.configuration_id IS NULL AND sk.CheckID IS NULL
-									AND ''?'' != ''rdsadmin''
+									AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 									ORDER BY 1
 									OPTION (RECOMPILE);';
 			END;
@@ -8092,7 +8092,7 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
                             + '' See sys.database_automatic_tuning_options for more details.'' AS Details
 					FROM sys.database_automatic_tuning_options dato
 					WHERE dato.desired_state IS NOT NULL AND dato.desired_state <> 2
-					AND ''?'' != ''rdsadmin''
+					AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 					;';
 			END; --of Check 275.
 
@@ -8130,7 +8130,7 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 							OR sm.uses_quoted_identifier <> 1
 							)
 						AND o.is_ms_shipped = 0
-						AND ''?'' != ''rdsadmin''
+						AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 					HAVING COUNT(1) > 0;';
 			END; --of Check 218.
 
@@ -8163,7 +8163,7 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 					FROM sys.index_resumable_operations iro
 					JOIN sys.objects o ON iro.[object_id] = o.[object_id]
 					WHERE iro.state <> 0
-					AND ''?'' != ''rdsadmin''
+					AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 					;';
 			END; --of Check 225.
 
@@ -8198,7 +8198,7 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
    --                   WHERE o.is_ms_shipped = 0 AND o.type_desc = ''USER_TABLE''
    --                     AND h.object_id IS NULL
    --                     AND 0 < (SELECT SUM(row_count) FROM sys.dm_db_partition_stats ps WHERE ps.object_id = o.object_id)
-   --                     AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''rdsadmin'', ''tempdb'')
+   --                     AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''master'', ''model'', ''msdb'', ''rdsadmin'', ''tempdb'')
    --                   HAVING COUNT(DISTINCT o.object_id) > 0;';
 			--END; --of Check 220.
 
