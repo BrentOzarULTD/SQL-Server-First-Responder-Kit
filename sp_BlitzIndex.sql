@@ -155,7 +155,11 @@ DECLARE
     @AIPayloadTemplate NVARCHAR(MAX),
     @AITimeoutSeconds TINYINT,
     @AIAdviceText NVARCHAR(MAX),
-    @AIContext INT;
+    @AIContext INT,
+    @AIPayload NVARCHAR(MAX),
+    @AIResponseJSON NVARCHAR(MAX),
+    @AIReturnValue INT,
+    @CurrentAIPrompt NVARCHAR(MAX);
 
 /* If user was lazy and just used @ObjectName with a fully qualified table name, then lets parse out the various parts */
 SET @DatabaseName = COALESCE(@DatabaseName, PARSENAME(@ObjectName, 3)) /* 3 = Database name */
@@ -1110,11 +1114,21 @@ IF @AI > 0
         SET @AITimeoutSeconds = 230;
 
     IF @AISystemPrompt IS NULL OR @AISystemPrompt = N''
-        SET @AISystemPrompt = N'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
+    BEGIN
+            SET @AISystemPrompt = N'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment. Do not describe the table: you are working with other very senior database developers who understand SQL Server deeply, so get straight to the point with your recommendations and scripts.
 
-    You have a query that isn''t performing to end user expectations. You have been tasked with making serious improvements to it, quickly. You are not allowed to change server-level settings or make frivolous suggestions like updating statistics. Instead, you need to focus on query changes or index changes.
+    You have been given the existing indexes, missing index suggestions from SQL Server, column data types, and foreign keys for a table. Your job is to recommend index changes: which indexes to add, which to remove as redundant or harmful, and which to modify. Focus on practical changes that will improve the most common query patterns shown by the usage statistics.
+
+	If indexes are not being used, drop them. If duplicate or near-duplicate indexes exist, merge them together or keep the widest ones. Existing indexes that start with different leading columns should not be considered duplicates.
+
+	Include CREATE INDEX and DROP INDEX scripts. Include undo scripts in comments to back out your work if something goes wrong. Use the /* */ style for comments, not --, to make it easier for the customer to copy and paste your scripts without accidentally missing a line.
+
+	When working with missing index suggestions from SQL Server, keep in mind that they are ordered equality vs inequality search in the query, then by the column order of the table. The column order is nowhere near scientific, and can be rearranged if necessary for performance.
+
+	Focus only on nonclustered rowstore indexes. Do not suggest changes for clustered indexes, columnstore indexes, memory-optimized indexes, XML indexes, JSON indexes, or other specialized index types.
 
     Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.';
+    END;
 
     IF @AIModel LIKE 'gemini%' AND @AIPayloadTemplate IS NULL
         SET @AIPayloadTemplate = N'{
@@ -3581,11 +3595,228 @@ BEGIN
             OR (magic_benefit_number / CASE WHEN cd.create_days < @DaysUptime THEN cd.create_days ELSE @DaysUptime END) >= 100000)
         ORDER BY magic_benefit_number DESC
         OPTION    ( RECOMPILE );
-    END;       
-    ELSE     
+    END;
+    ELSE
     SELECT 'No missing indexes.' AS finding;
 
-    SELECT   
+    /* @AskAI: Index analysis via AI provider */
+    IF @AI >= 1 AND @TableName IS NOT NULL
+    BEGIN
+        RAISERROR(N'Building AI prompt for index analysis', 0, 1) WITH NOWAIT;
+
+        /* Constitution lookup */
+        DECLARE @ai_constitution NVARCHAR(MAX) = NULL;
+        BEGIN TRY
+            SET @StringToExecute = N'SELECT @c = CAST(value AS NVARCHAR(MAX))
+                FROM ' + QUOTENAME(@DatabaseName) + N'.sys.extended_properties
+                WHERE class = 0 AND major_id = 0 AND minor_id = 0
+                  AND name = N''CONSTITUTION.md'';';
+            EXEC sp_executesql @StringToExecute, N'@c NVARCHAR(MAX) OUTPUT', @c = @ai_constitution OUTPUT;
+        END TRY
+        BEGIN CATCH
+            /* If we can't read it (permissions, offline, etc), just skip. */
+        END CATCH;
+
+        /* Build the prompt header */
+        SET @CurrentAIPrompt = N'I need help analyzing the indexes on the table '
+            + QUOTENAME(@DatabaseName) + N'.' + QUOTENAME(@SchemaName) + N'.' + QUOTENAME(@TableName)
+            + N'.' + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10);
+
+        /* Prepend constitution if found */
+        IF @ai_constitution IS NOT NULL AND LEN(@ai_constitution) > 0
+            SET @CurrentAIPrompt = N'---' + CHAR(13) + CHAR(10)
+                + N'This database has an extended property named CONSTITUTION.md that provides additional guidance for AI analysis. Here is the content of that property:' + CHAR(13) + CHAR(10)
+                + N'---' + CHAR(13) + CHAR(10) + @ai_constitution + CHAR(13) + CHAR(10)
+                + N'---' + CHAR(13) + CHAR(10) + @CurrentAIPrompt;
+
+        /* Section 1: Existing Indexes
+           Use FOR XML PATH to reliably concatenate all rows into a single string. */
+        SET @CurrentAIPrompt = @CurrentAIPrompt + N'EXISTING INDEXES:' + CHAR(13) + CHAR(10);
+
+        SET @CurrentAIPrompt = @CurrentAIPrompt + ISNULL((
+            SELECT
+                N'Index: ' + ISNULL(s.index_name, N'[HEAP]') + N' (IndexID: ' + CAST(s.index_id AS NVARCHAR(10)) + N')' + CHAR(13) + CHAR(10)
+                + N'  Type: ' + CASE s.index_id WHEN 0 THEN N'HEAP' WHEN 1 THEN N'CLUSTERED' ELSE N'NONCLUSTERED' END
+                    + CASE WHEN s.is_NC_columnstore = 1 THEN N' COLUMNSTORE' WHEN s.is_CX_columnstore = 1 THEN N' CLUSTERED COLUMNSTORE' ELSE N'' END + CHAR(13) + CHAR(10)
+                + N'  Key Columns: ' + ISNULL(s.key_column_names_with_sort_order, N'N/A') + CHAR(13) + CHAR(10)
+                + N'  Include Columns: ' + ISNULL(s.include_column_names, N'None') + CHAR(13) + CHAR(10)
+                + CASE WHEN s.filter_definition <> N'' THEN N'  Filter: ' + s.filter_definition + CHAR(13) + CHAR(10) ELSE N'' END
+                + N'  Is Primary Key: ' + CASE WHEN s.is_primary_key = 1 THEN N'Yes' ELSE N'No' END + CHAR(13) + CHAR(10)
+                + N'  Is Unique: ' + CASE WHEN s.is_unique = 1 THEN N'Yes' ELSE N'No' END + CHAR(13) + CHAR(10)
+                + N'  Is Disabled: ' + CASE WHEN s.is_disabled = 1 THEN N'Yes' ELSE N'No' END + CHAR(13) + CHAR(10)
+                + N'  Usage - Seeks: ' + CAST(s.user_seeks AS NVARCHAR(30)) + N', Scans: ' + CAST(s.user_scans AS NVARCHAR(30))
+                    + N', Lookups: ' + CAST(s.user_lookups AS NVARCHAR(30)) + N', Writes: ' + ISNULL(CAST(s.user_updates AS NVARCHAR(30)), N'0') + CHAR(13) + CHAR(10)
+                + N'  Rows: ' + ISNULL(CAST(sz.total_rows AS NVARCHAR(30)), N'N/A') + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10)
+            FROM #IndexSanity s
+            LEFT JOIN #IndexSanitySize sz ON s.index_sanity_id = sz.index_sanity_id
+            WHERE s.[object_id] = @ObjectID
+            ORDER BY s.index_id
+            FOR XML PATH(''), TYPE
+        ).value('.', 'NVARCHAR(MAX)'), N'No indexes on this table (heap with no nonclustered indexes).' + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10));
+
+        /* Section 2: Missing Index Suggestions */
+        SET @CurrentAIPrompt = @CurrentAIPrompt + N'MISSING INDEX SUGGESTIONS FROM SQL SERVER:' + CHAR(13) + CHAR(10);
+
+        SET @CurrentAIPrompt = @CurrentAIPrompt + ISNULL((
+            SELECT
+                N'Equality Columns: ' + ISNULL(equality_columns_with_data_type, N'None') + CHAR(13) + CHAR(10)
+                + N'Inequality Columns: ' + ISNULL(inequality_columns_with_data_type, N'None') + CHAR(13) + CHAR(10)
+                + N'Include Columns: ' + ISNULL(included_columns_with_data_type, N'None') + CHAR(13) + CHAR(10)
+                + N'Benefit Number: ' + CAST(magic_benefit_number AS NVARCHAR(30)) + CHAR(13) + CHAR(10)
+                + N'User Seeks: ' + CAST(user_seeks AS NVARCHAR(30)) + N', User Scans: ' + CAST(user_scans AS NVARCHAR(30)) + CHAR(13) + CHAR(10)
+                + N'Avg User Impact: ' + CAST(avg_user_impact AS NVARCHAR(30)) + N'%' + CHAR(13) + CHAR(10)
+                + N'Create TSQL: ' + create_tsql + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10)
+            FROM #MissingIndexes
+            WHERE [object_id] = @ObjectID
+            ORDER BY magic_benefit_number DESC
+            FOR XML PATH(''), TYPE
+        ).value('.', 'NVARCHAR(MAX)'), N'No missing index suggestions from SQL Server.' + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10));
+
+        /* Section 3: Column Data Types */
+        SET @CurrentAIPrompt = @CurrentAIPrompt + N'COLUMN DATA TYPES:' + CHAR(13) + CHAR(10);
+
+        SET @CurrentAIPrompt = @CurrentAIPrompt + ISNULL((
+            SELECT
+                N'Column: ' + column_name
+                + N', Type: ' + system_type_name
+                    + CASE WHEN max_length = -1 THEN N'(max)'
+                           WHEN system_type_name IN (N'char', N'varchar', N'binary', N'varbinary') THEN N'(' + CAST(max_length AS NVARCHAR(20)) + N')'
+                           WHEN system_type_name IN (N'nchar', N'nvarchar') THEN N'(' + CAST(max_length / 2 AS NVARCHAR(20)) + N')'
+                           WHEN system_type_name IN (N'decimal', N'numeric') THEN N'(' + CAST([precision] AS NVARCHAR(20)) + N',' + CAST([scale] AS NVARCHAR(20)) + N')'
+                           ELSE N'' END
+                + N', Nullable: ' + CASE WHEN is_nullable = 1 THEN N'Yes' ELSE N'No' END
+                + N', Identity: ' + CASE WHEN is_identity = 1 THEN N'Yes' ELSE N'No' END
+                + CHAR(13) + CHAR(10)
+            FROM #IndexColumns
+            WHERE [object_id] = @ObjectID
+              AND index_id IN (0, 1)
+            ORDER BY column_name
+            FOR XML PATH(''), TYPE
+        ).value('.', 'NVARCHAR(MAX)'), N'');
+
+        /* Section 4: Foreign Keys */
+        SET @CurrentAIPrompt = @CurrentAIPrompt + CHAR(13) + CHAR(10) + N'FOREIGN KEYS:' + CHAR(13) + CHAR(10);
+
+        SET @CurrentAIPrompt = @CurrentAIPrompt + ISNULL((
+            SELECT
+                N'FK: ' + foreign_key_name + CHAR(13) + CHAR(10)
+                + N'  Parent: ' + parent_object_name + N' (' + parent_fk_columns + N')' + CHAR(13) + CHAR(10)
+                + N'  References: ' + referenced_object_name + N' (' + referenced_fk_columns + N')' + CHAR(13) + CHAR(10)
+                + N'  Disabled: ' + CASE WHEN is_disabled = 1 THEN N'Yes' ELSE N'No' END
+                + N', Not Trusted: ' + CASE WHEN is_not_trusted = 1 THEN N'Yes' ELSE N'No' END + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10)
+            FROM #ForeignKeys
+            ORDER BY foreign_key_name
+            FOR XML PATH(''), TYPE
+        ).value('.', 'NVARCHAR(MAX)'), N'No foreign keys on this table.' + CHAR(13) + CHAR(10));
+
+        /* Closing instruction */
+        SET @CurrentAIPrompt = @CurrentAIPrompt + CHAR(13) + CHAR(10)
+            + N'Based on the above data, please provide index recommendations for this table. Consider which indexes are redundant, which missing indexes should be created, and whether the current indexing strategy is appropriate for the workload pattern shown by the usage statistics.';
+
+        /* @AI = 1: Call the AI provider */
+        IF @AI = 1
+        BEGIN
+            BEGIN TRY
+                SET @AIResponseJSON = NULL;
+
+                /* Build payload using the template */
+                SET @AIPayload = REPLACE(@AIPayloadTemplate, N'@AIModel', @AIModel);
+                SET @AIPayload = REPLACE(@AIPayload, N'@AISystemPrompt', REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(@AISystemPrompt, '\', '\\'), '"', '\"'), CHAR(13), '\r'), CHAR(10), '\n'), CHAR(9), '\t'));
+                SET @AIPayload = REPLACE(@AIPayload, N'@CurrentAIPrompt', REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(@CurrentAIPrompt, '\', '\\'), '"', '\"'), CHAR(13), '\r'), CHAR(10), '\n'), CHAR(9), '\t'));
+
+                IF @Debug = 2
+                    SELECT @AIPayload AS AIPayload, LEN(@AIPayload) AS AIPayload_Length, DATALENGTH(@AIPayload) AS AIPayload_DataLength;
+
+                RAISERROR('Calling AI endpoint for index analysis', 0, 1) WITH NOWAIT;
+
+                EXEC @AIReturnValue = sp_invoke_external_rest_endpoint
+                    @url = @AIURL,
+                    @method = 'POST',
+                    @payload = @AIPayload,
+                    @headers = N'{"Content-Type":"application/json"}',
+                    @credential = @AICredential,
+                    @timeout = @AITimeoutSeconds,
+                    @response = @AIResponseJSON OUTPUT;
+
+                IF @Debug = 2
+                    PRINT N'API Response (first 4000 chars): ' + CHAR(13) + CHAR(10) + LEFT(ISNULL(@AIResponseJSON, N'NULL'), 4000);
+
+                /* Parse the response to extract the AI's advice */
+                IF @AIResponseJSON IS NOT NULL
+                BEGIN
+                    /* Try OpenAI ChatGPT chat completion by default: */
+                    SET @AIAdviceText = (SELECT c.Content
+                        FROM OPENJSON(@AIResponseJSON, '$.result.choices')
+                        WITH (
+                            Content NVARCHAR(MAX) '$.message.content'
+                        ) AS c);
+
+                    /* No data? How about Google Gemini: */
+                    IF @AIAdviceText IS NULL
+                        SET @AIAdviceText = (SELECT TOP 1 p.[text]
+                            FROM OPENJSON(@AIResponseJSON, '$.result.candidates') AS cand
+                            CROSS APPLY OPENJSON(cand.value, '$.content.parts')
+                                   WITH ([text] NVARCHAR(MAX) '$.text') AS p);
+
+                    /* If we still couldn't parse it, check for error codes */
+                    IF @AIAdviceText IS NULL
+                    BEGIN
+                        DECLARE @AIErrorMessage NVARCHAR(MAX);
+                        SELECT @AIErrorMessage = JSON_VALUE(@AIResponseJSON, '$.result.error.message');
+
+                        IF @AIErrorMessage IS NULL
+                            SELECT @AIErrorMessage = JSON_VALUE(@AIResponseJSON, '$.error.message');
+
+                        IF @AIErrorMessage IS NOT NULL
+                            SET @AIAdviceText = N'API Error: ' + @AIErrorMessage;
+                        ELSE
+                            SET @AIAdviceText = N'Unable to parse API response. Raw response stored for debugging.';
+                    END;
+                END
+                ELSE
+                BEGIN
+                    SET @AIAdviceText = N'No response received from AI service.';
+                END;
+
+            END TRY
+            BEGIN CATCH
+                SET @AIAdviceText = N'Error calling AI service: ' + ERROR_MESSAGE();
+
+                IF @Debug = 1
+                    PRINT @AIAdviceText;
+            END CATCH;
+        END
+        ELSE
+        BEGIN
+            /* @AI = 2: Just build the prompt, don't call AI */
+            SET @AIAdviceText = N'AI prompt generated but not sent (running with @AI = 2). Review the AI Prompt result set.';
+        END;
+
+        RAISERROR(N'Returning AI results', 0, 1) WITH NOWAIT;
+
+        /* Return advice, payload, and raw response when @AI = 1 */
+        IF @AI = 1
+        BEGIN
+            SELECT
+                [AI Advice] = CASE WHEN @AIAdviceText IS NULL THEN NULL ELSE (
+                    SELECT @AIAdviceText AS [text()] FOR XML PATH('ai_advice'), TYPE) END,
+				[AI Prompt] = (SELECT (@AISystemPrompt + NCHAR(13) + NCHAR(10) + NCHAR(13) + NCHAR(10) + @CurrentAIPrompt)
+		            AS [text()] FOR XML PATH('ai_prompt'), TYPE),
+                [AI Payload] = CASE WHEN @AIPayload IS NULL THEN NULL ELSE (
+                    SELECT @AIPayload AS [text()] FOR XML PATH('ai_payload'), TYPE) END,
+                [AI Raw Response] = CASE WHEN @AIResponseJSON IS NULL THEN NULL ELSE (
+                    SELECT @AIResponseJSON AS [text()] FOR XML PATH('ai_raw_response'), TYPE) END;
+		END
+		ELSE
+		BEGIN
+			SELECT [AI Prompt] = (
+				SELECT (@AISystemPrompt + NCHAR(13) + NCHAR(10) + NCHAR(13) + NCHAR(10) + @CurrentAIPrompt)
+				AS [text()] FOR XML PATH('ai_prompt'), TYPE);
+		END;
+
+    END; /* IF @AI >= 1 AND @TableName IS NOT NULL */
+
+    SELECT
         column_name AS [Column Name],
         (SELECT COUNT(*)  
             FROM #IndexColumns c2 
