@@ -41,6 +41,13 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
 	@SortDirection NVARCHAR(4) = 'DESC', /* Only affects @Mode = 2. */
     @Help TINYINT = 0,
 	@Debug BIT = 0,
+    @AI TINYINT = 0, /* 1 = ask for advice, 2 = build prompt but don't actually call AI. Only works with a single query plan: automatically sets @ExpertMode = 1, @KeepCRLF = 1. */
+    @AIModel VARCHAR(200) = NULL, /* Defaults to gpt-4.1-mini */
+    @AIURL VARCHAR(200) = NULL, /* Defaults to https://api.openai.com/v1/chat/completions */
+    @AICredential VARCHAR(200) = NULL, /* Defaults to 'https://api.openai.com/' or the root of your AIURL, trailing slash included */
+    @AIConfig NVARCHAR(500) = NULL, /* Table where AI provider config is stored - can be in the format db.schema.table, schema.table, or just table. */
+    @AIPromptConfig NVARCHAR(500) = NULL, /* Table where AI prompt templates are stored - db.schema.table, schema.table, or just table. */
+    @AIPromptNickname NVARCHAR(200) = NULL, /* Which prompt to use from the prompts table */
     @Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0
@@ -135,6 +142,20 @@ DECLARE @OptimizeForSequentialKey BIT = 0;
 DECLARE @ResumableIndexesDisappearAfter INT = 0;
 DECLARE @StringToExecute NVARCHAR(MAX);
 DECLARE @AzureSQLDB BIT = (SELECT CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN 1 ELSE 0 END);
+DECLARE @config_sql NVARCHAR(MAX);
+DECLARE
+    @AIConfigDatabaseName NVARCHAR(128) = CASE WHEN @AIConfig IS NULL THEN NULL ELSE PARSENAME(@AIConfig, 3) END,
+    @AIConfigSchemaName NVARCHAR(258) = CASE WHEN @AIConfig IS NULL THEN NULL ELSE PARSENAME(@AIConfig, 2) END,
+    @AIConfigTableName NVARCHAR(258) = CASE WHEN @AIConfig IS NULL THEN NULL ELSE PARSENAME(@AIConfig, 1) END,
+    @AIPromptDatabaseName NVARCHAR(128) = CASE WHEN @AIPromptConfig IS NULL THEN NULL ELSE PARSENAME(@AIPromptConfig, 3) END,
+    @AIPromptSchemaName NVARCHAR(258) = CASE WHEN @AIPromptConfig IS NULL THEN NULL ELSE PARSENAME(@AIPromptConfig, 2) END,
+    @AIPromptTableName NVARCHAR(258) = CASE WHEN @AIPromptConfig IS NULL THEN NULL ELSE PARSENAME(@AIPromptConfig, 1) END,
+    @AISystemPrompt NVARCHAR(4000),
+    @AIParameters NVARCHAR(4000),
+    @AIPayloadTemplate NVARCHAR(MAX),
+    @AITimeoutSeconds TINYINT,
+    @AIAdviceText NVARCHAR(MAX),
+    @AIContext INT;
 
 /* If user was lazy and just used @ObjectName with a fully qualified table name, then lets parse out the various parts */
 SET @DatabaseName = COALESCE(@DatabaseName, PARSENAME(@ObjectName, 3)) /* 3 = Database name */
@@ -962,11 +983,29 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
               N', @TableName=' + QUOTENAME([table_name],N'''') + N';'
         );
 
-        CREATE TABLE #Ignore_Databases 
+        CREATE TABLE #Ignore_Databases
         (
-          DatabaseName NVARCHAR(128), 
+          DatabaseName NVARCHAR(128),
           Reason NVARCHAR(100)
         );
+
+CREATE TABLE #ai_providers
+(Id INT PRIMARY KEY CLUSTERED,
+ AI_Model NVARCHAR(100) INDEX AI_Model,
+ Nickname NVARCHAR(200),
+ AI_URL NVARCHAR(500),
+ AI_Database_Scoped_Credential_Name NVARCHAR(500),
+ AI_Parameters NVARCHAR(4000),
+ Timeout_Seconds TINYINT,
+ Context INT,
+ DefaultModel BIT DEFAULT 0);
+
+CREATE TABLE #ai_prompts
+(Id INT PRIMARY KEY CLUSTERED,
+ PromptNickname NVARCHAR(200) INDEX IX_PromptNickname,
+ AI_System_Prompt NVARCHAR(4000),
+ Payload_Template NVARCHAR(4000),
+ DefaultPrompt BIT DEFAULT 0);
 
 /* Sanitize our inputs */
 SELECT
@@ -974,8 +1013,156 @@ SELECT
 	@OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
 	@OutputSchemaName = QUOTENAME(@OutputSchemaName),
 	@OutputTableName = QUOTENAME(@OutputTableName);
-					
-					
+
+/* AI configuration setup */
+IF @AIPromptConfig IS NOT NULL AND @AIConfig IS NULL
+BEGIN
+    RAISERROR('@AIPromptConfig requires @AIConfig to also be specified.', 12, 1);
+    RETURN;
+END;
+
+IF @AIConfig IS NOT NULL
+BEGIN
+   RAISERROR(N'Reading values from AI Provider Configuration Table', 0, 1) WITH NOWAIT;
+   SET @config_sql = N'INSERT INTO #ai_providers (Id, AI_Model, Nickname, AI_URL, AI_Database_Scoped_Credential_Name, AI_Parameters, Timeout_Seconds, Context, DefaultModel)
+        SELECT Id, AI_Model, Nickname, AI_URL, AI_Database_Scoped_Credential_Name, AI_Parameters, Timeout_Seconds, Context, DefaultModel FROM '
+        + CASE WHEN @AIConfigDatabaseName IS NOT NULL THEN (QUOTENAME(@AIConfigDatabaseName) + N'.') ELSE N'' END
+        + CASE WHEN @AIConfigSchemaName IS NOT NULL THEN (QUOTENAME(@AIConfigSchemaName) + N'.') ELSE N'' END
+        + QUOTENAME(@AIConfigTableName) + N' WHERE (@AIModel IS NULL AND DefaultModel = 1) OR @AIModel IN (AI_Model, Nickname) ; ';
+   EXEC sp_executesql @config_sql, N'@AIModel NVARCHAR(100)', @AIModel;
+END;
+
+IF @AIPromptConfig IS NOT NULL
+BEGIN
+   RAISERROR(N'Reading values from AI Prompts Table', 0, 1) WITH NOWAIT;
+   SET @config_sql = N'INSERT INTO #ai_prompts (Id, PromptNickname, AI_System_Prompt, Payload_Template, DefaultPrompt)
+        SELECT Id, PromptNickname, AI_System_Prompt, Payload_Template, DefaultPrompt FROM '
+        + CASE WHEN @AIPromptDatabaseName IS NOT NULL THEN (QUOTENAME(@AIPromptDatabaseName) + N'.') ELSE N'' END
+        + CASE WHEN @AIPromptSchemaName IS NOT NULL THEN (QUOTENAME(@AIPromptSchemaName) + N'.') ELSE N'' END
+        + QUOTENAME(@AIPromptTableName) + N' WHERE (@AIPromptNickname IS NULL AND DefaultPrompt = 1) OR @AIPromptNickname = PromptNickname ; ';
+   EXEC sp_executesql @config_sql, N'@AIPromptNickname NVARCHAR(200)', @AIPromptNickname;
+END;
+
+
+IF @AI > 0
+    BEGIN
+    RAISERROR(N'Setting up AI configuration defaults', 0, 1) WITH NOWAIT;
+
+    IF @Debug = 2
+        BEGIN
+        SELECT N'ai_providers' AS TableLabel, * FROM #ai_providers;
+        SELECT N'ai_prompts' AS TableLabel, * FROM #ai_prompts;
+        END
+
+    IF @AI = 1 AND NOT EXISTS(SELECT * FROM sys.all_objects WHERE name = 'sp_invoke_external_rest_endpoint')
+        BEGIN
+        SET @AI = 2
+        RAISERROR(N'@AI was set to 1, but sp_invoke_external_rest_endpoint does not exist here, so we can''t call AI services. Setting @AI to 2 instead to just generate prompts.', 0, 1) WITH NOWAIT;
+        END
+
+    /* Check the providers table */
+    IF @AIModel IS NULL
+        SELECT TOP 1 @AIModel = AI_Model, @AIURL = AI_URL,
+            @AICredential = AI_Database_Scoped_Credential_Name,
+            @AIParameters = AI_Parameters,
+            @AITimeoutSeconds = COALESCE(Timeout_Seconds, 230),
+            @AIContext = Context
+            FROM #ai_providers
+            WHERE DefaultModel = 1
+            ORDER BY Id;
+    ELSE
+        SELECT TOP 1 @AIModel = AI_Model,
+            @AIURL = COALESCE(@AIURL, AI_URL),
+            @AICredential = COALESCE(@AICredential, AI_Database_Scoped_Credential_Name),
+            @AIParameters = AI_Parameters,
+            @AITimeoutSeconds = COALESCE(Timeout_Seconds, 230),
+            @AIContext = Context
+            FROM #ai_providers
+            ORDER BY Id;
+
+    /* Check the prompts table */
+    IF @AIPromptNickname IS NULL
+        SELECT TOP 1 @AISystemPrompt = AI_System_Prompt,
+            @AIPayloadTemplate = Payload_Template
+            FROM #ai_prompts
+            WHERE DefaultPrompt = 1
+            ORDER BY Id;
+    ELSE
+        SELECT TOP 1 @AISystemPrompt = AI_System_Prompt,
+            @AIPayloadTemplate = Payload_Template
+            FROM #ai_prompts
+            WHERE PromptNickname = @AIPromptNickname
+            ORDER BY Id;
+
+    IF @AIModel IS NULL
+        SET @AIModel = N'gpt-5-nano';
+
+    IF @AIURL IS NULL OR @AIURL NOT LIKE N'http%'
+        SET @AIURL = CASE
+            WHEN @AIModel LIKE 'gemini%' THEN N'https://generativelanguage.googleapis.com/v1beta/models/' + @AIModel + N':generateContent'
+            ELSE N'https://api.openai.com/v1/chat/completions' /* Default to ChatGPT */
+            END;
+
+    /* Try to guess the credential based on the root of their URL: */
+    IF @AICredential IS NULL
+        SET @AICredential = LEFT(@AIURL, CHARINDEX('/', @AIURL, CHARINDEX('://', @AIURL) + 3));
+
+    IF @AITimeoutSeconds IS NULL OR @AITimeoutSeconds < 1 OR @AITimeoutSeconds > 230
+        SET @AITimeoutSeconds = 230;
+
+    IF @AISystemPrompt IS NULL OR @AISystemPrompt = N''
+        SET @AISystemPrompt = N'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
+
+    You have a query that isn''t performing to end user expectations. You have been tasked with making serious improvements to it, quickly. You are not allowed to change server-level settings or make frivolous suggestions like updating statistics. Instead, you need to focus on query changes or index changes.
+
+    Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.';
+
+    IF @AIModel LIKE 'gemini%' AND @AIPayloadTemplate IS NULL
+        SET @AIPayloadTemplate = N'{
+          "contents": [
+            {
+              "parts": [
+                {"text": "@AISystemPrompt @CurrentAIPrompt"}
+              ]
+            }
+          ]
+        }';
+    ELSE IF @AIPayloadTemplate IS NULL /* Default to ChatGPT format */
+        SET @AIPayloadTemplate = N'{
+                    "model": "@AIModel",
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "@AISystemPrompt"
+                        },
+                        {
+                            "role": "user",
+                            "content": "@CurrentAIPrompt"
+                        }
+                    ]
+                }';
+
+    IF @Debug = 2 OR (@AI = 1 AND (@AIModel IS NULL OR @AIURL IS NULL OR @AISystemPrompt IS NULL OR @AICredential IS NULL OR @AIPayloadTemplate IS NULL))
+        BEGIN
+            SELECT @AIModel AS AIModel, @AIURL AS AIUrl, @AICredential AS AICredential,
+                @AIContext AS AIContext, @AIParameters AS AIParameters, @AITimeoutSeconds AS AITimeoutSeconds,
+                @AISystemPrompt AS AISystemPrompt, @AIPayloadTemplate AS AIPayloadTemplate;
+        END;
+
+    IF @AIPromptNickname IS NOT NULL AND NOT EXISTS (SELECT 1 FROM #ai_prompts WHERE PromptNickname = @AIPromptNickname)
+        BEGIN
+            RAISERROR('@AIPromptNickname was specified but no matching prompt was found in the prompts table.',12,1);
+            RETURN;
+        END;
+
+    IF @AI = 1 AND (@AIModel IS NULL OR @AIURL IS NULL OR @AISystemPrompt IS NULL OR @AICredential IS NULL OR @AIPayloadTemplate IS NULL)
+        BEGIN
+            RAISERROR('@AI is set to 1, but not all of the necessary configuration is included.',12,1);
+            RETURN;
+        END;
+
+    END /* IF @AI > 0 */
+
 IF @GetAllDatabases = 1
     BEGIN
         INSERT INTO #DatabaseList (DatabaseName)
