@@ -2,12 +2,12 @@
 
 sp_BlitzCache and sp_BlitzIndex can build AI prompts with your query and index data, and optionally call an AI provider (OpenAI or Google Gemini) to return recommendations directly in the result set.
 
-- **`@AI = 2`** - Builds the AI prompt and returns it in the result set so you can copy/paste it into ChatGPT, Gemini, or another AI tool. Works on all supported SQL Server versions, no setup required.
+- **`@AI = 2`** - Builds the AI prompt and returns it in the result set so you can copy/paste it into ChatGPT, Gemini, or another AI tool. Works on all supported versions of SQL Server and Azure SQL DB, no setup required.
 - **`@AI = 1`** - Does everything `@AI = 2` does, plus calls the AI API directly from SQL Server and returns advice in the result set. Requires SQL Server 2025 or Azure SQL DB (uses `sp_invoke_external_rest_endpoint`).
 
 ## Getting Started: Generate Prompts with @AI = 2
 
-The fastest way to try the AI features is `@AI = 2`. No credentials, no config tables, no API keys - just run the proc and copy the prompt into your favorite AI tool.
+The fastest way to try the AI features is `@AI = 2`. No credentials, no config tables, no API keys - just run the proc and copy the prompt into your favorite AI tool. (We named this AI = 2 because in the really long term - like a decade from now - we expect everybody to be on SQL Server 2025 or Azure SQL DB, and they'll just use AI = 1.)
 
 ### sp_BlitzCache: Get Query Tuning Prompts
 
@@ -29,7 +29,7 @@ EXEC sp_BlitzIndex
     @AI = 2;
 ```
 
-The **AI Prompt** column contains a prompt with four data sections about your table:
+The **AI Prompt** column contains a prompt with four data sections about your table, the same kinds of 
 
 1. **Existing Indexes** - Index names, types, key columns, include columns, filters, uniqueness, primary key status, and usage statistics (seeks, scans, lookups, writes, row counts).
 2. **Missing Index Suggestions** - SQL Server's missing index DMV data including equality/inequality/include columns, benefit numbers, and suggested CREATE INDEX statements.
@@ -37,6 +37,96 @@ The **AI Prompt** column contains a prompt with four data sections about your ta
 4. **Foreign Keys** - Foreign key names, parent/referenced columns, and whether they are disabled or not trusted.
 
 The AI result sets appear immediately after the missing index result set in sp_BlitzIndex's output.
+
+### Building Your Own Custom Prompts
+
+If you want to override the default prompts, create a table to store your prompt variations. Here's the structure we use, and a few sample ideas for sp_BlitzCache prompts:
+
+```sql
+CREATE TABLE dbo.Blitz_AI_Prompts
+(Id INT IDENTITY(1,1) PRIMARY KEY CLUSTERED,
+ PromptNickname NVARCHAR(200),
+ AI_System_Prompt NVARCHAR(4000),
+ Payload_Template NVARCHAR(4000),
+ DefaultPrompt BIT DEFAULT 0);
+ 
+INSERT INTO dbo.Blitz_AI_Prompts (PromptNickname, DefaultPrompt, AI_System_Prompt)
+  VALUES ('sp_BlitzCache Default', 0, 'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
+
+    You have a query that isn''t performing to end user expectations. You have been tasked with making serious improvements to it, quickly. You are not allowed to change server-level settings or make frivolous suggestions like updating statistics. Instead, you need to focus on query changes or index changes. 
+    
+    Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.');
+
+INSERT INTO dbo.Blitz_AI_Prompts (PromptNickname, DefaultPrompt, AI_System_Prompt)
+  VALUES ('sp_BlitzCache Index Tuning', 0, 'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
+
+    You have a query that isn''t performing to end user expectations. You have been tasked with making serious improvements to it, quickly, but you are only allowed to make index changes. You are not allowed to make changes to the query, server-level settings, database settings, etc.
+    
+    Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.');
+
+INSERT INTO dbo.Blitz_AI_Prompts (PromptNickname, DefaultPrompt, AI_System_Prompt)
+  VALUES ('sp_BlitzCache Deadlock Tuning', 0, 'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
+
+    You have a query that is experiencing deadlocks and blocking. You have been tasked with making serious improvements to it, quickly. You are not allowed to change server-level or database-level settings nor make frivolous suggestions like updating statistics. Instead, you need to focus on query changes or index changes that will reduce blocking and deadlocks.
+    
+    Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.');
+
+INSERT INTO dbo.Blitz_AI_Prompts (PromptNickname, DefaultPrompt, AI_System_Prompt)
+  VALUES ('sp_BlitzCache Modernize', 0, 'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
+
+    You have been given a legacy query that needs to be modernized. Our goals are to make the query run faster, make it easier to understand, easier to maintain, and to take advantage of new features up to and including SQL Server 2025. You have been tasked with making serious improvements to it, quickly, without touching server-level settings, database-level settings, indexes, or statistics.
+    
+    Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.');
+```
+
+When you want to use one of those custom prompts, call sp_BlitzCache or sp_BlitzIndex like this:
+
+```sql
+EXEC sp_BlitzCache @Top = 1, @AI = 2,
+@AIPromptConfigTable = 'master.dbo.Blitz_AI_Prompts',
+@AIPrompt = 'sp_BlitzCache Modernize';
+```
+
+### Using a Database Constitution for Company Standards
+
+Microsoft has implemented [database instructions](https://learn.microsoft.com/en-us/ssms/github-copilot/database-instructions) to influence the advice of GitHub Copilot and SSMS Copilot, and we support that in the First Responder Kit too.
+
+Both sp_BlitzCache and sp_BlitzIndex support a database-level "constitution" - an extended property that provides additional context to the AI about your database's specific rules and constraints. Here's an example constitution:
+
+```sql
+EXECUTE sp_addextendedproperty
+    @name = N'CONSTITUTION.md',
+    @value = N'Any objects and T-SQL in this database must comply with the organizational standards and guidelines outlined in this constitution document.
+    
+    ## Object Naming Standards
+    
+    Views must always be prefixed with vw_.
+    Tables should never be prefixed with tbl_.
+    Table and column names should be in PascalCase with a capitalized first letter, like UserProperties or SalesByMonth.
+    Index names should be based on the key columns in the index. If the index has include columns, add an _inc suffix to the index name.
+    Index names should never be prefixed with table names, idx_, ix_, or any variation thereof.
+    
+    ## Query Standards
+    
+    Queries should be written in a concise, easy-to-understand, performant way.
+    Queries should prefer CTEs over temp tables unless that presents a performance issue for the query.';
+```
+
+When present, the constitution text is included with the AI prompt, giving the AI additional context about your environment.
+
+You can also set up instructions at the object level (example below), but as of this writing, we don't include that with the AI prompt yet. Only one agents property per object is allowed, so you'll want to consolidate all of your information about that object in one property.
+
+```sql
+EXECUTE sp_addextendedproperty
+    @name = N'AGENTS.md',
+    @value = N'The Views column represents the number of times other people have viewed this user profile.
+        The AboutMe column is an NVARCHAR(MAX), but only 4000 characters of content should be allowed for inserts and updates.',
+    @level0type = N'SCHEMA',
+    @level0name = N'dbo',
+    @level1type = N'TABLE',
+    @level1name = N'Users';
+```
+	
 
 ## Setting Up for @AI = 1: Direct API Calls
 
@@ -114,33 +204,6 @@ VALUES (2, N'gemini-2.5-flash', N'https://generativelanguage.googleapis.com/v1be
     N'https://generativelanguage.googleapis.com/', 230, 0);
 ```
 
-#### AI Prompts Table
-
-```sql
-CREATE TABLE dbo.Blitz_AI_Prompts
-(Id INT PRIMARY KEY CLUSTERED,
- PromptNickname NVARCHAR(200),
- AI_System_Prompt NVARCHAR(4000),
- Payload_Template NVARCHAR(4000),
- DefaultPrompt BIT DEFAULT 0);
-```
-
-You can store custom system prompts and payload templates here. The `PromptNickname` column lets you select a prompt by name with the `@AIPrompt` parameter.
-
-### Database Constitution (Optional)
-
-Both sp_BlitzCache and sp_BlitzIndex support a database-level "constitution" - an extended property that provides additional context to the AI about your database's specific rules and constraints.
-
-```sql
-EXEC sp_addextendedproperty
-    @name = N'CONSTITUTION.md',
-    @value = N'This is an OLTP database supporting a web application.
-Tables in the dbo schema are the primary transactional tables.
-We prefer filtered indexes over full indexes where possible.
-The Users table is rarely updated but frequently queried by Location.';
-```
-
-When present, the constitution text is prepended to the AI prompt, giving the AI additional context about your environment.
 
 ## sp_BlitzCache with @AI = 1
 
