@@ -189,7 +189,7 @@ Other common parameters include:
 
 In addition to the [parameters common to many of the stored procedures](#parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_BlitzCache:
 
-* @AskAI - when set to 2, returns a prompt you can copy into your favorite LLM to get advice on the query. When set to 1, we'll actually call the LLM for you on SQL Server 2025 or newer, or Azure SQL DB. [Instructions on setting that up.](https://www.brentozar.com/archive/2025/12/get-chatgpts-advice-on-your-queries-with-sp_blitzcache/)
+* @AskAI - when set to 2, returns a prompt you can copy into your favorite LLM to get advice on the query. When set to 1, we'll actually call the LLM for you on SQL Server 2025 or newer, or Azure SQL DB. [Learn more about using AI with the First Responder Kit.](Documentation/Using_AI.md)
 * @OnlyQueryHashes - if you want to examine specific query plans, you can pass in a comma-separated list of them in a string.
 * @IgnoreQueryHashes - if you know some queries suck and you don't want to see them, you can pass in a comma-separated list of them.
 * @OnlySqlHandles, @IgnoreSqlHandles - just like the above two params
@@ -287,6 +287,7 @@ sp_BlitzIndex focuses on mainstream index types. Other index types have varying 
 
 In addition to the [parameters common to many of the stored procedures](#parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_BlitzIndex:
 
+* @AskAI - when set to 2, returns a prompt you can copy into your favorite LLM to get index advice for a table (requires @TableName). When set to 1, we'll actually call the LLM for you on SQL Server 2025 or newer, or Azure SQL DB. [Learn more about using AI with the First Responder Kit.](Documentation/Using_AI.md)
 * @SkipPartitions = 1 - add this if you want to analyze large partitioned tables. We skip these by default for performance reasons.
 * @SkipStatistics = 0 - right now, by default, we skip statistics analysis because we've had some performance issues on this.
 * @UsualStatisticsSamplingPercent = 100 (default) - By default, @SkipStatistics = 0 with either @Mode = 0 or @Mode = 4 does not inform you of persisted statistics sample rates if that rate is 100. Use a different float if you usually persist a different sample percentage and do not want to be warned about it. Use NULL if you want to hear about every persisted sample rate.
