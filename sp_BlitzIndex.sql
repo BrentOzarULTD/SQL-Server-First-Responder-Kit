@@ -1115,9 +1115,13 @@ IF @AI > 0
 
     IF @AISystemPrompt IS NULL OR @AISystemPrompt = N''
     BEGIN
-            SET @AISystemPrompt = N'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
+            SET @AISystemPrompt = N'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment. Do not describe the table: you are working with other very senior database developers who understand SQL Server deeply, so get straight to the point with your recommendations and scripts.
 
-    You have been given the existing indexes, missing index suggestions from SQL Server, column data types, and foreign keys for a table. Your job is to recommend index changes: which indexes to add, which to remove as redundant or harmful, and which to modify. Focus on practical changes that will improve the most common query patterns shown by the usage statistics. If indexes can be dropped or merged together with minimal impact to performance, suggest that. Include CREATE INDEX and DROP INDEX scripts where appropriate. Include undo scripts in comments to back out your work if something goes wrong.
+    You have been given the existing indexes, missing index suggestions from SQL Server, column data types, and foreign keys for a table. Your job is to recommend index changes: which indexes to add, which to remove as redundant or harmful, and which to modify. Focus on practical changes that will improve the most common query patterns shown by the usage statistics.
+
+	If indexes are not being used, drop them. If duplicate or near-duplicate indexes exist, merge them together or keep the widest ones. Existing indexes that start with different leading columns should not be considered duplicates.
+
+	Include CREATE INDEX and DROP INDEX scripts. Include undo scripts in comments to back out your work if something goes wrong. Use the /* */ style for comments, not --, to make it easier for the customer to copy and paste your scripts without accidentally missing a line.
 
 	When working with missing index suggestions from SQL Server, keep in mind that they are ordered equality vs inequality search in the query, then by the column order of the table. The column order is nowhere near scientific, and can be rearranged if necessary for performance.
 
@@ -3790,22 +3794,25 @@ BEGIN
 
         RAISERROR(N'Returning AI results', 0, 1) WITH NOWAIT;
 
-        /* Return the AI prompt (always when @AI >= 1) */
-        SELECT [AI Prompt] = (
-            SELECT (@AISystemPrompt + NCHAR(13) + NCHAR(10) + NCHAR(13) + NCHAR(10) + @CurrentAIPrompt)
-            AS [text()] FOR XML PATH('ai_prompt'), TYPE);
-
         /* Return advice, payload, and raw response when @AI = 1 */
         IF @AI = 1
         BEGIN
             SELECT
                 [AI Advice] = CASE WHEN @AIAdviceText IS NULL THEN NULL ELSE (
                     SELECT @AIAdviceText AS [text()] FOR XML PATH('ai_advice'), TYPE) END,
+				[AI Prompt] = (SELECT (@AISystemPrompt + NCHAR(13) + NCHAR(10) + NCHAR(13) + NCHAR(10) + @CurrentAIPrompt)
+		            AS [text()] FOR XML PATH('ai_prompt'), TYPE),
                 [AI Payload] = CASE WHEN @AIPayload IS NULL THEN NULL ELSE (
                     SELECT @AIPayload AS [text()] FOR XML PATH('ai_payload'), TYPE) END,
                 [AI Raw Response] = CASE WHEN @AIResponseJSON IS NULL THEN NULL ELSE (
                     SELECT @AIResponseJSON AS [text()] FOR XML PATH('ai_raw_response'), TYPE) END;
-        END;
+		END
+		ELSE
+		BEGIN
+			SELECT [AI Prompt] = (
+				SELECT (@AISystemPrompt + NCHAR(13) + NCHAR(10) + NCHAR(13) + NCHAR(10) + @CurrentAIPrompt)
+				AS [text()] FOR XML PATH('ai_prompt'), TYPE);
+		END;
 
     END; /* IF @AI >= 1 AND @TableName IS NOT NULL */
 
