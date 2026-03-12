@@ -280,9 +280,9 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @AIModel VARCHAR(200) = NULL, /* Defaults to gpt-4.1-mini */
     @AIURL VARCHAR(200) = NULL, /* Defaults to https://api.openai.com/v1/chat/completions */
     @AICredential VARCHAR(200) = NULL, /* Defaults to 'https://api.openai.com/' or the root of your AIURL, trailing slash included */
-    @AIConfig NVARCHAR(500) = NULL, /* Table where AI provider config is stored - can be in the format db.schema.table, schema.table, or just table. */
-    @AIPromptConfig NVARCHAR(500) = NULL, /* Table where AI prompt templates are stored - db.schema.table, schema.table, or just table. */
-    @AIPromptNickname NVARCHAR(200) = NULL, /* Which prompt to use from the prompts table */
+    @AIConfigTable NVARCHAR(500) = NULL, /* Table where AI provider config is stored - can be in the format db.schema.table, schema.table, or just table. */
+    @AIPromptConfigTable NVARCHAR(500) = NULL, /* Table where AI prompt templates are stored - db.schema.table, schema.table, or just table. */
+    @AIPrompt NVARCHAR(200) = NULL, /* Which prompt to use from the prompts table */
 	@Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
 	@VersionCheckMode BIT = 0,
@@ -875,7 +875,6 @@ END;
 CREATE TABLE #ai_providers
 (Id INT PRIMARY KEY CLUSTERED,
  AI_Model NVARCHAR(100) INDEX AI_Model,
- Nickname NVARCHAR(200),
  AI_URL NVARCHAR(500),
  AI_Database_Scoped_Credential_Name NVARCHAR(500),
  AI_Parameters NVARCHAR(4000),
@@ -891,12 +890,12 @@ CREATE TABLE #ai_prompts
  DefaultPrompt BIT DEFAULT 0);
 
 DECLARE
-    @AIConfigDatabaseName NVARCHAR(128) = CASE WHEN @AIConfig IS NULL THEN NULL ELSE PARSENAME(@AIConfig, 3) END,
-    @AIConfigSchemaName NVARCHAR(258) = CASE WHEN @AIConfig IS NULL THEN NULL ELSE PARSENAME(@AIConfig, 2) END,
-    @AIConfigTableName NVARCHAR(258) = CASE WHEN @AIConfig IS NULL THEN NULL ELSE PARSENAME(@AIConfig, 1) END,
-    @AIPromptDatabaseName NVARCHAR(128) = CASE WHEN @AIPromptConfig IS NULL THEN NULL ELSE PARSENAME(@AIPromptConfig, 3) END,
-    @AIPromptSchemaName NVARCHAR(258) = CASE WHEN @AIPromptConfig IS NULL THEN NULL ELSE PARSENAME(@AIPromptConfig, 2) END,
-    @AIPromptTableName NVARCHAR(258) = CASE WHEN @AIPromptConfig IS NULL THEN NULL ELSE PARSENAME(@AIPromptConfig, 1) END,
+    @AIConfigDatabaseName NVARCHAR(128) = CASE WHEN @AIConfigTable IS NULL THEN NULL ELSE PARSENAME(@AIConfigTable, 3) END,
+    @AIConfigSchemaName NVARCHAR(258) = CASE WHEN @AIConfigTable IS NULL THEN NULL ELSE PARSENAME(@AIConfigTable, 2) END,
+    @AIConfigTableName NVARCHAR(258) = CASE WHEN @AIConfigTable IS NULL THEN NULL ELSE PARSENAME(@AIConfigTable, 1) END,
+    @AIPromptDatabaseName NVARCHAR(128) = CASE WHEN @AIPromptConfigTable IS NULL THEN NULL ELSE PARSENAME(@AIPromptConfigTable, 3) END,
+    @AIPromptSchemaName NVARCHAR(258) = CASE WHEN @AIPromptConfigTable IS NULL THEN NULL ELSE PARSENAME(@AIPromptConfigTable, 2) END,
+    @AIPromptTableName NVARCHAR(258) = CASE WHEN @AIPromptConfigTable IS NULL THEN NULL ELSE PARSENAME(@AIPromptConfigTable, 1) END,
     @AISystemPrompt NVARCHAR(4000),
     @AIParameters NVARCHAR(4000),
     @AIPayloadTemplate NVARCHAR(MAX),
@@ -905,32 +904,32 @@ DECLARE
     @AIContext INT;
 
 
-IF @AIPromptConfig IS NOT NULL AND @AIConfig IS NULL
+IF @AIPrompt IS NOT NULL AND @AIPromptConfigTable IS NULL
 BEGIN
-    RAISERROR('@AIPromptConfig requires @AIConfig to also be specified.', 12, 1);
+    RAISERROR('@AIPrompt requires @AIPromptConfigTable to also be specified so we can look up the prompt.', 12, 1);
     RETURN;
 END;
 
-IF @AIConfig IS NOT NULL
+IF @AIConfigTable IS NOT NULL
 BEGIN
    RAISERROR(N'Reading values from AI Provider Configuration Table', 0, 1) WITH NOWAIT;
-   SET @config_sql = N'INSERT INTO #ai_providers (Id, AI_Model, Nickname, AI_URL, AI_Database_Scoped_Credential_Name, AI_Parameters, Timeout_Seconds, Context, DefaultModel)
-        SELECT Id, AI_Model, Nickname, AI_URL, AI_Database_Scoped_Credential_Name, AI_Parameters, Timeout_Seconds, Context, DefaultModel FROM '
+   SET @config_sql = N'INSERT INTO #ai_providers (Id, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_Parameters, Timeout_Seconds, Context, DefaultModel)
+        SELECT Id, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_Parameters, Timeout_Seconds, Context, DefaultModel FROM '
         + CASE WHEN @AIConfigDatabaseName IS NOT NULL THEN (QUOTENAME(@AIConfigDatabaseName) + N'.') ELSE N'' END
         + CASE WHEN @AIConfigSchemaName IS NOT NULL THEN (QUOTENAME(@AIConfigSchemaName) + N'.') ELSE N'' END
-        + QUOTENAME(@AIConfigTableName) + N' WHERE (@AIModel IS NULL AND DefaultModel = 1) OR @AIModel IN (AI_Model, Nickname) ; ';
+        + QUOTENAME(@AIConfigTableName) + N' WHERE (@AIModel IS NULL AND DefaultModel = 1) OR @AIModel = AI_Model ; ';
    EXEC sp_executesql @config_sql, N'@AIModel NVARCHAR(100)', @AIModel;
 END;
 
-IF @AIPromptConfig IS NOT NULL
+IF @AIPromptConfigTable IS NOT NULL
 BEGIN
    RAISERROR(N'Reading values from AI Prompts Table', 0, 1) WITH NOWAIT;
-   SET @config_sql = N'INSERT INTO #ai_prompts (Id, PromptNickname, AI_System_Prompt, Payload_Template, DefaultPrompt)
-        SELECT Id, PromptNickname, AI_System_Prompt, Payload_Template, DefaultPrompt FROM '
+   SET @config_sql = N'INSERT INTO #ai_prompts (Id, PromptNickname, Payload_Template, AI_System_Prompt, DefaultPrompt)
+        SELECT Id, PromptNickname, Payload_Template, AI_System_Prompt, DefaultPrompt FROM '
         + CASE WHEN @AIPromptDatabaseName IS NOT NULL THEN (QUOTENAME(@AIPromptDatabaseName) + N'.') ELSE N'' END
         + CASE WHEN @AIPromptSchemaName IS NOT NULL THEN (QUOTENAME(@AIPromptSchemaName) + N'.') ELSE N'' END
-        + QUOTENAME(@AIPromptTableName) + N' WHERE (@AIPromptNickname IS NULL AND DefaultPrompt = 1) OR @AIPromptNickname = PromptNickname ; ';
-   EXEC sp_executesql @config_sql, N'@AIPromptNickname NVARCHAR(200)', @AIPromptNickname;
+        + QUOTENAME(@AIPromptTableName) + N' WHERE (@AIPrompt IS NULL AND DefaultPrompt = 1) OR @AIPrompt = PromptNickname ; ';
+   EXEC sp_executesql @config_sql, N'@AIPrompt NVARCHAR(200)', @AIPrompt;
 END;
 
 
@@ -976,7 +975,7 @@ IF @AI > 0
             ORDER BY Id;
 
     /* Check the prompts table */
-    IF @AIPromptNickname IS NULL
+    IF @AIPrompt IS NULL
         SELECT TOP 1 @AISystemPrompt = AI_System_Prompt,
             @AIPayloadTemplate = Payload_Template
             FROM #ai_prompts
@@ -986,7 +985,7 @@ IF @AI > 0
         SELECT TOP 1 @AISystemPrompt = AI_System_Prompt,
             @AIPayloadTemplate = Payload_Template
             FROM #ai_prompts
-            WHERE PromptNickname = @AIPromptNickname
+            WHERE PromptNickname = @AIPrompt
             ORDER BY Id;
         
     IF @AIModel IS NULL
@@ -1044,9 +1043,9 @@ IF @AI > 0
                 @AISystemPrompt AS AISystemPrompt, @AIPayloadTemplate AS AIPayloadTemplate;
         END;
 
-    IF @AIPromptNickname IS NOT NULL AND NOT EXISTS (SELECT 1 FROM #ai_prompts WHERE PromptNickname = @AIPromptNickname)
+    IF @AIPrompt IS NOT NULL AND NOT EXISTS (SELECT 1 FROM #ai_prompts WHERE PromptNickname = @AIPrompt)
         BEGIN
-            RAISERROR('@AIPromptNickname was specified but no matching prompt was found in the prompts table.',12,1);
+            RAISERROR('@AIPrompt was specified but no matching prompt was found in the prompts table.',12,1);
             RETURN;
         END;
 
