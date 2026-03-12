@@ -1,13 +1,46 @@
 # Using AI with the First Responder Kit
 
-sp_BlitzCache and sp_BlitzIndex can send your query and index data to an AI provider (OpenAI or Google Gemini) and return AI-generated recommendations. There are two modes:
+sp_BlitzCache and sp_BlitzIndex can build AI prompts with your query and index data, and optionally call an AI provider (OpenAI or Google Gemini) to return recommendations directly in the result set.
 
-- **`@AI = 1`** - Calls the AI API directly from SQL Server and returns advice in the result set. Requires SQL Server 2025 or Azure SQL DB (uses `sp_invoke_external_rest_endpoint`).
-- **`@AI = 2`** - Builds the AI prompt but does not call the API. Returns the prompt in the result set so you can copy/paste it into ChatGPT, Gemini, or another AI tool. Works on all supported SQL Server versions.
+- **`@AI = 2`** - Builds the AI prompt and returns it in the result set so you can copy/paste it into ChatGPT, Gemini, or another AI tool. Works on all supported SQL Server versions, no setup required.
+- **`@AI = 1`** - Does everything `@AI = 2` does, plus calls the AI API directly from SQL Server and returns advice in the result set. Requires SQL Server 2025 or Azure SQL DB (uses `sp_invoke_external_rest_endpoint`).
 
-## Setting Up Database-Scoped Credentials
+## Getting Started: Generate Prompts with @AI = 2
 
-To use `@AI = 1`, you need database-scoped credentials in a user database (not master). These store your API key so SQL Server can authenticate with the AI provider.
+The fastest way to try the AI features is `@AI = 2`. No credentials, no config tables, no API keys - just run the proc and copy the prompt into your favorite AI tool.
+
+### sp_BlitzCache: Get Query Tuning Prompts
+
+```sql
+EXEC sp_BlitzCache @Top = 1, @AI = 2;
+```
+
+The result set includes an **AI Prompt** column containing a pre-built prompt with the query text, execution plan, and performance metrics. Copy and paste it into ChatGPT, Gemini, Claude, or any AI tool.
+
+### sp_BlitzIndex: Get Index Advice Prompts
+
+sp_BlitzIndex's AI feature works in single-table mode (when `@TableName` is specified):
+
+```sql
+EXEC sp_BlitzIndex
+    @DatabaseName = 'YourDatabase',
+    @SchemaName = 'dbo',
+    @TableName = 'YourTable',
+    @AI = 2;
+```
+
+The **AI Prompt** column contains a prompt with four data sections about your table:
+
+1. **Existing Indexes** - Index names, types, key columns, include columns, filters, uniqueness, primary key status, and usage statistics (seeks, scans, lookups, writes, row counts).
+2. **Missing Index Suggestions** - SQL Server's missing index DMV data including equality/inequality/include columns, benefit numbers, and suggested CREATE INDEX statements.
+3. **Column Data Types** - All columns in the table with their data types, nullability, and identity status.
+4. **Foreign Keys** - Foreign key names, parent/referenced columns, and whether they are disabled or not trusted.
+
+The AI result sets appear immediately after the missing index result set in sp_BlitzIndex's output.
+
+## Setting Up for @AI = 1: Direct API Calls
+
+To have SQL Server call the AI API directly, you need database-scoped credentials and (optionally) configuration tables.
 
 ### Enable External REST Endpoints (SQL Server 2025 only)
 
@@ -53,11 +86,11 @@ GRANT REFERENCES ON DATABASE SCOPED CREDENTIAL::[https://api.openai.com/] TO [DB
 GRANT REFERENCES ON DATABASE SCOPED CREDENTIAL::[https://generativelanguage.googleapis.com/] TO [DBA_AI];
 ```
 
-## Setting Up Configuration Tables (Optional)
+### Configuration Tables (Optional)
 
-You can create configuration tables to store AI provider settings and prompt templates. This avoids passing parameters every time and lets you switch between providers easily.
+You can create configuration tables to store AI provider settings and prompt templates. This avoids passing parameters every time and lets you switch between providers easily. If you don't create these tables, the procs use built-in defaults (OpenAI gpt-5-nano).
 
-### AI Providers Table
+#### AI Providers Table
 
 ```sql
 CREATE TABLE dbo.Blitz_AI_Providers
@@ -81,7 +114,7 @@ VALUES (2, N'gemini-2.5-flash', N'https://generativelanguage.googleapis.com/v1be
     N'https://generativelanguage.googleapis.com/', 230, 0);
 ```
 
-### AI Prompts Table
+#### AI Prompts Table
 
 ```sql
 CREATE TABLE dbo.Blitz_AI_Prompts
@@ -92,21 +125,34 @@ CREATE TABLE dbo.Blitz_AI_Prompts
  DefaultPrompt BIT DEFAULT 0);
 ```
 
-You can store custom system prompts and payload templates here. If you don't create these tables, the procs use built-in defaults.
+You can store custom system prompts and payload templates here. The `PromptNickname` column lets you select a prompt by name with the `@AIPrompt` parameter.
 
-## Using sp_BlitzCache with @AI
+### Database Constitution (Optional)
 
-sp_BlitzCache analyzes your plan cache and can send query details (query text, execution plan, and performance metrics) to an AI provider for tuning advice.
+Both sp_BlitzCache and sp_BlitzIndex support a database-level "constitution" - an extended property that provides additional context to the AI about your database's specific rules and constraints.
+
+```sql
+EXEC sp_addextendedproperty
+    @name = N'CONSTITUTION.md',
+    @value = N'This is an OLTP database supporting a web application.
+Tables in the dbo schema are the primary transactional tables.
+We prefer filtered indexes over full indexes where possible.
+The Users table is rarely updated but frequently queried by Location.';
+```
+
+When present, the constitution text is prepended to the AI prompt, giving the AI additional context about your environment.
+
+## sp_BlitzCache with @AI = 1
+
+Once credentials are set up, sp_BlitzCache can call the AI API directly and return advice in the result set.
 
 ### Quick Start with OpenAI
 
 ```sql
-/* Direct AI call - requires credentials set up above */
 EXEC sp_BlitzCache @Top = 1, @AI = 1;
-
-/* Just generate the prompt to copy/paste */
-EXEC sp_BlitzCache @Top = 1, @AI = 2;
 ```
+
+That's it - the defaults use OpenAI's `gpt-5-nano` model. The result set includes the AI's query tuning recommendations.
 
 ### Using Google Gemini
 
@@ -160,28 +206,18 @@ With `@AI = 1`, the result set includes:
 
 With `@AI = 2`, only the **AI Prompt** column is included in the result set.
 
-## Using sp_BlitzIndex with @AI
+## sp_BlitzIndex with @AI = 1
 
-sp_BlitzIndex analyzes indexes on a specific table and can send index data to an AI provider for recommendations about which indexes to add, remove, or modify.
-
-**Important:** The AI feature in sp_BlitzIndex only works in single-table mode (when `@TableName` is specified).
+Once credentials are set up, sp_BlitzIndex can call the AI API directly and return index recommendations. This only works in single-table mode (when `@TableName` is specified).
 
 ### Quick Start with OpenAI
 
 ```sql
-/* Direct AI call */
 EXEC sp_BlitzIndex
     @DatabaseName = 'YourDatabase',
     @SchemaName = 'dbo',
     @TableName = 'YourTable',
     @AI = 1;
-
-/* Just generate the prompt to copy/paste */
-EXEC sp_BlitzIndex
-    @DatabaseName = 'YourDatabase',
-    @SchemaName = 'dbo',
-    @TableName = 'YourTable',
-    @AI = 2;
 ```
 
 ### Using Google Gemini
@@ -207,15 +243,6 @@ EXEC sp_BlitzIndex
     @AIConfigTable = 'master.dbo.Blitz_AI_Providers';
 ```
 
-### What Data Gets Sent to the AI
-
-sp_BlitzIndex sends four data sets for the specified table:
-
-1. **Existing Indexes** - Index names, types, key columns, include columns, filters, uniqueness, primary key status, and usage statistics (seeks, scans, lookups, writes, row counts).
-2. **Missing Index Suggestions** - SQL Server's missing index DMV data including equality/inequality/include columns, benefit numbers, and suggested CREATE INDEX statements.
-3. **Column Data Types** - All columns in the table with their data types, nullability, and identity status.
-4. **Foreign Keys** - Foreign key names, parent/referenced columns, and whether they are disabled or not trusted.
-
 ### sp_BlitzIndex AI Parameters
 
 | Parameter | Default | Description |
@@ -234,31 +261,14 @@ The AI result sets appear immediately after the missing index result set.
 
 With `@AI = 1`:
 
-- **AI Prompt** - The full prompt sent to the AI (system prompt + all four data sections)
 - **AI Advice** - The AI's index recommendations as XML text
+- **AI Prompt** - The full prompt sent to the AI (system prompt + all four data sections)
 - **AI Payload** - The raw JSON payload sent to the API
 - **AI Raw Response** - The full API response JSON
 
 With `@AI = 2`:
 
 - **AI Prompt** - The full prompt, ready to copy/paste into your AI tool of choice
-
-## Database Constitution
-
-Both sp_BlitzCache and sp_BlitzIndex support a database-level "constitution" - an extended property that provides additional context to the AI about your database's specific rules and constraints.
-
-To set one up:
-
-```sql
-EXEC sp_addextendedproperty
-    @name = N'CONSTITUTION.md',
-    @value = N'This is an OLTP database supporting a web application.
-Tables in the dbo schema are the primary transactional tables.
-We prefer filtered indexes over full indexes where possible.
-The Users table is rarely updated but frequently queried by Location.';
-```
-
-When present, the constitution text is prepended to the AI prompt, giving the AI additional context about your environment.
 
 ## Tips
 
