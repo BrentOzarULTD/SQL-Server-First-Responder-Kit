@@ -590,7 +590,7 @@ AS
 			WHERE dp.database_name = DB_NAME(d.database_id)
 		);
 
-		/*Skip individial checks where we don't have permissions*/
+		/*Skip individual checks where we don't have permissions*/
         INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
         SELECT
             v.*
