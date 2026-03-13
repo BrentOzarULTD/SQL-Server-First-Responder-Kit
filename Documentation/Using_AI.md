@@ -47,30 +47,30 @@ CREATE TABLE dbo.Blitz_AI_Prompts
 (Id INT IDENTITY(1,1) PRIMARY KEY CLUSTERED,
  PromptNickname NVARCHAR(200),
  AI_System_Prompt NVARCHAR(4000),
- DefaultPrompt BIT DEFAULT 0);
+ Default_Prompt BIT DEFAULT 0);
  
-INSERT INTO dbo.Blitz_AI_Prompts (PromptNickname, DefaultPrompt, AI_System_Prompt)
-  VALUES ('sp_BlitzCache Default', 0, 'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
+INSERT INTO dbo.Blitz_AI_Prompts (PromptNickname, Default_Prompt, AI_System_Prompt)
+  VALUES ('sp_BlitzCache Default', 1, 'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
 
     You have a query that isn''t performing to end user expectations. You have been tasked with making serious improvements to it, quickly. You are not allowed to change server-level settings or make frivolous suggestions like updating statistics. Instead, you need to focus on query changes or index changes. 
     
     Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.');
 
-INSERT INTO dbo.Blitz_AI_Prompts (PromptNickname, DefaultPrompt, AI_System_Prompt)
+INSERT INTO dbo.Blitz_AI_Prompts (PromptNickname, Default_Prompt, AI_System_Prompt)
   VALUES ('sp_BlitzCache Index Tuning', 0, 'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
 
     You have a query that isn''t performing to end user expectations. You have been tasked with making serious improvements to it, quickly, but you are only allowed to make index changes. You are not allowed to make changes to the query, server-level settings, database settings, etc.
     
     Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.');
 
-INSERT INTO dbo.Blitz_AI_Prompts (PromptNickname, DefaultPrompt, AI_System_Prompt)
+INSERT INTO dbo.Blitz_AI_Prompts (PromptNickname, Default_Prompt, AI_System_Prompt)
   VALUES ('sp_BlitzCache Deadlock Tuning', 0, 'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
 
     You have a query that is experiencing deadlocks and blocking. You have been tasked with making serious improvements to it, quickly. You are not allowed to change server-level or database-level settings nor make frivolous suggestions like updating statistics. Instead, you need to focus on query changes or index changes that will reduce blocking and deadlocks.
     
     Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.');
 
-INSERT INTO dbo.Blitz_AI_Prompts (PromptNickname, DefaultPrompt, AI_System_Prompt)
+INSERT INTO dbo.Blitz_AI_Prompts (PromptNickname, Default_Prompt, AI_System_Prompt)
   VALUES ('sp_BlitzCache Modernize', 0, 'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
 
     You have been given a legacy query that needs to be modernized. Our goals are to make the query run faster, make it easier to understand, easier to maintain, and to take advantage of new features up to and including SQL Server 2025. You have been tasked with making serious improvements to it, quickly, without touching server-level settings, database-level settings, indexes, or statistics.
@@ -183,7 +183,8 @@ You can create configuration tables to store AI provider settings and prompt tem
 
 ```sql
 CREATE TABLE dbo.Blitz_AI_Providers
-(Id INT PRIMARY KEY CLUSTERED,
+(Id INT IDENTITY(1,1) PRIMARY KEY CLUSTERED,
+ Model_Nickname NVARCHAR(200),
  AI_Model NVARCHAR(100),
  AI_URL NVARCHAR(500),
  AI_Database_Scoped_Credential_Name NVARCHAR(500),
@@ -191,16 +192,26 @@ CREATE TABLE dbo.Blitz_AI_Providers
  Payload_Template NVARCHAR(4000),
  Timeout_Seconds TINYINT,
  Context INT,
- DefaultModel BIT DEFAULT 0);
+ Default_Model BIT DEFAULT 0);
 
-/* OpenAI example: */
-INSERT INTO dbo.Blitz_AI_Providers (Id, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, DefaultModel)
-VALUES (1, N'gpt-5-nano', N'https://api.openai.com/v1/chat/completions',
-    N'https://api.openai.com/', 230, 1);
+/* OpenAI - fast, cheap model, default: */
+INSERT INTO dbo.Blitz_AI_Providers (Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, DefaultModel)
+VALUES (N'ChatGPT Fast', N'gpt-5-nano', N'https://api.openai.com/v1/chat/completions',
+    N'https://api.openai.com/', 30, 1);
 
-/* Gemini example: */
-INSERT INTO dbo.Blitz_AI_Providers (Id, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, DefaultModel)
-VALUES (2, N'gemini-2.5-flash', N'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+/* OpenAI - highest quality, slowest, most expensive model: */
+INSERT INTO dbo.Blitz_AI_Providers (Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, DefaultModel)
+VALUES (N'ChatGPT Slow', N'gpt-5.4', N'https://api.openai.com/v1/chat/completions',
+    N'https://api.openai.com/', 230, 0);
+
+/* Gemini - fast, cheap model: */
+INSERT INTO dbo.Blitz_AI_Providers (Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, DefaultModel)
+VALUES (N'Gemini Fast', N'gemini-3-flash-preview', N'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+    N'https://generativelanguage.googleapis.com/', 30, 0);
+
+/* Gemini - highest quality, slowest, most expensive model: */
+INSERT INTO dbo.Blitz_AI_Providers (Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, DefaultModel)
+VALUES (N'Gemini Slow', N'gemini-3-1-pro-preview', N'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
     N'https://generativelanguage.googleapis.com/', 230, 0);
 ```
 
@@ -237,13 +248,14 @@ EXEC sp_BlitzCache @Top = 1, @AI = 1,
 /* Use a specific model from your config table */
 EXEC sp_BlitzCache @Top = 1, @AI = 1,
     @AIConfigTable = 'master.dbo.Blitz_AI_Providers',
-    @AIModel = 'gemini-2.5-flash';
+    @AIModel = 'ChatGPT Slow';
 
-/* Use a custom prompt from your prompts table */
+/* Use a specific model AND prompt */
 EXEC sp_BlitzCache @Top = 1, @AI = 1,
     @AIConfigTable = 'master.dbo.Blitz_AI_Providers',
+    @AIModel = 'ChatGPT Slow';
     @AIPromptConfigTable = 'master.dbo.Blitz_AI_Prompts',
-    @AIPrompt = 'index_focused';
+    @AIPrompt = 'sp_BlitzCache Deadlock Tuning';
 ```
 
 ### sp_BlitzCache AI Parameters
@@ -273,7 +285,7 @@ With `@AI = 2`, only the **AI Prompt** column is included in the result set.
 
 Once credentials are set up, sp_BlitzIndex can call the AI API directly and return index recommendations. This only works in single-table mode (when `@TableName` is specified).
 
-### Quick Start with OpenAI
+To just run it with the default ChatGPT model:
 
 ```sql
 EXEC sp_BlitzIndex
@@ -283,27 +295,18 @@ EXEC sp_BlitzIndex
     @AI = 1;
 ```
 
-### Using Google Gemini
+Using the configuration tables works basically the same as the sp_BlitzCache examples above:
 
 ```sql
 EXEC sp_BlitzIndex
     @DatabaseName = 'YourDatabase',
     @SchemaName = 'dbo',
     @TableName = 'YourTable',
-    @AI = 1,
-    @AIModel = N'gemini-2.5-flash',
-    @AIURL = N'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
-```
-
-### Using Configuration Tables
-
-```sql
-EXEC sp_BlitzIndex
-    @DatabaseName = 'YourDatabase',
-    @SchemaName = 'dbo',
-    @TableName = 'YourTable',
-    @AI = 1,
-    @AIConfigTable = 'master.dbo.Blitz_AI_Providers';
+	@AI = 1,
+    @AIConfigTable = 'master.dbo.Blitz_AI_Providers',
+    @AIModel = 'ChatGPT Slow'
+    @AIPromptConfigTable = 'master.dbo.Blitz_AI_Prompts',
+    @AIPrompt = 'sp_BlitzIndex OLTP'; /* Or whatever custom prompt you inserted */
 ```
 
 ### sp_BlitzIndex AI Parameters
