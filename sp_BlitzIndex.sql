@@ -1031,8 +1031,20 @@ BEGIN
         SELECT Id, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_Parameters, Payload_Template, Timeout_Seconds, Context, DefaultModel FROM '
         + CASE WHEN @AIConfigDatabaseName IS NOT NULL THEN (QUOTENAME(@AIConfigDatabaseName) + N'.') ELSE N'' END
         + CASE WHEN @AIConfigSchemaName IS NOT NULL THEN (QUOTENAME(@AIConfigSchemaName) + N'.') ELSE N'' END
-        + QUOTENAME(@AIConfigTableName) + N' WHERE (@AIModel IS NULL AND DefaultModel = 1) OR @AIModel = AI_Model ; ';
+        + QUOTENAME(@AIConfigTableName) + N' WHERE DefaultModel = 1 OR @AIModel = AI_Model ; ';
    EXEC sp_executesql @config_sql, N'@AIModel NVARCHAR(100)', @AIModel;
+END;
+
+IF @AIModel IS NOT NULL AND @AIConfigTable IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM #ai_providers WHERE AI_Model = @AIModel)
+BEGIN
+    DECLARE @AIModelRequested NVARCHAR(200) = @AIModel;
+    DECLARE @AIFallbackModel NVARCHAR(200);
+    SELECT TOP 1 @AIFallbackModel = AI_Model FROM #ai_providers WHERE DefaultModel = 1 ORDER BY Id;
+    IF @AIFallbackModel IS NULL SET @AIFallbackModel = N'gpt-5-nano';
+    RAISERROR('@AIModel "%s" was not found in configuration table %s. Using "%s" instead.',
+        10, 1, @AIModelRequested, @AIConfigTable, @AIFallbackModel) WITH NOWAIT;
+    SET @AIModel = NULL;
 END;
 
 IF @AIPromptConfigTable IS NOT NULL
@@ -1083,6 +1095,7 @@ IF @AI > 0
             @AITimeoutSeconds = COALESCE(Timeout_Seconds, 230),
             @AIContext = Context
             FROM #ai_providers
+            WHERE AI_Model = @AIModel
             ORDER BY Id;
 
     /* Check the prompts table */
