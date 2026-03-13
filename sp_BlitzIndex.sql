@@ -41,6 +41,13 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
 	@SortDirection NVARCHAR(4) = 'DESC', /* Only affects @Mode = 2. */
     @Help TINYINT = 0,
 	@Debug BIT = 0,
+    @AI TINYINT = 0, /* 1 = ask for advice, 2 = build prompt but don't actually call AI. Only works with a single query plan: automatically sets @ExpertMode = 1, @KeepCRLF = 1. */
+    @AIModel VARCHAR(200) = NULL, /* Defaults to gpt-4.1-mini */
+    @AIURL VARCHAR(200) = NULL, /* Defaults to https://api.openai.com/v1/chat/completions */
+    @AICredential VARCHAR(200) = NULL, /* Defaults to 'https://api.openai.com/' or the root of your AIURL, trailing slash included */
+    @AIConfigTable NVARCHAR(500) = NULL, /* Table where AI provider config is stored - can be in the format db.schema.table, schema.table, or just table. */
+    @AIPromptConfigTable NVARCHAR(500) = NULL, /* Table where AI prompt templates are stored - db.schema.table, schema.table, or just table. */
+    @AIPrompt NVARCHAR(200) = NULL, /* Which prompt to use from the prompts table */
     @Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0
@@ -50,7 +57,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.29', @VersionDate = '20260203';
+SELECT @Version = '8.30', @VersionDate = '20260313';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -135,6 +142,24 @@ DECLARE @OptimizeForSequentialKey BIT = 0;
 DECLARE @ResumableIndexesDisappearAfter INT = 0;
 DECLARE @StringToExecute NVARCHAR(MAX);
 DECLARE @AzureSQLDB BIT = (SELECT CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN 1 ELSE 0 END);
+DECLARE @config_sql NVARCHAR(MAX);
+DECLARE
+    @AIConfigDatabaseName NVARCHAR(128) = CASE WHEN @AIConfigTable IS NULL THEN NULL ELSE PARSENAME(@AIConfigTable, 3) END,
+    @AIConfigSchemaName NVARCHAR(258) = CASE WHEN @AIConfigTable IS NULL THEN NULL ELSE PARSENAME(@AIConfigTable, 2) END,
+    @AIConfigTableName NVARCHAR(258) = CASE WHEN @AIConfigTable IS NULL THEN NULL ELSE PARSENAME(@AIConfigTable, 1) END,
+    @AIPromptDatabaseName NVARCHAR(128) = CASE WHEN @AIPromptConfigTable IS NULL THEN NULL ELSE PARSENAME(@AIPromptConfigTable, 3) END,
+    @AIPromptSchemaName NVARCHAR(258) = CASE WHEN @AIPromptConfigTable IS NULL THEN NULL ELSE PARSENAME(@AIPromptConfigTable, 2) END,
+    @AIPromptTableName NVARCHAR(258) = CASE WHEN @AIPromptConfigTable IS NULL THEN NULL ELSE PARSENAME(@AIPromptConfigTable, 1) END,
+    @AISystemPrompt NVARCHAR(4000),
+    @AIParameters NVARCHAR(4000),
+    @AIPayloadTemplate NVARCHAR(MAX),
+    @AITimeoutSeconds TINYINT,
+    @AIAdviceText NVARCHAR(MAX),
+    @AIContext INT,
+    @AIPayload NVARCHAR(MAX),
+    @AIResponseJSON NVARCHAR(MAX),
+    @AIReturnValue INT,
+    @CurrentAIPrompt NVARCHAR(MAX);
 
 /* If user was lazy and just used @ObjectName with a fully qualified table name, then lets parse out the various parts */
 SET @DatabaseName = COALESCE(@DatabaseName, PARSENAME(@ObjectName, 3)) /* 3 = Database name */
@@ -330,6 +355,9 @@ IF OBJECT_ID('tempdb..#IndexCreateTsql') IS NOT NULL
 IF OBJECT_ID('tempdb..#DatabaseList') IS NOT NULL 
     DROP TABLE #DatabaseList;
 
+IF OBJECT_ID('tempdb..#DatabasesNoAccess') IS NOT NULL 
+    DROP TABLE #DatabasesNoAccess;
+
 IF OBJECT_ID('tempdb..#Statistics') IS NOT NULL 
     DROP TABLE #Statistics;
 
@@ -475,7 +503,7 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
                 THEN ( user_seeks + user_scans + user_lookups )  / (1.0 * user_updates)
                 ELSE 0 END AS MONEY) ,
             [index_usage_summary] AS
-				CASE WHEN is_spatial = 1 THEN N'Not Tracked'
+				CASE WHEN is_spatial = 1 OR is_json = 1 THEN N'Not Tracked'
 				WHEN is_disabled = 1 THEN N'Disabled'
 				ELSE N'Reads: ' + 
 					REPLACE(CONVERT(NVARCHAR(30),CAST((user_seeks + user_scans + user_lookups) AS MONEY), 1), N'.00', N'')
@@ -800,7 +828,10 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
         CREATE TABLE #DatabaseList (
 			DatabaseName NVARCHAR(256),
             secondary_role_allow_connections_desc NVARCHAR(50)
+        );
 
+        CREATE TABLE #DatabasesNoAccess (
+			DatabaseName NVARCHAR(256)
         );
 
 		CREATE TABLE #PartitionCompressionInfo (
@@ -956,11 +987,29 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
               N', @TableName=' + QUOTENAME([table_name],N'''') + N';'
         );
 
-        CREATE TABLE #Ignore_Databases 
+        CREATE TABLE #Ignore_Databases
         (
-          DatabaseName NVARCHAR(128), 
+          DatabaseName NVARCHAR(128),
           Reason NVARCHAR(100)
         );
+
+CREATE TABLE #ai_providers
+(Id INT PRIMARY KEY CLUSTERED,
+ Model_Nickname NVARCHAR(200),
+ AI_Model NVARCHAR(100) INDEX AI_Model,
+ AI_URL NVARCHAR(500),
+ AI_Database_Scoped_Credential_Name NVARCHAR(500),
+ AI_Parameters NVARCHAR(4000),
+ Payload_Template NVARCHAR(4000),
+ Timeout_Seconds TINYINT,
+ Context INT,
+ Default_Model BIT DEFAULT 0);
+
+CREATE TABLE #ai_prompts
+(Id INT PRIMARY KEY CLUSTERED,
+ Prompt_Nickname NVARCHAR(200) INDEX IX_Prompt_Nickname,
+ AI_System_Prompt NVARCHAR(4000),
+ Default_Prompt BIT DEFAULT 0);
 
 /* Sanitize our inputs */
 SELECT
@@ -968,8 +1017,179 @@ SELECT
 	@OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
 	@OutputSchemaName = QUOTENAME(@OutputSchemaName),
 	@OutputTableName = QUOTENAME(@OutputTableName);
-					
-					
+
+/* AI configuration setup */
+IF @AIPrompt IS NOT NULL AND @AIPromptConfigTable IS NULL
+BEGIN
+    RAISERROR('@AIPrompt requires @AIPromptConfigTable to also be specified so we can look up the prompt.', 12, 1);
+    RETURN;
+END;
+
+IF @AIConfigTable IS NOT NULL
+BEGIN
+   RAISERROR(N'Reading values from AI Provider Configuration Table', 0, 1) WITH NOWAIT;
+   SET @config_sql = N'INSERT INTO #ai_providers (Id, Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_Parameters, Payload_Template, Timeout_Seconds, Context, Default_Model)
+        SELECT Id, Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_Parameters, Payload_Template, Timeout_Seconds, Context, Default_Model FROM '
+        + CASE WHEN @AIConfigDatabaseName IS NOT NULL THEN (QUOTENAME(@AIConfigDatabaseName) + N'.') ELSE N'' END
+        + CASE WHEN @AIConfigSchemaName IS NOT NULL THEN (QUOTENAME(@AIConfigSchemaName) + N'.') ELSE N'' END
+        + QUOTENAME(@AIConfigTableName) + N' WHERE Default_Model = 1 OR @AIModel = AI_Model OR @AIModel = Model_Nickname ; ';
+   EXEC sp_executesql @config_sql, N'@AIModel NVARCHAR(100)', @AIModel;
+END;
+
+IF @AIModel IS NOT NULL AND @AIConfigTable IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM #ai_providers WHERE AI_Model = @AIModel OR Model_Nickname = @AIModel)
+BEGIN
+    DECLARE @AIModelRequested NVARCHAR(200) = @AIModel;
+    DECLARE @AIFallbackModel NVARCHAR(200);
+    SELECT TOP 1 @AIFallbackModel = AI_Model FROM #ai_providers WHERE Default_Model = 1 ORDER BY Id;
+    IF @AIFallbackModel IS NULL SET @AIFallbackModel = N'gpt-5-nano';
+    RAISERROR('@AIModel "%s" was not found in configuration table %s. Using "%s" instead.',
+        10, 1, @AIModelRequested, @AIConfigTable, @AIFallbackModel) WITH NOWAIT;
+    SET @AIModel = NULL;
+END;
+
+IF @AIPromptConfigTable IS NOT NULL
+BEGIN
+   RAISERROR(N'Reading values from AI Prompts Table', 0, 1) WITH NOWAIT;
+   SET @config_sql = N'INSERT INTO #ai_prompts (Id, Prompt_Nickname, AI_System_Prompt, Default_Prompt)
+        SELECT Id, Prompt_Nickname, AI_System_Prompt, Default_Prompt FROM '
+        + CASE WHEN @AIPromptDatabaseName IS NOT NULL THEN (QUOTENAME(@AIPromptDatabaseName) + N'.') ELSE N'' END
+        + CASE WHEN @AIPromptSchemaName IS NOT NULL THEN (QUOTENAME(@AIPromptSchemaName) + N'.') ELSE N'' END
+        + QUOTENAME(@AIPromptTableName) + N' WHERE (@AIPrompt IS NULL AND Default_Prompt = 1) OR @AIPrompt = Prompt_Nickname ; ';
+   EXEC sp_executesql @config_sql, N'@AIPrompt NVARCHAR(200)', @AIPrompt;
+END;
+
+
+IF @AI > 0
+    BEGIN
+    RAISERROR(N'Setting up AI configuration defaults', 0, 1) WITH NOWAIT;
+
+    IF @Debug = 2
+        BEGIN
+        SELECT N'ai_providers' AS TableLabel, * FROM #ai_providers;
+        SELECT N'ai_prompts' AS TableLabel, * FROM #ai_prompts;
+        END
+
+    IF @AI = 1 AND NOT EXISTS(SELECT * FROM sys.all_objects WHERE name = 'sp_invoke_external_rest_endpoint')
+        BEGIN
+        SET @AI = 2
+        RAISERROR(N'@AI was set to 1, but sp_invoke_external_rest_endpoint does not exist here, so we can''t call AI services. Setting @AI to 2 instead to just generate prompts.', 0, 1) WITH NOWAIT;
+        END
+
+    /* Check the providers table */
+    IF @AIModel IS NULL
+        SELECT TOP 1 @AIModel = AI_Model, @AIURL = AI_URL,
+            @AICredential = AI_Database_Scoped_Credential_Name,
+            @AIParameters = AI_Parameters,
+            @AIPayloadTemplate = Payload_Template,
+            @AITimeoutSeconds = COALESCE(Timeout_Seconds, 230),
+            @AIContext = Context
+            FROM #ai_providers
+            WHERE Default_Model = 1
+            ORDER BY Id;
+    ELSE
+        SELECT TOP 1 @AIModel = AI_Model,
+            @AIURL = COALESCE(@AIURL, AI_URL),
+            @AICredential = COALESCE(@AICredential, AI_Database_Scoped_Credential_Name),
+            @AIParameters = AI_Parameters,
+            @AIPayloadTemplate = Payload_Template,
+            @AITimeoutSeconds = COALESCE(Timeout_Seconds, 230),
+            @AIContext = Context
+            FROM #ai_providers
+            WHERE AI_Model = @AIModel OR Model_Nickname = @AIModel
+            ORDER BY Id;
+
+    /* Check the prompts table */
+    IF @AIPrompt IS NULL
+        SELECT TOP 1 @AISystemPrompt = AI_System_Prompt
+            FROM #ai_prompts
+            WHERE Default_Prompt = 1
+            ORDER BY Id;
+    ELSE
+        SELECT TOP 1 @AISystemPrompt = AI_System_Prompt
+            FROM #ai_prompts
+            WHERE Prompt_Nickname = @AIPrompt
+            ORDER BY Id;
+
+    IF @AIModel IS NULL
+        SET @AIModel = N'gpt-5-nano';
+
+    IF @AIURL IS NULL OR @AIURL NOT LIKE N'http%'
+        SET @AIURL = CASE
+            WHEN @AIModel LIKE 'gemini%' THEN N'https://generativelanguage.googleapis.com/v1beta/models/' + @AIModel + N':generateContent'
+            ELSE N'https://api.openai.com/v1/chat/completions' /* Default to ChatGPT */
+            END;
+
+    /* Try to guess the credential based on the root of their URL: */
+    IF @AICredential IS NULL
+        SET @AICredential = LEFT(@AIURL, CHARINDEX('/', @AIURL, CHARINDEX('://', @AIURL) + 3));
+
+    IF @AITimeoutSeconds IS NULL OR @AITimeoutSeconds < 1 OR @AITimeoutSeconds > 230
+        SET @AITimeoutSeconds = 230;
+
+    IF @AISystemPrompt IS NULL OR @AISystemPrompt = N''
+    BEGIN
+            SET @AISystemPrompt = N'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment. Do not describe the table: you are working with other very senior database developers who understand SQL Server deeply, so get straight to the point with your recommendations and scripts.
+
+    You have been given the existing indexes, missing index suggestions from SQL Server, column data types, and foreign keys for a table. Your job is to recommend index changes: which indexes to add, which to remove as redundant or harmful, and which to modify. Focus on practical changes that will improve the most common query patterns shown by the usage statistics.
+
+	If indexes are not being used, drop them. If duplicate or near-duplicate indexes exist, merge them together or keep the widest ones. Existing indexes that start with different leading columns should not be considered duplicates.
+
+	Include CREATE INDEX and DROP INDEX scripts. Include undo scripts in comments to back out your work if something goes wrong. Use the /* */ style for comments, not --, to make it easier for the customer to copy and paste your scripts without accidentally missing a line.
+
+	When working with missing index suggestions from SQL Server, keep in mind that they are ordered equality vs inequality search in the query, then by the column order of the table. The column order is nowhere near scientific, and can be rearranged if necessary for performance.
+
+	Focus only on nonclustered rowstore indexes. Do not suggest changes for clustered indexes, columnstore indexes, memory-optimized indexes, XML indexes, JSON indexes, or other specialized index types.
+
+    Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.';
+    END;
+
+    IF @AIModel LIKE 'gemini%' AND @AIPayloadTemplate IS NULL
+        SET @AIPayloadTemplate = N'{
+          "contents": [
+            {
+              "parts": [
+                {"text": "@AISystemPrompt @CurrentAIPrompt"}
+              ]
+            }
+          ]
+        }';
+    ELSE IF @AIPayloadTemplate IS NULL /* Default to ChatGPT format */
+        SET @AIPayloadTemplate = N'{
+                    "model": "@AIModel",
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "@AISystemPrompt"
+                        },
+                        {
+                            "role": "user",
+                            "content": "@CurrentAIPrompt"
+                        }
+                    ]
+                }';
+
+    IF @Debug = 2 OR (@AI = 1 AND (@AIModel IS NULL OR @AIURL IS NULL OR @AISystemPrompt IS NULL OR @AICredential IS NULL OR @AIPayloadTemplate IS NULL))
+        BEGIN
+            SELECT @AIModel AS AIModel, @AIURL AS AIUrl, @AICredential AS AICredential,
+                @AIContext AS AIContext, @AIParameters AS AIParameters, @AITimeoutSeconds AS AITimeoutSeconds,
+                @AISystemPrompt AS AISystemPrompt, @AIPayloadTemplate AS AIPayloadTemplate;
+        END;
+
+    IF @AIPrompt IS NOT NULL AND NOT EXISTS (SELECT 1 FROM #ai_prompts WHERE Prompt_Nickname = @AIPrompt)
+        BEGIN
+            RAISERROR('@AIPrompt was specified but no matching prompt was found in the prompts table.',12,1);
+            RETURN;
+        END;
+
+    IF @AI = 1 AND (@AIModel IS NULL OR @AIURL IS NULL OR @AISystemPrompt IS NULL OR @AICredential IS NULL OR @AIPayloadTemplate IS NULL)
+        BEGIN
+            RAISERROR('@AI is set to 1, but not all of the necessary configuration is included.',12,1);
+            RETURN;
+        END;
+
+    END /* IF @AI > 0 */
+
 IF @GetAllDatabases = 1
     BEGIN
         INSERT INTO #DatabaseList (DatabaseName)
@@ -980,9 +1200,45 @@ IF @GetAllDatabases = 1
         AND database_id > 4
         AND DB_NAME(database_id) NOT LIKE 'ReportServer%'
         AND DB_NAME(database_id) NOT LIKE 'rdsadmin%'
-		AND LOWER(name) NOT IN('dbatools', 'dbadmin', 'dbmaintenance')
+		AND LOWER(name) NOT IN('dbatools', 'dbadmin', 'dbmaintenance', 'gcloud_cloudsqladmin')
         AND is_distributor = 0
 		OPTION    ( RECOMPILE );
+
+        /*Check if sysadmin 
+           ( logins with ##MS_DatabaseConnector## or CONNECT ANY DATABASE can still be denied CONNECT on a per-database basis) */
+        IF IS_SRVROLEMEMBER ('sysadmin') = 0
+            BEGIN
+                RAISERROR(N'Not a member of the sysadmin role. Checking which databases can be accessed.', 0, 1) WITH NOWAIT;
+                DECLARE db_access_cursor CURSOR FAST_FORWARD FOR
+                  SELECT DatabaseName FROM #DatabaseList
+                OPEN db_access_cursor
+                FETCH NEXT FROM db_access_cursor INTO @DatabaseName
+            
+                WHILE @@FETCH_STATUS = 0
+                BEGIN
+                   /*yes, it would've been simpler just checking for SELECT permissions on user databases,
+                      but SELECT isn't required for system catalog views if the login has VIEW ANY DEFINITION*/
+                    SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; 
+                                 SELECT @RowCountOut = COUNT(1) FROM ' +QUOTENAME(@DatabaseName)+N'.[sys].[indexes] 
+                                 WHERE [object_id] = 123 OPTION (RECOMPILE);'; /*the object_id doesn't matter, just checking access*/
+                    SET @params = N'@RowcountOUT BIGINT OUTPUT';
+                    BEGIN TRY
+                       EXEC sp_executesql @dsql,@params, @RowcountOUT = @Rowcount OUTPUT;
+                    END TRY
+                    BEGIN CATCH
+                       INSERT INTO #DatabasesNoAccess (DatabaseName) VALUES (@DatabaseName);
+                       RAISERROR(N'Skipping database %s due to lack of permissions.', 0, 1, @DatabaseName) WITH NOWAIT;
+                    END CATCH;
+                    FETCH NEXT FROM db_access_cursor INTO @DatabaseName;
+                END;
+                CLOSE db_access_cursor;
+                DEALLOCATE db_access_cursor;
+    
+                /*Removing the databases we can't access from #DatabaseList*/
+                DELETE FROM #DatabaseList 
+                WHERE DatabaseName IN (SELECT DatabaseName 
+                                       FROM #DatabasesNoAccess);
+            END;
 
         /* Skip non-readable databases in an AG - see Github issue #1160 */
         IF EXISTS (SELECT * FROM sys.all_objects o INNER JOIN sys.all_columns c ON o.object_id = c.object_id AND o.name = 'dm_hadr_availability_replica_states' AND c.name = 'role_desc')
@@ -1539,7 +1795,7 @@ BEGIN TRY
                 CASE WHEN ( @IncludeInactiveIndexes = 0
                             AND @Mode IN (0, 4)
                             AND @TableName IS NULL )
-                     THEN N'AND ( us.user_seeks + us.user_scans + us.user_lookups + us.user_updates ) > 0'
+                     THEN N'AND ( us.user_seeks + us.user_scans + us.user_lookups + us.user_updates > 0 OR si.type = 9 )'
                      ELSE N''
                 END
         + N'OPTION    ( RECOMPILE );
@@ -1945,6 +2201,54 @@ BEGIN TRY
                 
 		END; --End Check For @SkipPartitions = 0
 
+		/* Populate JSON index sizes from internal tables - JSON indexes store their data
+		   in sys.internal_tables, not in sys.dm_db_partition_stats for the parent table */
+		IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'json_indexes')
+		BEGIN
+			RAISERROR (N'Inserting JSON index size data from internal tables',0,1) WITH NOWAIT;
+			SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+				SELECT ' + CAST(@DatabaseID AS NVARCHAR(10)) + N' AS database_id,
+					it.parent_id AS object_id,
+					s.name AS schema_name,
+					it.parent_minor_id AS index_id,
+					ps.partition_number,
+					ps.row_count,
+					ps.reserved_page_count * 8. / 1024. AS reserved_MB,
+					ps.lob_reserved_page_count * 8. / 1024. AS reserved_LOB_MB,
+					ps.row_overflow_reserved_page_count * 8. / 1024. AS reserved_row_overflow_MB,
+					NULL AS lock_escalation_desc,
+					NULL AS data_compression_desc,
+					0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+					0 AS reserved_dictionary_MB
+				FROM ' + QUOTENAME(@DatabaseName) + N'.sys.internal_tables it
+				JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_partition_stats ps ON it.object_id = ps.object_id AND ps.index_id = 1
+				JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects so ON it.parent_id = so.object_id
+				JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas s ON so.schema_id = s.schema_id
+				WHERE it.internal_type_desc = ''JSON_INDEX_TABLE''
+				' + CASE WHEN @ObjectID IS NOT NULL THEN N'AND it.parent_id = ' + CAST(@ObjectID AS NVARCHAR(30)) + N' ' ELSE N'' END + N'
+				OPTION (RECOMPILE);';
+
+			IF @Debug = 1
+			BEGIN
+				PRINT SUBSTRING(@dsql, 0, 4000);
+				PRINT SUBSTRING(@dsql, 4000, 8000);
+			END;
+
+			INSERT #IndexPartitionSanity ( [database_id], [object_id], [schema_name], index_id, partition_number,
+				row_count, reserved_MB, reserved_LOB_MB, reserved_row_overflow_MB,
+				lock_escalation_desc, data_compression_desc,
+				leaf_insert_count, leaf_delete_count, leaf_update_count,
+				range_scan_count, singleton_lookup_count, forwarded_fetch_count,
+				lob_fetch_in_pages, lob_fetch_in_bytes,
+				row_overflow_fetch_in_pages, row_overflow_fetch_in_bytes,
+				row_lock_count, row_lock_wait_count, row_lock_wait_in_ms,
+				page_lock_count, page_lock_wait_count, page_lock_wait_in_ms,
+				index_lock_promotion_attempt_count, index_lock_promotion_count,
+				page_latch_wait_count, page_latch_wait_in_ms,
+				page_io_latch_wait_count, page_io_latch_wait_in_ms,
+				reserved_dictionary_MB)
+			EXEC sp_executesql @dsql;
+		END;
 
 		IF @Mode NOT IN(1, 2)
 		BEGIN
@@ -2944,6 +3248,42 @@ FROM    #IndexSanity si
                                 AND c.index_id = si.index_id 
                                 ) AS D4 ( count_included_columns, count_key_columns );
 
+/* JSON indexes have key_ordinal=0 in sys.index_columns, so the above updates skip them.
+   Populate column names for JSON indexes from #IndexColumns where key_ordinal = 0. */
+RAISERROR (N'Updating column names for JSON indexes',0,1) WITH NOWAIT;
+UPDATE si
+SET key_column_names = c.column_name
+    + N' {' + c.system_type_name
+    + CASE c.max_length WHEN -1 THEN N' (max)' ELSE
+        CASE
+            WHEN c.system_type_name IN (N'char',N'varchar',N'binary',N'varbinary') THEN N' (' + CAST(c.max_length AS NVARCHAR(20)) + N')'
+            WHEN c.system_type_name IN (N'nchar',N'nvarchar') THEN N' (' + CAST(c.max_length/2 AS NVARCHAR(20)) + N')'
+            ELSE N' ' + CAST(c.max_length AS NVARCHAR(50))
+        END
+    END
+    + N'}',
+    key_column_names_with_sort_order = c.column_name
+    + N' {' + c.system_type_name
+    + CASE c.max_length WHEN -1 THEN N' (max)' ELSE
+        CASE
+            WHEN c.system_type_name IN (N'char',N'varchar',N'binary',N'varbinary') THEN N' (' + CAST(c.max_length AS NVARCHAR(20)) + N')'
+            WHEN c.system_type_name IN (N'nchar',N'nvarchar') THEN N' (' + CAST(c.max_length/2 AS NVARCHAR(20)) + N')'
+            ELSE N' ' + CAST(c.max_length AS NVARCHAR(50))
+        END
+    END
+    + N'}',
+    key_column_names_with_sort_order_no_types = QUOTENAME(c.column_name),
+    count_key_columns = 1
+FROM #IndexSanity si
+JOIN #IndexColumns c ON si.database_id = c.database_id
+    AND si.schema_name = c.schema_name
+    AND si.object_id = c.object_id
+    AND si.index_id = c.index_id
+    AND c.key_ordinal = 0
+    AND c.is_included_column = 0
+WHERE si.is_json = 1
+    AND si.key_column_names IS NULL;
+
 RAISERROR (N'Updating index_sanity_id on #IndexPartitionSanity',0,1) WITH NOWAIT;
 UPDATE    #IndexPartitionSanity
 SET        index_sanity_id = i.index_sanity_id
@@ -3066,7 +3406,11 @@ SELECT
     CASE index_id WHEN 0 THEN N'ALTER TABLE ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name])  + ' REBUILD;'
     ELSE 
         CASE WHEN is_XML = 1 OR is_spatial = 1 OR is_in_memory_oltp = 1 THEN N'' /* Not even trying for these just yet...*/
-        ELSE 
+        WHEN is_json = 1 THEN
+            N'CREATE JSON INDEX ' + QUOTENAME(index_name) + N' ON ' +
+                QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name]) +
+                N' (' + ISNULL(key_column_names_with_sort_order_no_types, N'') + N');'
+        ELSE
             CASE WHEN is_primary_key=1 THEN
                 N'ALTER TABLE ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) +
                     N'.' + QUOTENAME([object_name]) + 
@@ -3353,11 +3697,232 @@ BEGIN
             OR (magic_benefit_number / CASE WHEN cd.create_days < @DaysUptime THEN cd.create_days ELSE @DaysUptime END) >= 100000)
         ORDER BY magic_benefit_number DESC
         OPTION    ( RECOMPILE );
-    END;       
-    ELSE     
+    END;
+    ELSE
     SELECT 'No missing indexes.' AS finding;
 
-    SELECT   
+    /* @AskAI: Index analysis via AI provider */
+    IF @AI >= 1 AND @TableName IS NOT NULL
+    BEGIN
+        RAISERROR(N'Building AI prompt for index analysis', 0, 1) WITH NOWAIT;
+
+        /* Constitution lookup */
+        DECLARE @ai_constitution NVARCHAR(MAX) = NULL;
+        BEGIN TRY
+            SET @StringToExecute = N'SELECT @c = CAST(value AS NVARCHAR(MAX))
+                FROM ' + QUOTENAME(@DatabaseName) + N'.sys.extended_properties
+                WHERE class = 0 AND major_id = 0 AND minor_id = 0
+                  AND name = N''CONSTITUTION.md'';';
+            EXEC sp_executesql @StringToExecute, N'@c NVARCHAR(MAX) OUTPUT', @c = @ai_constitution OUTPUT;
+        END TRY
+        BEGIN CATCH
+            /* If we can't read it (permissions, offline, etc), just skip. */
+        END CATCH;
+
+        /* Build the prompt header */
+        SET @CurrentAIPrompt = N'I need help analyzing the indexes on the table '
+            + QUOTENAME(@DatabaseName) + N'.' + QUOTENAME(@SchemaName) + N'.' + QUOTENAME(@TableName)
+            + N'.' + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10);
+
+        /* Prepend constitution if found */
+        IF @ai_constitution IS NOT NULL AND LEN(@ai_constitution) > 0
+            SET @CurrentAIPrompt = N'---' + CHAR(13) + CHAR(10)
+                + N'This database has an extended property named CONSTITUTION.md that provides additional guidance for AI analysis. Here is the content of that property:' + CHAR(13) + CHAR(10)
+                + N'---' + CHAR(13) + CHAR(10) + @ai_constitution + CHAR(13) + CHAR(10)
+                + N'---' + CHAR(13) + CHAR(10) + @CurrentAIPrompt;
+
+        /* Section 1: Existing Indexes
+           Use FOR XML PATH to reliably concatenate all rows into a single string. */
+        SET @CurrentAIPrompt = @CurrentAIPrompt + N'EXISTING INDEXES:' + CHAR(13) + CHAR(10);
+
+        SET @CurrentAIPrompt = @CurrentAIPrompt + ISNULL((
+            SELECT
+                N'Index: ' + ISNULL(s.index_name, N'[HEAP]') + N' (IndexID: ' + CAST(s.index_id AS NVARCHAR(10)) + N')' + CHAR(13) + CHAR(10)
+                + N'  Type: ' + CASE s.index_id WHEN 0 THEN N'HEAP' WHEN 1 THEN N'CLUSTERED' ELSE N'NONCLUSTERED' END
+                    + CASE WHEN s.is_NC_columnstore = 1 THEN N' COLUMNSTORE' WHEN s.is_CX_columnstore = 1 THEN N' CLUSTERED COLUMNSTORE' ELSE N'' END + CHAR(13) + CHAR(10)
+                + N'  Key Columns: ' + ISNULL(s.key_column_names_with_sort_order, N'N/A') + CHAR(13) + CHAR(10)
+                + N'  Include Columns: ' + ISNULL(s.include_column_names, N'None') + CHAR(13) + CHAR(10)
+                + CASE WHEN s.filter_definition <> N'' THEN N'  Filter: ' + s.filter_definition + CHAR(13) + CHAR(10) ELSE N'' END
+                + N'  Is Primary Key: ' + CASE WHEN s.is_primary_key = 1 THEN N'Yes' ELSE N'No' END + CHAR(13) + CHAR(10)
+                + N'  Is Unique: ' + CASE WHEN s.is_unique = 1 THEN N'Yes' ELSE N'No' END + CHAR(13) + CHAR(10)
+                + N'  Is Disabled: ' + CASE WHEN s.is_disabled = 1 THEN N'Yes' ELSE N'No' END + CHAR(13) + CHAR(10)
+                + N'  Usage - Seeks: ' + CAST(s.user_seeks AS NVARCHAR(30)) + N', Scans: ' + CAST(s.user_scans AS NVARCHAR(30))
+                    + N', Lookups: ' + CAST(s.user_lookups AS NVARCHAR(30)) + N', Writes: ' + ISNULL(CAST(s.user_updates AS NVARCHAR(30)), N'0') + CHAR(13) + CHAR(10)
+                + N'  Rows: ' + ISNULL(CAST(sz.total_rows AS NVARCHAR(30)), N'N/A') + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10)
+            FROM #IndexSanity s
+            LEFT JOIN #IndexSanitySize sz ON s.index_sanity_id = sz.index_sanity_id
+            WHERE s.[object_id] = @ObjectID
+            ORDER BY s.index_id
+            FOR XML PATH(''), TYPE
+        ).value('.', 'NVARCHAR(MAX)'), N'No indexes on this table (heap with no nonclustered indexes).' + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10));
+
+        /* Section 2: Missing Index Suggestions */
+        SET @CurrentAIPrompt = @CurrentAIPrompt + N'MISSING INDEX SUGGESTIONS FROM SQL SERVER:' + CHAR(13) + CHAR(10);
+
+        SET @CurrentAIPrompt = @CurrentAIPrompt + ISNULL((
+            SELECT
+                N'Equality Columns: ' + ISNULL(equality_columns_with_data_type, N'None') + CHAR(13) + CHAR(10)
+                + N'Inequality Columns: ' + ISNULL(inequality_columns_with_data_type, N'None') + CHAR(13) + CHAR(10)
+                + N'Include Columns: ' + ISNULL(included_columns_with_data_type, N'None') + CHAR(13) + CHAR(10)
+                + N'Benefit Number: ' + CAST(magic_benefit_number AS NVARCHAR(30)) + CHAR(13) + CHAR(10)
+                + N'User Seeks: ' + CAST(user_seeks AS NVARCHAR(30)) + N', User Scans: ' + CAST(user_scans AS NVARCHAR(30)) + CHAR(13) + CHAR(10)
+                + N'Avg User Impact: ' + CAST(avg_user_impact AS NVARCHAR(30)) + N'%' + CHAR(13) + CHAR(10)
+                + N'Create TSQL: ' + create_tsql + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10)
+            FROM #MissingIndexes
+            WHERE [object_id] = @ObjectID
+            ORDER BY magic_benefit_number DESC
+            FOR XML PATH(''), TYPE
+        ).value('.', 'NVARCHAR(MAX)'), N'No missing index suggestions from SQL Server.' + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10));
+
+        /* Section 3: Column Data Types */
+        SET @CurrentAIPrompt = @CurrentAIPrompt + N'COLUMN DATA TYPES:' + CHAR(13) + CHAR(10);
+
+        SET @CurrentAIPrompt = @CurrentAIPrompt + ISNULL((
+            SELECT
+                N'Column: ' + column_name
+                + N', Type: ' + system_type_name
+                    + CASE WHEN max_length = -1 THEN N'(max)'
+                           WHEN system_type_name IN (N'char', N'varchar', N'binary', N'varbinary') THEN N'(' + CAST(max_length AS NVARCHAR(20)) + N')'
+                           WHEN system_type_name IN (N'nchar', N'nvarchar') THEN N'(' + CAST(max_length / 2 AS NVARCHAR(20)) + N')'
+                           WHEN system_type_name IN (N'decimal', N'numeric') THEN N'(' + CAST([precision] AS NVARCHAR(20)) + N',' + CAST([scale] AS NVARCHAR(20)) + N')'
+                           ELSE N'' END
+                + N', Nullable: ' + CASE WHEN is_nullable = 1 THEN N'Yes' ELSE N'No' END
+                + N', Identity: ' + CASE WHEN is_identity = 1 THEN N'Yes' ELSE N'No' END
+                + CHAR(13) + CHAR(10)
+            FROM #IndexColumns
+            WHERE [object_id] = @ObjectID
+              AND index_id IN (0, 1)
+            ORDER BY column_name
+            FOR XML PATH(''), TYPE
+        ).value('.', 'NVARCHAR(MAX)'), N'');
+
+        /* Section 4: Foreign Keys */
+        SET @CurrentAIPrompt = @CurrentAIPrompt + CHAR(13) + CHAR(10) + N'FOREIGN KEYS:' + CHAR(13) + CHAR(10);
+
+        SET @CurrentAIPrompt = @CurrentAIPrompt + ISNULL((
+            SELECT
+                N'FK: ' + foreign_key_name + CHAR(13) + CHAR(10)
+                + N'  Parent: ' + parent_object_name + N' (' + parent_fk_columns + N')' + CHAR(13) + CHAR(10)
+                + N'  References: ' + referenced_object_name + N' (' + referenced_fk_columns + N')' + CHAR(13) + CHAR(10)
+                + N'  Disabled: ' + CASE WHEN is_disabled = 1 THEN N'Yes' ELSE N'No' END
+                + N', Not Trusted: ' + CASE WHEN is_not_trusted = 1 THEN N'Yes' ELSE N'No' END + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10)
+            FROM #ForeignKeys
+            ORDER BY foreign_key_name
+            FOR XML PATH(''), TYPE
+        ).value('.', 'NVARCHAR(MAX)'), N'No foreign keys on this table.' + CHAR(13) + CHAR(10));
+
+        /* Closing instruction */
+        SET @CurrentAIPrompt = @CurrentAIPrompt + CHAR(13) + CHAR(10)
+            + N'Based on the above data, please provide index recommendations for this table. Consider which indexes are redundant, which missing indexes should be created, and whether the current indexing strategy is appropriate for the workload pattern shown by the usage statistics.';
+
+        /* @AI = 1: Call the AI provider */
+        IF @AI = 1
+        BEGIN
+            BEGIN TRY
+                SET @AIResponseJSON = NULL;
+
+                /* Build payload using the template */
+                SET @AIPayload = REPLACE(@AIPayloadTemplate, N'@AIModel', @AIModel);
+                SET @AIPayload = REPLACE(@AIPayload, N'@AISystemPrompt', REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(@AISystemPrompt, '\', '\\'), '"', '\"'), CHAR(13), '\r'), CHAR(10), '\n'), CHAR(9), '\t'));
+                SET @AIPayload = REPLACE(@AIPayload, N'@CurrentAIPrompt', REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(@CurrentAIPrompt, '\', '\\'), '"', '\"'), CHAR(13), '\r'), CHAR(10), '\n'), CHAR(9), '\t'));
+
+                /* Trim payload to context size if specified */
+                IF @AIContext IS NOT NULL AND @AIContext > 0 AND LEN(@AIPayload) > @AIContext
+                    SET @AIPayload = LEFT(@AIPayload, @AIContext);
+
+                IF @Debug = 2
+                    SELECT @AIPayload AS AIPayload, LEN(@AIPayload) AS AIPayload_Length, DATALENGTH(@AIPayload) AS AIPayload_DataLength;
+
+                RAISERROR('Calling AI endpoint for index analysis', 0, 1) WITH NOWAIT;
+
+                EXEC @AIReturnValue = sp_invoke_external_rest_endpoint
+                    @url = @AIURL,
+                    @method = 'POST',
+                    @payload = @AIPayload,
+                    @headers = N'{"Content-Type":"application/json"}',
+                    @credential = @AICredential,
+                    @timeout = @AITimeoutSeconds,
+                    @response = @AIResponseJSON OUTPUT;
+
+                IF @Debug = 2
+                    PRINT N'API Response (first 4000 chars): ' + CHAR(13) + CHAR(10) + LEFT(ISNULL(@AIResponseJSON, N'NULL'), 4000);
+
+                /* Parse the response to extract the AI's advice */
+                IF @AIResponseJSON IS NOT NULL
+                BEGIN
+                    /* Try OpenAI ChatGPT chat completion by default: */
+                    SET @AIAdviceText = (SELECT c.Content
+                        FROM OPENJSON(@AIResponseJSON, '$.result.choices')
+                        WITH (
+                            Content NVARCHAR(MAX) '$.message.content'
+                        ) AS c);
+
+                    /* No data? How about Google Gemini: */
+                    IF @AIAdviceText IS NULL
+                        SET @AIAdviceText = (SELECT TOP 1 p.[text]
+                            FROM OPENJSON(@AIResponseJSON, '$.result.candidates') AS cand
+                            CROSS APPLY OPENJSON(cand.value, '$.content.parts')
+                                   WITH ([text] NVARCHAR(MAX) '$.text') AS p);
+
+                    /* If we still couldn't parse it, check for error codes */
+                    IF @AIAdviceText IS NULL
+                    BEGIN
+                        DECLARE @AIErrorMessage NVARCHAR(MAX);
+                        SELECT @AIErrorMessage = JSON_VALUE(@AIResponseJSON, '$.result.error.message');
+
+                        IF @AIErrorMessage IS NULL
+                            SELECT @AIErrorMessage = JSON_VALUE(@AIResponseJSON, '$.error.message');
+
+                        IF @AIErrorMessage IS NOT NULL
+                            SET @AIAdviceText = N'API Error: ' + @AIErrorMessage;
+                        ELSE
+                            SET @AIAdviceText = N'Unable to parse API response. Raw response stored for debugging.';
+                    END;
+                END
+                ELSE
+                BEGIN
+                    SET @AIAdviceText = N'No response received from AI service.';
+                END;
+
+            END TRY
+            BEGIN CATCH
+                SET @AIAdviceText = N'Error calling AI service: ' + ERROR_MESSAGE();
+
+                IF @Debug = 1
+                    PRINT @AIAdviceText;
+            END CATCH;
+        END
+        ELSE
+        BEGIN
+            /* @AI = 2: Just build the prompt, don't call AI */
+            SET @AIAdviceText = N'AI prompt generated but not sent (running with @AI = 2). Review the AI Prompt result set.';
+        END;
+
+        RAISERROR(N'Returning AI results', 0, 1) WITH NOWAIT;
+
+        /* Return advice, payload, and raw response when @AI = 1 */
+        IF @AI = 1
+        BEGIN
+            SELECT
+                [AI Advice] = CASE WHEN @AIAdviceText IS NULL THEN NULL ELSE (
+                    SELECT @AIAdviceText AS [text()] FOR XML PATH('ai_advice'), TYPE) END,
+				[AI Prompt] = (SELECT (@AISystemPrompt + NCHAR(13) + NCHAR(10) + NCHAR(13) + NCHAR(10) + @CurrentAIPrompt)
+		            AS [text()] FOR XML PATH('ai_prompt'), TYPE),
+                [AI Payload] = CASE WHEN @AIPayload IS NULL THEN NULL ELSE (
+                    SELECT @AIPayload AS [text()] FOR XML PATH('ai_payload'), TYPE) END,
+                [AI Raw Response] = CASE WHEN @AIResponseJSON IS NULL THEN NULL ELSE (
+                    SELECT @AIResponseJSON AS [text()] FOR XML PATH('ai_raw_response'), TYPE) END;
+		END
+		ELSE
+		BEGIN
+			SELECT [AI Prompt] = (
+				SELECT (@AISystemPrompt + NCHAR(13) + NCHAR(10) + NCHAR(13) + NCHAR(10) + @CurrentAIPrompt)
+				AS [text()] FOR XML PATH('ai_prompt'), TYPE);
+		END;
+
+    END; /* IF @AI >= 1 AND @TableName IS NOT NULL */
+
+    SELECT
         column_name AS [Column Name],
         (SELECT COUNT(*)  
             FROM #IndexColumns c2 
@@ -3443,11 +4008,7 @@ BEGIN
                     CONVERT(NVARCHAR(6), CONVERT(MONEY, iro.percent_complete)) + N'% complete after ' +
                     CONVERT(NVARCHAR(30), iro.total_execution_time) +
                     N' minute(s). ' + 
-                    CASE WHEN @ResumableIndexesDisappearAfter > 0
-                        THEN N' Will be automatically removed by the database server at ' + CONVERT(NVARCHAR(50), (DATEADD(mi, @ResumableIndexesDisappearAfter, iro.last_pause_time)), 121) + N'. '
-                        ELSE N' Will not be automatically removed by the database server. '
-                    END
-                    + N'This blocks DDL and can pile up ghosts.'
+                    N'This blocks DDL and can pile up ghosts.'
                 WHEN 1 THEN
                     N' since ' + CONVERT(NVARCHAR(50), iro.last_pause_time, 120) + N'. ' +
                     CONVERT(NVARCHAR(6), CONVERT(MONEY, iro.percent_complete)) + N'% complete' +
@@ -3461,6 +4022,10 @@ BEGIN
                          THEN N'. It is probably still running, perhaps updating statistics.'
                          ELSE N' after ' + CONVERT(NVARCHAR(30), iro.total_execution_time)
                               + N' minute(s). This blocks DDL, fails transactions needing table-level X locks, and can pile up ghosts.'
+                    END +
+                    CASE WHEN @ResumableIndexesDisappearAfter > 0
+                        THEN N' Will be automatically removed by the database server at ' + CONVERT(NVARCHAR(50), (DATEADD(mi, @ResumableIndexesDisappearAfter, iro.last_pause_time)), 121) + N'. '
+                        ELSE N' Will not be automatically removed by the database server. '
                     END
                 ELSE N' which is an undocumented resumable index state description.'
                 END AS details,
@@ -5321,7 +5886,27 @@ BEGIN
                             ISNULL(sz.index_size_summary,'') AS index_size_summary
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
-                    WHERE i.is_spatial = 1 
+                    Where i.is_spatial = 1
+					OPTION    ( RECOMPILE );
+
+            RAISERROR(N'check_id 129: JSON indexes', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+                    SELECT  129 AS check_id,
+                            i.index_sanity_id,
+                            150 AS Priority,
+                            N'Abnormal Design Pattern' AS findings_group,
+                            N'JSON Index' AS finding,
+                            [database_name] AS [Database Name],
+                            N'https://www.brentozar.com/go/AbnormalPsychology' AS URL,
+                            i.db_schema_object_indexid AS details,
+                            i.index_definition,
+                            i.secret_columns,
+                            i.index_usage_summary,
+                            ISNULL(sz.index_size_summary,'') AS index_size_summary
+                    FROM    #IndexSanity AS i
+                    JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                    WHERE i.is_json = 1
 					OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 63: Compressed indexes', 0,1) WITH NOWAIT;

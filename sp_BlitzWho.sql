@@ -33,7 +33,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.29', @VersionDate = '20260203';
+	SELECT @Version = '8.30', @VersionDate = '20260313';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -91,9 +91,9 @@ DECLARE  @ProductVersion NVARCHAR(128) = CAST(SERVERPROPERTY('ProductVersion') A
 		,@ProductVersionMinor DECIMAL(10,2)
 		,@Platform NVARCHAR(8) /* Azure or NonAzure are acceptable */ = (SELECT CASE WHEN @@VERSION LIKE '%Azure%' THEN N'Azure' ELSE N'NonAzure' END AS [Platform])
 		,@AzureSQLDB BIT = (SELECT CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN 1 ELSE 0 END)
+		,@CanReadMSDB BIT = (SELECT COUNT(1) FROM fn_my_permissions(N'msdb.dbo.sysjobs', N'OBJECT') AS fmp WHERE fmp.permission_name = N'SELECT')
 		,@EnhanceFlag BIT = 0
 		,@BlockingCheck NVARCHAR(MAX)
-		,@StringToSelect NVARCHAR(MAX)
 		,@StringToExecute NVARCHAR(MAX)
 		,@OutputTableCleanupDate DATE
 		,@SessionWaits BIT = 0
@@ -107,7 +107,7 @@ DECLARE  @ProductVersion NVARCHAR(128) = CAST(SERVERPROPERTY('ProductVersion') A
 												 WHERE  waitwait.session_id = wait.session_id
 												 GROUP BY  waitwait.wait_type
 												 HAVING SUM(waitwait.wait_time_ms) > 5
-												 ORDER BY 1												 
+												 ORDER BY SUM(waitwait.wait_time_ms) DESC
 												 FOR
 												 XML PATH('''') ) AS session_wait_info
 										FROM sys.dm_exec_session_wait_stats AS wait ) AS wt2
@@ -291,28 +291,24 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	EXEC(@StringToExecute);
 
 	/* If the table doesn't have the new cached_parameter_info computed column, add it. See Github #2842. */
-	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
 		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''cached_parameter_info'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD cached_parameter_info NVARCHAR(MAX) NULL;';
 	EXEC(@StringToExecute);
 
 	/* If the table doesn't have the new live_parameter_info computed column, add it. See Github #2842. */
-	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
 		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''live_parameter_info'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD live_parameter_info NVARCHAR(MAX) NULL;';
 	EXEC(@StringToExecute);
 
 	/* If the table doesn't have the new outer_command column, add it. See Github #2887. */
-	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
 		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''outer_command'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD outer_command NVARCHAR(4000) NULL;';
 	EXEC(@StringToExecute);
 
 	/* If the table doesn't have the new wait_resource column, add it. See Github #2970. */
-	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
 		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''wait_resource'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD wait_resource NVARCHAR(MAX) NULL;';
@@ -745,7 +741,7 @@ BEGIN
 			       s.host_name ,
 			       s.login_name ,
 			       s.nt_user_name ,'
-		IF @Platform = 'NonAzure'
+		IF @Platform = 'NonAzure' AND @CanReadMSDB = 1
 		BEGIN
 		SET @StringToExecute +=
 				   N'program_name = COALESCE((
@@ -894,7 +890,7 @@ BEGIN
 				+ CASE WHEN @ShowSleepingSPIDs = 0 THEN
 						N' AND COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid)) IS NOT NULL'
 					  WHEN @ShowSleepingSPIDs = 1 THEN
-						N' OR COALESCE(r.open_transaction_count, blocked.open_tran) >= 1'
+						N' AND (COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid)) IS NOT NULL OR COALESCE(r.open_transaction_count, blocked.open_tran) >= 1)'
 					 ELSE N'' END;
 END /* IF @ProductVersionMajor > 9 and @ProductVersionMajor < 11 */
 
@@ -988,7 +984,7 @@ IF @ProductVersionMajor >= 11
 			       s.host_name ,
 			       s.login_name ,
 			       s.nt_user_name ,'
-		IF @Platform = 'NonAzure'
+		IF @Platform = 'NonAzure' AND @CanReadMSDB = 1
 		BEGIN
 		SET @StringToExecute +=
 				   N'program_name = COALESCE((
@@ -1195,12 +1191,12 @@ IF @ProductVersionMajor >= 11
 
 	    WHERE s.session_id <> @@SPID 
 	    AND s.host_name IS NOT NULL
-		AND r.database_id NOT IN (SELECT database_id FROM #WhoReadableDBs)
+		AND (r.database_id IS NULL OR r.database_id NOT IN (SELECT database_id FROM #WhoReadableDBs))
 	    '
 	    + CASE WHEN @ShowSleepingSPIDs = 0 THEN
 			    N' AND COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid)) IS NOT NULL'
 			    WHEN @ShowSleepingSPIDs = 1 THEN
-			    N' OR COALESCE(r.open_transaction_count, blocked.open_tran) >= 1'
+			    N' AND (COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid)) IS NOT NULL OR COALESCE(r.open_transaction_count, blocked.open_tran) >= 1)'
 			    ELSE N'' END;
 
 
@@ -1378,11 +1374,12 @@ ELSE
 	SET @StringToExecute = @BlockingCheck + N' SELECT  GETDATE() AS run_date , ' + @StringToExecute;
 
 /* If the server has > 50GB of memory, add a max grant hint to avoid getting a giant grant */
-IF (@ProductVersionMajor = 11 AND @ProductVersionMinor >= 6020)
-	OR (@ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000 )
-	OR (@ProductVersionMajor >= 13 )
-	AND 50000000 < (SELECT cntr_value 			
-						FROM sys.dm_os_performance_counters 
+IF (   (@ProductVersionMajor = 11 AND @ProductVersionMinor >= 6020)
+    OR (@ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000 )
+    OR (@ProductVersionMajor >= 13 )
+   )
+    AND 50000000 < (SELECT cntr_value
+						FROM sys.dm_os_performance_counters
 						WHERE object_name LIKE '%:Memory Manager%'
 						AND counter_name LIKE 'Target Server Memory (KB)%')
 	BEGIN

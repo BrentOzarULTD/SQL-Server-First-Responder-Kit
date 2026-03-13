@@ -39,7 +39,7 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.29', @VersionDate = '20260203';
+	SELECT @Version = '8.30', @VersionDate = '20260313';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -570,7 +570,7 @@ AS
         SELECT
 		    DB_NAME(d.database_id)
         FROM sys.databases AS d
-        WHERE LOWER(d.name) IN ('dbatools', 'dbadmin', 'dbmaintenance', 'rdsadmin')
+        WHERE LOWER(d.name) IN ('dbatools', 'dbadmin', 'dbmaintenance', 'gcloud_cloudsqladmin', 'rdsadmin')
 		OPTION(RECOMPILE);
 
 		/*Skip checks for database where we don't have read permissions*/
@@ -590,7 +590,7 @@ AS
 			WHERE dp.database_name = DB_NAME(d.database_id)
 		);
 
-		/*Skip individial checks where we don't have permissions*/
+		/*Skip individual checks where we don't have permissions*/
         INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
         SELECT
             v.*
@@ -1476,7 +1476,7 @@ AS
 								WHERE   DatabaseName IS NULL AND CheckID = 256 )
 					BEGIN
 
-						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 2) WITH NOWAIT;
+						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 256) WITH NOWAIT;
 
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1510,10 +1510,10 @@ AS
 										AND d.state NOT IN(1, 6, 10) /* Not currently offline or restoring, like log shipping databases */
 										AND d.is_in_standby = 0 /* Not a log shipping target database */
 										AND d.source_database_id IS NULL /* Excludes database snapshots */
-										--AND d.name NOT IN ( SELECT DISTINCT
-										--						  DatabaseName
-										--					FROM  #SkipChecks
-										--					WHERE CheckID IS NULL OR CheckID = 2)
+										AND d.name NOT IN ( SELECT DISTINCT
+																  DatabaseName
+															FROM  #SkipChecks
+															WHERE CheckID IS NULL OR CheckID = 256)
 										AND EXISTS (	 SELECT *
 														 FROM   msdb.dbo.backupset AS b INNER JOIN
 																msdb.dbo.backupmediafamily AS bmf
@@ -1836,7 +1836,7 @@ AS
 
                     IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
-								WHERE   CheckID = 2301 )
+								WHERE   DatabaseName IS NULL AND CheckID = 2301 )
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 2301) WITH NOWAIT;
@@ -2046,7 +2046,7 @@ AS
 					  ''Performance'' AS FindingsGroup,
 					  ''Server Triggers Enabled'' AS Finding,
 					  ''https://www.brentozar.com/go/logontriggers/'' AS URL,
-					  (''Server Trigger ['' + [name] ++ ''] is enabled.  Make sure you understand what that trigger is doing - the less work it does, the better.'') AS Details
+					  (''Server Trigger ['' + [name] + ''] is enabled.  Make sure you understand what that trigger is doing - the less work it does, the better.'') AS Details
 					  FROM sys.server_triggers
 					  WHERE is_disabled = 0 AND is_ms_shipped = 0 AND name NOT LIKE ''rds^_%'' ESCAPE ''^'' OPTION (RECOMPILE);';
 
@@ -3995,6 +3995,7 @@ AS
 											+ N' severity level memory issues reported in the last 4 hours in sys.dm_os_memory_health_history.'
 									FROM sys.dm_os_memory_health_history
 									WHERE severity_level > 1
+									AND snapshot_time >= DATEADD(HOUR, -4, GETDATE())
 									GROUP BY severity_level, severity_level_desc;
 						END;
 
@@ -4897,7 +4898,7 @@ AS
 						  WHERE name = 'is_memory_optimized_elevate_to_snapshot_on' AND object_id = OBJECT_ID('sys.databases')
                             AND SERVERPROPERTY('EngineEdition') <> 8; /* Hekaton is always enabled in Managed Instances per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
 						INSERT INTO #DatabaseDefaults
-						  SELECT 'is_accelerated_database_recovery_on', 0, 145, 210, 'Acclerated Database Recovery Enabled', 'https://www.brentozar.com/go/dbdefaults', NULL
+						  SELECT 'is_accelerated_database_recovery_on', 0, 275, 210, 'Accelerated Database Recovery Enabled', 'https://www.brentozar.com/go/dbdefaults', NULL
 						  FROM sys.all_columns
 						  WHERE name = 'is_accelerated_database_recovery_on' AND object_id = OBJECT_ID('sys.databases') AND SERVERPROPERTY('EngineEdition') NOT IN (5, 8) ;
 
@@ -4917,12 +4918,12 @@ AS
 								SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 								   SELECT ' + CAST(@CurrentCheckID AS NVARCHAR(200)) + ', d.[name], ' + CAST(@CurrentPriority AS NVARCHAR(200)) + ', ''Non-Default Database Config'', ''' + @CurrentFinding + ''',''' + @CurrentURL + ''',''' + COALESCE(@CurrentDetails, 'This database setting is not the default.') + '''
 									FROM sys.databases d
-									WHERE d.database_id > 4 AND DB_NAME(d.database_id) != ''rdsadmin'' AND d.state = 0 AND (d.[' + @CurrentName + '] NOT IN (0, 60) OR d.[' + @CurrentName + '] IS NULL) OPTION (RECOMPILE);';
+									WHERE d.database_id > 4 AND DB_NAME(d.database_id) NOT IN (''gcloud_cloudsqladmin'',''rdsadmin'') AND d.state = 0 AND (d.[' + @CurrentName + '] NOT IN (0, 60) OR d.[' + @CurrentName + '] IS NULL) OPTION (RECOMPILE);';
 							ELSE
 								SET @StringToExecute = 'INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 								   SELECT ' + CAST(@CurrentCheckID AS NVARCHAR(200)) + ', d.[name], ' + CAST(@CurrentPriority AS NVARCHAR(200)) + ', ''Non-Default Database Config'', ''' + @CurrentFinding + ''',''' + @CurrentURL + ''',''' + COALESCE(@CurrentDetails, 'This database setting is not the default.') + '''
 									FROM sys.databases d
-									WHERE d.database_id > 4 AND DB_NAME(d.database_id) != ''rdsadmin'' AND d.state = 0 AND (d.[' + @CurrentName + '] <> ' + @CurrentDefaultValue + ' OR d.[' + @CurrentName + '] IS NULL) OPTION (RECOMPILE);';
+									WHERE d.database_id > 4 AND DB_NAME(d.database_id) NOT IN (''gcloud_cloudsqladmin'',''rdsadmin'') AND d.state = 0 AND (d.[' + @CurrentName + '] <> ' + @CurrentDefaultValue + ' OR d.[' + @CurrentName + '] IS NULL) OPTION (RECOMPILE);';
 						
 							IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
 							IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
@@ -5505,7 +5506,7 @@ BEGIN
                     'Version Check Failed (dynamic query failure)' AS Finding ,
                     'http://FirstResponderKit.org' AS URL ,
                     'Download an updated First Responder Kit. Your version check failed due to dynamic query failure.' + @crlf +
-                    'Error: following query failed at execution (check if component [' + ISNULL(@CurrentComponentName,@CurrentComponentName) + '] is mandatory and missing)' + @crlf +
+                    'Error: following query failed at execution (check if component [' + ISNULL(@CurrentComponentName, '(unknown)') + '] is mandatory and missing)' + @crlf +
                     @tsql AS Details
                 ;
                 
@@ -5651,7 +5652,7 @@ BEGIN
                 CONTINUE;
             END;
 
-            EXEC @ExecRet = sp_executesql @tsql , N'@ExecRet INT OUTPUT, @ObjDate DATETIME OUTPUT', @ExecRet = @InnerExecRet OUTPUT, @ObjDate = @CurrentComponentVersionDate OUTPUT;
+            EXEC @ExecRet = sp_executesql @tsql , N'@ExecRet INT OUTPUT, @ObjDate DATETIME2 OUTPUT', @ExecRet = @InnerExecRet OUTPUT, @ObjDate = @CurrentComponentVersionDate OUTPUT;
 
             IF(@ExecRet <> 0)
             BEGIN
@@ -5733,10 +5734,13 @@ BEGIN
                 CONTINUE;
             END;
 
-            ELSE IF(@CurrentComponentVersionDate > @VersionDate AND @BlitzIsOutdatedComparedToOthers = 0)
+            ELSE IF(@CurrentComponentVersionDate > @VersionDate)
             BEGIN
-                SET @BlitzIsOutdatedComparedToOthers = 1;
-                RAISERROR('Procedure %s is outdated',10,1,@spBlitzFullName);
+                IF(@BlitzIsOutdatedComparedToOthers = 0)
+                BEGIN
+                    SET @BlitzIsOutdatedComparedToOthers = 1;
+                    RAISERROR('Procedure %s is outdated',10,1,@spBlitzFullName);
+                END;
                 IF(@MaximumVersionDate IS NULL OR @MaximumVersionDate < @CurrentComponentVersionDate)
                 BEGIN
                     SET @MaximumVersionDate = @CurrentComponentVersionDate;
@@ -6601,7 +6605,7 @@ IF @ProductVersionMajor >= 10
 								LEFT JOIN sys.dm_exec_sessions AS s
 								ON s.session_id = tst.session_id
 								WHERE tat.name = ''implicit_transaction''
-								GROUP BY DB_NAME(s.database_id), transaction_type, transaction_state;';
+								GROUP BY DB_NAME(s.database_id);';
 
 
 							IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
@@ -6802,8 +6806,8 @@ IF @ProductVersionMajor >= 10
 							       'https://www.BrentOzar.com/go/ag' AS URL,
 							       ag.name + N' AG replica server ' + 
 										ar.replica_server_name + N' is ' + 
-										CASE WHEN DATEDIFF(SECOND, ISNULL (drs.last_commit_time, drs.Last_hardened_time), ps.last_commit_time) < 200 THEN (CAST(DATEDIFF(SECOND, drs.last_commit_time, ps.last_commit_time) AS NVARCHAR(10)) + N' seconds ')
-										ELSE (CAST(DATEDIFF(MINUTE, ISNULL (drs.last_commit_time, drs.Last_hardened_time), ps.last_commit_time) AS NVARCHAR(10)) + N' minutes ') END
+										CASE WHEN DATEDIFF(SECOND, ISNULL (drs.last_commit_time, drs.last_hardened_time), ps.last_commit_time) < 200 THEN (CAST(DATEDIFF(SECOND, ISNULL(drs.last_commit_time, drs.last_hardened_time), ps.last_commit_time) AS NVARCHAR(10)) + N' seconds ')
+										ELSE (CAST(DATEDIFF(MINUTE, ISNULL (drs.last_commit_time, drs.last_hardened_time), ps.last_commit_time) AS NVARCHAR(10)) + N' minutes ') END
 										+ N' behind the primary.'
 										AS details
 							FROM sys.dm_hadr_database_replica_states AS drs
@@ -6943,7 +6947,7 @@ IF @ProductVersionMajor >= 10
 		                              ''https://www.brentozar.com/go/querystore'',
 		                              (''The new SQL Server 2016 Query Store feature has not been enabled on this database.'')
 		                              FROM [?].sys.database_query_store_options WHERE desired_state = 0
-									  AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''rdsadmin'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'') OPTION (RECOMPILE)';
+									  AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''rdsadmin'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'', ''gcloud_cloudsqladmin'') OPTION (RECOMPILE)';
 							END;
 
 						IF NOT EXISTS ( SELECT  1
@@ -6975,7 +6979,7 @@ IF @ProductVersionMajor >= 10
 		                              FROM [?].sys.database_query_store_options
 									  WHERE desired_state <> 0
 									  AND wait_stats_capture_mode = 0
-									  AND ''?'' != ''rdsadmin''
+									  AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 									  OPTION (RECOMPILE)';
 							END;
                     
@@ -7007,7 +7011,7 @@ IF @ProductVersionMajor >= 10
 		                              FROM [?].sys.database_query_store_options
 									  WHERE desired_state <> 0
 									  AND actual_state <> 2
-									  AND ''?'' != ''rdsadmin''
+									  AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 									  OPTION (RECOMPILE)';
 							END;
 
@@ -7039,7 +7043,7 @@ IF @ProductVersionMajor >= 10
 		                              FROM [?].sys.database_query_store_options
 									  WHERE desired_state <> 0
 									  AND desired_state <> actual_state 
-									  AND ''?'' != ''rdsadmin''
+									  AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 									  OPTION (RECOMPILE)';
 							END;
 
@@ -7075,10 +7079,66 @@ IF @ProductVersionMajor >= 10
 		                              FROM [?].sys.database_query_store_options
 									  WHERE desired_state <> 0 /* No point in checking this if Query Store is off. */
 									  AND query_capture_mode_desc <> ''AUTO''
-									  AND ''?'' != ''rdsadmin''
+									  AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 									  OPTION (RECOMPILE)';
 							END;
 						
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 273 )
+							BEGIN
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 273) WITH NOWAIT;
+
+								EXEC dbo.sp_MSforeachdb 'USE [?];
+                                        SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+			                            INSERT INTO #BlitzResults
+			                            (CheckID,
+			                            DatabaseName,
+			                            Priority,
+			                            FindingsGroup,
+			                            Finding,
+			                            URL,
+			                            Details)
+		                              SELECT TOP 1 273,
+		                              N''?'',
+		                              50,
+		                              ''AI'',
+		                              ''Constitution.md Present'',
+		                              ''https://www.brentozar.com/go/constitution'',
+		                              ''The instructions in the Consitution.md extended property will influence the behavior of AI agents like Copilot, and change the advice they give to end users querying this database. To see the instructions, run the query in the URL.''
+		                              FROM [?].sys.extended_properties
+									  WHERE class = 0 AND class_desc = ''DATABASE'' AND UPPER(name) = ''CONSTITUTION.MD''
+									  OPTION (RECOMPILE)';
+							END;
+
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 274 )
+							BEGIN
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 274) WITH NOWAIT;
+
+								EXEC dbo.sp_MSforeachdb 'USE [?];
+                                        SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+			                            INSERT INTO #BlitzResults
+			                            (CheckID,
+			                            DatabaseName,
+			                            Priority,
+			                            FindingsGroup,
+			                            Finding,
+			                            URL,
+			                            Details)
+		                              SELECT TOP 1 274,
+		                              N''?'',
+		                              50,
+		                              ''AI'',
+		                              ''Agents.md Present'',
+		                              ''https://www.brentozar.com/go/constitution'',
+		                              ''Objects in this database have extended properties defined which will influence the behavior of AI agents like Copilot, and change the advice they give to end users querying this database. To see the objects and properties, run the query in the URL.''
+		                              FROM [?].sys.extended_properties
+									  WHERE class = 1 AND UPPER(name) = ''AGENTS.MD''
+									  OPTION (RECOMPILE)';
+							END;
+
 						IF @ProductVersionMajor = 13 AND @ProductVersionMinor < 2149 --2016 CU1 has the fix in it
 							AND NOT EXISTS ( SELECT  1
 											 FROM    #SkipChecks
@@ -7107,7 +7167,7 @@ IF @ProductVersionMajor >= 10
 													(''SQL 2016 RTM has a bug involving dumps that happen every time Query Store cleanup jobs run. This is fixed in CU1 and later: https://sqlserverupdates.com/sql-server-2016-updates/'')
 													FROM    sys.databases AS d
 													WHERE   d.is_query_store_on = 1
-													AND		d.name != ''rdsadmin''
+													AND		d.name NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 													OPTION (RECOMPILE);';
 							
 							IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
@@ -7144,7 +7204,7 @@ IF @ProductVersionMajor >= 10
 		                              FROM [?].sys.database_query_store_options dqso
 										join master.sys.databases D on D.name = N''?''
 									  WHERE ((dqso.actual_state = 0 AND D.is_query_store_on = 1) OR (dqso.actual_state <> 0 AND D.is_query_store_on = 0))
-									  AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''rdsadmin'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'') OPTION (RECOMPILE)';
+									  AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''rdsadmin'', ''tempdb'', ''DWConfiguration'', ''DWDiagnostics'', ''DWQueue'', ''ReportServer'', ''ReportServerTempDB'', ''gcloud_cloudsqladmin'') OPTION (RECOMPILE)';
 							END;
 
 				        IF NOT EXISTS ( SELECT  1
@@ -7172,7 +7232,7 @@ IF @ProductVersionMajor >= 10
 		                              ''https://www.brentozar.com/go/manylogs'',
 		                              (''The ['' + DB_NAME() + ''] database has multiple log files on the '' + LEFT(physical_name, 1) + '' drive. This is not a performance booster because log file access is sequential, not parallel.'')
 		                              FROM [?].sys.database_files WHERE type_desc = ''LOG''
-			                            AND ''?'' NOT IN (''rdsadmin'',''tempdb'')
+			                            AND ''?'' NOT IN (''gcloud_cloudsqladmin'',''rdsadmin'',''tempdb'')
 		                              GROUP BY LEFT(physical_name, 1)
 		                              HAVING COUNT(*) > 1 
 									     AND SUM(size) < 268435456 OPTION (RECOMPILE);';
@@ -7204,7 +7264,7 @@ IF @ProductVersionMajor >= 10
 			                            (''The ['' + DB_NAME() + ''] database has multiple data files in one filegroup, but they are not all set up to grow in identical amounts.  This can lead to uneven file activity inside the filegroup.'')
 			                            FROM [?].sys.database_files
 			                            WHERE type_desc = ''ROWS''
-										AND ''?'' != ''rdsadmin''
+										AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 			                            GROUP BY data_space_id
 			                            HAVING COUNT(DISTINCT growth) > 1 OR COUNT(DISTINCT is_percent_growth) > 1 OPTION (RECOMPILE);';
 					        END;
@@ -7234,7 +7294,7 @@ IF @ProductVersionMajor >= 10
 		                                ''The ['' + DB_NAME() + ''] database file '' + f.physical_name + '' has grown to '' + CONVERT(NVARCHAR(20), CONVERT(NUMERIC(38, 2), (f.size / 128.) / 1024.)) + '' GB, and is using percent filegrowth settings. This can lead to slow performance during growths if Instant File Initialization is not enabled.''
 		                                FROM    [?].sys.database_files f
 		                                WHERE   is_percent_growth = 1 and size > 128000
-										AND		''?'' != ''rdsadmin''
+										AND		''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 										OPTION (RECOMPILE);';
 					            END;
 
@@ -7264,7 +7324,7 @@ IF @ProductVersionMajor >= 10
 										''The ['' + DB_NAME() + ''] database file '' + f.physical_name + '' is using 1MB filegrowth settings, but it has grown to '' + CAST((CAST(f.size AS BIGINT) * 8 / 1000000) AS NVARCHAR(10)) + '' GB. Time to up the growth amount.''
 										FROM    [?].sys.database_files f
                                         WHERE is_percent_growth = 0 and growth=128 and size > 128000
-										AND	   ''?'' != ''rdsadmin''
+										AND	   ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 										OPTION (RECOMPILE);';
 					            END;
 
@@ -7296,7 +7356,7 @@ IF @ProductVersionMajor >= 10
 		                                  ''https://www.brentozar.com/go/ee'',
 		                                  (''The ['' + DB_NAME() + ''] database is using '' + feature_name + ''.  If this database is restored onto a Standard Edition server, the restore will fail on versions prior to 2016 SP1.'')
 		                                  FROM [?].sys.dm_db_persisted_sku_features
-										  WHERE ''?'' != ''rdsadmin''
+										  WHERE ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 										  OPTION (RECOMPILE);';
 							        END;
 					        END;
@@ -7355,8 +7415,8 @@ IF @ProductVersionMajor >= 10
 							          ''https://www.brentozar.com/go/repl'',
 							          (''['' + DB_NAME() + ''] has MSreplication_objects tables in it, indicating it is a replication subscriber.'')
 							          FROM [?].sys.tables
-							          WHERE name = ''dbo.MSreplication_objects''
-									  AND ''?'' NOT IN (''master'', ''rdsadmin'')
+							          WHERE name = ''MSreplication_objects''
+									  AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''master'', ''rdsadmin'')
 									  OPTION (RECOMPILE)';
 					        END;
 
@@ -7387,7 +7447,7 @@ IF @ProductVersionMajor >= 10
 			FROM [?].sys.triggers t INNER JOIN [?].sys.objects o ON t.parent_id = o.object_id
 			INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id
 			WHERE t.is_ms_shipped = 0
-			AND ''?'' NOT IN (''rdsadmin'', ''ReportServer'')
+			AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'', ''ReportServer'')
 			HAVING SUM(1) > 0 OPTION (RECOMPILE)';
 							END;
 
@@ -7418,7 +7478,7 @@ IF @ProductVersionMajor >= 10
 		  ''https://www.brentozar.com/go/misguided'',
 		  (''The ['' + DB_NAME() + ''] database has plan guides that are no longer valid, so the queries involved may be failing silently.'')
 		  FROM [?].sys.plan_guides g CROSS APPLY fn_validate_plan_guide(g.plan_guide_id)
-		  WHERE ''?'' != ''rdsadmin''
+		  WHERE ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 		  OPTION (RECOMPILE)';
 							END;
 
@@ -7448,7 +7508,7 @@ IF @ProductVersionMajor >= 10
 		  (''The index ['' + DB_NAME() + ''].['' + s.name + ''].['' + o.name + ''].['' + i.name + ''] is a leftover hypothetical index from the Index Tuning Wizard or Database Tuning Advisor.  This index is not actually helping performance and should be removed.'')
 		  from [?].sys.indexes i INNER JOIN [?].sys.objects o ON i.object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id
 		  WHERE i.is_hypothetical = 1
-		  AND ''?'' != ''rdsadmin''
+		  AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 		  OPTION (RECOMPILE);';
 							END;
 
@@ -7506,7 +7566,7 @@ IF @ProductVersionMajor >= 10
 		  (''The ['' + DB_NAME() + ''] database has foreign keys that were probably disabled, data was changed, and then the key was enabled again.  Simply enabling the key is not enough for the optimizer to use this key - we have to alter the table using the WITH CHECK CHECK CONSTRAINT parameter.'')
 		  from [?].sys.foreign_keys i INNER JOIN [?].sys.objects o ON i.parent_object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id
 		  WHERE i.is_not_trusted = 1 AND i.is_not_for_replication = 0 AND i.is_disabled = 0 AND ''?''
-		  NOT IN (''master'', ''model'', ''msdb'', ''rdsadmin'', ''ReportServer'', ''ReportServerTempDB'')
+		  NOT IN (''gcloud_cloudsqladmin'', ''master'', ''model'', ''msdb'', ''rdsadmin'', ''ReportServer'', ''ReportServerTempDB'')
 		  OPTION (RECOMPILE);';
 							END;
 
@@ -7611,7 +7671,6 @@ IF @ProductVersionMajor >= 10
                                     INSERT INTO #Recompile
                                     SELECT DISTINCT DBName = DB_Name(), SPName = SO.name, SM.is_recompiled, ISR.SPECIFIC_SCHEMA
                                     FROM sys.sql_modules AS SM
-                                    LEFT OUTER JOIN master.sys.databases AS sDB ON SM.object_id = DB_id()
                                     LEFT OUTER JOIN dbo.sysobjects AS SO ON SM.object_id = SO.id and type = ''P''
                                     LEFT OUTER JOIN INFORMATION_SCHEMA.ROUTINES AS ISR on ISR.Routine_Name = SO.name AND ISR.SPECIFIC_CATALOG = DB_Name()
                                     WHERE SM.is_recompiled=1  OPTION (RECOMPILE); /* oh the rich irony of recompile here */
@@ -7632,7 +7691,7 @@ IF @ProductVersionMajor >= 10
                                     Details = '[' + DBName + '].[' + SPSchema + '].[' + ProcName + '] has WITH RECOMPILE in the stored procedure code, which may cause increased CPU usage due to constant recompiles of the code.',
                                     CheckID = '78'
                                 FROM #Recompile AS TR 
-								WHERE ProcName NOT LIKE 'sp_AllNightLog%' AND ProcName NOT LIKE 'sp_AskBrent%' AND ProcName NOT LIKE 'sp_Blitz%' AND ProcName NOT LIKE 'sp_PressureDetector'
+								WHERE ProcName NOT LIKE 'sp_AllNightLog%' AND ProcName NOT LIKE 'sp_AskBrent%' AND ProcName NOT LIKE 'sp_Blitz%' AND ProcName NOT LIKE 'sp_PressureDetector%'
 								  AND DBName NOT IN ('master', 'model', 'msdb', 'tempdb');
                                 DROP TABLE #Recompile;
                             END;
@@ -7997,10 +8056,45 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 									LEFT OUTER JOIN #DatabaseScopedConfigurationDefaults def ON dsc.configuration_id = def.configuration_id AND (cast(dsc.value as nvarchar(100)) = cast(def.default_value as nvarchar(100)) OR dsc.value IS NULL) AND (dsc.value_for_secondary = def.default_value_for_secondary OR dsc.value_for_secondary IS NULL)
 									LEFT OUTER JOIN #SkipChecks sk ON (sk.CheckID IS NULL OR def.CheckID = sk.CheckID) AND (sk.DatabaseName IS NULL OR sk.DatabaseName = DB_NAME())
 									WHERE def.configuration_id IS NULL AND sk.CheckID IS NULL
-									AND ''?'' != ''rdsadmin''
+									AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 									ORDER BY 1
 									OPTION (RECOMPILE);';
 			END;
+
+			/* CheckID 275 - Non-Default Database Config - Automatic Tuning */
+			IF NOT EXISTS (
+					SELECT 1
+					FROM #SkipChecks
+					WHERE DatabaseName IS NULL
+						AND CheckID = 275
+					)
+                AND EXISTS (SELECT * FROM sys.all_objects WHERE name = 'database_automatic_tuning_options')
+			BEGIN
+				IF @Debug IN (1,2)
+				BEGIN
+					RAISERROR ('Running CheckId [%d].',0,1,275) WITH NOWAIT;
+				END
+
+				EXECUTE sp_MSforeachdb 'USE [?];
+					SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+                    INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
+					SELECT 275 AS CheckID
+						,''?'' AS DatabaseName
+						,210 AS Priority
+						,''Non-Default Database Config'' AS FindingsGroup
+						,''Automatic Tuning'' AS Finding
+						,''https://learn.microsoft.com/en-us/sql/relational-databases/automatic-tuning/automatic-tuning'' AS URL
+                        /* Every column in sys.database_automatic_tuning_options is nullable, so we defend against that. */
+						,N''Automatic Tuning setting '' + ISNULL(dato.[name], ''unknown'') 
+                            + '' is configured to '' + ISNULL(dato.desired_state_desc, ''unknown'') + ''.''
+                            + '' This database setting is not the default.''
+                            + '' The running value is '' +  ISNULL(dato.actual_state_desc, ''unknown'') + ''.''
+                            + '' See sys.database_automatic_tuning_options for more details.'' AS Details
+					FROM sys.database_automatic_tuning_options dato
+					WHERE dato.desired_state IS NOT NULL AND dato.desired_state <> 2
+					AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
+					;';
+			END; --of Check 275.
 
 			/* Check 218 - Show me the dodgy SET Options */
 			IF NOT EXISTS (
@@ -8036,7 +8130,7 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 							OR sm.uses_quoted_identifier <> 1
 							)
 						AND o.is_ms_shipped = 0
-						AND ''?'' != ''rdsadmin''
+						AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 					HAVING COUNT(1) > 0;';
 			END; --of Check 218.
 
@@ -8051,7 +8145,7 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 			BEGIN
 				IF @Debug IN (1,2)
 				BEGIN
-					RAISERROR ('Running CheckId [%d].',0,1,218) WITH NOWAIT;
+					RAISERROR ('Running CheckId [%d].',0,1,225) WITH NOWAIT;
 				END
 
 				EXECUTE sp_MSforeachdb 'USE [?];
@@ -8069,7 +8163,7 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 					FROM sys.index_resumable_operations iro
 					JOIN sys.objects o ON iro.[object_id] = o.[object_id]
 					WHERE iro.state <> 0
-					AND ''?'' != ''rdsadmin''
+					AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''rdsadmin'')
 					;';
 			END; --of Check 225.
 
@@ -8104,7 +8198,7 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
    --                   WHERE o.is_ms_shipped = 0 AND o.type_desc = ''USER_TABLE''
    --                     AND h.object_id IS NULL
    --                     AND 0 < (SELECT SUM(row_count) FROM sys.dm_db_partition_stats ps WHERE ps.object_id = o.object_id)
-   --                     AND ''?'' NOT IN (''master'', ''model'', ''msdb'', ''rdsadmin'', ''tempdb'')
+   --                     AND ''?'' NOT IN (''gcloud_cloudsqladmin'', ''master'', ''model'', ''msdb'', ''rdsadmin'', ''tempdb'')
    --                   HAVING COUNT(DISTINCT o.object_id) > 0;';
 			--END; --of Check 220.
 
@@ -8738,10 +8832,10 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 											 WHEN [T].[TraceFlag] = '7745' AND  @ProductVersionMajor > 12 THEN '7745 enabled globally, which is for Query Store. None of your databases have Query Store enabled, so why do you have this turned on?'
 											 WHEN [T].[TraceFlag] = '7745' AND  @ProductVersionMajor <= 12 THEN '7745 enabled globally, which is for Query Store. Query Store does not exist on your SQL Server version, so why do you have this turned on?'
 											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor > 14 THEN '7752 enabled globally, which is for Query Store. However, it has no effect in your SQL Server version. Consider turning it off.'
+											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor <= 12 THEN '7752 enabled globally, which is for Query Store. Query Store does not exist on your SQL Server version, so why do you have this turned on?'
 											 WHEN [T].[TraceFlag] = '7752' AND @CheckUserDatabaseObjects = 0 THEN '7752 enabled globally, which stops queries needing to wait on Query Store loading up after database recovery. @CheckUserDatabaseObjects was set to 0, so we skipped checking if any databases have Query Store enabled.'
 											 WHEN [T].[TraceFlag] = '7752' AND @QueryStoreInUse = 1 THEN '7752 enabled globally, which stops queries needing to wait on Query Store loading up after database recovery.'
 											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor > 12 THEN '7752 enabled globally, which is for Query Store. None of your databases have Query Store enabled, so why do you have this turned on?'
-											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor <= 12 THEN '7752 enabled globally, which is for Query Store. Query Store does not exist on your SQL Server version, so why do you have this turned on?'
 											 WHEN [T].[TraceFlag] = '8048' THEN '8048 enabled globally, which tries to reduce CMEMTHREAD waits on servers with a lot of logical processors.'
 											 WHEN [T].[TraceFlag] = '8017' AND (CAST(SERVERPROPERTY('Edition') AS NVARCHAR(1000)) LIKE N'%Express%') THEN '8017 is enabled globally, but this is the default for Express Edition.'
                                              WHEN [T].[TraceFlag] = '8017' AND (CAST(SERVERPROPERTY('Edition') AS NVARCHAR(1000)) NOT LIKE N'%Express%') THEN '8017 is enabled globally, which disables the creation of schedulers for all logical processors.'
@@ -8793,8 +8887,7 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 												'Informational' AS FindingsGroup ,
 												'Recommended Trace Flag Off' AS Finding ,
 												'https://www.sqlskills.com/blogs/erin/query-store-trace-flags/' AS URL ,
-												'Trace Flag 7752 not enabled globally. It stops queries needing to wait on Query Store loading up after database recovery. It is so recommended that it is enabled by default as of SQL Server 2019.' AS Details						
-										FROM    #TraceStatus T
+												'Trace Flag 7752 not enabled globally. It stops queries needing to wait on Query Store loading up after database recovery. It is so recommended that it is enabled by default as of SQL Server 2019.' AS Details;
 							END;
 					END;
 
@@ -10204,9 +10297,9 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 													+ N' Total Server Memory (GB): ' + CAST((CAST((pTotal.cntr_value / 1024.0 / 1024.0) AS DECIMAL(10,1))) AS NVARCHAR(100))
 										FROM    sys.dm_os_performance_counters pTarget
 										INNER JOIN sys.dm_os_performance_counters pTotal
-											ON pTotal.object_name LIKE 'SQLServer:Memory Manager%'
+											ON pTotal.object_name LIKE N'%Memory Manager%'
 											AND pTotal.counter_name LIKE 'Total Server Memory (KB)%'
-										WHERE pTarget.object_name LIKE 'SQLServer:Memory Manager%'
+										WHERE pTarget.object_name LIKE N'%Memory Manager%'
 										  AND pTarget.counter_name LIKE 'Target Server Memory (KB)%'
 							END
 
@@ -10727,17 +10820,6 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 
     SET NOCOUNT OFF;
 GO
-
-/*
---Sample execution call with the most common parameters:
-EXEC [dbo].[sp_Blitz] 
-    @CheckUserDatabaseObjects = 1 ,
-    @CheckProcedureCache = 0 ,
-    @OutputType = 'TABLE' ,
-    @OutputProcedureCache = 0 ,
-    @CheckProcedureCacheFilter = NULL,
-    @CheckServerInfo = 1
-*/
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON
 
@@ -10777,7 +10859,7 @@ AS
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
-SELECT @Version = '8.29', @VersionDate = '20260203';
+SELECT @Version = '8.30', @VersionDate = '20260313';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -11655,7 +11737,7 @@ AS
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.29', @VersionDate = '20260203';
+	SELECT @Version = '8.30', @VersionDate = '20260313';
 	
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -13436,7 +13518,9 @@ ALTER PROCEDURE dbo.sp_BlitzCache
     @AIModel VARCHAR(200) = NULL, /* Defaults to gpt-4.1-mini */
     @AIURL VARCHAR(200) = NULL, /* Defaults to https://api.openai.com/v1/chat/completions */
     @AICredential VARCHAR(200) = NULL, /* Defaults to 'https://api.openai.com/' or the root of your AIURL, trailing slash included */
-    @AIConfig NVARCHAR(500) = NULL, /* Table where AI config data is stored - can be in the format db.schema.table, schema.table, or just table. */
+    @AIConfigTable NVARCHAR(500) = NULL, /* Table where AI provider config is stored - can be in the format db.schema.table, schema.table, or just table. */
+    @AIPromptConfigTable NVARCHAR(500) = NULL, /* Table where AI prompt templates are stored - db.schema.table, schema.table, or just table. */
+    @AIPrompt NVARCHAR(200) = NULL, /* Which prompt to use from the prompts table */
 	@Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
 	@VersionCheckMode BIT = 0,
@@ -13448,7 +13532,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.29', @VersionDate = '20260203';
+SELECT @Version = '8.30', @VersionDate = '20260313';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -14026,22 +14110,31 @@ BEGIN
    EXEC(@config_sql);
 END;
 
-CREATE TABLE #ai_configuration
+CREATE TABLE #ai_providers
 (Id INT PRIMARY KEY CLUSTERED,
+ Model_Nickname NVARCHAR(200),
  AI_Model NVARCHAR(100) INDEX AI_Model,
  AI_URL NVARCHAR(500),
  AI_Database_Scoped_Credential_Name NVARCHAR(500),
- AI_System_Prompt_Override NVARCHAR(4000),
  AI_Parameters NVARCHAR(4000),
- Payload_Template_Override NVARCHAR(4000),
+ Payload_Template NVARCHAR(4000),
  Timeout_Seconds TINYINT,
  Context INT,
- DefaultModel BIT DEFAULT 0);
+ Default_Model BIT DEFAULT 0);
+
+CREATE TABLE #ai_prompts
+(Id INT PRIMARY KEY CLUSTERED,
+ Prompt_Nickname NVARCHAR(200) INDEX IX_Prompt_Nickname,
+ AI_System_Prompt NVARCHAR(4000),
+ Default_Prompt BIT DEFAULT 0);
 
 DECLARE
-    @AIConfigDatabaseName NVARCHAR(128) = CASE WHEN @AIConfig IS NULL THEN NULL ELSE PARSENAME(@AIConfig, 3) END,
-    @AIConfigSchemaName NVARCHAR(258) = CASE WHEN @AIConfig IS NULL THEN NULL ELSE PARSENAME(@AIConfig, 2) END,
-    @AIConfigTableName NVARCHAR(258) = CASE WHEN @AIConfig IS NULL THEN NULL ELSE PARSENAME(@AIConfig, 1) END,
+    @AIConfigDatabaseName NVARCHAR(128) = CASE WHEN @AIConfigTable IS NULL THEN NULL ELSE PARSENAME(@AIConfigTable, 3) END,
+    @AIConfigSchemaName NVARCHAR(258) = CASE WHEN @AIConfigTable IS NULL THEN NULL ELSE PARSENAME(@AIConfigTable, 2) END,
+    @AIConfigTableName NVARCHAR(258) = CASE WHEN @AIConfigTable IS NULL THEN NULL ELSE PARSENAME(@AIConfigTable, 1) END,
+    @AIPromptDatabaseName NVARCHAR(128) = CASE WHEN @AIPromptConfigTable IS NULL THEN NULL ELSE PARSENAME(@AIPromptConfigTable, 3) END,
+    @AIPromptSchemaName NVARCHAR(258) = CASE WHEN @AIPromptConfigTable IS NULL THEN NULL ELSE PARSENAME(@AIPromptConfigTable, 2) END,
+    @AIPromptTableName NVARCHAR(258) = CASE WHEN @AIPromptConfigTable IS NULL THEN NULL ELSE PARSENAME(@AIPromptConfigTable, 1) END,
     @AISystemPrompt NVARCHAR(4000),
     @AIParameters NVARCHAR(4000),
     @AIPayloadTemplate NVARCHAR(MAX),
@@ -14050,15 +14143,44 @@ DECLARE
     @AIContext INT;
 
 
-IF @AIConfig IS NOT NULL
+IF @AIPrompt IS NOT NULL AND @AIPromptConfigTable IS NULL
 BEGIN
-   RAISERROR(N'Reading values from AI Configuration Table', 0, 1) WITH NOWAIT;
-   SET @config_sql = N'INSERT INTO #ai_configuration (Id, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_System_Prompt_Override, AI_Parameters, Payload_Template_Override, Timeout_Seconds, Context, DefaultModel)
-        SELECT Id, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_System_Prompt_Override, AI_Parameters, Payload_Template_Override, Timeout_Seconds, Context, DefaultModel FROM '
+    RAISERROR('@AIPrompt requires @AIPromptConfigTable to also be specified so we can look up the prompt.', 12, 1);
+    RETURN;
+END;
+
+IF @AIConfigTable IS NOT NULL
+BEGIN
+   RAISERROR(N'Reading values from AI Provider Configuration Table', 0, 1) WITH NOWAIT;
+   SET @config_sql = N'INSERT INTO #ai_providers (Id, Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_Parameters, Payload_Template, Timeout_Seconds, Context, Default_Model)
+        SELECT Id, Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_Parameters, Payload_Template, Timeout_Seconds, Context, Default_Model FROM '
         + CASE WHEN @AIConfigDatabaseName IS NOT NULL THEN (QUOTENAME(@AIConfigDatabaseName) + N'.') ELSE N'' END
         + CASE WHEN @AIConfigSchemaName IS NOT NULL THEN (QUOTENAME(@AIConfigSchemaName) + N'.') ELSE N'' END
-        + QUOTENAME(@AIConfigTableName) + N' WHERE (@AIModel IS NULL AND DefaultModel = 1) OR @AIModel IN (AI_Model, Nickname) ; ';
+        + QUOTENAME(@AIConfigTableName) + N' WHERE Default_Model = 1 OR @AIModel = AI_Model OR @AIModel = Model_Nickname ; ';
    EXEC sp_executesql @config_sql, N'@AIModel NVARCHAR(100)', @AIModel;
+END;
+
+IF @AIModel IS NOT NULL AND @AIConfigTable IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM #ai_providers WHERE AI_Model = @AIModel OR Model_Nickname = @AIModel)
+BEGIN
+    DECLARE @AIModelRequested NVARCHAR(200) = @AIModel;
+    DECLARE @AIFallbackModel NVARCHAR(200);
+    SELECT TOP 1 @AIFallbackModel = AI_Model FROM #ai_providers WHERE Default_Model = 1 ORDER BY Id;
+    IF @AIFallbackModel IS NULL SET @AIFallbackModel = N'gpt-5-nano';
+    RAISERROR('@AIModel "%s" was not found in configuration table %s. Using "%s" instead.',
+        10, 1, @AIModelRequested, @AIConfigTable, @AIFallbackModel) WITH NOWAIT;
+    SET @AIModel = NULL;
+END;
+
+IF @AIPromptConfigTable IS NOT NULL
+BEGIN
+   RAISERROR(N'Reading values from AI Prompts Table', 0, 1) WITH NOWAIT;
+   SET @config_sql = N'INSERT INTO #ai_prompts (Id, Prompt_Nickname, AI_System_Prompt, Default_Prompt)
+        SELECT Id, Prompt_Nickname, AI_System_Prompt, Default_Prompt FROM '
+        + CASE WHEN @AIPromptDatabaseName IS NOT NULL THEN (QUOTENAME(@AIPromptDatabaseName) + N'.') ELSE N'' END
+        + CASE WHEN @AIPromptSchemaName IS NOT NULL THEN (QUOTENAME(@AIPromptSchemaName) + N'.') ELSE N'' END
+        + QUOTENAME(@AIPromptTableName) + N' WHERE (@AIPrompt IS NULL AND Default_Prompt = 1) OR @AIPrompt = Prompt_Nickname ; ';
+   EXEC sp_executesql @config_sql, N'@AIPrompt NVARCHAR(200)', @AIPrompt;
 END;
 
 
@@ -14069,7 +14191,10 @@ IF @AI > 0
     SELECT @ExpertMode = 1, @KeepCRLF = 1;
 
     IF @Debug = 2
-        SELECT N'ai_configuration' AS TableLabel, * FROM #ai_configuration;
+        BEGIN
+        SELECT N'ai_providers' AS TableLabel, * FROM #ai_providers;
+        SELECT N'ai_prompts' AS TableLabel, * FROM #ai_prompts;
+        END
 
     IF @AI = 1 AND NOT EXISTS(SELECT * FROM sys.all_objects WHERE name = 'sp_invoke_external_rest_endpoint')
         BEGIN
@@ -14080,28 +14205,39 @@ IF @AI > 0
         RAISERROR(N'@AI was set to 1, but sp_invoke_external_rest_endpoint does not exist here, so we can''t call AI services. Setting @AI to 2 instead to just generate prompts.', 0, 1) WITH NOWAIT;
         END
 
+    /* Check the providers table */
     IF @AIModel IS NULL
-        /* Check the config table */
         SELECT TOP 1 @AIModel = AI_Model, @AIURL = AI_URL,
             @AICredential = AI_Database_Scoped_Credential_Name,
-            @AISystemPrompt = AI_System_Prompt_Override,
             @AIParameters = AI_Parameters,
+            @AIPayloadTemplate = Payload_Template,
             @AITimeoutSeconds = COALESCE(Timeout_Seconds, 230),
-            @AIContext = Context,
-            @AIPayloadTemplate = Payload_Template_Override
-            FROM #ai_configuration
-            WHERE DefaultModel = 1
+            @AIContext = Context
+            FROM #ai_providers
+            WHERE Default_Model = 1
             ORDER BY Id;
     ELSE
-        SELECT TOP 1 @AIModel = AI_Model, 
+        SELECT TOP 1 @AIModel = AI_Model,
             @AIURL = COALESCE(@AIURL, AI_URL),
             @AICredential = COALESCE(@AICredential, AI_Database_Scoped_Credential_Name),
-            @AISystemPrompt = AI_System_Prompt_Override,
             @AIParameters = AI_Parameters,
+            @AIPayloadTemplate = Payload_Template,
             @AITimeoutSeconds = COALESCE(Timeout_Seconds, 230),
-            @AIContext = Context,
-            @AIPayloadTemplate = Payload_Template_Override
-            FROM #ai_configuration
+            @AIContext = Context
+            FROM #ai_providers
+            WHERE AI_Model = @AIModel OR Model_Nickname = @AIModel
+            ORDER BY Id;
+
+    /* Check the prompts table */
+    IF @AIPrompt IS NULL
+        SELECT TOP 1 @AISystemPrompt = AI_System_Prompt
+            FROM #ai_prompts
+            WHERE Default_Prompt = 1
+            ORDER BY Id;
+    ELSE
+        SELECT TOP 1 @AISystemPrompt = AI_System_Prompt
+            FROM #ai_prompts
+            WHERE Prompt_Nickname = @AIPrompt
             ORDER BY Id;
         
     IF @AIModel IS NULL
@@ -14157,6 +14293,12 @@ IF @AI > 0
             SELECT @AIModel AS AIModel, @AIURL AS AIUrl, @AICredential AS AICredential,
                 @AIContext AS AIContext, @AIParameters AS AIParameters, @AITimeoutSeconds AS AITimeoutSeconds,
                 @AISystemPrompt AS AISystemPrompt, @AIPayloadTemplate AS AIPayloadTemplate;
+        END;
+
+    IF @AIPrompt IS NOT NULL AND NOT EXISTS (SELECT 1 FROM #ai_prompts WHERE Prompt_Nickname = @AIPrompt)
+        BEGIN
+            RAISERROR('@AIPrompt was specified but no matching prompt was found in the prompts table.',12,1);
+            RETURN;
         END;
 
     IF @AI = 1 AND (@AIModel IS NULL OR @AIURL IS NULL OR @AISystemPrompt IS NULL OR @AICredential IS NULL OR @AIPayloadTemplate IS NULL)
@@ -14235,7 +14377,7 @@ IF @Top IS NULL
     OR @QueryFilter IS NULL 
     OR @Reanalyze IS NULL
 BEGIN
-    RAISERROR(N'Several parameters (@Top, @SortOrder, @QueryFilter, @renalyze) are required. Do not set them to NULL. Please try again.', 16, 1) WITH NOWAIT;
+    RAISERROR(N'Several parameters (@Top, @SortOrder, @QueryFilter, @Reanalyze) are required. Do not set them to NULL. Please try again.', 16, 1) WITH NOWAIT;
     RETURN;
 END;
 
@@ -15153,10 +15295,12 @@ IF @SortOrder = 'duplicate'	/* Issue #3345 */
     SET @body += N'     INNER JOIN #duplicate_query_filter AS dqf ON x.sql_handle = dqf.sql_handle AND x.plan_handle = dqf.plan_handle AND x.creation_time = dqf.duplicate_creation_time ' + @nl ;
     END
 
+/* Removing to fix issue #3791
 IF @VersionShowsAirQuoteActualPlans = 1
     BEGIN
     SET @body += N'     CROSS APPLY sys.dm_exec_query_plan_stats(x.plan_handle) AS deqps ' + @nl ;
     END
+*/
 
 SET @body += N'        WHERE  1 = 1 ' +  @nl ;
 
@@ -15172,7 +15316,7 @@ IF @IgnoreSystemDBs = 1
 	SET @body += N'               AND COALESCE(LOWER(DB_NAME(CAST(xpa.value AS INT))), '''') NOT IN (''master'', ''model'', ''msdb'', ''tempdb'', ''32767'', ''dbmaintenance'', ''dbadmin'', ''dbatools'') AND COALESCE(DB_NAME(CAST(xpa.value AS INT)), '''') NOT IN (SELECT name FROM sys.databases WHERE is_distributor = 1)' + @nl ;
 	END; 
 
-IF @DatabaseName IS NOT NULL OR @DatabaseName <> N''
+IF @DatabaseName IS NOT NULL AND @DatabaseName <> N''
 	BEGIN 
     RAISERROR(N'Filtering database name chosen', 0, 1) WITH NOWAIT;
 	SET @body += N'               AND CAST(xpa.value AS BIGINT) = DB_ID(N'
@@ -15429,7 +15573,9 @@ BEGIN
            CASE WHEN t.t_TotalReads = 0 THEN 0
                 ELSE CAST(ROUND(100.00 * total_logical_reads / t.t_TotalReads, 2) AS MONEY)
                 END AS PercentReadsByType,
-           CAST(ROUND(100.00 * execution_count / t.t_TotalExecs, 2) AS MONEY) AS PercentExecutionsByType,
+           CASE WHEN t.t_TotalExecs = 0 THEN 0
+                ELSE CAST(ROUND(100.00 * execution_count / t.t_TotalExecs, 2) AS MONEY)
+                END AS PercentExecutionsByType,
            (total_elapsed_time / 1000.0) / execution_count AS AvgDuration ,
            (total_elapsed_time / 1000.0) AS TotalDuration ,
            total_logical_reads / execution_count AS AvgReads ,
@@ -15548,7 +15694,7 @@ BEGIN
            qs.max_worker_time / 1000.0,
            CASE WHEN qp.query_plan.value(''declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";max(//p:RelOp/@Parallel)'', ''float'')  > 0 THEN 1 ELSE 0 END,
            qs.min_elapsed_time / 1000.0,
-           qs.max_worker_time  / 1000.0,
+           qs.max_elapsed_time / 1000.0,
            age_minutes,
            age_minutes_lifetime,
     	   @SortOrder ';
@@ -15773,16 +15919,16 @@ SELECT @sql = REPLACE(@sql, '#sortable#', @sort);
 IF @Debug = 1
     BEGIN
 		PRINT N'Printing dynamic SQL stored in @sql: ';
-        PRINT SUBSTRING(@sql, 0, 4000);
-        PRINT SUBSTRING(@sql, 4000, 8000);
-        PRINT SUBSTRING(@sql, 8000, 12000);
-        PRINT SUBSTRING(@sql, 12000, 16000);
-        PRINT SUBSTRING(@sql, 16000, 20000);
-        PRINT SUBSTRING(@sql, 20000, 24000);
-        PRINT SUBSTRING(@sql, 24000, 28000);
-        PRINT SUBSTRING(@sql, 28000, 32000);
-        PRINT SUBSTRING(@sql, 32000, 36000);
-        PRINT SUBSTRING(@sql, 36000, 40000);
+        PRINT SUBSTRING(@sql, 1, 4000);
+        PRINT SUBSTRING(@sql, 4001, 4000);
+        PRINT SUBSTRING(@sql, 8001, 4000);
+        PRINT SUBSTRING(@sql, 12001, 4000);
+        PRINT SUBSTRING(@sql, 16001, 4000);
+        PRINT SUBSTRING(@sql, 20001, 4000);
+        PRINT SUBSTRING(@sql, 24001, 4000);
+        PRINT SUBSTRING(@sql, 28001, 4000);
+        PRINT SUBSTRING(@sql, 32001, 4000);
+        PRINT SUBSTRING(@sql, 36001, 4000);
     END;
 
 RAISERROR(N'Creating temp tables for results and warnings.', 0, 1) WITH NOWAIT;
@@ -16216,6 +16362,7 @@ WHERE   ##BlitzCacheProcs.SqlHandle = y.SqlHandle
         AND ##BlitzCacheProcs.QueryHash = y.QueryHash
         AND ##BlitzCacheProcs.DatabaseName = y.DatabaseName
         AND ##BlitzCacheProcs.PlanHandle IS NULL
+        AND ##BlitzCacheProcs.SPID = @@SPID
 OPTION (RECOMPILE) ;
 
 
@@ -17427,8 +17574,8 @@ SET sp.variable_datatype = vi.variable_datatype,
 	sp.compile_time_value = vi.compile_time_value
 FROM   #stored_proc_info AS sp
 JOIN #variable_info AS vi
-ON (sp.proc_name = 'adhoc' AND sp.QueryHash = vi.QueryHash)
-OR 	(sp.proc_name <> 'adhoc' AND sp.SqlHandle = vi.SqlHandle)
+ON ((sp.proc_name = 'adhoc' AND sp.QueryHash = vi.QueryHash)
+OR 	(sp.proc_name <> 'adhoc' AND sp.SqlHandle = vi.SqlHandle))
 AND sp.variable_name = vi.variable_name
 OPTION (RECOMPILE);
 
@@ -17486,10 +17633,10 @@ JOIN (
 				N'SET ANSI_NULLS ' + CASE WHEN [ANSI_NULLS] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
 				N'SET ANSI_PADDING ' + CASE WHEN [ANSI_PADDING] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
 				N'SET ANSI_WARNINGS ' + CASE WHEN [ANSI_WARNINGS] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
-				N'SET ARITHABORT ' + CASE WHEN [ARITHABORT] = 'true' THEN N'ON ' ELSE N' OFF ' END + NCHAR(10) +
+				N'SET ARITHABORT ' + CASE WHEN [ARITHABORT] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
 				N'SET CONCAT_NULL_YIELDS_NULL ' + CASE WHEN [CONCAT_NULL_YIELDS_NULL] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
 				N'SET NUMERIC_ROUNDABORT ' + CASE WHEN [NUMERIC_ROUNDABORT] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) +
-				N'SET QUOTED_IDENTIFIER ' + CASE WHEN [QUOTED_IDENTIFIER] = 'true' THEN N'ON ' ELSE N'OFF ' + NCHAR(10) END AS [ansi_set_options]
+				N'SET QUOTED_IDENTIFIER ' + CASE WHEN [QUOTED_IDENTIFIER] = 'true' THEN N'ON ' ELSE N'OFF ' END + NCHAR(10) AS [ansi_set_options]
 		FROM (
 			SELECT
 				s.SqlHandle,
@@ -17683,9 +17830,9 @@ OPTION (RECOMPILE);
 /*Begin Missing Index*/
 IF EXISTS ( SELECT 1/0 
             FROM ##BlitzCacheProcs AS bbcp 
-            WHERE bbcp.missing_index_count > 0
+            WHERE (bbcp.missing_index_count > 0
 		    OR bbcp.index_spool_cost > 0
-		    OR bbcp.index_spool_rows > 0
+		    OR bbcp.index_spool_rows > 0)
 		    AND bbcp.SPID = @@SPID )
 		   
 		BEGIN		
@@ -18034,7 +18181,7 @@ UPDATE p
                     CASE WHEN (CAST(pa.value AS INT) & 32 = 32) THEN ', ANSI_NULLS' ELSE '' END +
                     CASE WHEN (CAST(pa.value AS INT) & 64 = 64) THEN ', QUOTED_IDENTIFIER' ELSE '' END +
                     CASE WHEN (CAST(pa.value AS INT) & 4096 = 4096) THEN ', ARITH_ABORT' ELSE '' END +
-                    CASE WHEN (CAST(pa.value AS INT) & 8192 = 8191) THEN ', NUMERIC_ROUNDABORT' ELSE '' END 
+                    CASE WHEN (CAST(pa.value AS INT) & 8192 = 8192) THEN ', NUMERIC_ROUNDABORT' ELSE '' END 
                     , 2, 200000)
 FROM   ##BlitzCacheProcs p
        CROSS APPLY sys.dm_exec_plan_attributes(p.PlanHandle) pa
@@ -18055,8 +18202,8 @@ OPTION (RECOMPILE);
 UPDATE p
 SET    is_cursor = 1
 FROM   ##BlitzCacheProcs p
-WHERE QueryHash = 0x0000000000000000
-OR QueryPlanHash = 0x0000000000000000
+WHERE (QueryHash = 0x0000000000000000
+OR QueryPlanHash = 0x0000000000000000)
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
@@ -18259,7 +18406,7 @@ SET Warnings = 'No warnings detected. ' + CASE @ExpertMode
 											THEN ' Try running sp_BlitzCache with @ExpertMode = 1 to find more advanced problems.' 
 											ELSE '' 
 										  END
-WHERE Warnings = '' OR	Warnings IS NULL
+WHERE (Warnings = '' OR	Warnings IS NULL)
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
@@ -18269,12 +18416,103 @@ OPTION (RECOMPILE);
 IF @AI >= 1
 BEGIN
     RAISERROR('Building AI prompts for query plans', 0, 1) WITH NOWAIT;
-    
+
+    /* If the target database has a database-level extended property named CONSTITUTION.md,
+       include it in the prompt as additional guidance for the LLM. */
+    IF OBJECT_ID('tempdb..#ai_constitution', 'U') IS NOT NULL
+        DROP TABLE #ai_constitution;
+
+    CREATE TABLE #ai_constitution
+    (
+        DatabaseName SYSNAME NOT NULL PRIMARY KEY,
+        Constitution NVARCHAR(MAX) NULL
+    );
+
+    DECLARE @ai_db SYSNAME,
+            @ai_sql NVARCHAR(MAX),
+            @ai_constitution NVARCHAR(MAX),
+            @ai_engine_edition INT;
+
+    SET @ai_engine_edition = CONVERT(INT, SERVERPROPERTY('EngineEdition'));
+
+    DECLARE ai_db_cursor CURSOR LOCAL FAST_FORWARD FOR
+        SELECT DISTINCT DatabaseName
+        FROM ##BlitzCacheProcs
+        WHERE SPID = @@SPID
+          AND QueryPlan IS NOT NULL
+          AND DatabaseName IS NOT NULL;
+
+    OPEN ai_db_cursor;
+
+    FETCH NEXT FROM ai_db_cursor INTO @ai_db;
+
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        BEGIN TRY
+            SET @ai_constitution = NULL;
+
+            /* Note: database-level extended properties live in sys.extended_properties with class=0, major_id=0, minor_id=0 */
+
+            /* Azure SQL DB does not allow cross-database three-part names. In that environment, only read from the current database. */
+            IF @ai_engine_edition = 5
+            BEGIN
+                IF @ai_db = DB_NAME()
+                    SET @ai_sql = N'SELECT @c = CAST(value AS NVARCHAR(MAX))
+                                    FROM sys.extended_properties
+                                    WHERE class = 0
+                                      AND major_id = 0
+                                      AND minor_id = 0
+                                      AND name = N''CONSTITUTION.md'';';
+                ELSE
+                    SET @ai_sql = NULL;
+            END
+            ELSE
+            BEGIN
+                SET @ai_sql = N'SELECT @c = CAST(value AS NVARCHAR(MAX))
+                                FROM ' + QUOTENAME(@ai_db) + N'.sys.extended_properties
+                                WHERE class = 0
+                                  AND major_id = 0
+                                  AND minor_id = 0
+                                  AND name = N''CONSTITUTION.md'';';
+            END;
+
+            IF @ai_sql IS NOT NULL
+            BEGIN
+                EXEC sys.sp_executesql
+                    @ai_sql,
+                    N'@c NVARCHAR(MAX) OUTPUT',
+                    @c = @ai_constitution OUTPUT;
+            END;
+
+            IF @ai_constitution IS NOT NULL AND LEN(@ai_constitution) > 0
+                INSERT INTO #ai_constitution (DatabaseName, Constitution)
+                VALUES (@ai_db, @ai_constitution);
+        END TRY
+        BEGIN CATCH
+            /* If we can't read it (permissions, offline, etc), just skip. */
+        END CATCH;
+
+        FETCH NEXT FROM ai_db_cursor INTO @ai_db;
+    END;
+
+    CLOSE ai_db_cursor;
+    DEALLOCATE ai_db_cursor;
+
     /* Update ai_prompt column with query metrics for rows that have query plans */
     UPDATE p
-    SET ai_prompt = N'Here are the performance metrics we are seeing in production, as measured by the plan cache:
+    SET ai_prompt = COALESCE(ai_prompt, N'') + N'---' + @nl + N'This database has an extended property named CONSTITUTION.md that provides additional guidance for AI analysis. Here is the content of that property:' + @nl + N'---' + @nl + c.Constitution + @nl + N'---' + @nl
+    FROM ##BlitzCacheProcs p
+    INNER JOIN #ai_constitution c ON p.DatabaseName = c.DatabaseName
+    WHERE p.SPID = @@SPID
+      AND c.Constitution IS NOT NULL
+      AND LEN(c.Constitution) > 0;
 
-Database: ' + ISNULL(DatabaseName, N'Unknown') + N'
+
+    /* Update ai_prompt column with query metrics for rows that have query plans */
+    UPDATE p
+    SET ai_prompt = COALESCE(ai_prompt, N'') + N'Here are the performance metrics we are seeing in production, as measured by the plan cache:
+
+Database: ' + ISNULL(p.DatabaseName, N'Unknown') + N'
 Query Type: ' + ISNULL(QueryType, N'Unknown') + N'
 Execution Count: ' + ISNULL(CAST(ExecutionCount AS NVARCHAR(30)), N'N/A') + N'
 Executions Per Minute: ' + ISNULL(CAST(ExecutionsPerMinute AS NVARCHAR(30)), N'N/A') + N'
@@ -18408,7 +18646,10 @@ Thank you.'
                 SET @AIPayload = REPLACE(@AIPayloadTemplate, N'@AIModel', @AIModel);
                 SET @AIPayload = REPLACE(@AIPayload, N'@AISystemPrompt',  REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(@AISystemPrompt, '\', '\\'), '"', '\"'), CHAR(13), '\r'), CHAR(10), '\n'), CHAR(9), '\t'));
                 SET @AIPayload = REPLACE(@AIPayload, N'@CurrentAIPrompt',  REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(@CurrentAIPrompt, '\', '\\'), '"', '\"'), CHAR(13), '\r'), CHAR(10), '\n'), CHAR(9), '\t'));
-                --SET @AIPayload = REPLACE(@AIPayload, N'@CurrentAIPrompt', @CurrentAIPrompt);
+
+                /* Trim payload to context size if specified */
+                IF @AIContext IS NOT NULL AND @AIContext > 0 AND LEN(@AIPayload) > @AIContext
+                    SET @AIPayload = LEFT(@AIPayload, @AIContext);
                 
                 IF @Debug = 2
                 BEGIN
@@ -18911,16 +19152,16 @@ SET @sql += N' OPTION (RECOMPILE) ; ';
 
 IF @Debug = 1
     BEGIN
-        PRINT SUBSTRING(@sql, 0, 4000);
-        PRINT SUBSTRING(@sql, 4000, 8000);
-        PRINT SUBSTRING(@sql, 8000, 12000);
-        PRINT SUBSTRING(@sql, 12000, 16000);
-        PRINT SUBSTRING(@sql, 16000, 20000);
-        PRINT SUBSTRING(@sql, 20000, 24000);
-        PRINT SUBSTRING(@sql, 24000, 28000);
-        PRINT SUBSTRING(@sql, 28000, 32000);
-        PRINT SUBSTRING(@sql, 32000, 36000);
-        PRINT SUBSTRING(@sql, 36000, 40000);
+        PRINT SUBSTRING(@sql, 1, 4000);
+        PRINT SUBSTRING(@sql, 4001, 4000);
+        PRINT SUBSTRING(@sql, 8001, 4000);
+        PRINT SUBSTRING(@sql, 12001, 4000);
+        PRINT SUBSTRING(@sql, 16001, 4000);
+        PRINT SUBSTRING(@sql, 20001, 4000);
+        PRINT SUBSTRING(@sql, 24001, 4000);
+        PRINT SUBSTRING(@sql, 28001, 4000);
+        PRINT SUBSTRING(@sql, 32001, 4000);
+        PRINT SUBSTRING(@sql, 36001, 4000);
     END;
 IF(@OutputType <> 'NONE')
 BEGIN 
@@ -19187,7 +19428,7 @@ BEGIN
                     'Long Running Query',
                     'https://www.brentozar.com/blitzcache/long-running-queries/',
                     'Long running queries have been found. These are queries with an average duration longer than '
-                    + CAST(@long_running_query_warning_seconds / 1000 / 1000 AS VARCHAR(5))
+                    + CAST(@long_running_query_warning_seconds / 1000 AS VARCHAR(5))
                     + ' second(s). These queries should be investigated for additional tuning options.') ;
 
         IF EXISTS (SELECT 1/0
@@ -19444,7 +19685,7 @@ BEGIN
 				   AND SPID = @@SPID)
             INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
             VALUES (@@SPID,
-                    33,
+                    34,
                     100,
                     'Table Variables detected',
                     'Table Variables',
@@ -19714,7 +19955,7 @@ BEGIN
         IF EXISTS (SELECT 1/0
                     FROM   ##BlitzCacheProcs p
                     WHERE  p.is_spool_expensive = 1
-  					)
+					AND    p.SPID = @@SPID)
              INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
                      54,
@@ -19727,7 +19968,7 @@ BEGIN
         IF EXISTS (SELECT 1/0
                     FROM   ##BlitzCacheProcs p
                     WHERE  p.is_spool_more_rows = 1
-  					)
+					AND    p.SPID = @@SPID)
              INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
                      55,
@@ -19740,7 +19981,7 @@ BEGIN
         IF EXISTS (SELECT 1/0
                     FROM   ##BlitzCacheProcs p
                     WHERE  p.is_bad_estimate = 1
-  					)
+					AND    p.SPID = @@SPID)
              INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
                      56,
@@ -19753,7 +19994,7 @@ BEGIN
         IF EXISTS (SELECT 1/0
                     FROM   ##BlitzCacheProcs p
                     WHERE  p.is_paul_white_electric = 1
-  					)
+					AND    p.SPID = @@SPID)
              INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
                      57,
@@ -19783,7 +20024,7 @@ BEGIN
         IF EXISTS (SELECT 1/0
                     FROM   ##BlitzCacheProcs p
                     WHERE  p.is_row_goal = 1
-  					)
+					AND    p.SPID = @@SPID)
              INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
                      58,
@@ -19796,7 +20037,7 @@ BEGIN
         IF EXISTS (SELECT 1/0
                     FROM   ##BlitzCacheProcs p
                     WHERE  p.is_big_spills = 1
-  					)
+					AND    p.SPID = @@SPID)
              INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
                      59,
@@ -19812,7 +20053,7 @@ BEGIN
         IF EXISTS (SELECT 1/0
                     FROM   ##BlitzCacheProcs p
                     WHERE  p.is_mstvf = 1
-  					)
+					AND    p.SPID = @@SPID)
              INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
                      60,
@@ -19825,7 +20066,7 @@ BEGIN
         IF EXISTS (SELECT 1/0
                     FROM   ##BlitzCacheProcs p
                     WHERE  p.is_mm_join = 1
-  					)
+					AND    p.SPID = @@SPID)
              INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
                      61,
@@ -19838,7 +20079,7 @@ BEGIN
         IF EXISTS (SELECT 1/0
                     FROM   ##BlitzCacheProcs p
                     WHERE  p.is_nonsargable = 1
-  					)
+					AND    p.SPID = @@SPID)
              INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
                      62,
@@ -19851,7 +20092,7 @@ BEGIN
         IF EXISTS (SELECT 1/0
                     FROM   ##BlitzCacheProcs p
                     WHERE  CompileTime > 5000
-  					)
+					AND    p.SPID = @@SPID)
              INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
                      63,
@@ -19864,7 +20105,7 @@ BEGIN
         IF EXISTS (SELECT 1/0
                     FROM   ##BlitzCacheProcs p
                     WHERE  CompileCPU > 5000
-  					)
+					AND    p.SPID = @@SPID)
              INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
                      64,
@@ -19876,9 +20117,9 @@ BEGIN
 
         IF EXISTS (SELECT 1/0
                     FROM   ##BlitzCacheProcs p
-                    WHERE  CompileMemory > 1024 
+                    WHERE  CompileMemory > 1024
 					AND    ((CompileMemory) / (1 * CASE WHEN MaxCompileMemory = 0 THEN 1 ELSE MaxCompileMemory END) * 100.) >= 10.
-  					)
+					AND    p.SPID = @@SPID)
              INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
                      65,
@@ -19891,7 +20132,7 @@ BEGIN
         IF EXISTS (SELECT 1/0
                     FROM   ##BlitzCacheProcs p
                     WHERE  p.select_with_writes = 1
-  					)
+					AND    p.SPID = @@SPID)
              INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
                      66,
@@ -19904,7 +20145,7 @@ BEGIN
         IF EXISTS (SELECT 1/0
                     FROM   ##BlitzCacheProcs p
                     WHERE  p.is_table_spool_expensive = 1
-  					)
+					AND    p.SPID = @@SPID)
              INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
                      67,
@@ -19917,7 +20158,7 @@ BEGIN
         IF EXISTS (SELECT 1/0
                     FROM   ##BlitzCacheProcs p
                     WHERE  p.is_table_spool_more_rows = 1
-  					)
+					AND    p.SPID = @@SPID)
              INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
              VALUES (@@SPID,
                      68,
@@ -21364,6 +21605,13 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
 	@SortDirection NVARCHAR(4) = 'DESC', /* Only affects @Mode = 2. */
     @Help TINYINT = 0,
 	@Debug BIT = 0,
+    @AI TINYINT = 0, /* 1 = ask for advice, 2 = build prompt but don't actually call AI. Only works with a single query plan: automatically sets @ExpertMode = 1, @KeepCRLF = 1. */
+    @AIModel VARCHAR(200) = NULL, /* Defaults to gpt-4.1-mini */
+    @AIURL VARCHAR(200) = NULL, /* Defaults to https://api.openai.com/v1/chat/completions */
+    @AICredential VARCHAR(200) = NULL, /* Defaults to 'https://api.openai.com/' or the root of your AIURL, trailing slash included */
+    @AIConfigTable NVARCHAR(500) = NULL, /* Table where AI provider config is stored - can be in the format db.schema.table, schema.table, or just table. */
+    @AIPromptConfigTable NVARCHAR(500) = NULL, /* Table where AI prompt templates are stored - db.schema.table, schema.table, or just table. */
+    @AIPrompt NVARCHAR(200) = NULL, /* Which prompt to use from the prompts table */
     @Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0
@@ -21373,7 +21621,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.29', @VersionDate = '20260203';
+SELECT @Version = '8.30', @VersionDate = '20260313';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -21458,6 +21706,24 @@ DECLARE @OptimizeForSequentialKey BIT = 0;
 DECLARE @ResumableIndexesDisappearAfter INT = 0;
 DECLARE @StringToExecute NVARCHAR(MAX);
 DECLARE @AzureSQLDB BIT = (SELECT CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN 1 ELSE 0 END);
+DECLARE @config_sql NVARCHAR(MAX);
+DECLARE
+    @AIConfigDatabaseName NVARCHAR(128) = CASE WHEN @AIConfigTable IS NULL THEN NULL ELSE PARSENAME(@AIConfigTable, 3) END,
+    @AIConfigSchemaName NVARCHAR(258) = CASE WHEN @AIConfigTable IS NULL THEN NULL ELSE PARSENAME(@AIConfigTable, 2) END,
+    @AIConfigTableName NVARCHAR(258) = CASE WHEN @AIConfigTable IS NULL THEN NULL ELSE PARSENAME(@AIConfigTable, 1) END,
+    @AIPromptDatabaseName NVARCHAR(128) = CASE WHEN @AIPromptConfigTable IS NULL THEN NULL ELSE PARSENAME(@AIPromptConfigTable, 3) END,
+    @AIPromptSchemaName NVARCHAR(258) = CASE WHEN @AIPromptConfigTable IS NULL THEN NULL ELSE PARSENAME(@AIPromptConfigTable, 2) END,
+    @AIPromptTableName NVARCHAR(258) = CASE WHEN @AIPromptConfigTable IS NULL THEN NULL ELSE PARSENAME(@AIPromptConfigTable, 1) END,
+    @AISystemPrompt NVARCHAR(4000),
+    @AIParameters NVARCHAR(4000),
+    @AIPayloadTemplate NVARCHAR(MAX),
+    @AITimeoutSeconds TINYINT,
+    @AIAdviceText NVARCHAR(MAX),
+    @AIContext INT,
+    @AIPayload NVARCHAR(MAX),
+    @AIResponseJSON NVARCHAR(MAX),
+    @AIReturnValue INT,
+    @CurrentAIPrompt NVARCHAR(MAX);
 
 /* If user was lazy and just used @ObjectName with a fully qualified table name, then lets parse out the various parts */
 SET @DatabaseName = COALESCE(@DatabaseName, PARSENAME(@ObjectName, 3)) /* 3 = Database name */
@@ -21653,6 +21919,9 @@ IF OBJECT_ID('tempdb..#IndexCreateTsql') IS NOT NULL
 IF OBJECT_ID('tempdb..#DatabaseList') IS NOT NULL 
     DROP TABLE #DatabaseList;
 
+IF OBJECT_ID('tempdb..#DatabasesNoAccess') IS NOT NULL 
+    DROP TABLE #DatabasesNoAccess;
+
 IF OBJECT_ID('tempdb..#Statistics') IS NOT NULL 
     DROP TABLE #Statistics;
 
@@ -21798,7 +22067,7 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
                 THEN ( user_seeks + user_scans + user_lookups )  / (1.0 * user_updates)
                 ELSE 0 END AS MONEY) ,
             [index_usage_summary] AS
-				CASE WHEN is_spatial = 1 THEN N'Not Tracked'
+				CASE WHEN is_spatial = 1 OR is_json = 1 THEN N'Not Tracked'
 				WHEN is_disabled = 1 THEN N'Disabled'
 				ELSE N'Reads: ' + 
 					REPLACE(CONVERT(NVARCHAR(30),CAST((user_seeks + user_scans + user_lookups) AS MONEY), 1), N'.00', N'')
@@ -22123,7 +22392,10 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
         CREATE TABLE #DatabaseList (
 			DatabaseName NVARCHAR(256),
             secondary_role_allow_connections_desc NVARCHAR(50)
+        );
 
+        CREATE TABLE #DatabasesNoAccess (
+			DatabaseName NVARCHAR(256)
         );
 
 		CREATE TABLE #PartitionCompressionInfo (
@@ -22279,11 +22551,29 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
               N', @TableName=' + QUOTENAME([table_name],N'''') + N';'
         );
 
-        CREATE TABLE #Ignore_Databases 
+        CREATE TABLE #Ignore_Databases
         (
-          DatabaseName NVARCHAR(128), 
+          DatabaseName NVARCHAR(128),
           Reason NVARCHAR(100)
         );
+
+CREATE TABLE #ai_providers
+(Id INT PRIMARY KEY CLUSTERED,
+ Model_Nickname NVARCHAR(200),
+ AI_Model NVARCHAR(100) INDEX AI_Model,
+ AI_URL NVARCHAR(500),
+ AI_Database_Scoped_Credential_Name NVARCHAR(500),
+ AI_Parameters NVARCHAR(4000),
+ Payload_Template NVARCHAR(4000),
+ Timeout_Seconds TINYINT,
+ Context INT,
+ Default_Model BIT DEFAULT 0);
+
+CREATE TABLE #ai_prompts
+(Id INT PRIMARY KEY CLUSTERED,
+ Prompt_Nickname NVARCHAR(200) INDEX IX_Prompt_Nickname,
+ AI_System_Prompt NVARCHAR(4000),
+ Default_Prompt BIT DEFAULT 0);
 
 /* Sanitize our inputs */
 SELECT
@@ -22291,8 +22581,179 @@ SELECT
 	@OutputDatabaseName = QUOTENAME(@OutputDatabaseName),
 	@OutputSchemaName = QUOTENAME(@OutputSchemaName),
 	@OutputTableName = QUOTENAME(@OutputTableName);
-					
-					
+
+/* AI configuration setup */
+IF @AIPrompt IS NOT NULL AND @AIPromptConfigTable IS NULL
+BEGIN
+    RAISERROR('@AIPrompt requires @AIPromptConfigTable to also be specified so we can look up the prompt.', 12, 1);
+    RETURN;
+END;
+
+IF @AIConfigTable IS NOT NULL
+BEGIN
+   RAISERROR(N'Reading values from AI Provider Configuration Table', 0, 1) WITH NOWAIT;
+   SET @config_sql = N'INSERT INTO #ai_providers (Id, Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_Parameters, Payload_Template, Timeout_Seconds, Context, Default_Model)
+        SELECT Id, Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_Parameters, Payload_Template, Timeout_Seconds, Context, Default_Model FROM '
+        + CASE WHEN @AIConfigDatabaseName IS NOT NULL THEN (QUOTENAME(@AIConfigDatabaseName) + N'.') ELSE N'' END
+        + CASE WHEN @AIConfigSchemaName IS NOT NULL THEN (QUOTENAME(@AIConfigSchemaName) + N'.') ELSE N'' END
+        + QUOTENAME(@AIConfigTableName) + N' WHERE Default_Model = 1 OR @AIModel = AI_Model OR @AIModel = Model_Nickname ; ';
+   EXEC sp_executesql @config_sql, N'@AIModel NVARCHAR(100)', @AIModel;
+END;
+
+IF @AIModel IS NOT NULL AND @AIConfigTable IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM #ai_providers WHERE AI_Model = @AIModel OR Model_Nickname = @AIModel)
+BEGIN
+    DECLARE @AIModelRequested NVARCHAR(200) = @AIModel;
+    DECLARE @AIFallbackModel NVARCHAR(200);
+    SELECT TOP 1 @AIFallbackModel = AI_Model FROM #ai_providers WHERE Default_Model = 1 ORDER BY Id;
+    IF @AIFallbackModel IS NULL SET @AIFallbackModel = N'gpt-5-nano';
+    RAISERROR('@AIModel "%s" was not found in configuration table %s. Using "%s" instead.',
+        10, 1, @AIModelRequested, @AIConfigTable, @AIFallbackModel) WITH NOWAIT;
+    SET @AIModel = NULL;
+END;
+
+IF @AIPromptConfigTable IS NOT NULL
+BEGIN
+   RAISERROR(N'Reading values from AI Prompts Table', 0, 1) WITH NOWAIT;
+   SET @config_sql = N'INSERT INTO #ai_prompts (Id, Prompt_Nickname, AI_System_Prompt, Default_Prompt)
+        SELECT Id, Prompt_Nickname, AI_System_Prompt, Default_Prompt FROM '
+        + CASE WHEN @AIPromptDatabaseName IS NOT NULL THEN (QUOTENAME(@AIPromptDatabaseName) + N'.') ELSE N'' END
+        + CASE WHEN @AIPromptSchemaName IS NOT NULL THEN (QUOTENAME(@AIPromptSchemaName) + N'.') ELSE N'' END
+        + QUOTENAME(@AIPromptTableName) + N' WHERE (@AIPrompt IS NULL AND Default_Prompt = 1) OR @AIPrompt = Prompt_Nickname ; ';
+   EXEC sp_executesql @config_sql, N'@AIPrompt NVARCHAR(200)', @AIPrompt;
+END;
+
+
+IF @AI > 0
+    BEGIN
+    RAISERROR(N'Setting up AI configuration defaults', 0, 1) WITH NOWAIT;
+
+    IF @Debug = 2
+        BEGIN
+        SELECT N'ai_providers' AS TableLabel, * FROM #ai_providers;
+        SELECT N'ai_prompts' AS TableLabel, * FROM #ai_prompts;
+        END
+
+    IF @AI = 1 AND NOT EXISTS(SELECT * FROM sys.all_objects WHERE name = 'sp_invoke_external_rest_endpoint')
+        BEGIN
+        SET @AI = 2
+        RAISERROR(N'@AI was set to 1, but sp_invoke_external_rest_endpoint does not exist here, so we can''t call AI services. Setting @AI to 2 instead to just generate prompts.', 0, 1) WITH NOWAIT;
+        END
+
+    /* Check the providers table */
+    IF @AIModel IS NULL
+        SELECT TOP 1 @AIModel = AI_Model, @AIURL = AI_URL,
+            @AICredential = AI_Database_Scoped_Credential_Name,
+            @AIParameters = AI_Parameters,
+            @AIPayloadTemplate = Payload_Template,
+            @AITimeoutSeconds = COALESCE(Timeout_Seconds, 230),
+            @AIContext = Context
+            FROM #ai_providers
+            WHERE Default_Model = 1
+            ORDER BY Id;
+    ELSE
+        SELECT TOP 1 @AIModel = AI_Model,
+            @AIURL = COALESCE(@AIURL, AI_URL),
+            @AICredential = COALESCE(@AICredential, AI_Database_Scoped_Credential_Name),
+            @AIParameters = AI_Parameters,
+            @AIPayloadTemplate = Payload_Template,
+            @AITimeoutSeconds = COALESCE(Timeout_Seconds, 230),
+            @AIContext = Context
+            FROM #ai_providers
+            WHERE AI_Model = @AIModel OR Model_Nickname = @AIModel
+            ORDER BY Id;
+
+    /* Check the prompts table */
+    IF @AIPrompt IS NULL
+        SELECT TOP 1 @AISystemPrompt = AI_System_Prompt
+            FROM #ai_prompts
+            WHERE Default_Prompt = 1
+            ORDER BY Id;
+    ELSE
+        SELECT TOP 1 @AISystemPrompt = AI_System_Prompt
+            FROM #ai_prompts
+            WHERE Prompt_Nickname = @AIPrompt
+            ORDER BY Id;
+
+    IF @AIModel IS NULL
+        SET @AIModel = N'gpt-5-nano';
+
+    IF @AIURL IS NULL OR @AIURL NOT LIKE N'http%'
+        SET @AIURL = CASE
+            WHEN @AIModel LIKE 'gemini%' THEN N'https://generativelanguage.googleapis.com/v1beta/models/' + @AIModel + N':generateContent'
+            ELSE N'https://api.openai.com/v1/chat/completions' /* Default to ChatGPT */
+            END;
+
+    /* Try to guess the credential based on the root of their URL: */
+    IF @AICredential IS NULL
+        SET @AICredential = LEFT(@AIURL, CHARINDEX('/', @AIURL, CHARINDEX('://', @AIURL) + 3));
+
+    IF @AITimeoutSeconds IS NULL OR @AITimeoutSeconds < 1 OR @AITimeoutSeconds > 230
+        SET @AITimeoutSeconds = 230;
+
+    IF @AISystemPrompt IS NULL OR @AISystemPrompt = N''
+    BEGIN
+            SET @AISystemPrompt = N'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment. Do not describe the table: you are working with other very senior database developers who understand SQL Server deeply, so get straight to the point with your recommendations and scripts.
+
+    You have been given the existing indexes, missing index suggestions from SQL Server, column data types, and foreign keys for a table. Your job is to recommend index changes: which indexes to add, which to remove as redundant or harmful, and which to modify. Focus on practical changes that will improve the most common query patterns shown by the usage statistics.
+
+	If indexes are not being used, drop them. If duplicate or near-duplicate indexes exist, merge them together or keep the widest ones. Existing indexes that start with different leading columns should not be considered duplicates.
+
+	Include CREATE INDEX and DROP INDEX scripts. Include undo scripts in comments to back out your work if something goes wrong. Use the /* */ style for comments, not --, to make it easier for the customer to copy and paste your scripts without accidentally missing a line.
+
+	When working with missing index suggestions from SQL Server, keep in mind that they are ordered equality vs inequality search in the query, then by the column order of the table. The column order is nowhere near scientific, and can be rearranged if necessary for performance.
+
+	Focus only on nonclustered rowstore indexes. Do not suggest changes for clustered indexes, columnstore indexes, memory-optimized indexes, XML indexes, JSON indexes, or other specialized index types.
+
+    Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.';
+    END;
+
+    IF @AIModel LIKE 'gemini%' AND @AIPayloadTemplate IS NULL
+        SET @AIPayloadTemplate = N'{
+          "contents": [
+            {
+              "parts": [
+                {"text": "@AISystemPrompt @CurrentAIPrompt"}
+              ]
+            }
+          ]
+        }';
+    ELSE IF @AIPayloadTemplate IS NULL /* Default to ChatGPT format */
+        SET @AIPayloadTemplate = N'{
+                    "model": "@AIModel",
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "@AISystemPrompt"
+                        },
+                        {
+                            "role": "user",
+                            "content": "@CurrentAIPrompt"
+                        }
+                    ]
+                }';
+
+    IF @Debug = 2 OR (@AI = 1 AND (@AIModel IS NULL OR @AIURL IS NULL OR @AISystemPrompt IS NULL OR @AICredential IS NULL OR @AIPayloadTemplate IS NULL))
+        BEGIN
+            SELECT @AIModel AS AIModel, @AIURL AS AIUrl, @AICredential AS AICredential,
+                @AIContext AS AIContext, @AIParameters AS AIParameters, @AITimeoutSeconds AS AITimeoutSeconds,
+                @AISystemPrompt AS AISystemPrompt, @AIPayloadTemplate AS AIPayloadTemplate;
+        END;
+
+    IF @AIPrompt IS NOT NULL AND NOT EXISTS (SELECT 1 FROM #ai_prompts WHERE Prompt_Nickname = @AIPrompt)
+        BEGIN
+            RAISERROR('@AIPrompt was specified but no matching prompt was found in the prompts table.',12,1);
+            RETURN;
+        END;
+
+    IF @AI = 1 AND (@AIModel IS NULL OR @AIURL IS NULL OR @AISystemPrompt IS NULL OR @AICredential IS NULL OR @AIPayloadTemplate IS NULL)
+        BEGIN
+            RAISERROR('@AI is set to 1, but not all of the necessary configuration is included.',12,1);
+            RETURN;
+        END;
+
+    END /* IF @AI > 0 */
+
 IF @GetAllDatabases = 1
     BEGIN
         INSERT INTO #DatabaseList (DatabaseName)
@@ -22303,9 +22764,45 @@ IF @GetAllDatabases = 1
         AND database_id > 4
         AND DB_NAME(database_id) NOT LIKE 'ReportServer%'
         AND DB_NAME(database_id) NOT LIKE 'rdsadmin%'
-		AND LOWER(name) NOT IN('dbatools', 'dbadmin', 'dbmaintenance')
+		AND LOWER(name) NOT IN('dbatools', 'dbadmin', 'dbmaintenance', 'gcloud_cloudsqladmin')
         AND is_distributor = 0
 		OPTION    ( RECOMPILE );
+
+        /*Check if sysadmin 
+           ( logins with ##MS_DatabaseConnector## or CONNECT ANY DATABASE can still be denied CONNECT on a per-database basis) */
+        IF IS_SRVROLEMEMBER ('sysadmin') = 0
+            BEGIN
+                RAISERROR(N'Not a member of the sysadmin role. Checking which databases can be accessed.', 0, 1) WITH NOWAIT;
+                DECLARE db_access_cursor CURSOR FAST_FORWARD FOR
+                  SELECT DatabaseName FROM #DatabaseList
+                OPEN db_access_cursor
+                FETCH NEXT FROM db_access_cursor INTO @DatabaseName
+            
+                WHILE @@FETCH_STATUS = 0
+                BEGIN
+                   /*yes, it would've been simpler just checking for SELECT permissions on user databases,
+                      but SELECT isn't required for system catalog views if the login has VIEW ANY DEFINITION*/
+                    SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; 
+                                 SELECT @RowCountOut = COUNT(1) FROM ' +QUOTENAME(@DatabaseName)+N'.[sys].[indexes] 
+                                 WHERE [object_id] = 123 OPTION (RECOMPILE);'; /*the object_id doesn't matter, just checking access*/
+                    SET @params = N'@RowcountOUT BIGINT OUTPUT';
+                    BEGIN TRY
+                       EXEC sp_executesql @dsql,@params, @RowcountOUT = @Rowcount OUTPUT;
+                    END TRY
+                    BEGIN CATCH
+                       INSERT INTO #DatabasesNoAccess (DatabaseName) VALUES (@DatabaseName);
+                       RAISERROR(N'Skipping database %s due to lack of permissions.', 0, 1, @DatabaseName) WITH NOWAIT;
+                    END CATCH;
+                    FETCH NEXT FROM db_access_cursor INTO @DatabaseName;
+                END;
+                CLOSE db_access_cursor;
+                DEALLOCATE db_access_cursor;
+    
+                /*Removing the databases we can't access from #DatabaseList*/
+                DELETE FROM #DatabaseList 
+                WHERE DatabaseName IN (SELECT DatabaseName 
+                                       FROM #DatabasesNoAccess);
+            END;
 
         /* Skip non-readable databases in an AG - see Github issue #1160 */
         IF EXISTS (SELECT * FROM sys.all_objects o INNER JOIN sys.all_columns c ON o.object_id = c.object_id AND o.name = 'dm_hadr_availability_replica_states' AND c.name = 'role_desc')
@@ -22862,7 +23359,7 @@ BEGIN TRY
                 CASE WHEN ( @IncludeInactiveIndexes = 0
                             AND @Mode IN (0, 4)
                             AND @TableName IS NULL )
-                     THEN N'AND ( us.user_seeks + us.user_scans + us.user_lookups + us.user_updates ) > 0'
+                     THEN N'AND ( us.user_seeks + us.user_scans + us.user_lookups + us.user_updates > 0 OR si.type = 9 )'
                      ELSE N''
                 END
         + N'OPTION    ( RECOMPILE );
@@ -23268,6 +23765,54 @@ BEGIN TRY
                 
 		END; --End Check For @SkipPartitions = 0
 
+		/* Populate JSON index sizes from internal tables - JSON indexes store their data
+		   in sys.internal_tables, not in sys.dm_db_partition_stats for the parent table */
+		IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'json_indexes')
+		BEGIN
+			RAISERROR (N'Inserting JSON index size data from internal tables',0,1) WITH NOWAIT;
+			SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+				SELECT ' + CAST(@DatabaseID AS NVARCHAR(10)) + N' AS database_id,
+					it.parent_id AS object_id,
+					s.name AS schema_name,
+					it.parent_minor_id AS index_id,
+					ps.partition_number,
+					ps.row_count,
+					ps.reserved_page_count * 8. / 1024. AS reserved_MB,
+					ps.lob_reserved_page_count * 8. / 1024. AS reserved_LOB_MB,
+					ps.row_overflow_reserved_page_count * 8. / 1024. AS reserved_row_overflow_MB,
+					NULL AS lock_escalation_desc,
+					NULL AS data_compression_desc,
+					0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+					0 AS reserved_dictionary_MB
+				FROM ' + QUOTENAME(@DatabaseName) + N'.sys.internal_tables it
+				JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_partition_stats ps ON it.object_id = ps.object_id AND ps.index_id = 1
+				JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects so ON it.parent_id = so.object_id
+				JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas s ON so.schema_id = s.schema_id
+				WHERE it.internal_type_desc = ''JSON_INDEX_TABLE''
+				' + CASE WHEN @ObjectID IS NOT NULL THEN N'AND it.parent_id = ' + CAST(@ObjectID AS NVARCHAR(30)) + N' ' ELSE N'' END + N'
+				OPTION (RECOMPILE);';
+
+			IF @Debug = 1
+			BEGIN
+				PRINT SUBSTRING(@dsql, 0, 4000);
+				PRINT SUBSTRING(@dsql, 4000, 8000);
+			END;
+
+			INSERT #IndexPartitionSanity ( [database_id], [object_id], [schema_name], index_id, partition_number,
+				row_count, reserved_MB, reserved_LOB_MB, reserved_row_overflow_MB,
+				lock_escalation_desc, data_compression_desc,
+				leaf_insert_count, leaf_delete_count, leaf_update_count,
+				range_scan_count, singleton_lookup_count, forwarded_fetch_count,
+				lob_fetch_in_pages, lob_fetch_in_bytes,
+				row_overflow_fetch_in_pages, row_overflow_fetch_in_bytes,
+				row_lock_count, row_lock_wait_count, row_lock_wait_in_ms,
+				page_lock_count, page_lock_wait_count, page_lock_wait_in_ms,
+				index_lock_promotion_attempt_count, index_lock_promotion_count,
+				page_latch_wait_count, page_latch_wait_in_ms,
+				page_io_latch_wait_count, page_io_latch_wait_in_ms,
+				reserved_dictionary_MB)
+			EXEC sp_executesql @dsql;
+		END;
 
 		IF @Mode NOT IN(1, 2)
 		BEGIN
@@ -24267,6 +24812,42 @@ FROM    #IndexSanity si
                                 AND c.index_id = si.index_id 
                                 ) AS D4 ( count_included_columns, count_key_columns );
 
+/* JSON indexes have key_ordinal=0 in sys.index_columns, so the above updates skip them.
+   Populate column names for JSON indexes from #IndexColumns where key_ordinal = 0. */
+RAISERROR (N'Updating column names for JSON indexes',0,1) WITH NOWAIT;
+UPDATE si
+SET key_column_names = c.column_name
+    + N' {' + c.system_type_name
+    + CASE c.max_length WHEN -1 THEN N' (max)' ELSE
+        CASE
+            WHEN c.system_type_name IN (N'char',N'varchar',N'binary',N'varbinary') THEN N' (' + CAST(c.max_length AS NVARCHAR(20)) + N')'
+            WHEN c.system_type_name IN (N'nchar',N'nvarchar') THEN N' (' + CAST(c.max_length/2 AS NVARCHAR(20)) + N')'
+            ELSE N' ' + CAST(c.max_length AS NVARCHAR(50))
+        END
+    END
+    + N'}',
+    key_column_names_with_sort_order = c.column_name
+    + N' {' + c.system_type_name
+    + CASE c.max_length WHEN -1 THEN N' (max)' ELSE
+        CASE
+            WHEN c.system_type_name IN (N'char',N'varchar',N'binary',N'varbinary') THEN N' (' + CAST(c.max_length AS NVARCHAR(20)) + N')'
+            WHEN c.system_type_name IN (N'nchar',N'nvarchar') THEN N' (' + CAST(c.max_length/2 AS NVARCHAR(20)) + N')'
+            ELSE N' ' + CAST(c.max_length AS NVARCHAR(50))
+        END
+    END
+    + N'}',
+    key_column_names_with_sort_order_no_types = QUOTENAME(c.column_name),
+    count_key_columns = 1
+FROM #IndexSanity si
+JOIN #IndexColumns c ON si.database_id = c.database_id
+    AND si.schema_name = c.schema_name
+    AND si.object_id = c.object_id
+    AND si.index_id = c.index_id
+    AND c.key_ordinal = 0
+    AND c.is_included_column = 0
+WHERE si.is_json = 1
+    AND si.key_column_names IS NULL;
+
 RAISERROR (N'Updating index_sanity_id on #IndexPartitionSanity',0,1) WITH NOWAIT;
 UPDATE    #IndexPartitionSanity
 SET        index_sanity_id = i.index_sanity_id
@@ -24389,7 +24970,11 @@ SELECT
     CASE index_id WHEN 0 THEN N'ALTER TABLE ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name])  + ' REBUILD;'
     ELSE 
         CASE WHEN is_XML = 1 OR is_spatial = 1 OR is_in_memory_oltp = 1 THEN N'' /* Not even trying for these just yet...*/
-        ELSE 
+        WHEN is_json = 1 THEN
+            N'CREATE JSON INDEX ' + QUOTENAME(index_name) + N' ON ' +
+                QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name]) +
+                N' (' + ISNULL(key_column_names_with_sort_order_no_types, N'') + N');'
+        ELSE
             CASE WHEN is_primary_key=1 THEN
                 N'ALTER TABLE ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) +
                     N'.' + QUOTENAME([object_name]) + 
@@ -24676,11 +25261,232 @@ BEGIN
             OR (magic_benefit_number / CASE WHEN cd.create_days < @DaysUptime THEN cd.create_days ELSE @DaysUptime END) >= 100000)
         ORDER BY magic_benefit_number DESC
         OPTION    ( RECOMPILE );
-    END;       
-    ELSE     
+    END;
+    ELSE
     SELECT 'No missing indexes.' AS finding;
 
-    SELECT   
+    /* @AskAI: Index analysis via AI provider */
+    IF @AI >= 1 AND @TableName IS NOT NULL
+    BEGIN
+        RAISERROR(N'Building AI prompt for index analysis', 0, 1) WITH NOWAIT;
+
+        /* Constitution lookup */
+        DECLARE @ai_constitution NVARCHAR(MAX) = NULL;
+        BEGIN TRY
+            SET @StringToExecute = N'SELECT @c = CAST(value AS NVARCHAR(MAX))
+                FROM ' + QUOTENAME(@DatabaseName) + N'.sys.extended_properties
+                WHERE class = 0 AND major_id = 0 AND minor_id = 0
+                  AND name = N''CONSTITUTION.md'';';
+            EXEC sp_executesql @StringToExecute, N'@c NVARCHAR(MAX) OUTPUT', @c = @ai_constitution OUTPUT;
+        END TRY
+        BEGIN CATCH
+            /* If we can't read it (permissions, offline, etc), just skip. */
+        END CATCH;
+
+        /* Build the prompt header */
+        SET @CurrentAIPrompt = N'I need help analyzing the indexes on the table '
+            + QUOTENAME(@DatabaseName) + N'.' + QUOTENAME(@SchemaName) + N'.' + QUOTENAME(@TableName)
+            + N'.' + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10);
+
+        /* Prepend constitution if found */
+        IF @ai_constitution IS NOT NULL AND LEN(@ai_constitution) > 0
+            SET @CurrentAIPrompt = N'---' + CHAR(13) + CHAR(10)
+                + N'This database has an extended property named CONSTITUTION.md that provides additional guidance for AI analysis. Here is the content of that property:' + CHAR(13) + CHAR(10)
+                + N'---' + CHAR(13) + CHAR(10) + @ai_constitution + CHAR(13) + CHAR(10)
+                + N'---' + CHAR(13) + CHAR(10) + @CurrentAIPrompt;
+
+        /* Section 1: Existing Indexes
+           Use FOR XML PATH to reliably concatenate all rows into a single string. */
+        SET @CurrentAIPrompt = @CurrentAIPrompt + N'EXISTING INDEXES:' + CHAR(13) + CHAR(10);
+
+        SET @CurrentAIPrompt = @CurrentAIPrompt + ISNULL((
+            SELECT
+                N'Index: ' + ISNULL(s.index_name, N'[HEAP]') + N' (IndexID: ' + CAST(s.index_id AS NVARCHAR(10)) + N')' + CHAR(13) + CHAR(10)
+                + N'  Type: ' + CASE s.index_id WHEN 0 THEN N'HEAP' WHEN 1 THEN N'CLUSTERED' ELSE N'NONCLUSTERED' END
+                    + CASE WHEN s.is_NC_columnstore = 1 THEN N' COLUMNSTORE' WHEN s.is_CX_columnstore = 1 THEN N' CLUSTERED COLUMNSTORE' ELSE N'' END + CHAR(13) + CHAR(10)
+                + N'  Key Columns: ' + ISNULL(s.key_column_names_with_sort_order, N'N/A') + CHAR(13) + CHAR(10)
+                + N'  Include Columns: ' + ISNULL(s.include_column_names, N'None') + CHAR(13) + CHAR(10)
+                + CASE WHEN s.filter_definition <> N'' THEN N'  Filter: ' + s.filter_definition + CHAR(13) + CHAR(10) ELSE N'' END
+                + N'  Is Primary Key: ' + CASE WHEN s.is_primary_key = 1 THEN N'Yes' ELSE N'No' END + CHAR(13) + CHAR(10)
+                + N'  Is Unique: ' + CASE WHEN s.is_unique = 1 THEN N'Yes' ELSE N'No' END + CHAR(13) + CHAR(10)
+                + N'  Is Disabled: ' + CASE WHEN s.is_disabled = 1 THEN N'Yes' ELSE N'No' END + CHAR(13) + CHAR(10)
+                + N'  Usage - Seeks: ' + CAST(s.user_seeks AS NVARCHAR(30)) + N', Scans: ' + CAST(s.user_scans AS NVARCHAR(30))
+                    + N', Lookups: ' + CAST(s.user_lookups AS NVARCHAR(30)) + N', Writes: ' + ISNULL(CAST(s.user_updates AS NVARCHAR(30)), N'0') + CHAR(13) + CHAR(10)
+                + N'  Rows: ' + ISNULL(CAST(sz.total_rows AS NVARCHAR(30)), N'N/A') + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10)
+            FROM #IndexSanity s
+            LEFT JOIN #IndexSanitySize sz ON s.index_sanity_id = sz.index_sanity_id
+            WHERE s.[object_id] = @ObjectID
+            ORDER BY s.index_id
+            FOR XML PATH(''), TYPE
+        ).value('.', 'NVARCHAR(MAX)'), N'No indexes on this table (heap with no nonclustered indexes).' + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10));
+
+        /* Section 2: Missing Index Suggestions */
+        SET @CurrentAIPrompt = @CurrentAIPrompt + N'MISSING INDEX SUGGESTIONS FROM SQL SERVER:' + CHAR(13) + CHAR(10);
+
+        SET @CurrentAIPrompt = @CurrentAIPrompt + ISNULL((
+            SELECT
+                N'Equality Columns: ' + ISNULL(equality_columns_with_data_type, N'None') + CHAR(13) + CHAR(10)
+                + N'Inequality Columns: ' + ISNULL(inequality_columns_with_data_type, N'None') + CHAR(13) + CHAR(10)
+                + N'Include Columns: ' + ISNULL(included_columns_with_data_type, N'None') + CHAR(13) + CHAR(10)
+                + N'Benefit Number: ' + CAST(magic_benefit_number AS NVARCHAR(30)) + CHAR(13) + CHAR(10)
+                + N'User Seeks: ' + CAST(user_seeks AS NVARCHAR(30)) + N', User Scans: ' + CAST(user_scans AS NVARCHAR(30)) + CHAR(13) + CHAR(10)
+                + N'Avg User Impact: ' + CAST(avg_user_impact AS NVARCHAR(30)) + N'%' + CHAR(13) + CHAR(10)
+                + N'Create TSQL: ' + create_tsql + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10)
+            FROM #MissingIndexes
+            WHERE [object_id] = @ObjectID
+            ORDER BY magic_benefit_number DESC
+            FOR XML PATH(''), TYPE
+        ).value('.', 'NVARCHAR(MAX)'), N'No missing index suggestions from SQL Server.' + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10));
+
+        /* Section 3: Column Data Types */
+        SET @CurrentAIPrompt = @CurrentAIPrompt + N'COLUMN DATA TYPES:' + CHAR(13) + CHAR(10);
+
+        SET @CurrentAIPrompt = @CurrentAIPrompt + ISNULL((
+            SELECT
+                N'Column: ' + column_name
+                + N', Type: ' + system_type_name
+                    + CASE WHEN max_length = -1 THEN N'(max)'
+                           WHEN system_type_name IN (N'char', N'varchar', N'binary', N'varbinary') THEN N'(' + CAST(max_length AS NVARCHAR(20)) + N')'
+                           WHEN system_type_name IN (N'nchar', N'nvarchar') THEN N'(' + CAST(max_length / 2 AS NVARCHAR(20)) + N')'
+                           WHEN system_type_name IN (N'decimal', N'numeric') THEN N'(' + CAST([precision] AS NVARCHAR(20)) + N',' + CAST([scale] AS NVARCHAR(20)) + N')'
+                           ELSE N'' END
+                + N', Nullable: ' + CASE WHEN is_nullable = 1 THEN N'Yes' ELSE N'No' END
+                + N', Identity: ' + CASE WHEN is_identity = 1 THEN N'Yes' ELSE N'No' END
+                + CHAR(13) + CHAR(10)
+            FROM #IndexColumns
+            WHERE [object_id] = @ObjectID
+              AND index_id IN (0, 1)
+            ORDER BY column_name
+            FOR XML PATH(''), TYPE
+        ).value('.', 'NVARCHAR(MAX)'), N'');
+
+        /* Section 4: Foreign Keys */
+        SET @CurrentAIPrompt = @CurrentAIPrompt + CHAR(13) + CHAR(10) + N'FOREIGN KEYS:' + CHAR(13) + CHAR(10);
+
+        SET @CurrentAIPrompt = @CurrentAIPrompt + ISNULL((
+            SELECT
+                N'FK: ' + foreign_key_name + CHAR(13) + CHAR(10)
+                + N'  Parent: ' + parent_object_name + N' (' + parent_fk_columns + N')' + CHAR(13) + CHAR(10)
+                + N'  References: ' + referenced_object_name + N' (' + referenced_fk_columns + N')' + CHAR(13) + CHAR(10)
+                + N'  Disabled: ' + CASE WHEN is_disabled = 1 THEN N'Yes' ELSE N'No' END
+                + N', Not Trusted: ' + CASE WHEN is_not_trusted = 1 THEN N'Yes' ELSE N'No' END + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10)
+            FROM #ForeignKeys
+            ORDER BY foreign_key_name
+            FOR XML PATH(''), TYPE
+        ).value('.', 'NVARCHAR(MAX)'), N'No foreign keys on this table.' + CHAR(13) + CHAR(10));
+
+        /* Closing instruction */
+        SET @CurrentAIPrompt = @CurrentAIPrompt + CHAR(13) + CHAR(10)
+            + N'Based on the above data, please provide index recommendations for this table. Consider which indexes are redundant, which missing indexes should be created, and whether the current indexing strategy is appropriate for the workload pattern shown by the usage statistics.';
+
+        /* @AI = 1: Call the AI provider */
+        IF @AI = 1
+        BEGIN
+            BEGIN TRY
+                SET @AIResponseJSON = NULL;
+
+                /* Build payload using the template */
+                SET @AIPayload = REPLACE(@AIPayloadTemplate, N'@AIModel', @AIModel);
+                SET @AIPayload = REPLACE(@AIPayload, N'@AISystemPrompt', REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(@AISystemPrompt, '\', '\\'), '"', '\"'), CHAR(13), '\r'), CHAR(10), '\n'), CHAR(9), '\t'));
+                SET @AIPayload = REPLACE(@AIPayload, N'@CurrentAIPrompt', REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(@CurrentAIPrompt, '\', '\\'), '"', '\"'), CHAR(13), '\r'), CHAR(10), '\n'), CHAR(9), '\t'));
+
+                /* Trim payload to context size if specified */
+                IF @AIContext IS NOT NULL AND @AIContext > 0 AND LEN(@AIPayload) > @AIContext
+                    SET @AIPayload = LEFT(@AIPayload, @AIContext);
+
+                IF @Debug = 2
+                    SELECT @AIPayload AS AIPayload, LEN(@AIPayload) AS AIPayload_Length, DATALENGTH(@AIPayload) AS AIPayload_DataLength;
+
+                RAISERROR('Calling AI endpoint for index analysis', 0, 1) WITH NOWAIT;
+
+                EXEC @AIReturnValue = sp_invoke_external_rest_endpoint
+                    @url = @AIURL,
+                    @method = 'POST',
+                    @payload = @AIPayload,
+                    @headers = N'{"Content-Type":"application/json"}',
+                    @credential = @AICredential,
+                    @timeout = @AITimeoutSeconds,
+                    @response = @AIResponseJSON OUTPUT;
+
+                IF @Debug = 2
+                    PRINT N'API Response (first 4000 chars): ' + CHAR(13) + CHAR(10) + LEFT(ISNULL(@AIResponseJSON, N'NULL'), 4000);
+
+                /* Parse the response to extract the AI's advice */
+                IF @AIResponseJSON IS NOT NULL
+                BEGIN
+                    /* Try OpenAI ChatGPT chat completion by default: */
+                    SET @AIAdviceText = (SELECT c.Content
+                        FROM OPENJSON(@AIResponseJSON, '$.result.choices')
+                        WITH (
+                            Content NVARCHAR(MAX) '$.message.content'
+                        ) AS c);
+
+                    /* No data? How about Google Gemini: */
+                    IF @AIAdviceText IS NULL
+                        SET @AIAdviceText = (SELECT TOP 1 p.[text]
+                            FROM OPENJSON(@AIResponseJSON, '$.result.candidates') AS cand
+                            CROSS APPLY OPENJSON(cand.value, '$.content.parts')
+                                   WITH ([text] NVARCHAR(MAX) '$.text') AS p);
+
+                    /* If we still couldn't parse it, check for error codes */
+                    IF @AIAdviceText IS NULL
+                    BEGIN
+                        DECLARE @AIErrorMessage NVARCHAR(MAX);
+                        SELECT @AIErrorMessage = JSON_VALUE(@AIResponseJSON, '$.result.error.message');
+
+                        IF @AIErrorMessage IS NULL
+                            SELECT @AIErrorMessage = JSON_VALUE(@AIResponseJSON, '$.error.message');
+
+                        IF @AIErrorMessage IS NOT NULL
+                            SET @AIAdviceText = N'API Error: ' + @AIErrorMessage;
+                        ELSE
+                            SET @AIAdviceText = N'Unable to parse API response. Raw response stored for debugging.';
+                    END;
+                END
+                ELSE
+                BEGIN
+                    SET @AIAdviceText = N'No response received from AI service.';
+                END;
+
+            END TRY
+            BEGIN CATCH
+                SET @AIAdviceText = N'Error calling AI service: ' + ERROR_MESSAGE();
+
+                IF @Debug = 1
+                    PRINT @AIAdviceText;
+            END CATCH;
+        END
+        ELSE
+        BEGIN
+            /* @AI = 2: Just build the prompt, don't call AI */
+            SET @AIAdviceText = N'AI prompt generated but not sent (running with @AI = 2). Review the AI Prompt result set.';
+        END;
+
+        RAISERROR(N'Returning AI results', 0, 1) WITH NOWAIT;
+
+        /* Return advice, payload, and raw response when @AI = 1 */
+        IF @AI = 1
+        BEGIN
+            SELECT
+                [AI Advice] = CASE WHEN @AIAdviceText IS NULL THEN NULL ELSE (
+                    SELECT @AIAdviceText AS [text()] FOR XML PATH('ai_advice'), TYPE) END,
+				[AI Prompt] = (SELECT (@AISystemPrompt + NCHAR(13) + NCHAR(10) + NCHAR(13) + NCHAR(10) + @CurrentAIPrompt)
+		            AS [text()] FOR XML PATH('ai_prompt'), TYPE),
+                [AI Payload] = CASE WHEN @AIPayload IS NULL THEN NULL ELSE (
+                    SELECT @AIPayload AS [text()] FOR XML PATH('ai_payload'), TYPE) END,
+                [AI Raw Response] = CASE WHEN @AIResponseJSON IS NULL THEN NULL ELSE (
+                    SELECT @AIResponseJSON AS [text()] FOR XML PATH('ai_raw_response'), TYPE) END;
+		END
+		ELSE
+		BEGIN
+			SELECT [AI Prompt] = (
+				SELECT (@AISystemPrompt + NCHAR(13) + NCHAR(10) + NCHAR(13) + NCHAR(10) + @CurrentAIPrompt)
+				AS [text()] FOR XML PATH('ai_prompt'), TYPE);
+		END;
+
+    END; /* IF @AI >= 1 AND @TableName IS NOT NULL */
+
+    SELECT
         column_name AS [Column Name],
         (SELECT COUNT(*)  
             FROM #IndexColumns c2 
@@ -24766,11 +25572,7 @@ BEGIN
                     CONVERT(NVARCHAR(6), CONVERT(MONEY, iro.percent_complete)) + N'% complete after ' +
                     CONVERT(NVARCHAR(30), iro.total_execution_time) +
                     N' minute(s). ' + 
-                    CASE WHEN @ResumableIndexesDisappearAfter > 0
-                        THEN N' Will be automatically removed by the database server at ' + CONVERT(NVARCHAR(50), (DATEADD(mi, @ResumableIndexesDisappearAfter, iro.last_pause_time)), 121) + N'. '
-                        ELSE N' Will not be automatically removed by the database server. '
-                    END
-                    + N'This blocks DDL and can pile up ghosts.'
+                    N'This blocks DDL and can pile up ghosts.'
                 WHEN 1 THEN
                     N' since ' + CONVERT(NVARCHAR(50), iro.last_pause_time, 120) + N'. ' +
                     CONVERT(NVARCHAR(6), CONVERT(MONEY, iro.percent_complete)) + N'% complete' +
@@ -24784,6 +25586,10 @@ BEGIN
                          THEN N'. It is probably still running, perhaps updating statistics.'
                          ELSE N' after ' + CONVERT(NVARCHAR(30), iro.total_execution_time)
                               + N' minute(s). This blocks DDL, fails transactions needing table-level X locks, and can pile up ghosts.'
+                    END +
+                    CASE WHEN @ResumableIndexesDisappearAfter > 0
+                        THEN N' Will be automatically removed by the database server at ' + CONVERT(NVARCHAR(50), (DATEADD(mi, @ResumableIndexesDisappearAfter, iro.last_pause_time)), 121) + N'. '
+                        ELSE N' Will not be automatically removed by the database server. '
                     END
                 ELSE N' which is an undocumented resumable index state description.'
                 END AS details,
@@ -26644,7 +27450,27 @@ BEGIN
                             ISNULL(sz.index_size_summary,'') AS index_size_summary
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
-                    WHERE i.is_spatial = 1 
+                    Where i.is_spatial = 1
+					OPTION    ( RECOMPILE );
+
+            RAISERROR(N'check_id 129: JSON indexes', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+                    SELECT  129 AS check_id,
+                            i.index_sanity_id,
+                            150 AS Priority,
+                            N'Abnormal Design Pattern' AS findings_group,
+                            N'JSON Index' AS finding,
+                            [database_name] AS [Database Name],
+                            N'https://www.brentozar.com/go/AbnormalPsychology' AS URL,
+                            i.db_schema_object_indexid AS details,
+                            i.index_definition,
+                            i.secret_columns,
+                            i.index_usage_summary,
+                            ISNULL(sz.index_size_summary,'') AS index_size_summary
+                    FROM    #IndexSanity AS i
+                    JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                    WHERE i.is_json = 1
 					OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 63: Compressed indexes', 0,1) WITH NOWAIT;
@@ -28417,7 +29243,7 @@ BEGIN
     SET XACT_ABORT OFF;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-    SELECT @Version = '8.29', @VersionDate = '20260203';
+    SELECT @Version = '8.30', @VersionDate = '20260313';
 
     IF @VersionCheckMode = 1
     BEGIN
@@ -28526,7 +29352,7 @@ BEGIN
             DB_ID(@DatabaseName),
         @ProductVersion nvarchar(128) =
             CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(128)),
-        @ProductVersionMajor float =
+        @ProductVersionMajor decimal(5,1) =
             SUBSTRING
             (
                 CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(128)),
@@ -28580,14 +29406,18 @@ BEGIN
                 THEN 0
                 ELSE 1
             END,
+        @CanReadMSDB bit = 
+            (
+              SELECT COUNT(1) 
+              FROM fn_my_permissions(N'msdb.dbo.sysjobsteps', N'OBJECT') AS fmp 
+              WHERE fmp.permission_name = N'SELECT'
+            ),
         @d varchar(40) = '',
         @StringToExecute nvarchar(4000) = N'',
         @StringToExecuteParams nvarchar(500) = N'',
         @r sysname = NULL,
         @OutputTableFindings nvarchar(100) = N'[BlitzLockFindings]',
-        @DeadlockCount int = 0,
-        @ServerName sysname = @@SERVERNAME,
-        @OutputDatabaseCheck bit = -1,
+        @OutputDatabaseCheck bit = 1,
         @SessionId int = 0,
         @TargetSessionId int = 0,
         @FileName nvarchar(4000) = N'',
@@ -28713,6 +29543,12 @@ BEGIN
     SELECT
         @StartDateUTC = @StartDate,
         @EndDateUTC = @EndDate;
+
+    IF @StartDate > @EndDate
+    BEGIN
+        RAISERROR('@StartDate cannot be after @EndDate.', 11, 1) WITH NOWAIT;
+        RETURN;
+    END;
 
     IF
     (
@@ -28903,7 +29739,7 @@ BEGIN
 
 
     IF @Azure = 0
-    AND LOWER(@TargetSessionType) <> N'table'
+    AND (@TargetSessionType IS NULL OR LOWER(@TargetSessionType) <> N'table')
     BEGIN
         IF NOT EXISTS
         (
@@ -28922,7 +29758,7 @@ BEGIN
     END;
 
     IF @Azure = 1
-    AND LOWER(@TargetSessionType) <> N'table'
+    AND (@TargetSessionType IS NULL OR LOWER(@TargetSessionType) <> N'table')
     BEGIN
         IF NOT EXISTS
         (
@@ -28963,18 +29799,22 @@ BEGIN
             SELECT
                 @StringToExecute =
                     N'SELECT @r = o.name FROM ' +
-                    @OutputDatabaseName +
+                    QUOTENAME(@OutputDatabaseName) +
                     N'.sys.objects AS o inner join ' +
-                    @OutputDatabaseName +
+                    QUOTENAME(@OutputDatabaseName) +
                     N'.sys.schemas as s on o.schema_id = s.schema_id WHERE o.type_desc = N''USER_TABLE'' AND o.name = ' +
                     QUOTENAME
                     (
                         @OutputTableName,
                         N''''
                     ) +
-                    N' AND s.name =''' +
-                    @OutputSchemaName +
-                    N''';',
+                    N' AND s.name = ' +
+                    QUOTENAME
+                    (
+                        @OutputSchemaName,
+                        N''''
+                    ) +
+                    N';',
                 @StringToExecuteParams =
                     N'@r sysname OUTPUT';
 
@@ -29045,7 +29885,7 @@ BEGIN
                         N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(''' +
                         @ObjectFullName +
                         N''')) AND o.name = N''client_option_1'')
-                        /*Add wait_resource column*/
+                        /*Add client_option_1 column*/
                         ALTER TABLE ' +
                         @ObjectFullName +
                         N' ADD client_option_1 varchar(500) NULL;';
@@ -29061,7 +29901,7 @@ BEGIN
                         N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(''' +
                         @ObjectFullName +
                         N''')) AND o.name = N''client_option_2'')
-                        /*Add wait_resource column*/
+                        /*Add client_option_2 column*/
                         ALTER TABLE ' +
                         @ObjectFullName +
                         N' ADD client_option_2 varchar(500) NULL;';
@@ -29077,7 +29917,7 @@ BEGIN
                         N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(''' +
                         @ObjectFullName +
                         N''')) AND o.name = N''lock_mode'')
-                        /*Add wait_resource column*/
+                        /*Add lock_mode column*/
                         ALTER TABLE ' +
                         @ObjectFullName +
                         N' ADD lock_mode nvarchar(256) NULL;';
@@ -29093,7 +29933,7 @@ BEGIN
                         N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(''' +
                         @ObjectFullName +
                         N''')) AND o.name = N''status'')
-                        /*Add wait_resource column*/
+                        /*Add status column*/
                         ALTER TABLE ' +
                         @ObjectFullName +
                         N' ADD status nvarchar(256) NULL;';
@@ -29226,7 +30066,10 @@ BEGIN
                 SELECT
                     1/0
                 FROM sys.objects AS o
+                JOIN sys.schemas AS s
+                  ON o.schema_id = s.schema_id
                 WHERE o.name = N'DeadlockFindings'
+                AND   s.name = N'dbo'
                 AND   o.type_desc = N'SYNONYM'
             )
             BEGIN
@@ -29253,7 +30096,10 @@ BEGIN
                 SELECT
                     1/0
                 FROM sys.objects AS o
+                JOIN sys.schemas AS s
+                  ON o.schema_id = s.schema_id
                 WHERE o.name = N'DeadLockTbl'
+                AND   s.name = N'dbo'
                 AND   o.type_desc = N'SYNONYM'
             )
             BEGIN
@@ -29368,7 +30214,7 @@ BEGIN
     /*If ring buffers*/
     IF
     (
-           @TargetSessionType LIKE N'ring%'
+           LOWER(@TargetSessionType) LIKE N'ring%'
        AND @EventSessionName NOT LIKE N'system_health%'
     )
     BEGIN
@@ -29423,7 +30269,7 @@ BEGIN
     /*If event file*/
     IF
     (
-           @TargetSessionType LIKE N'event%'
+           LOWER(@TargetSessionType) LIKE N'event%'
        AND @EventSessionName NOT LIKE N'system_health%'
     )
     BEGIN
@@ -29468,13 +30314,13 @@ BEGIN
             RAISERROR('@TargetSessionType is event_file, assigning XML for Azure', 0, 1) WITH NOWAIT;
             SELECT
                 @SessionId =
-                    t.event_session_address,
+                    t.event_session_id,
                 @TargetSessionId =
-                    t.target_name
-            FROM sys.dm_xe_database_session_targets t
-            JOIN sys.dm_xe_database_sessions s
-              ON s.address = t.event_session_address
-            WHERE t.target_name = @TargetSessionType
+                    t.target_id
+            FROM sys.database_event_session_targets AS t
+            JOIN sys.database_event_sessions AS s
+              ON s.event_session_id = t.event_session_id
+            WHERE t.name = @TargetSessionType
             AND   s.name = @EventSessionName
             OPTION(RECOMPILE);
 
@@ -29492,7 +30338,7 @@ BEGIN
                 SELECT
                     file_name =
                         CONVERT(nvarchar(4000), f.value)
-                FROM sys.server_event_session_fields AS f
+                FROM sys.database_event_session_fields AS f
                 WHERE f.event_session_id = @SessionId
                 AND   f.object_id = @TargetSessionId
                 AND   f.name = N'filename'
@@ -29524,7 +30370,7 @@ BEGIN
     /*If ring buffers*/
     IF
     (
-           @TargetSessionType LIKE N'ring%'
+           LOWER(@TargetSessionType) LIKE N'ring%'
        AND @EventSessionName NOT LIKE N'system_health%'
     )
     BEGIN
@@ -29559,7 +30405,7 @@ BEGIN
     /*If event file*/
     IF
     (
-           @TargetSessionType LIKE N'event_file%'
+           LOWER(@TargetSessionType) LIKE N'event_file%'
        AND @EventSessionName NOT LIKE N'system_health%'
     )
     BEGIN
@@ -29598,7 +30444,7 @@ BEGIN
     /*This section deals with event file*/
     IF
     (
-           @TargetSessionType LIKE N'event%'
+           LOWER(@TargetSessionType) LIKE N'event%'
        AND @EventSessionName LIKE N'system_health%'
     )
     BEGIN
@@ -30380,16 +31226,15 @@ BEGIN
         ADD
             waiter_mode nvarchar(256),
             owner_mode nvarchar(256),
-            is_victim AS
-                CONVERT
-                (
-                    bit,
-                    CASE
-                        WHEN id = victim_id
-                        THEN 1
-                        ELSE 0
-                    END
-                ) PERSISTED;
+            is_victim bit NOT NULL DEFAULT 0;
+
+        UPDATE
+            dp
+        SET
+            dp.is_victim = 1
+        FROM #deadlock_process AS dp
+        WHERE dp.deadlock_graph.exist('deadlock/victim-list/victimProcess[@id = sql:column("dp.id")]') = 1
+        OPTION(RECOMPILE);
 
         /*Update some nonsense*/
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
@@ -30493,6 +31338,7 @@ BEGIN
         (
                 @Azure = 0
             AND @RDS = 0
+            AND @CanReadMSDB = 1
         )
         BEGIN
             SET @StringToExecute =
@@ -30721,21 +31567,24 @@ BEGIN
                 OVER (ORDER BY COUNT_BIG(DISTINCT dow.event_date) DESC)
         FROM #deadlock_owner_waiter AS dow
         WHERE 1 = 1
-        AND dow.lock_mode IN
-            (
-                N'S',
-                N'IS'
-            )
-        OR  dow.owner_mode IN
-            (
-                N'S',
-                N'IS'
-            )
-        OR  dow.waiter_mode IN
-            (
-                N'S',
-                N'IS'
-            )
+        AND
+        (
+            dow.lock_mode IN
+                (
+                    N'S',
+                    N'IS'
+                )
+            OR  dow.owner_mode IN
+                (
+                    N'S',
+                    N'IS'
+                )
+            OR  dow.waiter_mode IN
+                (
+                    N'S',
+                    N'IS'
+                )
+        )
         AND (dow.database_id = @DatabaseId OR @DatabaseName IS NULL)
         AND (dow.event_date >= @StartDate OR @StartDate IS NULL)
         AND (dow.event_date < @EndDate OR @EndDate IS NULL)
@@ -31735,7 +32584,7 @@ BEGIN
             finding_group = N'Agent Job Deadlocks',
             finding =
                 N'There have been ' +
-                RTRIM(COUNT_BIG(DISTINCT aj.event_date)) +
+                CONVERT(nvarchar(20), COUNT_BIG(DISTINCT aj.event_date)) +
                 N' deadlocks from this Agent Job and Step.',
             sort_order = 
                 ROW_NUMBER()
@@ -31855,7 +32704,7 @@ BEGIN
             finding
         )
         SELECT
-            check_id = 14,
+            check_id = 16,
             database_name = N'-',
             object_name = N'-',
             finding_group = N'Total implicit transaction deadlocks',
@@ -32599,13 +33448,13 @@ BEGIN
                     total_logical_reads_mb =
                         deqs.total_logical_reads * 8. / 1024.,
                     min_grant_mb =
-                        deqs.min_grant_kb * 8. / 1024.,
+                        deqs.min_grant_kb / 1024.,
                     max_grant_mb =
-                        deqs.max_grant_kb * 8. / 1024.,
+                        deqs.max_grant_kb / 1024.,
                     min_used_grant_mb =
-                        deqs.min_used_grant_kb * 8. / 1024.,
+                        deqs.min_used_grant_kb / 1024.,
                     max_used_grant_mb =
-                        deqs.max_used_grant_kb * 8. / 1024.,  
+                        deqs.max_used_grant_kb / 1024.,  
                     deqs.min_reserved_threads,
                     deqs.max_reserved_threads,
                     deqs.min_used_threads,
@@ -32913,10 +33762,6 @@ BEGIN
                 @r,
             OutputTableFindings =
                 @OutputTableFindings,
-            DeadlockCount =
-                @DeadlockCount,
-            ServerName =
-                @ServerName,
             OutputDatabaseCheck =
                 @OutputDatabaseCheck,
             SessionId =
@@ -32967,7 +33812,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.29', @VersionDate = '20260203';
+	SELECT @Version = '8.30', @VersionDate = '20260313';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -33025,9 +33870,9 @@ DECLARE  @ProductVersion NVARCHAR(128) = CAST(SERVERPROPERTY('ProductVersion') A
 		,@ProductVersionMinor DECIMAL(10,2)
 		,@Platform NVARCHAR(8) /* Azure or NonAzure are acceptable */ = (SELECT CASE WHEN @@VERSION LIKE '%Azure%' THEN N'Azure' ELSE N'NonAzure' END AS [Platform])
 		,@AzureSQLDB BIT = (SELECT CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN 1 ELSE 0 END)
+		,@CanReadMSDB BIT = (SELECT COUNT(1) FROM fn_my_permissions(N'msdb.dbo.sysjobs', N'OBJECT') AS fmp WHERE fmp.permission_name = N'SELECT')
 		,@EnhanceFlag BIT = 0
 		,@BlockingCheck NVARCHAR(MAX)
-		,@StringToSelect NVARCHAR(MAX)
 		,@StringToExecute NVARCHAR(MAX)
 		,@OutputTableCleanupDate DATE
 		,@SessionWaits BIT = 0
@@ -33041,7 +33886,7 @@ DECLARE  @ProductVersion NVARCHAR(128) = CAST(SERVERPROPERTY('ProductVersion') A
 												 WHERE  waitwait.session_id = wait.session_id
 												 GROUP BY  waitwait.wait_type
 												 HAVING SUM(waitwait.wait_time_ms) > 5
-												 ORDER BY 1												 
+												 ORDER BY SUM(waitwait.wait_time_ms) DESC
 												 FOR
 												 XML PATH('''') ) AS session_wait_info
 										FROM sys.dm_exec_session_wait_stats AS wait ) AS wt2
@@ -33225,28 +34070,24 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	EXEC(@StringToExecute);
 
 	/* If the table doesn't have the new cached_parameter_info computed column, add it. See Github #2842. */
-	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
 		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''cached_parameter_info'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD cached_parameter_info NVARCHAR(MAX) NULL;';
 	EXEC(@StringToExecute);
 
 	/* If the table doesn't have the new live_parameter_info computed column, add it. See Github #2842. */
-	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
 		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''live_parameter_info'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD live_parameter_info NVARCHAR(MAX) NULL;';
 	EXEC(@StringToExecute);
 
 	/* If the table doesn't have the new outer_command column, add it. See Github #2887. */
-	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
 		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''outer_command'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD outer_command NVARCHAR(4000) NULL;';
 	EXEC(@StringToExecute);
 
 	/* If the table doesn't have the new wait_resource column, add it. See Github #2970. */
-	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
 		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''wait_resource'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD wait_resource NVARCHAR(MAX) NULL;';
@@ -33679,7 +34520,7 @@ BEGIN
 			       s.host_name ,
 			       s.login_name ,
 			       s.nt_user_name ,'
-		IF @Platform = 'NonAzure'
+		IF @Platform = 'NonAzure' AND @CanReadMSDB = 1
 		BEGIN
 		SET @StringToExecute +=
 				   N'program_name = COALESCE((
@@ -33828,7 +34669,7 @@ BEGIN
 				+ CASE WHEN @ShowSleepingSPIDs = 0 THEN
 						N' AND COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid)) IS NOT NULL'
 					  WHEN @ShowSleepingSPIDs = 1 THEN
-						N' OR COALESCE(r.open_transaction_count, blocked.open_tran) >= 1'
+						N' AND (COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid)) IS NOT NULL OR COALESCE(r.open_transaction_count, blocked.open_tran) >= 1)'
 					 ELSE N'' END;
 END /* IF @ProductVersionMajor > 9 and @ProductVersionMajor < 11 */
 
@@ -33922,7 +34763,7 @@ IF @ProductVersionMajor >= 11
 			       s.host_name ,
 			       s.login_name ,
 			       s.nt_user_name ,'
-		IF @Platform = 'NonAzure'
+		IF @Platform = 'NonAzure' AND @CanReadMSDB = 1
 		BEGIN
 		SET @StringToExecute +=
 				   N'program_name = COALESCE((
@@ -34129,12 +34970,12 @@ IF @ProductVersionMajor >= 11
 
 	    WHERE s.session_id <> @@SPID 
 	    AND s.host_name IS NOT NULL
-		AND r.database_id NOT IN (SELECT database_id FROM #WhoReadableDBs)
+		AND (r.database_id IS NULL OR r.database_id NOT IN (SELECT database_id FROM #WhoReadableDBs))
 	    '
 	    + CASE WHEN @ShowSleepingSPIDs = 0 THEN
 			    N' AND COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid)) IS NOT NULL'
 			    WHEN @ShowSleepingSPIDs = 1 THEN
-			    N' OR COALESCE(r.open_transaction_count, blocked.open_tran) >= 1'
+			    N' AND (COALESCE(DB_NAME(r.database_id), DB_NAME(blocked.dbid)) IS NOT NULL OR COALESCE(r.open_transaction_count, blocked.open_tran) >= 1)'
 			    ELSE N'' END;
 
 
@@ -34312,11 +35153,12 @@ ELSE
 	SET @StringToExecute = @BlockingCheck + N' SELECT  GETDATE() AS run_date , ' + @StringToExecute;
 
 /* If the server has > 50GB of memory, add a max grant hint to avoid getting a giant grant */
-IF (@ProductVersionMajor = 11 AND @ProductVersionMinor >= 6020)
-	OR (@ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000 )
-	OR (@ProductVersionMajor >= 13 )
-	AND 50000000 < (SELECT cntr_value 			
-						FROM sys.dm_os_performance_counters 
+IF (   (@ProductVersionMajor = 11 AND @ProductVersionMinor >= 6020)
+    OR (@ProductVersionMajor = 12 AND @ProductVersionMinor >= 5000 )
+    OR (@ProductVersionMajor >= 13 )
+   )
+    AND 50000000 < (SELECT cntr_value
+						FROM sys.dm_os_performance_counters
 						WHERE object_name LIKE '%:Memory Manager%'
 						AND counter_name LIKE 'Target Server Memory (KB)%')
 	BEGIN
@@ -34403,7 +35245,7 @@ SET STATISTICS XML OFF;
 
 /*Versioning details*/
 
-SELECT @Version = '8.29', @VersionDate = '20260203';
+SELECT @Version = '8.30', @VersionDate = '20260313';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -36073,7 +36915,7 @@ BEGIN
   SET NOCOUNT ON;
   SET STATISTICS XML OFF;
 
-  SELECT @Version = '8.29', @VersionDate = '20260203';
+  SELECT @Version = '8.30', @VersionDate = '20260313';
   
   IF(@VersionCheckMode = 1)
   BEGIN
@@ -36453,6 +37295,9 @@ INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
 VALUES
     /*2025*/
+    (17, 4025, 'CU3', 'https://learn.microsoft.com/troubleshoot/sql/releases/sqlserver-2025/cumulativeupdate3', '2026-03-12', '2031-01-06', '2036-01-06', 'SQL Server 2025', 'Cumulative Update 3'),
+    (17, 4020, 'CU2 GDR', 'https://support.microsoft.com/help/5077466', '2026-03-10', '2031-01-06', '2036-01-06', 'SQL Server 2025', 'Cumulative Update 2 GDR'),
+    (17, 4015, 'CU2', 'https://learn.microsoft.com/troubleshoot/sql/releases/sqlserver-2025/cumulativeupdate2', '2026-02-12', '2031-01-06', '2036-01-06', 'SQL Server 2025', 'Cumulative Update 2'),
     (17, 4006, 'CU1 v2', 'https://learn.microsoft.com/troubleshoot/sql/releases/sqlserver-2025/cumulativeupdate1', '2026-01-29', '2031-01-06', '2036-01-06', 'SQL Server 2025', 'Cumulative Update 1 v2'),
     (17, 4005, 'CU1', 'https://learn.microsoft.com/troubleshoot/sql/releases/sqlserver-2025/cumulativeupdate1', '2026-01-15', '2031-01-06', '2036-01-06', 'SQL Server 2025', 'Cumulative Update 1 (Removed)'),
     (17, 1000, 'RTM', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-11-18', '2031-01-06', '2036-01-06', 'SQL Server 2025', 'RTM'),
@@ -36461,38 +37306,41 @@ VALUES
     (17, 800, 'CTP 2.1', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-06-16', '2025-11-18', '2025-11-18', 'SQL Server 2025', 'Preview CTP 2.1'),
     (17, 700, 'CTP 2.0', 'https://info.microsoft.com/ww-landing-sql-server-2025.html', '2025-05-19', '2025-11-18', '2025-11-18', 'SQL Server 2025', 'Preview CTP 2.0'),
     /*2022*/
+    (16, 4236, 'CU24', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate24', '2026-03-12', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 24'),
+    (16, 4236, 'CU23 GDR', 'https://support.microsoft.com/help/5077464', '2026-03-10', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 23 GDR'),
     (16, 4236, 'CU23 v2', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate23', '2026-01-29', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 23 v2'),
     (16, 4235, 'CU23', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate23', '2026-01-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 23 (Removed)'),
     (16, 4225, 'CU22', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate22', '2025-11-13', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 22'),
     (16, 4215, 'CU21', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate21', '2025-09-11', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 21'),
     (16, 4205, 'CU20', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate20', '2025-07-10', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 20'),
-    (16, 4200, 'CU19 GDR', 'https://support.microsoft.com/en-us/help/5058721', '2025-07-08', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 19 GDR'),
+    (16, 4200, 'CU19 GDR', 'https://support.microsoft.com/help/5058721', '2025-07-08', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 19 GDR'),
     (16, 4195, 'CU19', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate19', '2025-05-19', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 19'),
     (16, 4185, 'CU18', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate18', '2025-03-13', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 18'),
     (16, 4175, 'CU17', 'https://learn.microsoft.com/en-us/troubleshoot/sql/releases/sqlserver-2022/cumulativeupdate17', '2025-01-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 17'),
-    (16, 4165, 'CU16', 'https://support.microsoft.com/en-us/help/5048033', '2024-11-14', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 16'),
-    (16, 4150, 'CU15 GDR', 'https://support.microsoft.com/en-us/help/5046059', '2024-10-08', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 15 GDR'),
-    (16, 4145, 'CU15', 'https://support.microsoft.com/en-us/help/5041321', '2024-09-25', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 15'),
-    (16, 4140, 'CU14 GDR', 'https://support.microsoft.com/en-us/help/5042578', '2024-09-10', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 14 GDR'),
-    (16, 4135, 'CU14', 'https://support.microsoft.com/en-us/help/5038325', '2024-07-23', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 14'),
-    (16, 4125, 'CU13', 'https://support.microsoft.com/en-us/help/5036432', '2024-05-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 13'),
-    (16, 4115, 'CU12', 'https://support.microsoft.com/en-us/help/5033663', '2024-03-14', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 12'),
-    (16, 4105, 'CU11', 'https://support.microsoft.com/en-us/help/5032679', '2024-01-11', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 11'),
-    (16, 4100, 'CU10 GDR', 'https://support.microsoft.com/en-us/help/5033592', '2024-01-09', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 10 GDR'),
-    (16, 4095, 'CU10', 'https://support.microsoft.com/en-us/help/5031778', '2023-11-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 10'),
-    (16, 4085, 'CU9', 'https://support.microsoft.com/en-us/help/5030731', '2023-10-12', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 9'),
-    (16, 4075, 'CU8', 'https://support.microsoft.com/en-us/help/5029666', '2023-09-14', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 8'),
-    (16, 4065, 'CU7', 'https://support.microsoft.com/en-us/help/5028743', '2023-08-10', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 7'),
-    (16, 4055, 'CU6', 'https://support.microsoft.com/en-us/help/5027505', '2023-07-13', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 6'),
-    (16, 4045, 'CU5', 'https://support.microsoft.com/en-us/help/5026806', '2023-06-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 5'),
-    (16, 4035, 'CU4', 'https://support.microsoft.com/en-us/help/5026717', '2023-05-11', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 4'),
-    (16, 4025, 'CU3', 'https://support.microsoft.com/en-us/help/5024396', '2023-04-13', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 3'),
-    (16, 4015, 'CU2', 'https://support.microsoft.com/en-us/help/5023127', '2023-03-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 2'),
-    (16, 4003, 'CU1', 'https://support.microsoft.com/en-us/help/5022375', '2023-02-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 1'),
+    (16, 4165, 'CU16', 'https://support.microsoft.com/help/5048033', '2024-11-14', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 16'),
+    (16, 4150, 'CU15 GDR', 'https://support.microsoft.com/help/5046059', '2024-10-08', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 15 GDR'),
+    (16, 4145, 'CU15', 'https://support.microsoft.com/help/5041321', '2024-09-25', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 15'),
+    (16, 4140, 'CU14 GDR', 'https://support.microsoft.com/help/5042578', '2024-09-10', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 14 GDR'),
+    (16, 4135, 'CU14', 'https://support.microsoft.com/help/5038325', '2024-07-23', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 14'),
+    (16, 4125, 'CU13', 'https://support.microsoft.com/help/5036432', '2024-05-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 13'),
+    (16, 4115, 'CU12', 'https://support.microsoft.com/help/5033663', '2024-03-14', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 12'),
+    (16, 4105, 'CU11', 'https://support.microsoft.com/help/5032679', '2024-01-11', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 11'),
+    (16, 4100, 'CU10 GDR', 'https://support.microsoft.com/help/5033592', '2024-01-09', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 10 GDR'),
+    (16, 4095, 'CU10', 'https://support.microsoft.com/help/5031778', '2023-11-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 10'),
+    (16, 4085, 'CU9', 'https://support.microsoft.com/help/5030731', '2023-10-12', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 9'),
+    (16, 4075, 'CU8', 'https://support.microsoft.com/help/5029666', '2023-09-14', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 8'),
+    (16, 4065, 'CU7', 'https://support.microsoft.com/help/5028743', '2023-08-10', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 7'),
+    (16, 4055, 'CU6', 'https://support.microsoft.com/help/5027505', '2023-07-13', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 6'),
+    (16, 4045, 'CU5', 'https://support.microsoft.com/help/5026806', '2023-06-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 5'),
+    (16, 4035, 'CU4', 'https://support.microsoft.com/help/5026717', '2023-05-11', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 4'),
+    (16, 4025, 'CU3', 'https://support.microsoft.com/help/5024396', '2023-04-13', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 3'),
+    (16, 4015, 'CU2', 'https://support.microsoft.com/help/5023127', '2023-03-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 2'),
+    (16, 4003, 'CU1', 'https://support.microsoft.com/help/5022375', '2023-02-16', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'Cumulative Update 1'),
     (16, 1050, 'RTM GDR', 'https://support.microsoft.com/kb/5021522', '2023-02-14', '2028-01-11', '2033-01-11', 'SQL Server 2022 GDR', 'RTM'),
     (16, 1000, 'RTM', '', '2022-11-15', '2028-01-11', '2033-01-11', 'SQL Server 2022', 'RTM'),
     /*2019*/
-    (15, 4455, 'CU32 GDR', 'https://support.microsoft.com/help/5068404', '2025-09-09', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 32 GDR'),
+    (15, 4460, 'CU32 GDR', 'https://support.microsoft.com/help/5077469', '2026-03-10', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 32 GDR'),
+    (15, 4455, 'CU32 GDR', 'https://support.microsoft.com/help/5068404', '2025-11-11', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 32 GDR'),
     (15, 4445, 'CU32 GDR', 'https://support.microsoft.com/kb/5065222', '2025-09-09', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 32 GDR'),
     (15, 4440, 'CU32 GDR', 'https://support.microsoft.com/kb/5063757', '2025-08-12', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 32 GDR'),
     (15, 4435, 'CU32 GDR', 'https://support.microsoft.com/kb/5058722', '2025-07-08', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 32 GDR'),
@@ -36513,30 +37361,31 @@ VALUES
     (15, 4312, 'CU20', 'https://support.microsoft.com/kb/5024276', '2023-04-13', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 20'),
     (15, 4298, 'CU19', 'https://support.microsoft.com/kb/5023049', '2023-02-16', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 19'),
     (15, 4280, 'CU18 GDR', 'https://support.microsoft.com/kb/5021124', '2023-02-14', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 18 GDR'),
-    (15, 4261, 'CU18', 'https://support.microsoft.com/en-us/help/5017593', '2022-09-28', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 18'),
-    (15, 4249, 'CU17', 'https://support.microsoft.com/en-us/help/5016394', '2022-08-11', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 17'),
-    (15, 4236, 'CU16 GDR', 'https://support.microsoft.com/en-us/help/5014353', '2022-06-14', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 16 GDR'),
-    (15, 4223, 'CU16', 'https://support.microsoft.com/en-us/help/5011644', '2022-04-18', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 16'),
-    (15, 4198, 'CU15', 'https://support.microsoft.com/en-us/help/5008996', '2022-01-07', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 15'),
-    (15, 4188, 'CU14', 'https://support.microsoft.com/en-us/help/5007182', '2021-11-22', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 14'),
-    (15, 4178, 'CU13', 'https://support.microsoft.com/en-us/help/5005679', '2021-10-05', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 13'),
-    (15, 4153, 'CU12', 'https://support.microsoft.com/en-us/help/5004524', '2021-08-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 12'),
-    (15, 4138, 'CU11', 'https://support.microsoft.com/en-us/help/5003249', '2021-06-10', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 11'),
-    (15, 4123, 'CU10', 'https://support.microsoft.com/en-us/help/5001090', '2021-04-06', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 10'),
-    (15, 4102, 'CU9', 'https://support.microsoft.com/en-us/help/5000642', '2021-02-11', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 9 '),
-    (15, 4073, 'CU8 GDR', 'https://support.microsoft.com/en-us/help/4583459', '2021-01-12', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 8 GDR '),
-    (15, 4073, 'CU8', 'https://support.microsoft.com/en-us/help/4577194', '2020-10-01', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 8 '),
-    (15, 4063, 'CU7', 'https://support.microsoft.com/en-us/help/4570012', '2020-09-02', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 7 '),
-    (15, 4053, 'CU6', 'https://support.microsoft.com/en-us/help/4563110', '2020-08-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 6 '),
-    (15, 4043, 'CU5', 'https://support.microsoft.com/en-us/help/4548597', '2020-06-22', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 5 '),
-    (15, 4033, 'CU4', 'https://support.microsoft.com/en-us/help/4548597', '2020-03-31', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 4 '),
-    (15, 4023, 'CU3', 'https://support.microsoft.com/en-us/help/4538853', '2020-03-12', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 3 '),
-    (15, 4013, 'CU2', 'https://support.microsoft.com/en-us/help/4536075', '2020-02-13', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 2 '),
-    (15, 4003, 'CU1', 'https://support.microsoft.com/en-us/help/4527376', '2020-01-07', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 1 '),
-    (15, 2070, 'GDR', 'https://support.microsoft.com/en-us/help/4517790', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM GDR '),
+    (15, 4261, 'CU18', 'https://support.microsoft.com/help/5017593', '2022-09-28', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 18'),
+    (15, 4249, 'CU17', 'https://support.microsoft.com/help/5016394', '2022-08-11', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 17'),
+    (15, 4236, 'CU16 GDR', 'https://support.microsoft.com/help/5014353', '2022-06-14', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 16 GDR'),
+    (15, 4223, 'CU16', 'https://support.microsoft.com/help/5011644', '2022-04-18', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 16'),
+    (15, 4198, 'CU15', 'https://support.microsoft.com/help/5008996', '2022-01-07', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 15'),
+    (15, 4188, 'CU14', 'https://support.microsoft.com/help/5007182', '2021-11-22', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 14'),
+    (15, 4178, 'CU13', 'https://support.microsoft.com/help/5005679', '2021-10-05', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 13'),
+    (15, 4153, 'CU12', 'https://support.microsoft.com/help/5004524', '2021-08-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 12'),
+    (15, 4138, 'CU11', 'https://support.microsoft.com/help/5003249', '2021-06-10', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 11'),
+    (15, 4123, 'CU10', 'https://support.microsoft.com/help/5001090', '2021-04-06', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 10'),
+    (15, 4102, 'CU9', 'https://support.microsoft.com/help/5000642', '2021-02-11', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 9 '),
+    (15, 4073, 'CU8 GDR', 'https://support.microsoft.com/help/4583459', '2021-01-12', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 8 GDR '),
+    (15, 4073, 'CU8', 'https://support.microsoft.com/help/4577194', '2020-10-01', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 8 '),
+    (15, 4063, 'CU7', 'https://support.microsoft.com/help/4570012', '2020-09-02', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 7 '),
+    (15, 4053, 'CU6', 'https://support.microsoft.com/help/4563110', '2020-08-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 6 '),
+    (15, 4043, 'CU5', 'https://support.microsoft.com/help/4548597', '2020-06-22', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 5 '),
+    (15, 4033, 'CU4', 'https://support.microsoft.com/help/4548597', '2020-03-31', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 4 '),
+    (15, 4023, 'CU3', 'https://support.microsoft.com/help/4538853', '2020-03-12', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 3 '),
+    (15, 4013, 'CU2', 'https://support.microsoft.com/help/4536075', '2020-02-13', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 2 '),
+    (15, 4003, 'CU1', 'https://support.microsoft.com/help/4527376', '2020-01-07', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'Cumulative Update 1 '),
+    (15, 2070, 'GDR', 'https://support.microsoft.com/help/4517790', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM GDR '),
     (15, 2000, 'RTM ', '', '2019-11-04', '2025-01-07', '2030-01-08', 'SQL Server 2019', 'RTM '),
     /*2017*/
-    (14, 3515, 'RTM CU31 GDR', 'https://support.microsoft.com/help/5068402', '2025-09-09', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
+    (14, 3520, 'RTM CU31 GDR', 'https://support.microsoft.com/help/5077471', '2026-03-10', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
+    (14, 3515, 'RTM CU31 GDR', 'https://support.microsoft.com/help/5068402', '2025-11-11', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
     (14, 3505, 'RTM CU31 GDR', 'https://support.microsoft.com/kb/5065225', '2025-09-09', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
     (14, 3500, 'RTM CU31 GDR', 'https://support.microsoft.com/kb/5063759', '2025-08-12', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
     (14, 3495, 'RTM CU31 GDR', 'https://support.microsoft.com/kb/5058714', '2025-07-08', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
@@ -36546,49 +37395,51 @@ VALUES
     (14, 3471, 'RTM CU31 GDR', 'https://support.microsoft.com/kb/5040940', '2024-07-09', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
     (14, 3465, 'RTM CU31 GDR', 'https://support.microsoft.com/kb/5029376', '2023-10-10', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
     (14, 3460, 'RTM CU31 GDR', 'https://support.microsoft.com/kb/5021126', '2023-02-14', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31 GDR'),
-    (14, 3456, 'RTM CU31', 'https://support.microsoft.com/en-us/help/5016884', '2022-09-20', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31'),
-    (14, 3451, 'RTM CU30', 'https://support.microsoft.com/en-us/help/5013756', '2022-07-13', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 30'),
-    (14, 3445, 'RTM CU29 GDR', 'https://support.microsoft.com/en-us/help/5014553', '2022-06-14', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 29 GDR'),
-    (14, 3436, 'RTM CU29', 'https://support.microsoft.com/en-us/help/5010786', '2022-03-31', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 29'),
-    (14, 3430, 'RTM CU28', 'https://support.microsoft.com/en-us/help/5006944', '2022-01-13', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 28'),
-    (14, 3421, 'RTM CU27', 'https://support.microsoft.com/en-us/help/5006944', '2021-10-27', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 27'),
-    (14, 3411, 'RTM CU26', 'https://support.microsoft.com/en-us/help/5005226', '2021-09-14', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 26'),
-    (14, 3401, 'RTM CU25', 'https://support.microsoft.com/en-us/help/5003830', '2021-07-12', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 25'),
-    (14, 3391, 'RTM CU24', 'https://support.microsoft.com/en-us/help/5001228', '2021-05-10', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 24'),
-    (14, 3381, 'RTM CU23', 'https://support.microsoft.com/en-us/help/5000685', '2021-02-25', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 23'),
-    (14, 3370, 'RTM CU22 GDR', 'https://support.microsoft.com/en-us/help/4583457', '2021-01-12', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 22 GDR'),
-    (14, 3356, 'RTM CU22', 'https://support.microsoft.com/en-us/help/4577467', '2020-09-10', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 22'),
-    (14, 3335, 'RTM CU21', 'https://support.microsoft.com/en-us/help/4557397', '2020-07-01', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 21'),
-    (14, 3294, 'RTM CU20', 'https://support.microsoft.com/en-us/help/4541283', '2020-04-07', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 20'),
-    (14, 3257, 'RTM CU19', 'https://support.microsoft.com/en-us/help/4535007', '2020-02-05', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 19'),
-    (14, 3257, 'RTM CU18', 'https://support.microsoft.com/en-us/help/4527377', '2019-12-09', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 18'),
-    (14, 3238, 'RTM CU17', 'https://support.microsoft.com/en-us/help/4515579', '2019-10-08', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 17'),
-    (14, 3223, 'RTM CU16', 'https://support.microsoft.com/en-us/help/4508218', '2019-08-01', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 16'),
-    (14, 3162, 'RTM CU15', 'https://support.microsoft.com/en-us/help/4498951', '2019-05-24', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 15'),
-    (14, 3076, 'RTM CU14', 'https://support.microsoft.com/en-us/help/4484710', '2019-03-25', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 14'),
-    (14, 3048, 'RTM CU13', 'https://support.microsoft.com/en-us/help/4466404', '2018-12-18', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 13'),
-    (14, 3045, 'RTM CU12', 'https://support.microsoft.com/en-us/help/4464082', '2018-10-24', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 12'),
-    (14, 3038, 'RTM CU11', 'https://support.microsoft.com/en-us/help/4462262', '2018-09-20', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 11'),
-    (14, 3037, 'RTM CU10', 'https://support.microsoft.com/en-us/help/4524334', '2018-08-27', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 10'),
-    (14, 3030, 'RTM CU9', 'https://support.microsoft.com/en-us/help/4515435', '2018-07-18', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 9'),
-    (14, 3029, 'RTM CU8', 'https://support.microsoft.com/en-us/help/4338363', '2018-06-21', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 8'),
-    (14, 3026, 'RTM CU7', 'https://support.microsoft.com/en-us/help/4229789', '2018-05-23', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 7'),
-    (14, 3025, 'RTM CU6', 'https://support.microsoft.com/en-us/help/4101464', '2018-04-17', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 6'),
-    (14, 3023, 'RTM CU5', 'https://support.microsoft.com/en-us/help/4092643', '2018-03-20', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 5'),
-    (14, 3022, 'RTM CU4', 'https://support.microsoft.com/en-us/help/4056498', '2018-02-20', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 4'),
-    (14, 3015, 'RTM CU3', 'https://support.microsoft.com/en-us/help/4052987', '2018-01-04', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 3'),
-    (14, 3008, 'RTM CU2', 'https://support.microsoft.com/en-us/help/4052574', '2017-11-28', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 2'),
-    (14, 3006, 'RTM CU1', 'https://support.microsoft.com/en-us/help/4038634', '2017-10-24', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 1'),
+    (14, 3456, 'RTM CU31', 'https://support.microsoft.com/help/5016884', '2022-09-20', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 31'),
+    (14, 3451, 'RTM CU30', 'https://support.microsoft.com/help/5013756', '2022-07-13', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 30'),
+    (14, 3445, 'RTM CU29 GDR', 'https://support.microsoft.com/help/5014553', '2022-06-14', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 29 GDR'),
+    (14, 3436, 'RTM CU29', 'https://support.microsoft.com/help/5010786', '2022-03-31', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 29'),
+    (14, 3430, 'RTM CU28', 'https://support.microsoft.com/help/5006944', '2022-01-13', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 28'),
+    (14, 3421, 'RTM CU27', 'https://support.microsoft.com/help/5006944', '2021-10-27', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 27'),
+    (14, 3411, 'RTM CU26', 'https://support.microsoft.com/help/5005226', '2021-09-14', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 26'),
+    (14, 3401, 'RTM CU25', 'https://support.microsoft.com/help/5003830', '2021-07-12', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 25'),
+    (14, 3391, 'RTM CU24', 'https://support.microsoft.com/help/5001228', '2021-05-10', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 24'),
+    (14, 3381, 'RTM CU23', 'https://support.microsoft.com/help/5000685', '2021-02-25', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 23'),
+    (14, 3370, 'RTM CU22 GDR', 'https://support.microsoft.com/help/4583457', '2021-01-12', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 22 GDR'),
+    (14, 3356, 'RTM CU22', 'https://support.microsoft.com/help/4577467', '2020-09-10', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 22'),
+    (14, 3335, 'RTM CU21', 'https://support.microsoft.com/help/4557397', '2020-07-01', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 21'),
+    (14, 3294, 'RTM CU20', 'https://support.microsoft.com/help/4541283', '2020-04-07', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 20'),
+    (14, 3257, 'RTM CU19', 'https://support.microsoft.com/help/4535007', '2020-02-05', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 19'),
+    (14, 3257, 'RTM CU18', 'https://support.microsoft.com/help/4527377', '2019-12-09', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 18'),
+    (14, 3238, 'RTM CU17', 'https://support.microsoft.com/help/4515579', '2019-10-08', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 17'),
+    (14, 3223, 'RTM CU16', 'https://support.microsoft.com/help/4508218', '2019-08-01', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 16'),
+    (14, 3162, 'RTM CU15', 'https://support.microsoft.com/help/4498951', '2019-05-24', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 15'),
+    (14, 3076, 'RTM CU14', 'https://support.microsoft.com/help/4484710', '2019-03-25', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 14'),
+    (14, 3048, 'RTM CU13', 'https://support.microsoft.com/help/4466404', '2018-12-18', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 13'),
+    (14, 3045, 'RTM CU12', 'https://support.microsoft.com/help/4464082', '2018-10-24', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 12'),
+    (14, 3038, 'RTM CU11', 'https://support.microsoft.com/help/4462262', '2018-09-20', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 11'),
+    (14, 3037, 'RTM CU10', 'https://support.microsoft.com/help/4524334', '2018-08-27', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 10'),
+    (14, 3030, 'RTM CU9', 'https://support.microsoft.com/help/4515435', '2018-07-18', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 9'),
+    (14, 3029, 'RTM CU8', 'https://support.microsoft.com/help/4338363', '2018-06-21', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 8'),
+    (14, 3026, 'RTM CU7', 'https://support.microsoft.com/help/4229789', '2018-05-23', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 7'),
+    (14, 3025, 'RTM CU6', 'https://support.microsoft.com/help/4101464', '2018-04-17', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 6'),
+    (14, 3023, 'RTM CU5', 'https://support.microsoft.com/help/4092643', '2018-03-20', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 5'),
+    (14, 3022, 'RTM CU4', 'https://support.microsoft.com/help/4056498', '2018-02-20', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 4'),
+    (14, 3015, 'RTM CU3', 'https://support.microsoft.com/help/4052987', '2018-01-04', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 3'),
+    (14, 3008, 'RTM CU2', 'https://support.microsoft.com/help/4052574', '2017-11-28', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 2'),
+    (14, 3006, 'RTM CU1', 'https://support.microsoft.com/help/4038634', '2017-10-24', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM Cumulative Update 1'),
     (14, 1000, 'RTM ', '', '2017-10-02', '2022-10-11', '2027-10-12', 'SQL Server 2017', 'RTM '),
     /*2016*/
-    (13, 7055, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/en-us/help/5058717', '2025-07-08', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
-    (13, 7045, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/en-us/help/5046062', '2024-10-08', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
-    (13, 7040, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/en-us/help/5042209', '2024-09-10', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
-    (13, 7037, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/en-us/help/5040944', '2024-07-09', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
-    (13, 7029, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/en-us/help/5029187', '2023-10-10', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
-    (13, 7024, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/en-us/help/5021128', '2023-02-14', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
-    (13, 7016, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/en-us/help/5015371', '2022-06-14', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
-    (13, 7000, 'SP3 Azure Feature Pack', 'https://support.microsoft.com/en-us/help/5014242', '2022-05-19', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack'),
+    (13, 7055, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/help/5058717', '2025-07-08', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
+    (13, 7045, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/help/5046062', '2024-10-08', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
+    (13, 7040, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/help/5042209', '2024-09-10', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
+    (13, 7037, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/help/5040944', '2024-07-09', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
+    (13, 7029, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/help/5029187', '2023-10-10', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
+    (13, 7024, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/help/5021128', '2023-02-14', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
+    (13, 7016, 'SP3 Azure Feature Pack GDR', 'https://support.microsoft.com/help/5015371', '2022-06-14', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack GDR'),
+    (13, 7000, 'SP3 Azure Feature Pack', 'https://support.microsoft.com/help/5014242', '2022-05-19', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 Azure Feature Pack'),
+    (13, 6480, 'SP3 GDR', 'https://support.microsoft.com/kb/5077474', '2026-03-10', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
+    (13, 6475, 'SP3 GDR', 'https://support.microsoft.com/kb/5068401', '2025-11-11', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
     (13, 6470, 'SP3 GDR', 'https://support.microsoft.com/kb/5065226', '2025-09-09', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
     (13, 6465, 'SP3 GDR', 'https://support.microsoft.com/kb/5063762', '2025-08-12', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
     (13, 6460, 'SP3 GDR', 'https://support.microsoft.com/kb/5058718', '2025-07-08', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
@@ -36598,320 +37449,320 @@ VALUES
     (13, 6441, 'SP3 GDR', 'https://support.microsoft.com/kb/5040946', '2024-07-09', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
     (13, 6435, 'SP3 GDR', 'https://support.microsoft.com/kb/5029186', '2023-10-10', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
     (13, 6430, 'SP3 GDR', 'https://support.microsoft.com/kb/5021129', '2023-02-14', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
-    (13, 6419, 'SP3 GDR', 'https://support.microsoft.com/en-us/help/5014355', '2022-06-14', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
-    (13, 6404, 'SP3 GDR', 'https://support.microsoft.com/en-us/help/5006943', '2021-10-27', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
-    (13, 6300, 'SP3 ', 'https://support.microsoft.com/en-us/help/5003279', '2021-09-15', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3'),
-    (13, 5888, 'SP2 CU17', 'https://support.microsoft.com/en-us/help/5001092', '2021-03-29', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 17'),
-    (13, 5882, 'SP2 CU16', 'https://support.microsoft.com/en-us/help/5000645', '2021-02-11', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 16'),
-    (13, 5865, 'SP2 CU15 GDR', 'https://support.microsoft.com/en-us/help/4583461', '2021-01-12', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 15 GDR'),
-    (13, 5850, 'SP2 CU15', 'https://support.microsoft.com/en-us/help/4577775', '2020-09-28', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 15'),
-    (13, 5830, 'SP2 CU14', 'https://support.microsoft.com/en-us/help/4564903', '2020-08-06', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 14'),
-    (13, 5820, 'SP2 CU13', 'https://support.microsoft.com/en-us/help/4549825', '2020-05-28', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 13'),
-    (13, 5698, 'SP2 CU12', 'https://support.microsoft.com/en-us/help/4536648', '2020-02-25', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 12'),
-    (13, 5598, 'SP2 CU11', 'https://support.microsoft.com/en-us/help/4527378', '2019-12-09', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 11'),
-    (13, 5492, 'SP2 CU10', 'https://support.microsoft.com/en-us/help/4505830', '2019-10-08', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 10'),
-    (13, 5479, 'SP2 CU9', 'https://support.microsoft.com/en-us/help/4505830', '2019-09-30', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 9'),
-    (13, 5426, 'SP2 CU8', 'https://support.microsoft.com/en-us/help/4505830', '2019-07-31', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 8'),
-    (13, 5337, 'SP2 CU7', 'https://support.microsoft.com/en-us/help/4495256', '2019-05-23', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 7'),
-    (13, 5292, 'SP2 CU6', 'https://support.microsoft.com/en-us/help/4488536', '2019-03-19', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 6'),
-    (13, 5264, 'SP2 CU5', 'https://support.microsoft.com/en-us/help/4475776', '2019-01-23', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 5'),
-    (13, 5233, 'SP2 CU4', 'https://support.microsoft.com/en-us/help/4464106', '2018-11-13', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 4'),
-    (13, 5216, 'SP2 CU3', 'https://support.microsoft.com/en-us/help/4458871', '2018-09-20', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 3'),
-    (13, 5201, 'SP2 CU2 + Security Update', 'https://support.microsoft.com/en-us/help/4458621', '2018-08-21', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 2 + Security Update'),
-    (13, 5153, 'SP2 CU2', 'https://support.microsoft.com/en-us/help/4340355', '2018-07-16', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 2'),
-    (13, 5149, 'SP2 CU1', 'https://support.microsoft.com/en-us/help/4135048', '2018-05-30', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 1'),
-    (13, 5103, 'SP2 GDR', 'https://support.microsoft.com/en-us/help/4583460', '2021-01-12', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 GDR'),
-    (13, 5026, 'SP2 ', 'https://support.microsoft.com/en-us/help/4052908', '2018-04-24', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 '),
-    (13, 4574, 'SP1 CU15', 'https://support.microsoft.com/en-us/help/4495257', '2019-05-16', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 15'),
-    (13, 4560, 'SP1 CU14', 'https://support.microsoft.com/en-us/help/4488535', '2019-03-19', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 14'),
-    (13, 4550, 'SP1 CU13', 'https://support.microsoft.com/en-us/help/4475775', '2019-01-23', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 13'),
-    (13, 4541, 'SP1 CU12', 'https://support.microsoft.com/en-us/help/4464343', '2018-11-13', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 12'),
-    (13, 4528, 'SP1 CU11', 'https://support.microsoft.com/en-us/help/4459676', '2018-09-17', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 11'),
-    (13, 4514, 'SP1 CU10', 'https://support.microsoft.com/en-us/help/4341569', '2018-07-16', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 10'),
-    (13, 4502, 'SP1 CU9', 'https://support.microsoft.com/en-us/help/4100997', '2018-05-30', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 9'),
-    (13, 4474, 'SP1 CU8', 'https://support.microsoft.com/en-us/help/4077064', '2018-03-19', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 8'),
-    (13, 4466, 'SP1 CU7', 'https://support.microsoft.com/en-us/help/4057119', '2018-01-04', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 7'),
-    (13, 4457, 'SP1 CU6', 'https://support.microsoft.com/en-us/help/4037354', '2017-11-20', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 6'),
-    (13, 4451, 'SP1 CU5', 'https://support.microsoft.com/en-us/help/4024305', '2017-09-18', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 5'),
-    (13, 4446, 'SP1 CU4', 'https://support.microsoft.com/en-us/help/4024305', '2017-08-08', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 4'),
-    (13, 4435, 'SP1 CU3', 'https://support.microsoft.com/en-us/help/4019916', '2017-05-15', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 3'),
-    (13, 4422, 'SP1 CU2', 'https://support.microsoft.com/en-us/help/4013106', '2017-03-20', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 2'),
-    (13, 4411, 'SP1 CU1', 'https://support.microsoft.com/en-us/help/3208177', '2017-01-17', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 1'),
-    (13, 4224, 'SP1 CU10 + Security Update', 'https://support.microsoft.com/en-us/help/4458842', '2018-08-22', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 10 + Security Update'),
-    (13, 4001, 'SP1 ', 'https://support.microsoft.com/en-us/help/3182545 ', '2016-11-16', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 '),
-    (13, 2216, 'RTM CU9', 'https://support.microsoft.com/en-us/help/4037357', '2017-11-20', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 9'),
-    (13, 2213, 'RTM CU8', 'https://support.microsoft.com/en-us/help/4024304', '2017-09-18', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 8'),
-    (13, 2210, 'RTM CU7', 'https://support.microsoft.com/en-us/help/4024304', '2017-08-08', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 7'),
-    (13, 2204, 'RTM CU6', 'https://support.microsoft.com/en-us/help/4019914', '2017-05-15', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 6'),
-    (13, 2197, 'RTM CU5', 'https://support.microsoft.com/en-us/help/4013105', '2017-03-20', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 5'),
-    (13, 2193, 'RTM CU4', 'https://support.microsoft.com/en-us/help/3205052 ', '2017-01-17', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 4'),
-    (13, 2186, 'RTM CU3', 'https://support.microsoft.com/en-us/help/3205413 ', '2016-11-16', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 3'),
-    (13, 2164, 'RTM CU2', 'https://support.microsoft.com/en-us/help/3182270 ', '2016-09-22', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 2'),
-    (13, 2149, 'RTM CU1', 'https://support.microsoft.com/en-us/help/3164674 ', '2016-07-25', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 1'),
+    (13, 6419, 'SP3 GDR', 'https://support.microsoft.com/help/5014355', '2022-06-14', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
+    (13, 6404, 'SP3 GDR', 'https://support.microsoft.com/help/5006943', '2021-10-27', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3 GDR'),
+    (13, 6300, 'SP3 ', 'https://support.microsoft.com/help/5003279', '2021-09-15', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 3'),
+    (13, 5888, 'SP2 CU17', 'https://support.microsoft.com/help/5001092', '2021-03-29', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 17'),
+    (13, 5882, 'SP2 CU16', 'https://support.microsoft.com/help/5000645', '2021-02-11', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 16'),
+    (13, 5865, 'SP2 CU15 GDR', 'https://support.microsoft.com/help/4583461', '2021-01-12', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 15 GDR'),
+    (13, 5850, 'SP2 CU15', 'https://support.microsoft.com/help/4577775', '2020-09-28', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 15'),
+    (13, 5830, 'SP2 CU14', 'https://support.microsoft.com/help/4564903', '2020-08-06', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 14'),
+    (13, 5820, 'SP2 CU13', 'https://support.microsoft.com/help/4549825', '2020-05-28', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 13'),
+    (13, 5698, 'SP2 CU12', 'https://support.microsoft.com/help/4536648', '2020-02-25', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 12'),
+    (13, 5598, 'SP2 CU11', 'https://support.microsoft.com/help/4527378', '2019-12-09', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 11'),
+    (13, 5492, 'SP2 CU10', 'https://support.microsoft.com/help/4505830', '2019-10-08', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 10'),
+    (13, 5479, 'SP2 CU9', 'https://support.microsoft.com/help/4505830', '2019-09-30', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 9'),
+    (13, 5426, 'SP2 CU8', 'https://support.microsoft.com/help/4505830', '2019-07-31', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 8'),
+    (13, 5337, 'SP2 CU7', 'https://support.microsoft.com/help/4495256', '2019-05-23', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 7'),
+    (13, 5292, 'SP2 CU6', 'https://support.microsoft.com/help/4488536', '2019-03-19', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 6'),
+    (13, 5264, 'SP2 CU5', 'https://support.microsoft.com/help/4475776', '2019-01-23', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 5'),
+    (13, 5233, 'SP2 CU4', 'https://support.microsoft.com/help/4464106', '2018-11-13', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 4'),
+    (13, 5216, 'SP2 CU3', 'https://support.microsoft.com/help/4458871', '2018-09-20', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 3'),
+    (13, 5201, 'SP2 CU2 + Security Update', 'https://support.microsoft.com/help/4458621', '2018-08-21', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 2 + Security Update'),
+    (13, 5153, 'SP2 CU2', 'https://support.microsoft.com/help/4340355', '2018-07-16', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 2'),
+    (13, 5149, 'SP2 CU1', 'https://support.microsoft.com/help/4135048', '2018-05-30', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 Cumulative Update 1'),
+    (13, 5103, 'SP2 GDR', 'https://support.microsoft.com/help/4583460', '2021-01-12', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 GDR'),
+    (13, 5026, 'SP2 ', 'https://support.microsoft.com/help/4052908', '2018-04-24', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 2 '),
+    (13, 4574, 'SP1 CU15', 'https://support.microsoft.com/help/4495257', '2019-05-16', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 15'),
+    (13, 4560, 'SP1 CU14', 'https://support.microsoft.com/help/4488535', '2019-03-19', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 14'),
+    (13, 4550, 'SP1 CU13', 'https://support.microsoft.com/help/4475775', '2019-01-23', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 13'),
+    (13, 4541, 'SP1 CU12', 'https://support.microsoft.com/help/4464343', '2018-11-13', '2021-07-13', '2026-07-14', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 12'),
+    (13, 4528, 'SP1 CU11', 'https://support.microsoft.com/help/4459676', '2018-09-17', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 11'),
+    (13, 4514, 'SP1 CU10', 'https://support.microsoft.com/help/4341569', '2018-07-16', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 10'),
+    (13, 4502, 'SP1 CU9', 'https://support.microsoft.com/help/4100997', '2018-05-30', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 9'),
+    (13, 4474, 'SP1 CU8', 'https://support.microsoft.com/help/4077064', '2018-03-19', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 8'),
+    (13, 4466, 'SP1 CU7', 'https://support.microsoft.com/help/4057119', '2018-01-04', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 7'),
+    (13, 4457, 'SP1 CU6', 'https://support.microsoft.com/help/4037354', '2017-11-20', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 6'),
+    (13, 4451, 'SP1 CU5', 'https://support.microsoft.com/help/4024305', '2017-09-18', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 5'),
+    (13, 4446, 'SP1 CU4', 'https://support.microsoft.com/help/4024305', '2017-08-08', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 4'),
+    (13, 4435, 'SP1 CU3', 'https://support.microsoft.com/help/4019916', '2017-05-15', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 3'),
+    (13, 4422, 'SP1 CU2', 'https://support.microsoft.com/help/4013106', '2017-03-20', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 2'),
+    (13, 4411, 'SP1 CU1', 'https://support.microsoft.com/help/3208177', '2017-01-17', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 1'),
+    (13, 4224, 'SP1 CU10 + Security Update', 'https://support.microsoft.com/help/4458842', '2018-08-22', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 Cumulative Update 10 + Security Update'),
+    (13, 4001, 'SP1 ', 'https://support.microsoft.com/help/3182545 ', '2016-11-16', '2019-07-09', '2019-07-09', 'SQL Server 2016', 'Service Pack 1 '),
+    (13, 2216, 'RTM CU9', 'https://support.microsoft.com/help/4037357', '2017-11-20', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 9'),
+    (13, 2213, 'RTM CU8', 'https://support.microsoft.com/help/4024304', '2017-09-18', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 8'),
+    (13, 2210, 'RTM CU7', 'https://support.microsoft.com/help/4024304', '2017-08-08', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 7'),
+    (13, 2204, 'RTM CU6', 'https://support.microsoft.com/help/4019914', '2017-05-15', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 6'),
+    (13, 2197, 'RTM CU5', 'https://support.microsoft.com/help/4013105', '2017-03-20', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 5'),
+    (13, 2193, 'RTM CU4', 'https://support.microsoft.com/help/3205052 ', '2017-01-17', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 4'),
+    (13, 2186, 'RTM CU3', 'https://support.microsoft.com/help/3205413 ', '2016-11-16', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 3'),
+    (13, 2164, 'RTM CU2', 'https://support.microsoft.com/help/3182270 ', '2016-09-22', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 2'),
+    (13, 2149, 'RTM CU1', 'https://support.microsoft.com/help/3164674 ', '2016-07-25', '2018-01-09', '2018-01-09', 'SQL Server 2016', 'RTM Cumulative Update 1'),
     (13, 1601, 'RTM ', '', '2016-06-01', '2019-01-09', '2019-01-09', 'SQL Server 2016', 'RTM '),
     /*2014*/
     (12, 6449, 'SP3 CU4 GDR', 'https://support.microsoft.com/kb/5029185', '2023-10-12', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 4 GDR'),
     (12, 6444, 'SP3 CU4 GDR', 'https://support.microsoft.com/kb/5021045', '2023-02-14', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 4 GDR'),
-    (12, 6439, 'SP3 CU4 GDR', 'https://support.microsoft.com/en-us/help/5014164', '2022-06-14', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 4 GDR'),
-    (12, 6433, 'SP3 CU4 GDR', 'https://support.microsoft.com/en-us/help/4583462', '2021-01-12', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 4 GDR'),
-    (12, 6372, 'SP3 CU4 GDR', 'https://support.microsoft.com/en-us/help/4535288', '2020-02-11', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 4 GDR'),
-    (12, 6329, 'SP3 CU4', 'https://support.microsoft.com/en-us/help/4500181', '2019-07-29', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 4'),
-    (12, 6259, 'SP3 CU3', 'https://support.microsoft.com/en-us/help/4491539', '2019-04-16', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 3'),
-    (12, 6214, 'SP3 CU2', 'https://support.microsoft.com/en-us/help/4482960', '2019-02-19', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 2'),
-    (12, 6205, 'SP3 CU1', 'https://support.microsoft.com/en-us/help/4470220', '2018-12-12', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 1'),
-    (12, 6164, 'SP3 GDR', 'https://support.microsoft.com/en-us/help/4583463', '2021-01-12', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 GDR'),
-    (12, 6024, 'SP3 ', 'https://support.microsoft.com/en-us/help/4022619', '2018-10-30', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 '),
-    (12, 5687, 'SP2 CU18', 'https://support.microsoft.com/en-us/help/4500180', '2019-07-29', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 18'),
-    (12, 5632, 'SP2 CU17', 'https://support.microsoft.com/en-us/help/4491540', '2019-04-16', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 17'),
-    (12, 5626, 'SP2 CU16', 'https://support.microsoft.com/en-us/help/4482967', '2019-02-19', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 16'),
-    (12, 5605, 'SP2 CU15', 'https://support.microsoft.com/en-us/help/4469137', '2018-12-12', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 15'),
-    (12, 5600, 'SP2 CU14', 'https://support.microsoft.com/en-us/help/4459860', '2018-10-15', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 14'),
-    (12, 5590, 'SP2 CU13', 'https://support.microsoft.com/en-us/help/4456287', '2018-08-27', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 13'),
-    (12, 5589, 'SP2 CU12', 'https://support.microsoft.com/en-us/help/4130489', '2018-06-18', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 12'),
-    (12, 5579, 'SP2 CU11', 'https://support.microsoft.com/en-us/help/4077063', '2018-03-19', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 11'),
-    (12, 5571, 'SP2 CU10', 'https://support.microsoft.com/en-us/help/4052725', '2018-01-16', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 10'),
-    (12, 5563, 'SP2 CU9', 'https://support.microsoft.com/en-us/help/4055557', '2017-12-18', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 9'),
-    (12, 5557, 'SP2 CU8', 'https://support.microsoft.com/en-us/help/4037356', '2017-10-16', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 8'),
-    (12, 5556, 'SP2 CU7', 'https://support.microsoft.com/en-us/help/4032541', '2017-08-28', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 7'),
-    (12, 5553, 'SP2 CU6', 'https://support.microsoft.com/en-us/help/4019094', '2017-08-08', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 6'),
-    (12, 5546, 'SP2 CU5', 'https://support.microsoft.com/en-us/help/4013098', '2017-04-17', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 5'),
-    (12, 5540, 'SP2 CU4', 'https://support.microsoft.com/en-us/help/4010394', '2017-02-21', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 4'),
-    (12, 5538, 'SP2 CU3', 'https://support.microsoft.com/en-us/help/3204388 ', '2016-12-19', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 3'),
-    (12, 5522, 'SP2 CU2', 'https://support.microsoft.com/en-us/help/3188778 ', '2016-10-17', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 2'),
-    (12, 5511, 'SP2 CU1', 'https://support.microsoft.com/en-us/help/3178925 ', '2016-08-25', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 1'),
-    (12, 5000, 'SP2 ', 'https://support.microsoft.com/en-us/help/3171021 ', '2016-07-11', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 '),
-    (12, 4522, 'SP1 CU13', 'https://support.microsoft.com/en-us/help/4019099', '2017-08-08', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 13'),
-    (12, 4511, 'SP1 CU12', 'https://support.microsoft.com/en-us/help/4017793', '2017-04-17', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 12'),
-    (12, 4502, 'SP1 CU11', 'https://support.microsoft.com/en-us/help/4010392', '2017-02-21', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 11'),
-    (12, 4491, 'SP1 CU10', 'https://support.microsoft.com/en-us/help/3204399 ', '2016-12-19', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 10'),
-    (12, 4474, 'SP1 CU9', 'https://support.microsoft.com/en-us/help/3186964 ', '2016-10-17', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 9'),
-    (12, 4468, 'SP1 CU8', 'https://support.microsoft.com/en-us/help/3174038 ', '2016-08-15', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 8'),
-    (12, 4459, 'SP1 CU7', 'https://support.microsoft.com/en-us/help/3162659 ', '2016-06-20', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 7'),
-    (12, 4457, 'SP1 CU6', 'https://support.microsoft.com/en-us/help/3167392 ', '2016-05-30', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 6'),
-    (12, 4449, 'SP1 CU6', 'https://support.microsoft.com/en-us/help/3144524', '2016-04-18', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 6'),
-    (12, 4438, 'SP1 CU5', 'https://support.microsoft.com/en-us/help/3130926', '2016-02-22', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 5'),
-    (12, 4436, 'SP1 CU4', 'https://support.microsoft.com/en-us/help/3106660', '2015-12-21', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 4'),
-    (12, 4427, 'SP1 CU3', 'https://support.microsoft.com/en-us/help/3094221', '2015-10-19', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 3'),
-    (12, 4422, 'SP1 CU2', 'https://support.microsoft.com/en-us/help/3075950', '2015-08-17', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 2'),
-    (12, 4416, 'SP1 CU1', 'https://support.microsoft.com/en-us/help/3067839', '2015-06-19', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 1'),
-    (12, 4213, 'SP1 MS15-058: GDR Security Update', 'https://support.microsoft.com/en-us/help/3070446', '2015-07-14', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 MS15-058: GDR Security Update'),
-    (12, 4100, 'SP1 ', 'https://support.microsoft.com/en-us/help/3058865', '2015-05-04', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 '),
-    (12, 2569, 'RTM CU14', 'https://support.microsoft.com/en-us/help/3158271 ', '2016-06-20', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 14'),
-    (12, 2568, 'RTM CU13', 'https://support.microsoft.com/en-us/help/3144517', '2016-04-18', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 13'),
-    (12, 2564, 'RTM CU12', 'https://support.microsoft.com/en-us/help/3130923', '2016-02-22', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 12'),
-    (12, 2560, 'RTM CU11', 'https://support.microsoft.com/en-us/help/3106659', '2015-12-21', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 11'),
-    (12, 2556, 'RTM CU10', 'https://support.microsoft.com/en-us/help/3094220', '2015-10-19', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 10'),
-    (12, 2553, 'RTM CU9', 'https://support.microsoft.com/en-us/help/3075949', '2015-08-17', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 9'),
-    (12, 2548, 'RTM MS15-058: QFE Security Update', 'https://support.microsoft.com/en-us/help/3045323', '2015-07-14', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM MS15-058: QFE Security Update'),
-    (12, 2546, 'RTM CU8', 'https://support.microsoft.com/en-us/help/3067836', '2015-06-19', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 8'),
-    (12, 2495, 'RTM CU7', 'https://support.microsoft.com/en-us/help/3046038', '2015-04-20', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 7'),
-    (12, 2480, 'RTM CU6', 'https://support.microsoft.com/en-us/help/3031047', '2015-02-16', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 6'),
-    (12, 2456, 'RTM CU5', 'https://support.microsoft.com/en-us/help/3011055', '2014-12-17', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 5'),
-    (12, 2430, 'RTM CU4', 'https://support.microsoft.com/en-us/help/2999197', '2014-10-21', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 4'),
-    (12, 2402, 'RTM CU3', 'https://support.microsoft.com/en-us/help/2984923', '2014-08-18', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 3'),
-    (12, 2381, 'RTM MS14-044: QFE Security Update', 'https://support.microsoft.com/en-us/help/2977316', '2014-08-12', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM MS14-044: QFE Security Update'),
-    (12, 2370, 'RTM CU2', 'https://support.microsoft.com/en-us/help/2967546', '2014-06-27', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 2'),
-    (12, 2342, 'RTM CU1', 'https://support.microsoft.com/en-us/help/2931693', '2014-04-21', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 1'),
-    (12, 2269, 'RTM MS15-058: GDR Security Update ', 'https://support.microsoft.com/en-us/help/3045324', '2015-07-14', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM MS15-058: GDR Security Update '),
-    (12, 2254, 'RTM MS14-044: GDR Security Update', 'https://support.microsoft.com/en-us/help/2977315', '2014-08-12', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM MS14-044: GDR Security Update'),
+    (12, 6439, 'SP3 CU4 GDR', 'https://support.microsoft.com/help/5014164', '2022-06-14', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 4 GDR'),
+    (12, 6433, 'SP3 CU4 GDR', 'https://support.microsoft.com/help/4583462', '2021-01-12', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 4 GDR'),
+    (12, 6372, 'SP3 CU4 GDR', 'https://support.microsoft.com/help/4535288', '2020-02-11', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 4 GDR'),
+    (12, 6329, 'SP3 CU4', 'https://support.microsoft.com/help/4500181', '2019-07-29', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 4'),
+    (12, 6259, 'SP3 CU3', 'https://support.microsoft.com/help/4491539', '2019-04-16', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 3'),
+    (12, 6214, 'SP3 CU2', 'https://support.microsoft.com/help/4482960', '2019-02-19', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 2'),
+    (12, 6205, 'SP3 CU1', 'https://support.microsoft.com/help/4470220', '2018-12-12', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 Cumulative Update 1'),
+    (12, 6164, 'SP3 GDR', 'https://support.microsoft.com/help/4583463', '2021-01-12', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 GDR'),
+    (12, 6024, 'SP3 ', 'https://support.microsoft.com/help/4022619', '2018-10-30', '2019-07-09', '2024-07-09', 'SQL Server 2014', 'Service Pack 3 '),
+    (12, 5687, 'SP2 CU18', 'https://support.microsoft.com/help/4500180', '2019-07-29', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 18'),
+    (12, 5632, 'SP2 CU17', 'https://support.microsoft.com/help/4491540', '2019-04-16', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 17'),
+    (12, 5626, 'SP2 CU16', 'https://support.microsoft.com/help/4482967', '2019-02-19', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 16'),
+    (12, 5605, 'SP2 CU15', 'https://support.microsoft.com/help/4469137', '2018-12-12', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 15'),
+    (12, 5600, 'SP2 CU14', 'https://support.microsoft.com/help/4459860', '2018-10-15', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 14'),
+    (12, 5590, 'SP2 CU13', 'https://support.microsoft.com/help/4456287', '2018-08-27', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 13'),
+    (12, 5589, 'SP2 CU12', 'https://support.microsoft.com/help/4130489', '2018-06-18', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 12'),
+    (12, 5579, 'SP2 CU11', 'https://support.microsoft.com/help/4077063', '2018-03-19', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 11'),
+    (12, 5571, 'SP2 CU10', 'https://support.microsoft.com/help/4052725', '2018-01-16', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 10'),
+    (12, 5563, 'SP2 CU9', 'https://support.microsoft.com/help/4055557', '2017-12-18', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 9'),
+    (12, 5557, 'SP2 CU8', 'https://support.microsoft.com/help/4037356', '2017-10-16', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 8'),
+    (12, 5556, 'SP2 CU7', 'https://support.microsoft.com/help/4032541', '2017-08-28', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 7'),
+    (12, 5553, 'SP2 CU6', 'https://support.microsoft.com/help/4019094', '2017-08-08', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 6'),
+    (12, 5546, 'SP2 CU5', 'https://support.microsoft.com/help/4013098', '2017-04-17', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 5'),
+    (12, 5540, 'SP2 CU4', 'https://support.microsoft.com/help/4010394', '2017-02-21', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 4'),
+    (12, 5538, 'SP2 CU3', 'https://support.microsoft.com/help/3204388 ', '2016-12-19', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 3'),
+    (12, 5522, 'SP2 CU2', 'https://support.microsoft.com/help/3188778 ', '2016-10-17', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 2'),
+    (12, 5511, 'SP2 CU1', 'https://support.microsoft.com/help/3178925 ', '2016-08-25', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 Cumulative Update 1'),
+    (12, 5000, 'SP2 ', 'https://support.microsoft.com/help/3171021 ', '2016-07-11', '2020-01-14', '2020-01-14', 'SQL Server 2014', 'Service Pack 2 '),
+    (12, 4522, 'SP1 CU13', 'https://support.microsoft.com/help/4019099', '2017-08-08', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 13'),
+    (12, 4511, 'SP1 CU12', 'https://support.microsoft.com/help/4017793', '2017-04-17', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 12'),
+    (12, 4502, 'SP1 CU11', 'https://support.microsoft.com/help/4010392', '2017-02-21', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 11'),
+    (12, 4491, 'SP1 CU10', 'https://support.microsoft.com/help/3204399 ', '2016-12-19', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 10'),
+    (12, 4474, 'SP1 CU9', 'https://support.microsoft.com/help/3186964 ', '2016-10-17', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 9'),
+    (12, 4468, 'SP1 CU8', 'https://support.microsoft.com/help/3174038 ', '2016-08-15', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 8'),
+    (12, 4459, 'SP1 CU7', 'https://support.microsoft.com/help/3162659 ', '2016-06-20', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 7'),
+    (12, 4457, 'SP1 CU6', 'https://support.microsoft.com/help/3167392 ', '2016-05-30', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 6'),
+    (12, 4449, 'SP1 CU6', 'https://support.microsoft.com/help/3144524', '2016-04-18', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 6'),
+    (12, 4438, 'SP1 CU5', 'https://support.microsoft.com/help/3130926', '2016-02-22', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 5'),
+    (12, 4436, 'SP1 CU4', 'https://support.microsoft.com/help/3106660', '2015-12-21', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 4'),
+    (12, 4427, 'SP1 CU3', 'https://support.microsoft.com/help/3094221', '2015-10-19', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 3'),
+    (12, 4422, 'SP1 CU2', 'https://support.microsoft.com/help/3075950', '2015-08-17', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 2'),
+    (12, 4416, 'SP1 CU1', 'https://support.microsoft.com/help/3067839', '2015-06-19', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 Cumulative Update 1'),
+    (12, 4213, 'SP1 MS15-058: GDR Security Update', 'https://support.microsoft.com/help/3070446', '2015-07-14', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 MS15-058: GDR Security Update'),
+    (12, 4100, 'SP1 ', 'https://support.microsoft.com/help/3058865', '2015-05-04', '2017-10-10', '2017-10-10', 'SQL Server 2014', 'Service Pack 1 '),
+    (12, 2569, 'RTM CU14', 'https://support.microsoft.com/help/3158271 ', '2016-06-20', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 14'),
+    (12, 2568, 'RTM CU13', 'https://support.microsoft.com/help/3144517', '2016-04-18', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 13'),
+    (12, 2564, 'RTM CU12', 'https://support.microsoft.com/help/3130923', '2016-02-22', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 12'),
+    (12, 2560, 'RTM CU11', 'https://support.microsoft.com/help/3106659', '2015-12-21', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 11'),
+    (12, 2556, 'RTM CU10', 'https://support.microsoft.com/help/3094220', '2015-10-19', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 10'),
+    (12, 2553, 'RTM CU9', 'https://support.microsoft.com/help/3075949', '2015-08-17', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 9'),
+    (12, 2548, 'RTM MS15-058: QFE Security Update', 'https://support.microsoft.com/help/3045323', '2015-07-14', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM MS15-058: QFE Security Update'),
+    (12, 2546, 'RTM CU8', 'https://support.microsoft.com/help/3067836', '2015-06-19', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 8'),
+    (12, 2495, 'RTM CU7', 'https://support.microsoft.com/help/3046038', '2015-04-20', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 7'),
+    (12, 2480, 'RTM CU6', 'https://support.microsoft.com/help/3031047', '2015-02-16', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 6'),
+    (12, 2456, 'RTM CU5', 'https://support.microsoft.com/help/3011055', '2014-12-17', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 5'),
+    (12, 2430, 'RTM CU4', 'https://support.microsoft.com/help/2999197', '2014-10-21', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 4'),
+    (12, 2402, 'RTM CU3', 'https://support.microsoft.com/help/2984923', '2014-08-18', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 3'),
+    (12, 2381, 'RTM MS14-044: QFE Security Update', 'https://support.microsoft.com/help/2977316', '2014-08-12', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM MS14-044: QFE Security Update'),
+    (12, 2370, 'RTM CU2', 'https://support.microsoft.com/help/2967546', '2014-06-27', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 2'),
+    (12, 2342, 'RTM CU1', 'https://support.microsoft.com/help/2931693', '2014-04-21', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM Cumulative Update 1'),
+    (12, 2269, 'RTM MS15-058: GDR Security Update ', 'https://support.microsoft.com/help/3045324', '2015-07-14', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM MS15-058: GDR Security Update '),
+    (12, 2254, 'RTM MS14-044: GDR Security Update', 'https://support.microsoft.com/help/2977315', '2014-08-12', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM MS14-044: GDR Security Update'),
     (12, 2000, 'RTM ', '', '2014-04-01', '2016-07-12', '2016-07-12', 'SQL Server 2014', 'RTM '),
     /*2012*/
-    (11, 7512, 'SP4 GDR Security Update', 'https://support.microsoft.com/en-us/help/5021123', '2023-02-16', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'Service Pack 4 GDR Security Update for CVE-2021-1636'),
-    (11, 7507, 'SP4 GDR Security Update', 'https://support.microsoft.com/en-us/help/4583465', '2021-01-12', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'Service Pack 4 GDR Security Update for CVE-2021-1636'),
-    (11, 7493, 'SP4 GDR Security Update', 'https://support.microsoft.com/en-us/help/4532098', '2020-02-11', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'Service Pack 4 GDR Security Update for CVE-2020-0618'),
-    (11, 7469, 'SP4 On-Demand Hotfix Update', 'https://support.microsoft.com/en-us/help/4091266', '2018-03-28', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'Service Pack 4 SP4 On-Demand Hotfix Update'),
-    (11, 7462, 'SP4 ADV180002: GDR Security Update', 'https://support.microsoft.com/en-us/help/4057116', '2018-01-12', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'Service Pack 4 ADV180002: GDR Security Update'),
-    (11, 7001, 'SP4 ', 'https://support.microsoft.com/en-us/help/4018073', '2017-10-02', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'Service Pack 4 '),
-    (11, 6607, 'SP3 CU10', 'https://support.microsoft.com/en-us/help/4025925', '2017-08-08', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 10'),
-    (11, 6598, 'SP3 CU9', 'https://support.microsoft.com/en-us/help/4016762', '2017-05-15', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 9'),
-    (11, 6594, 'SP3 CU8', 'https://support.microsoft.com/en-us/help/3205051 ', '2017-03-20', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 8'),
-    (11, 6579, 'SP3 CU7', 'https://support.microsoft.com/en-us/help/3205051 ', '2017-01-17', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 7'),
-    (11, 6567, 'SP3 CU6', 'https://support.microsoft.com/en-us/help/3194992 ', '2016-11-17', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 6'),
-    (11, 6544, 'SP3 CU5', 'https://support.microsoft.com/en-us/help/3180915 ', '2016-09-19', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 5'),
-    (11, 6540, 'SP3 CU4', 'https://support.microsoft.com/en-us/help/3165264 ', '2016-07-18', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 4'),
-    (11, 6537, 'SP3 CU3', 'https://support.microsoft.com/en-us/help/3152635 ', '2016-05-16', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 3'),
-    (11, 6523, 'SP3 CU2', 'https://support.microsoft.com/en-us/help/3137746', '2016-03-21', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 2'),
-    (11, 6518, 'SP3 CU1', 'https://support.microsoft.com/en-us/help/3123299', '2016-01-19', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 1'),
-    (11, 6020, 'SP3 ', 'https://support.microsoft.com/en-us/help/3072779', '2015-11-20', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 '),
-    (11, 5678, 'SP2 CU16', 'https://support.microsoft.com/en-us/help/3205416 ', '2016-11-17', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 16'),
-    (11, 5676, 'SP2 CU15', 'https://support.microsoft.com/en-us/help/3205416 ', '2016-11-17', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 15'),
-    (11, 5657, 'SP2 CU14', 'https://support.microsoft.com/en-us/help/3180914 ', '2016-09-19', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 14'),
-    (11, 5655, 'SP2 CU13', 'https://support.microsoft.com/en-us/help/3165266 ', '2016-07-18', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 13'),
-    (11, 5649, 'SP2 CU12', 'https://support.microsoft.com/en-us/help/3152637 ', '2016-05-16', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 12'),
-    (11, 5646, 'SP2 CU11', 'https://support.microsoft.com/en-us/help/3137745', '2016-03-21', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 11'),
-    (11, 5644, 'SP2 CU10', 'https://support.microsoft.com/en-us/help/3120313', '2016-01-19', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 10'),
-    (11, 5641, 'SP2 CU9', 'https://support.microsoft.com/en-us/help/3098512', '2015-11-16', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 9'),
-    (11, 5634, 'SP2 CU8', 'https://support.microsoft.com/en-us/help/3082561', '2015-09-21', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 8'),
-    (11, 5623, 'SP2 CU7', 'https://support.microsoft.com/en-us/help/3072100', '2015-07-20', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 7'),
-    (11, 5613, 'SP2 MS15-058: QFE Security Update', 'https://support.microsoft.com/en-us/help/3045319', '2015-07-14', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 MS15-058: QFE Security Update'),
-    (11, 5592, 'SP2 CU6', 'https://support.microsoft.com/en-us/help/3052468', '2015-05-18', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 6'),
-    (11, 5582, 'SP2 CU5', 'https://support.microsoft.com/en-us/help/3037255', '2015-03-16', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 5'),
-    (11, 5569, 'SP2 CU4', 'https://support.microsoft.com/en-us/help/3007556', '2015-01-19', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 4'),
-    (11, 5556, 'SP2 CU3', 'https://support.microsoft.com/en-us/help/3002049', '2014-11-17', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 3'),
-    (11, 5548, 'SP2 CU2', 'https://support.microsoft.com/en-us/help/2983175', '2014-09-15', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 2'),
-    (11, 5532, 'SP2 CU1', 'https://support.microsoft.com/en-us/help/2976982', '2014-07-23', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 1'),
-    (11, 5343, 'SP2 MS15-058: GDR Security Update', 'https://support.microsoft.com/en-us/help/3045321', '2015-07-14', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 MS15-058: GDR Security Update'),
-    (11, 5058, 'SP2 ', 'https://support.microsoft.com/en-us/help/2958429', '2014-06-10', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 '),
-    (11, 3513, 'SP1 MS15-058: QFE Security Update', 'https://support.microsoft.com/en-us/help/3045317', '2015-07-14', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 MS15-058: QFE Security Update'),
-    (11, 3482, 'SP1 CU13', 'https://support.microsoft.com/en-us/help/3002044', '2014-11-17', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 13'),
-    (11, 3470, 'SP1 CU12', 'https://support.microsoft.com/en-us/help/2991533', '2014-09-15', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 12'),
-    (11, 3460, 'SP1 MS14-044: QFE Security Update ', 'https://support.microsoft.com/en-us/help/2977325', '2014-08-12', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 MS14-044: QFE Security Update '),
-    (11, 3449, 'SP1 CU11', 'https://support.microsoft.com/en-us/help/2975396', '2014-07-21', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 11'),
-    (11, 3431, 'SP1 CU10', 'https://support.microsoft.com/en-us/help/2954099', '2014-05-19', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 10'),
-    (11, 3412, 'SP1 CU9', 'https://support.microsoft.com/en-us/help/2931078', '2014-03-17', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 9'),
-    (11, 3401, 'SP1 CU8', 'https://support.microsoft.com/en-us/help/2917531', '2014-01-20', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 8'),
-    (11, 3393, 'SP1 CU7', 'https://support.microsoft.com/en-us/help/2894115', '2013-11-18', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 7'),
-    (11, 3381, 'SP1 CU6', 'https://support.microsoft.com/en-us/help/2874879', '2013-09-16', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 6'),
-    (11, 3373, 'SP1 CU5', 'https://support.microsoft.com/en-us/help/2861107', '2013-07-15', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 5'),
-    (11, 3368, 'SP1 CU4', 'https://support.microsoft.com/en-us/help/2833645', '2013-05-30', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 4'),
-    (11, 3349, 'SP1 CU3', 'https://support.microsoft.com/en-us/help/2812412', '2013-03-18', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 3'),
-    (11, 3339, 'SP1 CU2', 'https://support.microsoft.com/en-us/help/2790947', '2013-01-21', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 2'),
-    (11, 3321, 'SP1 CU1', 'https://support.microsoft.com/en-us/help/2765331', '2012-11-20', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 1'),
-    (11, 3156, 'SP1 MS15-058: GDR Security Update', 'https://support.microsoft.com/en-us/help/3045318', '2015-07-14', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 MS15-058: GDR Security Update'),
-    (11, 3153, 'SP1 MS14-044: GDR Security Update', 'https://support.microsoft.com/en-us/help/2977326', '2014-08-12', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 MS14-044: GDR Security Update'),
-    (11, 3000, 'SP1 ', 'https://support.microsoft.com/en-us/help/2674319', '2012-11-07', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 '),
-    (11, 2424, 'RTM CU11', 'https://support.microsoft.com/en-us/help/2908007', '2013-12-16', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 11'),
-    (11, 2420, 'RTM CU10', 'https://support.microsoft.com/en-us/help/2891666', '2013-10-21', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 10'),
-    (11, 2419, 'RTM CU9', 'https://support.microsoft.com/en-us/help/2867319', '2013-08-20', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 9'),
-    (11, 2410, 'RTM CU8', 'https://support.microsoft.com/en-us/help/2844205', '2013-06-17', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 8'),
-    (11, 2405, 'RTM CU7', 'https://support.microsoft.com/en-us/help/2823247', '2013-04-15', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 7'),
-    (11, 2401, 'RTM CU6', 'https://support.microsoft.com/en-us/help/2728897', '2013-02-18', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 6'),
-    (11, 2395, 'RTM CU5', 'https://support.microsoft.com/en-us/help/2777772', '2012-12-17', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 5'),
-    (11, 2383, 'RTM CU4', 'https://support.microsoft.com/en-us/help/2758687', '2012-10-15', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 4'),
-    (11, 2376, 'RTM MS12-070: QFE Security Update', 'https://support.microsoft.com/en-us/help/2716441', '2012-10-09', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM MS12-070: QFE Security Update'),
-    (11, 2332, 'RTM CU3', 'https://support.microsoft.com/en-us/help/2723749', '2012-08-31', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 3'),
-    (11, 2325, 'RTM CU2', 'https://support.microsoft.com/en-us/help/2703275', '2012-06-18', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 2'),
-    (11, 2316, 'RTM CU1', 'https://support.microsoft.com/en-us/help/2679368', '2012-04-12', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 1'),
-    (11, 2218, 'RTM MS12-070: GDR Security Update', 'https://support.microsoft.com/en-us/help/2716442', '2012-10-09', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM MS12-070: GDR Security Update'),
+    (11, 7512, 'SP4 GDR Security Update', 'https://support.microsoft.com/help/5021123', '2023-02-16', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'Service Pack 4 GDR Security Update for CVE-2021-1636'),
+    (11, 7507, 'SP4 GDR Security Update', 'https://support.microsoft.com/help/4583465', '2021-01-12', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'Service Pack 4 GDR Security Update for CVE-2021-1636'),
+    (11, 7493, 'SP4 GDR Security Update', 'https://support.microsoft.com/help/4532098', '2020-02-11', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'Service Pack 4 GDR Security Update for CVE-2020-0618'),
+    (11, 7469, 'SP4 On-Demand Hotfix Update', 'https://support.microsoft.com/help/4091266', '2018-03-28', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'Service Pack 4 SP4 On-Demand Hotfix Update'),
+    (11, 7462, 'SP4 ADV180002: GDR Security Update', 'https://support.microsoft.com/help/4057116', '2018-01-12', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'Service Pack 4 ADV180002: GDR Security Update'),
+    (11, 7001, 'SP4 ', 'https://support.microsoft.com/help/4018073', '2017-10-02', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'Service Pack 4 '),
+    (11, 6607, 'SP3 CU10', 'https://support.microsoft.com/help/4025925', '2017-08-08', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 10'),
+    (11, 6598, 'SP3 CU9', 'https://support.microsoft.com/help/4016762', '2017-05-15', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 9'),
+    (11, 6594, 'SP3 CU8', 'https://support.microsoft.com/help/3205051 ', '2017-03-20', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 8'),
+    (11, 6579, 'SP3 CU7', 'https://support.microsoft.com/help/3205051 ', '2017-01-17', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 7'),
+    (11, 6567, 'SP3 CU6', 'https://support.microsoft.com/help/3194992 ', '2016-11-17', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 6'),
+    (11, 6544, 'SP3 CU5', 'https://support.microsoft.com/help/3180915 ', '2016-09-19', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 5'),
+    (11, 6540, 'SP3 CU4', 'https://support.microsoft.com/help/3165264 ', '2016-07-18', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 4'),
+    (11, 6537, 'SP3 CU3', 'https://support.microsoft.com/help/3152635 ', '2016-05-16', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 3'),
+    (11, 6523, 'SP3 CU2', 'https://support.microsoft.com/help/3137746', '2016-03-21', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 2'),
+    (11, 6518, 'SP3 CU1', 'https://support.microsoft.com/help/3123299', '2016-01-19', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 Cumulative Update 1'),
+    (11, 6020, 'SP3 ', 'https://support.microsoft.com/help/3072779', '2015-11-20', '2018-10-09', '2018-10-09', 'SQL Server 2012', 'Service Pack 3 '),
+    (11, 5678, 'SP2 CU16', 'https://support.microsoft.com/help/3205416 ', '2016-11-17', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 16'),
+    (11, 5676, 'SP2 CU15', 'https://support.microsoft.com/help/3205416 ', '2016-11-17', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 15'),
+    (11, 5657, 'SP2 CU14', 'https://support.microsoft.com/help/3180914 ', '2016-09-19', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 14'),
+    (11, 5655, 'SP2 CU13', 'https://support.microsoft.com/help/3165266 ', '2016-07-18', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 13'),
+    (11, 5649, 'SP2 CU12', 'https://support.microsoft.com/help/3152637 ', '2016-05-16', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 12'),
+    (11, 5646, 'SP2 CU11', 'https://support.microsoft.com/help/3137745', '2016-03-21', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 11'),
+    (11, 5644, 'SP2 CU10', 'https://support.microsoft.com/help/3120313', '2016-01-19', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 10'),
+    (11, 5641, 'SP2 CU9', 'https://support.microsoft.com/help/3098512', '2015-11-16', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 9'),
+    (11, 5634, 'SP2 CU8', 'https://support.microsoft.com/help/3082561', '2015-09-21', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 8'),
+    (11, 5623, 'SP2 CU7', 'https://support.microsoft.com/help/3072100', '2015-07-20', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 7'),
+    (11, 5613, 'SP2 MS15-058: QFE Security Update', 'https://support.microsoft.com/help/3045319', '2015-07-14', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 MS15-058: QFE Security Update'),
+    (11, 5592, 'SP2 CU6', 'https://support.microsoft.com/help/3052468', '2015-05-18', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 6'),
+    (11, 5582, 'SP2 CU5', 'https://support.microsoft.com/help/3037255', '2015-03-16', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 5'),
+    (11, 5569, 'SP2 CU4', 'https://support.microsoft.com/help/3007556', '2015-01-19', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 4'),
+    (11, 5556, 'SP2 CU3', 'https://support.microsoft.com/help/3002049', '2014-11-17', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 3'),
+    (11, 5548, 'SP2 CU2', 'https://support.microsoft.com/help/2983175', '2014-09-15', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 2'),
+    (11, 5532, 'SP2 CU1', 'https://support.microsoft.com/help/2976982', '2014-07-23', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 Cumulative Update 1'),
+    (11, 5343, 'SP2 MS15-058: GDR Security Update', 'https://support.microsoft.com/help/3045321', '2015-07-14', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 MS15-058: GDR Security Update'),
+    (11, 5058, 'SP2 ', 'https://support.microsoft.com/help/2958429', '2014-06-10', '2017-01-10', '2017-01-10', 'SQL Server 2012', 'Service Pack 2 '),
+    (11, 3513, 'SP1 MS15-058: QFE Security Update', 'https://support.microsoft.com/help/3045317', '2015-07-14', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 MS15-058: QFE Security Update'),
+    (11, 3482, 'SP1 CU13', 'https://support.microsoft.com/help/3002044', '2014-11-17', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 13'),
+    (11, 3470, 'SP1 CU12', 'https://support.microsoft.com/help/2991533', '2014-09-15', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 12'),
+    (11, 3460, 'SP1 MS14-044: QFE Security Update ', 'https://support.microsoft.com/help/2977325', '2014-08-12', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 MS14-044: QFE Security Update '),
+    (11, 3449, 'SP1 CU11', 'https://support.microsoft.com/help/2975396', '2014-07-21', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 11'),
+    (11, 3431, 'SP1 CU10', 'https://support.microsoft.com/help/2954099', '2014-05-19', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 10'),
+    (11, 3412, 'SP1 CU9', 'https://support.microsoft.com/help/2931078', '2014-03-17', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 9'),
+    (11, 3401, 'SP1 CU8', 'https://support.microsoft.com/help/2917531', '2014-01-20', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 8'),
+    (11, 3393, 'SP1 CU7', 'https://support.microsoft.com/help/2894115', '2013-11-18', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 7'),
+    (11, 3381, 'SP1 CU6', 'https://support.microsoft.com/help/2874879', '2013-09-16', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 6'),
+    (11, 3373, 'SP1 CU5', 'https://support.microsoft.com/help/2861107', '2013-07-15', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 5'),
+    (11, 3368, 'SP1 CU4', 'https://support.microsoft.com/help/2833645', '2013-05-30', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 4'),
+    (11, 3349, 'SP1 CU3', 'https://support.microsoft.com/help/2812412', '2013-03-18', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 3'),
+    (11, 3339, 'SP1 CU2', 'https://support.microsoft.com/help/2790947', '2013-01-21', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 2'),
+    (11, 3321, 'SP1 CU1', 'https://support.microsoft.com/help/2765331', '2012-11-20', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 Cumulative Update 1'),
+    (11, 3156, 'SP1 MS15-058: GDR Security Update', 'https://support.microsoft.com/help/3045318', '2015-07-14', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 MS15-058: GDR Security Update'),
+    (11, 3153, 'SP1 MS14-044: GDR Security Update', 'https://support.microsoft.com/help/2977326', '2014-08-12', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 MS14-044: GDR Security Update'),
+    (11, 3000, 'SP1 ', 'https://support.microsoft.com/help/2674319', '2012-11-07', '2015-07-14', '2015-07-14', 'SQL Server 2012', 'Service Pack 1 '),
+    (11, 2424, 'RTM CU11', 'https://support.microsoft.com/help/2908007', '2013-12-16', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 11'),
+    (11, 2420, 'RTM CU10', 'https://support.microsoft.com/help/2891666', '2013-10-21', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 10'),
+    (11, 2419, 'RTM CU9', 'https://support.microsoft.com/help/2867319', '2013-08-20', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 9'),
+    (11, 2410, 'RTM CU8', 'https://support.microsoft.com/help/2844205', '2013-06-17', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 8'),
+    (11, 2405, 'RTM CU7', 'https://support.microsoft.com/help/2823247', '2013-04-15', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 7'),
+    (11, 2401, 'RTM CU6', 'https://support.microsoft.com/help/2728897', '2013-02-18', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 6'),
+    (11, 2395, 'RTM CU5', 'https://support.microsoft.com/help/2777772', '2012-12-17', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 5'),
+    (11, 2383, 'RTM CU4', 'https://support.microsoft.com/help/2758687', '2012-10-15', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 4'),
+    (11, 2376, 'RTM MS12-070: QFE Security Update', 'https://support.microsoft.com/help/2716441', '2012-10-09', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM MS12-070: QFE Security Update'),
+    (11, 2332, 'RTM CU3', 'https://support.microsoft.com/help/2723749', '2012-08-31', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 3'),
+    (11, 2325, 'RTM CU2', 'https://support.microsoft.com/help/2703275', '2012-06-18', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 2'),
+    (11, 2316, 'RTM CU1', 'https://support.microsoft.com/help/2679368', '2012-04-12', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM Cumulative Update 1'),
+    (11, 2218, 'RTM MS12-070: GDR Security Update', 'https://support.microsoft.com/help/2716442', '2012-10-09', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM MS12-070: GDR Security Update'),
     (11, 2100, 'RTM ', '', '2012-03-06', '2017-07-11', '2022-07-12', 'SQL Server 2012', 'RTM '),
     /*2008 R2*/
     (10, 6560, 'SP3 GDR: January 6 2018', 'http://support.microsoft.com/help/4057113', '2015-07-14', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'SP3 GDR: January 6 2018'),
-    (10, 6529, 'SP3 MS15-058: QFE Security Update', 'https://support.microsoft.com/en-us/help/3045314', '2015-07-14', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'Service Pack 3 MS15-058: QFE Security Update'),
-    (10, 6220, 'SP3 MS15-058: QFE Security Update', 'https://support.microsoft.com/en-us/help/3045316', '2015-07-14', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'Service Pack 3 MS15-058: QFE Security Update'),
-    (10, 6000, 'SP3 ', 'https://support.microsoft.com/en-us/help/2979597', '2014-09-26', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'Service Pack 3 '),
-    (10, 4339, 'SP2 MS15-058: QFE Security Update', 'https://support.microsoft.com/en-us/help/3045312', '2015-07-14', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 MS15-058: QFE Security Update'),
-    (10, 4321, 'SP2 MS14-044: QFE Security Update', 'https://support.microsoft.com/en-us/help/2977319', '2014-08-14', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 MS14-044: QFE Security Update'),
-    (10, 4319, 'SP2 CU13', 'https://support.microsoft.com/en-us/help/2967540', '2014-06-30', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 13'),
-    (10, 4305, 'SP2 CU12', 'https://support.microsoft.com/en-us/help/2938478', '2014-04-21', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 12'),
-    (10, 4302, 'SP2 CU11', 'https://support.microsoft.com/en-us/help/2926028', '2014-02-18', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 11'),
-    (10, 4297, 'SP2 CU10', 'https://support.microsoft.com/en-us/help/2908087', '2013-12-17', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 10'),
-    (10, 4295, 'SP2 CU9', 'https://support.microsoft.com/en-us/help/2887606', '2013-10-28', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 9'),
-    (10, 4290, 'SP2 CU8', 'https://support.microsoft.com/en-us/help/2871401', '2013-08-22', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 8'),
-    (10, 4285, 'SP2 CU7', 'https://support.microsoft.com/en-us/help/2844090', '2013-06-17', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 7'),
-    (10, 4279, 'SP2 CU6', 'https://support.microsoft.com/en-us/help/2830140', '2013-04-15', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 6'),
-    (10, 4276, 'SP2 CU5', 'https://support.microsoft.com/en-us/help/2797460', '2013-02-18', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 5'),
-    (10, 4270, 'SP2 CU4', 'https://support.microsoft.com/en-us/help/2777358', '2012-12-17', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 4'),
-    (10, 4266, 'SP2 CU3', 'https://support.microsoft.com/en-us/help/2754552', '2012-10-15', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 3'),
-    (10, 4263, 'SP2 CU2', 'https://support.microsoft.com/en-us/help/2740411', '2012-08-31', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 2'),
-    (10, 4260, 'SP2 CU1', 'https://support.microsoft.com/en-us/help/2720425', '2012-07-24', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 1'),
-    (10, 4042, 'SP2 MS15-058: GDR Security Update', 'https://support.microsoft.com/en-us/help/3045313', '2015-07-14', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 MS15-058: GDR Security Update'),
-    (10, 4033, 'SP2 MS14-044: GDR Security Update', 'https://support.microsoft.com/en-us/help/2977320', '2014-08-12', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 MS14-044: GDR Security Update'),
-    (10, 4000, 'SP2 ', 'https://support.microsoft.com/en-us/help/2630458', '2012-07-26', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 '),
-    (10, 2881, 'SP1 CU14', 'https://support.microsoft.com/en-us/help/2868244', '2013-08-08', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 14'),
-    (10, 2876, 'SP1 CU13', 'https://support.microsoft.com/en-us/help/2855792', '2013-06-17', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 13'),
-    (10, 2874, 'SP1 CU12', 'https://support.microsoft.com/en-us/help/2828727', '2013-04-15', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 12'),
-    (10, 2869, 'SP1 CU11', 'https://support.microsoft.com/en-us/help/2812683', '2013-02-18', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 11'),
-    (10, 2868, 'SP1 CU10', 'https://support.microsoft.com/en-us/help/2783135', '2012-12-17', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 10'),
-    (10, 2866, 'SP1 CU9', 'https://support.microsoft.com/en-us/help/2756574', '2012-10-15', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 9'),
-    (10, 2861, 'SP1 MS12-070: QFE Security Update', 'https://support.microsoft.com/en-us/help/2716439', '2012-10-09', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 MS12-070: QFE Security Update'),
-    (10, 2822, 'SP1 CU8', 'https://support.microsoft.com/en-us/help/2723743', '2012-08-31', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 8'),
-    (10, 2817, 'SP1 CU7', 'https://support.microsoft.com/en-us/help/2703282', '2012-06-18', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 7'),
-    (10, 2811, 'SP1 CU6', 'https://support.microsoft.com/en-us/help/2679367', '2012-04-16', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 6'),
-    (10, 2806, 'SP1 CU5', 'https://support.microsoft.com/en-us/help/2659694', '2012-02-22', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 5'),
-    (10, 2796, 'SP1 CU4', 'https://support.microsoft.com/en-us/help/2633146', '2011-12-19', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 4'),
-    (10, 2789, 'SP1 CU3', 'https://support.microsoft.com/en-us/help/2591748', '2011-10-17', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 3'),
-    (10, 2772, 'SP1 CU2', 'https://support.microsoft.com/en-us/help/2567714', '2011-08-15', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 2'),
-    (10, 2769, 'SP1 CU1', 'https://support.microsoft.com/en-us/help/2544793', '2011-07-18', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 1'),
-    (10, 2550, 'SP1 MS12-070: GDR Security Update', 'https://support.microsoft.com/en-us/help/2754849', '2012-10-09', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 MS12-070: GDR Security Update'),
-    (10, 2500, 'SP1 ', 'https://support.microsoft.com/en-us/help/2528583', '2011-07-12', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 '),
-    (10, 1815, 'RTM CU13', 'https://support.microsoft.com/en-us/help/2679366', '2012-04-16', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 13'),
-    (10, 1810, 'RTM CU12', 'https://support.microsoft.com/en-us/help/2659692', '2012-02-21', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 12'),
-    (10, 1809, 'RTM CU11', 'https://support.microsoft.com/en-us/help/2633145', '2011-12-19', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 11'),
-    (10, 1807, 'RTM CU10', 'https://support.microsoft.com/en-us/help/2591746', '2011-10-17', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 10'),
-    (10, 1804, 'RTM CU9', 'https://support.microsoft.com/en-us/help/2567713', '2011-08-15', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 9'),
-    (10, 1797, 'RTM CU8', 'https://support.microsoft.com/en-us/help/2534352', '2011-06-20', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 8'),
-    (10, 1790, 'RTM MS11-049: QFE Security Update', 'https://support.microsoft.com/en-us/help/2494086', '2011-06-14', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM MS11-049: QFE Security Update'),
-    (10, 1777, 'RTM CU7', 'https://support.microsoft.com/en-us/help/2507770', '2011-04-18', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 7'),
-    (10, 1765, 'RTM CU6', 'https://support.microsoft.com/en-us/help/2489376', '2011-02-21', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 6'),
-    (10, 1753, 'RTM CU5', 'https://support.microsoft.com/en-us/help/2438347', '2010-12-20', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 5'),
-    (10, 1746, 'RTM CU4', 'https://support.microsoft.com/en-us/help/2345451', '2010-10-18', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 4'),
-    (10, 1734, 'RTM CU3', 'https://support.microsoft.com/en-us/help/2261464', '2010-08-16', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 3'),
-    (10, 1720, 'RTM CU2', 'https://support.microsoft.com/en-us/help/2072493', '2010-06-21', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 2'),
-    (10, 1702, 'RTM CU1', 'https://support.microsoft.com/en-us/help/981355', '2010-05-18', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 1'),
-    (10, 1617, 'RTM MS11-049: GDR Security Update', 'https://support.microsoft.com/en-us/help/2494088', '2011-06-14', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM MS11-049: GDR Security Update'),
+    (10, 6529, 'SP3 MS15-058: QFE Security Update', 'https://support.microsoft.com/help/3045314', '2015-07-14', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'Service Pack 3 MS15-058: QFE Security Update'),
+    (10, 6220, 'SP3 MS15-058: QFE Security Update', 'https://support.microsoft.com/help/3045316', '2015-07-14', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'Service Pack 3 MS15-058: QFE Security Update'),
+    (10, 6000, 'SP3 ', 'https://support.microsoft.com/help/2979597', '2014-09-26', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'Service Pack 3 '),
+    (10, 4339, 'SP2 MS15-058: QFE Security Update', 'https://support.microsoft.com/help/3045312', '2015-07-14', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 MS15-058: QFE Security Update'),
+    (10, 4321, 'SP2 MS14-044: QFE Security Update', 'https://support.microsoft.com/help/2977319', '2014-08-14', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 MS14-044: QFE Security Update'),
+    (10, 4319, 'SP2 CU13', 'https://support.microsoft.com/help/2967540', '2014-06-30', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 13'),
+    (10, 4305, 'SP2 CU12', 'https://support.microsoft.com/help/2938478', '2014-04-21', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 12'),
+    (10, 4302, 'SP2 CU11', 'https://support.microsoft.com/help/2926028', '2014-02-18', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 11'),
+    (10, 4297, 'SP2 CU10', 'https://support.microsoft.com/help/2908087', '2013-12-17', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 10'),
+    (10, 4295, 'SP2 CU9', 'https://support.microsoft.com/help/2887606', '2013-10-28', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 9'),
+    (10, 4290, 'SP2 CU8', 'https://support.microsoft.com/help/2871401', '2013-08-22', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 8'),
+    (10, 4285, 'SP2 CU7', 'https://support.microsoft.com/help/2844090', '2013-06-17', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 7'),
+    (10, 4279, 'SP2 CU6', 'https://support.microsoft.com/help/2830140', '2013-04-15', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 6'),
+    (10, 4276, 'SP2 CU5', 'https://support.microsoft.com/help/2797460', '2013-02-18', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 5'),
+    (10, 4270, 'SP2 CU4', 'https://support.microsoft.com/help/2777358', '2012-12-17', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 4'),
+    (10, 4266, 'SP2 CU3', 'https://support.microsoft.com/help/2754552', '2012-10-15', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 3'),
+    (10, 4263, 'SP2 CU2', 'https://support.microsoft.com/help/2740411', '2012-08-31', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 2'),
+    (10, 4260, 'SP2 CU1', 'https://support.microsoft.com/help/2720425', '2012-07-24', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 Cumulative Update 1'),
+    (10, 4042, 'SP2 MS15-058: GDR Security Update', 'https://support.microsoft.com/help/3045313', '2015-07-14', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 MS15-058: GDR Security Update'),
+    (10, 4033, 'SP2 MS14-044: GDR Security Update', 'https://support.microsoft.com/help/2977320', '2014-08-12', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 MS14-044: GDR Security Update'),
+    (10, 4000, 'SP2 ', 'https://support.microsoft.com/help/2630458', '2012-07-26', '2015-10-13', '2015-10-13', 'SQL Server 2008 R2', 'Service Pack 2 '),
+    (10, 2881, 'SP1 CU14', 'https://support.microsoft.com/help/2868244', '2013-08-08', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 14'),
+    (10, 2876, 'SP1 CU13', 'https://support.microsoft.com/help/2855792', '2013-06-17', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 13'),
+    (10, 2874, 'SP1 CU12', 'https://support.microsoft.com/help/2828727', '2013-04-15', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 12'),
+    (10, 2869, 'SP1 CU11', 'https://support.microsoft.com/help/2812683', '2013-02-18', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 11'),
+    (10, 2868, 'SP1 CU10', 'https://support.microsoft.com/help/2783135', '2012-12-17', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 10'),
+    (10, 2866, 'SP1 CU9', 'https://support.microsoft.com/help/2756574', '2012-10-15', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 9'),
+    (10, 2861, 'SP1 MS12-070: QFE Security Update', 'https://support.microsoft.com/help/2716439', '2012-10-09', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 MS12-070: QFE Security Update'),
+    (10, 2822, 'SP1 CU8', 'https://support.microsoft.com/help/2723743', '2012-08-31', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 8'),
+    (10, 2817, 'SP1 CU7', 'https://support.microsoft.com/help/2703282', '2012-06-18', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 7'),
+    (10, 2811, 'SP1 CU6', 'https://support.microsoft.com/help/2679367', '2012-04-16', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 6'),
+    (10, 2806, 'SP1 CU5', 'https://support.microsoft.com/help/2659694', '2012-02-22', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 5'),
+    (10, 2796, 'SP1 CU4', 'https://support.microsoft.com/help/2633146', '2011-12-19', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 4'),
+    (10, 2789, 'SP1 CU3', 'https://support.microsoft.com/help/2591748', '2011-10-17', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 3'),
+    (10, 2772, 'SP1 CU2', 'https://support.microsoft.com/help/2567714', '2011-08-15', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 2'),
+    (10, 2769, 'SP1 CU1', 'https://support.microsoft.com/help/2544793', '2011-07-18', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 Cumulative Update 1'),
+    (10, 2550, 'SP1 MS12-070: GDR Security Update', 'https://support.microsoft.com/help/2754849', '2012-10-09', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 MS12-070: GDR Security Update'),
+    (10, 2500, 'SP1 ', 'https://support.microsoft.com/help/2528583', '2011-07-12', '2013-10-08', '2013-10-08', 'SQL Server 2008 R2', 'Service Pack 1 '),
+    (10, 1815, 'RTM CU13', 'https://support.microsoft.com/help/2679366', '2012-04-16', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 13'),
+    (10, 1810, 'RTM CU12', 'https://support.microsoft.com/help/2659692', '2012-02-21', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 12'),
+    (10, 1809, 'RTM CU11', 'https://support.microsoft.com/help/2633145', '2011-12-19', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 11'),
+    (10, 1807, 'RTM CU10', 'https://support.microsoft.com/help/2591746', '2011-10-17', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 10'),
+    (10, 1804, 'RTM CU9', 'https://support.microsoft.com/help/2567713', '2011-08-15', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 9'),
+    (10, 1797, 'RTM CU8', 'https://support.microsoft.com/help/2534352', '2011-06-20', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 8'),
+    (10, 1790, 'RTM MS11-049: QFE Security Update', 'https://support.microsoft.com/help/2494086', '2011-06-14', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM MS11-049: QFE Security Update'),
+    (10, 1777, 'RTM CU7', 'https://support.microsoft.com/help/2507770', '2011-04-18', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 7'),
+    (10, 1765, 'RTM CU6', 'https://support.microsoft.com/help/2489376', '2011-02-21', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 6'),
+    (10, 1753, 'RTM CU5', 'https://support.microsoft.com/help/2438347', '2010-12-20', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 5'),
+    (10, 1746, 'RTM CU4', 'https://support.microsoft.com/help/2345451', '2010-10-18', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 4'),
+    (10, 1734, 'RTM CU3', 'https://support.microsoft.com/help/2261464', '2010-08-16', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 3'),
+    (10, 1720, 'RTM CU2', 'https://support.microsoft.com/help/2072493', '2010-06-21', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 2'),
+    (10, 1702, 'RTM CU1', 'https://support.microsoft.com/help/981355', '2010-05-18', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM Cumulative Update 1'),
+    (10, 1617, 'RTM MS11-049: GDR Security Update', 'https://support.microsoft.com/help/2494088', '2011-06-14', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM MS11-049: GDR Security Update'),
     (10, 1600, 'RTM ', '', '2010-05-10', '2014-07-08', '2019-07-09', 'SQL Server 2008 R2', 'RTM '),
     /*2008*/
-    (10, 6535, 'SP3 MS15-058: QFE Security Update', 'https://support.microsoft.com/en-us/help/3045308', '2015-07-14', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS15-058: QFE Security Update'),
-    (10, 6241, 'SP3 MS15-058: GDR Security Update', 'https://support.microsoft.com/en-us/help/3045311', '2015-07-14', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS15-058: GDR Security Update'),
-    (10, 5890, 'SP3 MS15-058: QFE Security Update', 'https://support.microsoft.com/en-us/help/3045303', '2015-07-14', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS15-058: QFE Security Update'),
-    (10, 5869, 'SP3 MS14-044: QFE Security Update', 'https://support.microsoft.com/en-us/help/2984340, https://support.microsoft.com/en-us/help/2977322', '2014-08-12', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS14-044: QFE Security Update'),
-    (10, 5861, 'SP3 CU17', 'https://support.microsoft.com/en-us/help/2958696', '2014-05-19', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 17'),
-    (10, 5852, 'SP3 CU16', 'https://support.microsoft.com/en-us/help/2936421', '2014-03-17', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 16'),
-    (10, 5850, 'SP3 CU15', 'https://support.microsoft.com/en-us/help/2923520', '2014-01-20', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 15'),
-    (10, 5848, 'SP3 CU14', 'https://support.microsoft.com/en-us/help/2893410', '2013-11-18', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 14'),
-    (10, 5846, 'SP3 CU13', 'https://support.microsoft.com/en-us/help/2880350', '2013-09-16', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 13'),
-    (10, 5844, 'SP3 CU12', 'https://support.microsoft.com/en-us/help/2863205', '2013-07-15', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 12'),
-    (10, 5840, 'SP3 CU11', 'https://support.microsoft.com/en-us/help/2834048', '2013-05-20', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 11'),
-    (10, 5835, 'SP3 CU10', 'https://support.microsoft.com/en-us/help/2814783', '2013-03-18', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 10'),
-    (10, 5829, 'SP3 CU9', 'https://support.microsoft.com/en-us/help/2799883', '2013-01-21', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 9'),
-    (10, 5828, 'SP3 CU8', 'https://support.microsoft.com/en-us/help/2771833', '2012-11-19', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 8'),
-    (10, 5826, 'SP3 MS12-070: QFE Security Update', 'https://support.microsoft.com/en-us/help/2716435', '2012-10-09', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS12-070: QFE Security Update'),
-    (10, 5794, 'SP3 CU7', 'https://support.microsoft.com/en-us/help/2738350', '2012-09-17', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 7'),
-    (10, 5788, 'SP3 CU6', 'https://support.microsoft.com/en-us/help/2715953', '2012-07-16', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 6'),
-    (10, 5785, 'SP3 CU5', 'https://support.microsoft.com/en-us/help/2696626', '2012-05-21', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 5'),
-    (10, 5775, 'SP3 CU4', 'https://support.microsoft.com/en-us/help/2673383', '2012-03-19', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 4'),
-    (10, 5770, 'SP3 CU3', 'https://support.microsoft.com/en-us/help/2648098', '2012-01-16', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 3'),
-    (10, 5768, 'SP3 CU2', 'https://support.microsoft.com/en-us/help/2633143', '2011-11-21', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 2'),
-    (10, 5766, 'SP3 CU1', 'https://support.microsoft.com/en-us/help/2617146', '2011-10-17', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 1'),
-    (10, 5538, 'SP3 MS15-058: GDR Security Update', 'https://support.microsoft.com/en-us/help/3045305', '2015-07-14', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS15-058: GDR Security Update'),
-    (10, 5520, 'SP3 MS14-044: GDR Security Update', 'https://support.microsoft.com/en-us/help/2977321', '2014-08-12', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS14-044: GDR Security Update'),
-    (10, 5512, 'SP3 MS12-070: GDR Security Update', 'https://support.microsoft.com/en-us/help/2716436', '2012-10-09', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS12-070: GDR Security Update'),
-    (10, 5500, 'SP3 ', 'https://support.microsoft.com/en-us/help/2546951', '2011-10-06', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 '),
-    (10, 4371, 'SP2 MS12-070: QFE Security Update', 'https://support.microsoft.com/en-us/help/2716433', '2012-10-09', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 MS12-070: QFE Security Update'),
-    (10, 4333, 'SP2 CU11', 'https://support.microsoft.com/en-us/help/2715951', '2012-07-16', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 11'),
-    (10, 4332, 'SP2 CU10', 'https://support.microsoft.com/en-us/help/2696625', '2012-05-21', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 10'),
-    (10, 4330, 'SP2 CU9', 'https://support.microsoft.com/en-us/help/2673382', '2012-03-19', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 9'),
-    (10, 4326, 'SP2 CU8', 'https://support.microsoft.com/en-us/help/2648096', '2012-01-16', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 8'),
-    (10, 4323, 'SP2 CU7', 'https://support.microsoft.com/en-us/help/2617148', '2011-11-21', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 7'),
-    (10, 4321, 'SP2 CU6', 'https://support.microsoft.com/en-us/help/2582285', '2011-09-19', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 6'),
-    (10, 4316, 'SP2 CU5', 'https://support.microsoft.com/en-us/help/2555408', '2011-07-18', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 5'),
-    (10, 4311, 'SP2 MS11-049: QFE Security Update', 'https://support.microsoft.com/en-us/help/2494094', '2011-06-14', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 MS11-049: QFE Security Update'),
-    (10, 4285, 'SP2 CU4', 'https://support.microsoft.com/en-us/help/2527180', '2011-05-16', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 4'),
-    (10, 4279, 'SP2 CU3', 'https://support.microsoft.com/en-us/help/2498535', '2011-03-17', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 3'),
-    (10, 4272, 'SP2 CU2', 'https://support.microsoft.com/en-us/help/2467239', '2011-01-17', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 2'),
-    (10, 4266, 'SP2 CU1', 'https://support.microsoft.com/en-us/help/2289254', '2010-11-15', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 1'),
-    (10, 4067, 'SP2 MS12-070: GDR Security Update', 'https://support.microsoft.com/en-us/help/2716434', '2012-10-09', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 MS12-070: GDR Security Update'),
-    (10, 4064, 'SP2 MS11-049: GDR Security Update', 'https://support.microsoft.com/en-us/help/2494089', '2011-06-14', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 MS11-049: GDR Security Update'),
-    (10, 4000, 'SP2 ', 'https://support.microsoft.com/en-us/help/2285068', '2010-09-29', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 '),
-    (10, 2850, 'SP1 CU16', 'https://support.microsoft.com/en-us/help/2582282', '2011-09-19', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 16'),
-    (10, 2847, 'SP1 CU15', 'https://support.microsoft.com/en-us/help/2555406', '2011-07-18', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 15'),
-    (10, 2841, 'SP1 MS11-049: QFE Security Update', 'https://support.microsoft.com/en-us/help/2494100', '2011-06-14', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 MS11-049: QFE Security Update'),
-    (10, 2821, 'SP1 CU14', 'https://support.microsoft.com/en-us/help/2527187', '2011-05-16', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 14'),
-    (10, 2816, 'SP1 CU13', 'https://support.microsoft.com/en-us/help/2497673', '2011-03-17', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 13'),
-    (10, 2808, 'SP1 CU12', 'https://support.microsoft.com/en-us/help/2467236', '2011-01-17', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 12'),
-    (10, 2804, 'SP1 CU11', 'https://support.microsoft.com/en-us/help/2413738', '2010-11-15', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 11'),
-    (10, 2799, 'SP1 CU10', 'https://support.microsoft.com/en-us/help/2279604', '2010-09-20', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 10'),
-    (10, 2789, 'SP1 CU9', 'https://support.microsoft.com/en-us/help/2083921', '2010-07-19', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 9'),
-    (10, 2775, 'SP1 CU8', 'https://support.microsoft.com/en-us/help/981702', '2010-05-17', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 8'),
-    (10, 2766, 'SP1 CU7', 'https://support.microsoft.com/en-us/help/979065', '2010-03-26', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 7'),
-    (10, 2757, 'SP1 CU6', 'https://support.microsoft.com/en-us/help/977443', '2010-01-18', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 6'),
-    (10, 2746, 'SP1 CU5', 'https://support.microsoft.com/en-us/help/975977', '2009-11-16', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 5'),
-    (10, 2734, 'SP1 CU4', 'https://support.microsoft.com/en-us/help/973602', '2009-09-21', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 4'),
-    (10, 2723, 'SP1 CU3', 'https://support.microsoft.com/en-us/help/971491', '2009-07-20', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 3'),
-    (10, 2714, 'SP1 CU2', 'https://support.microsoft.com/en-us/help/970315', '2009-05-18', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 2'),
-    (10, 2710, 'SP1 CU1', 'https://support.microsoft.com/en-us/help/969099', '2009-04-16', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 1'),
-    (10, 2573, 'SP1 MS11-049: GDR Security update', 'https://support.microsoft.com/en-us/help/2494096', '2011-06-14', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 MS11-049: GDR Security update'),
+    (10, 6535, 'SP3 MS15-058: QFE Security Update', 'https://support.microsoft.com/help/3045308', '2015-07-14', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS15-058: QFE Security Update'),
+    (10, 6241, 'SP3 MS15-058: GDR Security Update', 'https://support.microsoft.com/help/3045311', '2015-07-14', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS15-058: GDR Security Update'),
+    (10, 5890, 'SP3 MS15-058: QFE Security Update', 'https://support.microsoft.com/help/3045303', '2015-07-14', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS15-058: QFE Security Update'),
+    (10, 5869, 'SP3 MS14-044: QFE Security Update', 'https://support.microsoft.com/help/2984340, https://support.microsoft.com/help/2977322', '2014-08-12', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS14-044: QFE Security Update'),
+    (10, 5861, 'SP3 CU17', 'https://support.microsoft.com/help/2958696', '2014-05-19', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 17'),
+    (10, 5852, 'SP3 CU16', 'https://support.microsoft.com/help/2936421', '2014-03-17', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 16'),
+    (10, 5850, 'SP3 CU15', 'https://support.microsoft.com/help/2923520', '2014-01-20', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 15'),
+    (10, 5848, 'SP3 CU14', 'https://support.microsoft.com/help/2893410', '2013-11-18', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 14'),
+    (10, 5846, 'SP3 CU13', 'https://support.microsoft.com/help/2880350', '2013-09-16', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 13'),
+    (10, 5844, 'SP3 CU12', 'https://support.microsoft.com/help/2863205', '2013-07-15', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 12'),
+    (10, 5840, 'SP3 CU11', 'https://support.microsoft.com/help/2834048', '2013-05-20', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 11'),
+    (10, 5835, 'SP3 CU10', 'https://support.microsoft.com/help/2814783', '2013-03-18', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 10'),
+    (10, 5829, 'SP3 CU9', 'https://support.microsoft.com/help/2799883', '2013-01-21', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 9'),
+    (10, 5828, 'SP3 CU8', 'https://support.microsoft.com/help/2771833', '2012-11-19', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 8'),
+    (10, 5826, 'SP3 MS12-070: QFE Security Update', 'https://support.microsoft.com/help/2716435', '2012-10-09', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS12-070: QFE Security Update'),
+    (10, 5794, 'SP3 CU7', 'https://support.microsoft.com/help/2738350', '2012-09-17', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 7'),
+    (10, 5788, 'SP3 CU6', 'https://support.microsoft.com/help/2715953', '2012-07-16', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 6'),
+    (10, 5785, 'SP3 CU5', 'https://support.microsoft.com/help/2696626', '2012-05-21', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 5'),
+    (10, 5775, 'SP3 CU4', 'https://support.microsoft.com/help/2673383', '2012-03-19', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 4'),
+    (10, 5770, 'SP3 CU3', 'https://support.microsoft.com/help/2648098', '2012-01-16', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 3'),
+    (10, 5768, 'SP3 CU2', 'https://support.microsoft.com/help/2633143', '2011-11-21', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 2'),
+    (10, 5766, 'SP3 CU1', 'https://support.microsoft.com/help/2617146', '2011-10-17', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 Cumulative Update 1'),
+    (10, 5538, 'SP3 MS15-058: GDR Security Update', 'https://support.microsoft.com/help/3045305', '2015-07-14', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS15-058: GDR Security Update'),
+    (10, 5520, 'SP3 MS14-044: GDR Security Update', 'https://support.microsoft.com/help/2977321', '2014-08-12', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS14-044: GDR Security Update'),
+    (10, 5512, 'SP3 MS12-070: GDR Security Update', 'https://support.microsoft.com/help/2716436', '2012-10-09', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 MS12-070: GDR Security Update'),
+    (10, 5500, 'SP3 ', 'https://support.microsoft.com/help/2546951', '2011-10-06', '2015-10-13', '2015-10-13', 'SQL Server 2008', 'Service Pack 3 '),
+    (10, 4371, 'SP2 MS12-070: QFE Security Update', 'https://support.microsoft.com/help/2716433', '2012-10-09', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 MS12-070: QFE Security Update'),
+    (10, 4333, 'SP2 CU11', 'https://support.microsoft.com/help/2715951', '2012-07-16', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 11'),
+    (10, 4332, 'SP2 CU10', 'https://support.microsoft.com/help/2696625', '2012-05-21', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 10'),
+    (10, 4330, 'SP2 CU9', 'https://support.microsoft.com/help/2673382', '2012-03-19', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 9'),
+    (10, 4326, 'SP2 CU8', 'https://support.microsoft.com/help/2648096', '2012-01-16', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 8'),
+    (10, 4323, 'SP2 CU7', 'https://support.microsoft.com/help/2617148', '2011-11-21', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 7'),
+    (10, 4321, 'SP2 CU6', 'https://support.microsoft.com/help/2582285', '2011-09-19', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 6'),
+    (10, 4316, 'SP2 CU5', 'https://support.microsoft.com/help/2555408', '2011-07-18', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 5'),
+    (10, 4311, 'SP2 MS11-049: QFE Security Update', 'https://support.microsoft.com/help/2494094', '2011-06-14', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 MS11-049: QFE Security Update'),
+    (10, 4285, 'SP2 CU4', 'https://support.microsoft.com/help/2527180', '2011-05-16', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 4'),
+    (10, 4279, 'SP2 CU3', 'https://support.microsoft.com/help/2498535', '2011-03-17', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 3'),
+    (10, 4272, 'SP2 CU2', 'https://support.microsoft.com/help/2467239', '2011-01-17', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 2'),
+    (10, 4266, 'SP2 CU1', 'https://support.microsoft.com/help/2289254', '2010-11-15', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 Cumulative Update 1'),
+    (10, 4067, 'SP2 MS12-070: GDR Security Update', 'https://support.microsoft.com/help/2716434', '2012-10-09', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 MS12-070: GDR Security Update'),
+    (10, 4064, 'SP2 MS11-049: GDR Security Update', 'https://support.microsoft.com/help/2494089', '2011-06-14', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 MS11-049: GDR Security Update'),
+    (10, 4000, 'SP2 ', 'https://support.microsoft.com/help/2285068', '2010-09-29', '2012-10-09', '2012-10-09', 'SQL Server 2008', 'Service Pack 2 '),
+    (10, 2850, 'SP1 CU16', 'https://support.microsoft.com/help/2582282', '2011-09-19', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 16'),
+    (10, 2847, 'SP1 CU15', 'https://support.microsoft.com/help/2555406', '2011-07-18', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 15'),
+    (10, 2841, 'SP1 MS11-049: QFE Security Update', 'https://support.microsoft.com/help/2494100', '2011-06-14', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 MS11-049: QFE Security Update'),
+    (10, 2821, 'SP1 CU14', 'https://support.microsoft.com/help/2527187', '2011-05-16', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 14'),
+    (10, 2816, 'SP1 CU13', 'https://support.microsoft.com/help/2497673', '2011-03-17', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 13'),
+    (10, 2808, 'SP1 CU12', 'https://support.microsoft.com/help/2467236', '2011-01-17', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 12'),
+    (10, 2804, 'SP1 CU11', 'https://support.microsoft.com/help/2413738', '2010-11-15', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 11'),
+    (10, 2799, 'SP1 CU10', 'https://support.microsoft.com/help/2279604', '2010-09-20', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 10'),
+    (10, 2789, 'SP1 CU9', 'https://support.microsoft.com/help/2083921', '2010-07-19', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 9'),
+    (10, 2775, 'SP1 CU8', 'https://support.microsoft.com/help/981702', '2010-05-17', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 8'),
+    (10, 2766, 'SP1 CU7', 'https://support.microsoft.com/help/979065', '2010-03-26', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 7'),
+    (10, 2757, 'SP1 CU6', 'https://support.microsoft.com/help/977443', '2010-01-18', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 6'),
+    (10, 2746, 'SP1 CU5', 'https://support.microsoft.com/help/975977', '2009-11-16', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 5'),
+    (10, 2734, 'SP1 CU4', 'https://support.microsoft.com/help/973602', '2009-09-21', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 4'),
+    (10, 2723, 'SP1 CU3', 'https://support.microsoft.com/help/971491', '2009-07-20', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 3'),
+    (10, 2714, 'SP1 CU2', 'https://support.microsoft.com/help/970315', '2009-05-18', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 2'),
+    (10, 2710, 'SP1 CU1', 'https://support.microsoft.com/help/969099', '2009-04-16', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 Cumulative Update 1'),
+    (10, 2573, 'SP1 MS11-049: GDR Security update', 'https://support.microsoft.com/help/2494096', '2011-06-14', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 MS11-049: GDR Security update'),
     (10, 2531, 'SP1 ', '', '2009-04-01', '2011-10-11', '2011-10-11', 'SQL Server 2008', 'Service Pack 1 '),
-    (10, 1835, 'RTM CU10', 'https://support.microsoft.com/en-us/help/979064', '2010-03-15', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 10'),
-    (10, 1828, 'RTM CU9', 'https://support.microsoft.com/en-us/help/977444', '2010-01-18', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 9'),
-    (10, 1823, 'RTM CU8', 'https://support.microsoft.com/en-us/help/975976', '2009-11-16', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 8'),
-    (10, 1818, 'RTM CU7', 'https://support.microsoft.com/en-us/help/973601', '2009-09-21', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 7'),
-    (10, 1812, 'RTM CU6', 'https://support.microsoft.com/en-us/help/971490', '2009-07-20', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 6'),
-    (10, 1806, 'RTM CU5', 'https://support.microsoft.com/en-us/help/969531', '2009-05-18', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 5'),
-    (10, 1798, 'RTM CU4', 'https://support.microsoft.com/en-us/help/963036', '2009-03-16', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 4'),
-    (10, 1787, 'RTM CU3', 'https://support.microsoft.com/en-us/help/960484', '2009-01-19', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 3'),
-    (10, 1779, 'RTM CU2', 'https://support.microsoft.com/en-us/help/958186', '2008-11-19', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 2'),
-    (10, 1763, 'RTM CU1', 'https://support.microsoft.com/en-us/help/956717', '2008-09-22', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 1'),
+    (10, 1835, 'RTM CU10', 'https://support.microsoft.com/help/979064', '2010-03-15', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 10'),
+    (10, 1828, 'RTM CU9', 'https://support.microsoft.com/help/977444', '2010-01-18', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 9'),
+    (10, 1823, 'RTM CU8', 'https://support.microsoft.com/help/975976', '2009-11-16', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 8'),
+    (10, 1818, 'RTM CU7', 'https://support.microsoft.com/help/973601', '2009-09-21', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 7'),
+    (10, 1812, 'RTM CU6', 'https://support.microsoft.com/help/971490', '2009-07-20', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 6'),
+    (10, 1806, 'RTM CU5', 'https://support.microsoft.com/help/969531', '2009-05-18', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 5'),
+    (10, 1798, 'RTM CU4', 'https://support.microsoft.com/help/963036', '2009-03-16', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 4'),
+    (10, 1787, 'RTM CU3', 'https://support.microsoft.com/help/960484', '2009-01-19', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 3'),
+    (10, 1779, 'RTM CU2', 'https://support.microsoft.com/help/958186', '2008-11-19', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 2'),
+    (10, 1763, 'RTM CU1', 'https://support.microsoft.com/help/956717', '2008-09-22', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM Cumulative Update 1'),
     (10, 1600, 'RTM ', '', '2008-08-06', '2014-07-08', '2019-07-09', 'SQL Server 2008', 'RTM ')
 ;
 GO
@@ -36964,7 +37815,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.29', @VersionDate = '20260203';
+SELECT @Version = '8.30', @VersionDate = '20260313';
 
 IF(@VersionCheckMode = 1)
 BEGIN

@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 272.
-If you want to add a new one, start at 273.
+CURRENT HIGH CHECKID: 275.
+If you want to add a new one, start at 276.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
@@ -60,6 +60,8 @@ If you want to add a new one, start at 273.
 | 20 | Reliability | Unsupported Build of SQL Server | https://www.BrentOzar.com/go/unsupported | 128 |
 | 20 | Reliability | User Databases on C Drive | https://www.BrentOzar.com/go/cdrive | 26 |
 | 20 | Reliability | TempDB on C Drive | https://www.BrentOzar.com/go/cdrive | 25 |
+| 50 | AI | Constitution.md Present | https://www.BrentOzar.com/go/constitution | 273 |
+| 50 | AI | Agents.md Present | https://www.BrentOzar.com/go/constitution | 274 |
 | 50 | DBCC Events | Overall Events | https://www.BrentOzar.com/go/dbcc | 203 |
 | 50 | Performance | File Growths Slow | https://www.BrentOzar.com/go/filegrowth | 151 |
 | 50 | Performance | Instant File Initialization Not Enabled | https://www.BrentOzar.com/go/instant | 192 |
@@ -273,9 +275,11 @@ If you want to add a new one, start at 273.
 | 210 | Non-Default Database Config | Snapshot Isolation Enabled | https://www.BrentOzar.com/go/dbdefaults | 132 |
 | 210 | Non-Default Database Config | Supplemental Logging Enabled | https://www.BrentOzar.com/go/dbdefaults | 131 |
 | 210 | Non-Default Database Config | Target Recovery Time Changed | https://www.BrentOzar.com/go/dbdefaults | 142 |
+| 210 | Non-Default Database Config | Accelerated Database Recovery Enabled | https://www.BrentOzar.com/go/dbdefaults | 275 |
 | 210 | Non-Default Database Config | Trustworthy Enabled | https://www.BrentOzar.com/go/dbdefaults | 137 |
 | 210 | Non-Default Database Config | Broker Enabled | https://www.BrentOzar.com/go/dbdefaults | 230 |
 | 210 | Non-Default Database Config | Honor Broker Priority Enabled | https://www.BrentOzar.com/go/dbdefaults | 231 |
+| 210 | Non-Default Database Config | Automatic Tuning | https://learn.microsoft.com/en-us/sql/relational-databases/automatic-tuning/automatic-tuning | 275 |
 | 210 | Non-Default Database Scoped Config | MAXDOP | https://www.BrentOzar.com/go/dbscope | 194 |
 | 210 | Non-Default Database Scoped Config | Legacy CE | https://www.BrentOzar.com/go/dbscope | 195 |
 | 210 | Non-Default Database Scoped Config | Parameter Sniffing | https://www.BrentOzar.com/go/dbscope | 196 |
