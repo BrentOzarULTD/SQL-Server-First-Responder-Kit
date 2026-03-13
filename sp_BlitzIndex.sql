@@ -503,7 +503,7 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
                 THEN ( user_seeks + user_scans + user_lookups )  / (1.0 * user_updates)
                 ELSE 0 END AS MONEY) ,
             [index_usage_summary] AS
-				CASE WHEN is_spatial = 1 THEN N'Not Tracked'
+				CASE WHEN is_spatial = 1 OR is_json = 1 THEN N'Not Tracked'
 				WHEN is_disabled = 1 THEN N'Disabled'
 				ELSE N'Reads: ' + 
 					REPLACE(CONVERT(NVARCHAR(30),CAST((user_seeks + user_scans + user_lookups) AS MONEY), 1), N'.00', N'')
@@ -1795,7 +1795,7 @@ BEGIN TRY
                 CASE WHEN ( @IncludeInactiveIndexes = 0
                             AND @Mode IN (0, 4)
                             AND @TableName IS NULL )
-                     THEN N'AND ( us.user_seeks + us.user_scans + us.user_lookups + us.user_updates ) > 0'
+                     THEN N'AND ( us.user_seeks + us.user_scans + us.user_lookups + us.user_updates > 0 OR si.type = 9 )'
                      ELSE N''
                 END
         + N'OPTION    ( RECOMPILE );
@@ -2201,6 +2201,54 @@ BEGIN TRY
                 
 		END; --End Check For @SkipPartitions = 0
 
+		/* Populate JSON index sizes from internal tables - JSON indexes store their data
+		   in sys.internal_tables, not in sys.dm_db_partition_stats for the parent table */
+		IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'json_indexes')
+		BEGIN
+			RAISERROR (N'Inserting JSON index size data from internal tables',0,1) WITH NOWAIT;
+			SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+				SELECT ' + CAST(@DatabaseID AS NVARCHAR(10)) + N' AS database_id,
+					it.parent_id AS object_id,
+					s.name AS schema_name,
+					it.parent_minor_id AS index_id,
+					ps.partition_number,
+					ps.row_count,
+					ps.reserved_page_count * 8. / 1024. AS reserved_MB,
+					ps.lob_reserved_page_count * 8. / 1024. AS reserved_LOB_MB,
+					ps.row_overflow_reserved_page_count * 8. / 1024. AS reserved_row_overflow_MB,
+					NULL AS lock_escalation_desc,
+					NULL AS data_compression_desc,
+					0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+					0 AS reserved_dictionary_MB
+				FROM ' + QUOTENAME(@DatabaseName) + N'.sys.internal_tables it
+				JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_partition_stats ps ON it.object_id = ps.object_id AND ps.index_id = 1
+				JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.objects so ON it.parent_id = so.object_id
+				JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas s ON so.schema_id = s.schema_id
+				WHERE it.internal_type_desc = ''JSON_INDEX_TABLE''
+				' + CASE WHEN @ObjectID IS NOT NULL THEN N'AND it.parent_id = ' + CAST(@ObjectID AS NVARCHAR(30)) + N' ' ELSE N'' END + N'
+				OPTION (RECOMPILE);';
+
+			IF @Debug = 1
+			BEGIN
+				PRINT SUBSTRING(@dsql, 0, 4000);
+				PRINT SUBSTRING(@dsql, 4000, 8000);
+			END;
+
+			INSERT #IndexPartitionSanity ( [database_id], [object_id], [schema_name], index_id, partition_number,
+				row_count, reserved_MB, reserved_LOB_MB, reserved_row_overflow_MB,
+				lock_escalation_desc, data_compression_desc,
+				leaf_insert_count, leaf_delete_count, leaf_update_count,
+				range_scan_count, singleton_lookup_count, forwarded_fetch_count,
+				lob_fetch_in_pages, lob_fetch_in_bytes,
+				row_overflow_fetch_in_pages, row_overflow_fetch_in_bytes,
+				row_lock_count, row_lock_wait_count, row_lock_wait_in_ms,
+				page_lock_count, page_lock_wait_count, page_lock_wait_in_ms,
+				index_lock_promotion_attempt_count, index_lock_promotion_count,
+				page_latch_wait_count, page_latch_wait_in_ms,
+				page_io_latch_wait_count, page_io_latch_wait_in_ms,
+				reserved_dictionary_MB)
+			EXEC sp_executesql @dsql;
+		END;
 
 		IF @Mode NOT IN(1, 2)
 		BEGIN
@@ -3200,6 +3248,42 @@ FROM    #IndexSanity si
                                 AND c.index_id = si.index_id 
                                 ) AS D4 ( count_included_columns, count_key_columns );
 
+/* JSON indexes have key_ordinal=0 in sys.index_columns, so the above updates skip them.
+   Populate column names for JSON indexes from #IndexColumns where key_ordinal = 0. */
+RAISERROR (N'Updating column names for JSON indexes',0,1) WITH NOWAIT;
+UPDATE si
+SET key_column_names = c.column_name
+    + N' {' + c.system_type_name
+    + CASE c.max_length WHEN -1 THEN N' (max)' ELSE
+        CASE
+            WHEN c.system_type_name IN (N'char',N'varchar',N'binary',N'varbinary') THEN N' (' + CAST(c.max_length AS NVARCHAR(20)) + N')'
+            WHEN c.system_type_name IN (N'nchar',N'nvarchar') THEN N' (' + CAST(c.max_length/2 AS NVARCHAR(20)) + N')'
+            ELSE N' ' + CAST(c.max_length AS NVARCHAR(50))
+        END
+    END
+    + N'}',
+    key_column_names_with_sort_order = c.column_name
+    + N' {' + c.system_type_name
+    + CASE c.max_length WHEN -1 THEN N' (max)' ELSE
+        CASE
+            WHEN c.system_type_name IN (N'char',N'varchar',N'binary',N'varbinary') THEN N' (' + CAST(c.max_length AS NVARCHAR(20)) + N')'
+            WHEN c.system_type_name IN (N'nchar',N'nvarchar') THEN N' (' + CAST(c.max_length/2 AS NVARCHAR(20)) + N')'
+            ELSE N' ' + CAST(c.max_length AS NVARCHAR(50))
+        END
+    END
+    + N'}',
+    key_column_names_with_sort_order_no_types = QUOTENAME(c.column_name),
+    count_key_columns = 1
+FROM #IndexSanity si
+JOIN #IndexColumns c ON si.database_id = c.database_id
+    AND si.schema_name = c.schema_name
+    AND si.object_id = c.object_id
+    AND si.index_id = c.index_id
+    AND c.key_ordinal = 0
+    AND c.is_included_column = 0
+WHERE si.is_json = 1
+    AND si.key_column_names IS NULL;
+
 RAISERROR (N'Updating index_sanity_id on #IndexPartitionSanity',0,1) WITH NOWAIT;
 UPDATE    #IndexPartitionSanity
 SET        index_sanity_id = i.index_sanity_id
@@ -3322,7 +3406,11 @@ SELECT
     CASE index_id WHEN 0 THEN N'ALTER TABLE ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name])  + ' REBUILD;'
     ELSE 
         CASE WHEN is_XML = 1 OR is_spatial = 1 OR is_in_memory_oltp = 1 THEN N'' /* Not even trying for these just yet...*/
-        ELSE 
+        WHEN is_json = 1 THEN
+            N'CREATE JSON INDEX ' + QUOTENAME(index_name) + N' ON ' +
+                QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) + N'.' + QUOTENAME([object_name]) +
+                N' (' + ISNULL(key_column_names_with_sort_order_no_types, N'') + N');'
+        ELSE
             CASE WHEN is_primary_key=1 THEN
                 N'ALTER TABLE ' + QUOTENAME([database_name]) + N'.' + QUOTENAME([schema_name]) +
                     N'.' + QUOTENAME([object_name]) + 
@@ -5798,7 +5886,27 @@ BEGIN
                             ISNULL(sz.index_size_summary,'') AS index_size_summary
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
-                    WHERE i.is_spatial = 1 
+                    Where i.is_spatial = 1
+					OPTION    ( RECOMPILE );
+
+            RAISERROR(N'check_id 129: JSON indexes', 0,1) WITH NOWAIT;
+                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                               secret_columns, index_usage_summary, index_size_summary )
+                    SELECT  129 AS check_id,
+                            i.index_sanity_id,
+                            150 AS Priority,
+                            N'Abnormal Design Pattern' AS findings_group,
+                            N'JSON Index' AS finding,
+                            [database_name] AS [Database Name],
+                            N'https://www.brentozar.com/go/AbnormalPsychology' AS URL,
+                            i.db_schema_object_indexid AS details,
+                            i.index_definition,
+                            i.secret_columns,
+                            i.index_usage_summary,
+                            ISNULL(sz.index_size_summary,'') AS index_size_summary
+                    FROM    #IndexSanity AS i
+                    JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                    WHERE i.is_json = 1
 					OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 63: Compressed indexes', 0,1) WITH NOWAIT;
