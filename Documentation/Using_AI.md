@@ -47,7 +47,6 @@ CREATE TABLE dbo.Blitz_AI_Prompts
 (Id INT IDENTITY(1,1) PRIMARY KEY CLUSTERED,
  PromptNickname NVARCHAR(200),
  AI_System_Prompt NVARCHAR(4000),
- Payload_Template NVARCHAR(4000),
  DefaultPrompt BIT DEFAULT 0);
  
 INSERT INTO dbo.Blitz_AI_Prompts (PromptNickname, DefaultPrompt, AI_System_Prompt)
@@ -189,6 +188,7 @@ CREATE TABLE dbo.Blitz_AI_Providers
  AI_URL NVARCHAR(500),
  AI_Database_Scoped_Credential_Name NVARCHAR(500),
  AI_Parameters NVARCHAR(4000),
+ Payload_Template NVARCHAR(4000),
  Timeout_Seconds TINYINT,
  Context INT,
  DefaultModel BIT DEFAULT 0);
