@@ -5,6 +5,8 @@ sp_BlitzCache and sp_BlitzIndex can build AI prompts with your query and index d
 - **`@AI = 2`** - Builds the AI prompt and returns it in the result set so you can copy/paste it into ChatGPT, Gemini, or another AI tool. Works on all supported versions of SQL Server and Azure SQL DB, no setup required.
 - **`@AI = 1`** - Does everything `@AI = 2` does, plus calls the AI API directly from SQL Server and returns advice in the result set. Requires SQL Server 2025 or Azure SQL DB (uses `sp_invoke_external_rest_endpoint`).
 
+If you want a single script that will walk you through the setup (which does still require your intervention for stuff like API keys), check out the [Using_AI.sql](Using_AI.sql) file.
+
 ## Getting Started: Generate Prompts with @AI = 2
 
 The fastest way to try the AI features is `@AI = 2`. No credentials, no config tables, no API keys - just run the proc and copy the prompt into your favorite AI tool. (We named this AI = 2 because in the really long term - like a decade from now - we expect everybody to be on SQL Server 2025 or Azure SQL DB, and they'll just use AI = 1.)
@@ -131,13 +133,20 @@ EXECUTE sp_addextendedproperty
 
 To have SQL Server call the AI API directly, you need database-scoped credentials and (optionally) configuration tables.
 
-### Enable External REST Endpoints (SQL Server 2025 only)
+**Important Note:** Your database context is about to matter, a LOT. When you use @AI = 1, and we call your AI provider for you, we need access to your API keys. The way Microsoft does database security, those keys have to be set up in whatever database where you'll be running the FRK scripts from. Not where they're *installed*, but your *database context* when you execute them.
 
-```sql
-/* Not needed on Azure SQL DB */
-EXEC sp_configure 'external rest endpoint enabled', 1;
-RECONFIGURE WITH OVERRIDE;
-```
+For example, if you're not using @AI = 1, you might install the procs in the master database, and then run them from any database. But once you turn on @AI = 1, the context matters:
+
+* If you're in the StackOverflow database, and you run sp_BlitzIndex @AI = 1, then the keys need to be in the StackOverflow Database
+* If you're in the DBAtools database, and you run sp_BlitzIndex @DatabaseName = 'StackOverflow', @AI = 1, then the keys need to be in the DBAtools database
+* If you're in the DBAtools database, and you run sp_BlitzIndex @GetAllDatabases = 1, @AI = 1, then the keys only need to be in the DBAtools database
+
+So you have to make an executive decision about how you want to run the FRK scripts with @AI = 1. There are two ways you could do this:
+
+* Set up the key, credential, and role in a utility database like DBAtools, and always call the FRK procs from there when you want to call AI providers for advice, or
+* Set up the key, credential, and role in every user database, and run the FRK scripts from anywhere without concern.
+
+Either way, follow the next few steps in every database where you want to run @AI = 1.
 
 ### Create a Master Key
 
@@ -173,6 +182,17 @@ CREATE ROLE [DBA_AI];
 GRANT REFERENCES ON DATABASE SCOPED CREDENTIAL::[https://api.openai.com/] TO [DBA_AI];
 /* Or for Gemini: */
 GRANT REFERENCES ON DATABASE SCOPED CREDENTIAL::[https://generativelanguage.googleapis.com/] TO [DBA_AI];
+```
+
+**Repeat the above key, credential, and access steps for all databases where you'll run the FRK procs from with the @AI = 1 parameter on.**
+
+### Enable External REST Endpoints
+
+You only have to do this once, and it takes effect at the server level. It's required in SQL Server 2025 or newer, but not necessary in some flavors of Azure SQL DB.
+
+```sql
+EXEC sp_configure 'external rest endpoint enabled', 1;
+RECONFIGURE WITH OVERRIDE;
 ```
 
 ### Configuration Tables (Optional)
