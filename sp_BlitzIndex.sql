@@ -995,6 +995,7 @@ IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
 
 CREATE TABLE #ai_providers
 (Id INT PRIMARY KEY CLUSTERED,
+ Model_Nickname NVARCHAR(200),
  AI_Model NVARCHAR(100) INDEX AI_Model,
  AI_URL NVARCHAR(500),
  AI_Database_Scoped_Credential_Name NVARCHAR(500),
@@ -1002,13 +1003,13 @@ CREATE TABLE #ai_providers
  Payload_Template NVARCHAR(4000),
  Timeout_Seconds TINYINT,
  Context INT,
- DefaultModel BIT DEFAULT 0);
+ Default_Model BIT DEFAULT 0);
 
 CREATE TABLE #ai_prompts
 (Id INT PRIMARY KEY CLUSTERED,
- PromptNickname NVARCHAR(200) INDEX IX_PromptNickname,
+ Prompt_Nickname NVARCHAR(200) INDEX IX_Prompt_Nickname,
  AI_System_Prompt NVARCHAR(4000),
- DefaultPrompt BIT DEFAULT 0);
+ Default_Prompt BIT DEFAULT 0);
 
 /* Sanitize our inputs */
 SELECT
@@ -1027,20 +1028,20 @@ END;
 IF @AIConfigTable IS NOT NULL
 BEGIN
    RAISERROR(N'Reading values from AI Provider Configuration Table', 0, 1) WITH NOWAIT;
-   SET @config_sql = N'INSERT INTO #ai_providers (Id, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_Parameters, Payload_Template, Timeout_Seconds, Context, DefaultModel)
-        SELECT Id, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_Parameters, Payload_Template, Timeout_Seconds, Context, DefaultModel FROM '
+   SET @config_sql = N'INSERT INTO #ai_providers (Id, Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_Parameters, Payload_Template, Timeout_Seconds, Context, Default_Model)
+        SELECT Id, Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_Parameters, Payload_Template, Timeout_Seconds, Context, Default_Model FROM '
         + CASE WHEN @AIConfigDatabaseName IS NOT NULL THEN (QUOTENAME(@AIConfigDatabaseName) + N'.') ELSE N'' END
         + CASE WHEN @AIConfigSchemaName IS NOT NULL THEN (QUOTENAME(@AIConfigSchemaName) + N'.') ELSE N'' END
-        + QUOTENAME(@AIConfigTableName) + N' WHERE DefaultModel = 1 OR @AIModel = AI_Model ; ';
+        + QUOTENAME(@AIConfigTableName) + N' WHERE Default_Model = 1 OR @AIModel = AI_Model OR @AIModel = Model_Nickname ; ';
    EXEC sp_executesql @config_sql, N'@AIModel NVARCHAR(100)', @AIModel;
 END;
 
 IF @AIModel IS NOT NULL AND @AIConfigTable IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM #ai_providers WHERE AI_Model = @AIModel)
+    AND NOT EXISTS (SELECT 1 FROM #ai_providers WHERE AI_Model = @AIModel OR Model_Nickname = @AIModel)
 BEGIN
     DECLARE @AIModelRequested NVARCHAR(200) = @AIModel;
     DECLARE @AIFallbackModel NVARCHAR(200);
-    SELECT TOP 1 @AIFallbackModel = AI_Model FROM #ai_providers WHERE DefaultModel = 1 ORDER BY Id;
+    SELECT TOP 1 @AIFallbackModel = AI_Model FROM #ai_providers WHERE Default_Model = 1 ORDER BY Id;
     IF @AIFallbackModel IS NULL SET @AIFallbackModel = N'gpt-5-nano';
     RAISERROR('@AIModel "%s" was not found in configuration table %s. Using "%s" instead.',
         10, 1, @AIModelRequested, @AIConfigTable, @AIFallbackModel) WITH NOWAIT;
@@ -1050,11 +1051,11 @@ END;
 IF @AIPromptConfigTable IS NOT NULL
 BEGIN
    RAISERROR(N'Reading values from AI Prompts Table', 0, 1) WITH NOWAIT;
-   SET @config_sql = N'INSERT INTO #ai_prompts (Id, PromptNickname, AI_System_Prompt, DefaultPrompt)
-        SELECT Id, PromptNickname, AI_System_Prompt, DefaultPrompt FROM '
+   SET @config_sql = N'INSERT INTO #ai_prompts (Id, Prompt_Nickname, AI_System_Prompt, Default_Prompt)
+        SELECT Id, Prompt_Nickname, AI_System_Prompt, Default_Prompt FROM '
         + CASE WHEN @AIPromptDatabaseName IS NOT NULL THEN (QUOTENAME(@AIPromptDatabaseName) + N'.') ELSE N'' END
         + CASE WHEN @AIPromptSchemaName IS NOT NULL THEN (QUOTENAME(@AIPromptSchemaName) + N'.') ELSE N'' END
-        + QUOTENAME(@AIPromptTableName) + N' WHERE (@AIPrompt IS NULL AND DefaultPrompt = 1) OR @AIPrompt = PromptNickname ; ';
+        + QUOTENAME(@AIPromptTableName) + N' WHERE (@AIPrompt IS NULL AND Default_Prompt = 1) OR @AIPrompt = Prompt_Nickname ; ';
    EXEC sp_executesql @config_sql, N'@AIPrompt NVARCHAR(200)', @AIPrompt;
 END;
 
@@ -1084,7 +1085,7 @@ IF @AI > 0
             @AITimeoutSeconds = COALESCE(Timeout_Seconds, 230),
             @AIContext = Context
             FROM #ai_providers
-            WHERE DefaultModel = 1
+            WHERE Default_Model = 1
             ORDER BY Id;
     ELSE
         SELECT TOP 1 @AIModel = AI_Model,
@@ -1095,19 +1096,19 @@ IF @AI > 0
             @AITimeoutSeconds = COALESCE(Timeout_Seconds, 230),
             @AIContext = Context
             FROM #ai_providers
-            WHERE AI_Model = @AIModel
+            WHERE AI_Model = @AIModel OR Model_Nickname = @AIModel
             ORDER BY Id;
 
     /* Check the prompts table */
     IF @AIPrompt IS NULL
         SELECT TOP 1 @AISystemPrompt = AI_System_Prompt
             FROM #ai_prompts
-            WHERE DefaultPrompt = 1
+            WHERE Default_Prompt = 1
             ORDER BY Id;
     ELSE
         SELECT TOP 1 @AISystemPrompt = AI_System_Prompt
             FROM #ai_prompts
-            WHERE PromptNickname = @AIPrompt
+            WHERE Prompt_Nickname = @AIPrompt
             ORDER BY Id;
 
     IF @AIModel IS NULL
@@ -1175,7 +1176,7 @@ IF @AI > 0
                 @AISystemPrompt AS AISystemPrompt, @AIPayloadTemplate AS AIPayloadTemplate;
         END;
 
-    IF @AIPrompt IS NOT NULL AND NOT EXISTS (SELECT 1 FROM #ai_prompts WHERE PromptNickname = @AIPrompt)
+    IF @AIPrompt IS NOT NULL AND NOT EXISTS (SELECT 1 FROM #ai_prompts WHERE Prompt_Nickname = @AIPrompt)
         BEGIN
             RAISERROR('@AIPrompt was specified but no matching prompt was found in the prompts table.',12,1);
             RETURN;
@@ -3736,6 +3737,10 @@ BEGIN
                 SET @AIPayload = REPLACE(@AIPayloadTemplate, N'@AIModel', @AIModel);
                 SET @AIPayload = REPLACE(@AIPayload, N'@AISystemPrompt', REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(@AISystemPrompt, '\', '\\'), '"', '\"'), CHAR(13), '\r'), CHAR(10), '\n'), CHAR(9), '\t'));
                 SET @AIPayload = REPLACE(@AIPayload, N'@CurrentAIPrompt', REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(@CurrentAIPrompt, '\', '\\'), '"', '\"'), CHAR(13), '\r'), CHAR(10), '\n'), CHAR(9), '\t'));
+
+                /* Trim payload to context size if specified */
+                IF @AIContext IS NOT NULL AND @AIContext > 0 AND LEN(@AIPayload) > @AIContext
+                    SET @AIPayload = LEFT(@AIPayload, @AIContext);
 
                 IF @Debug = 2
                     SELECT @AIPayload AS AIPayload, LEN(@AIPayload) AS AIPayload_Length, DATALENGTH(@AIPayload) AS AIPayload_DataLength;

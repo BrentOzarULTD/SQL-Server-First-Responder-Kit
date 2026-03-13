@@ -45,32 +45,32 @@ If you want to override the default prompts, create a table to store your prompt
 ```sql
 CREATE TABLE dbo.Blitz_AI_Prompts
 (Id INT IDENTITY(1,1) PRIMARY KEY CLUSTERED,
- PromptNickname NVARCHAR(200),
+ Prompt_Nickname NVARCHAR(200),
  AI_System_Prompt NVARCHAR(4000),
  Default_Prompt BIT DEFAULT 0);
- 
-INSERT INTO dbo.Blitz_AI_Prompts (PromptNickname, Default_Prompt, AI_System_Prompt)
+
+INSERT INTO dbo.Blitz_AI_Prompts (Prompt_Nickname, Default_Prompt, AI_System_Prompt)
   VALUES ('sp_BlitzCache Default', 1, 'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
 
     You have a query that isn''t performing to end user expectations. You have been tasked with making serious improvements to it, quickly. You are not allowed to change server-level settings or make frivolous suggestions like updating statistics. Instead, you need to focus on query changes or index changes. 
     
     Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.');
 
-INSERT INTO dbo.Blitz_AI_Prompts (PromptNickname, Default_Prompt, AI_System_Prompt)
+INSERT INTO dbo.Blitz_AI_Prompts (Prompt_Nickname, Default_Prompt, AI_System_Prompt)
   VALUES ('sp_BlitzCache Index Tuning', 0, 'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
 
     You have a query that isn''t performing to end user expectations. You have been tasked with making serious improvements to it, quickly, but you are only allowed to make index changes. You are not allowed to make changes to the query, server-level settings, database settings, etc.
     
     Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.');
 
-INSERT INTO dbo.Blitz_AI_Prompts (PromptNickname, Default_Prompt, AI_System_Prompt)
+INSERT INTO dbo.Blitz_AI_Prompts (Prompt_Nickname, Default_Prompt, AI_System_Prompt)
   VALUES ('sp_BlitzCache Deadlock Tuning', 0, 'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
 
     You have a query that is experiencing deadlocks and blocking. You have been tasked with making serious improvements to it, quickly. You are not allowed to change server-level or database-level settings nor make frivolous suggestions like updating statistics. Instead, you need to focus on query changes or index changes that will reduce blocking and deadlocks.
     
     Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.');
 
-INSERT INTO dbo.Blitz_AI_Prompts (PromptNickname, Default_Prompt, AI_System_Prompt)
+INSERT INTO dbo.Blitz_AI_Prompts (Prompt_Nickname, Default_Prompt, AI_System_Prompt)
   VALUES ('sp_BlitzCache Modernize', 0, 'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
 
     You have been given a legacy query that needs to be modernized. Our goals are to make the query run faster, make it easier to understand, easier to maintain, and to take advantage of new features up to and including SQL Server 2025. You have been tasked with making serious improvements to it, quickly, without touching server-level settings, database-level settings, indexes, or statistics.
@@ -195,22 +195,22 @@ CREATE TABLE dbo.Blitz_AI_Providers
  Default_Model BIT DEFAULT 0);
 
 /* OpenAI - fast, cheap model, default: */
-INSERT INTO dbo.Blitz_AI_Providers (Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, DefaultModel)
+INSERT INTO dbo.Blitz_AI_Providers (Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, Default_Model)
 VALUES (N'ChatGPT Fast', N'gpt-5-nano', N'https://api.openai.com/v1/chat/completions',
     N'https://api.openai.com/', 30, 1);
 
 /* OpenAI - highest quality, slowest, most expensive model: */
-INSERT INTO dbo.Blitz_AI_Providers (Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, DefaultModel)
+INSERT INTO dbo.Blitz_AI_Providers (Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, Default_Model)
 VALUES (N'ChatGPT Slow', N'gpt-5.4', N'https://api.openai.com/v1/chat/completions',
     N'https://api.openai.com/', 230, 0);
 
 /* Gemini - fast, cheap model: */
-INSERT INTO dbo.Blitz_AI_Providers (Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, DefaultModel)
+INSERT INTO dbo.Blitz_AI_Providers (Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, Default_Model)
 VALUES (N'Gemini Fast', N'gemini-3-flash-preview', N'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
     N'https://generativelanguage.googleapis.com/', 30, 0);
 
 /* Gemini - highest quality, slowest, most expensive model: */
-INSERT INTO dbo.Blitz_AI_Providers (Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, DefaultModel)
+INSERT INTO dbo.Blitz_AI_Providers (Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, Default_Model)
 VALUES (N'Gemini Slow', N'gemini-3-1-pro-preview', N'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
     N'https://generativelanguage.googleapis.com/', 230, 0);
 ```
@@ -263,7 +263,7 @@ EXEC sp_BlitzCache @Top = 1, @AI = 1,
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `@AI` | 0 | 0 = off, 1 = call AI API, 2 = generate prompt only |
-| `@AIModel` | `gpt-5-nano` | Model name. If it starts with `gemini`, the Gemini URL and payload template are used automatically. |
+| `@AIModel` | `gpt-5-nano` | Model name or nickname. Matches against both `AI_Model` and `Model_Nickname` in the providers table. If it starts with `gemini`, the Gemini URL and payload template are used automatically. |
 | `@AIURL` | `https://api.openai.com/v1/chat/completions` | API endpoint URL. Auto-detected for Gemini models. |
 | `@AICredential` | Auto-detected from URL | Database-scoped credential name. Defaults to the root of your `@AIURL` with trailing slash. |
 | `@AIConfigTable` | NULL | Three-part name of your providers config table (e.g., `master.dbo.Blitz_AI_Providers`). |
@@ -314,7 +314,7 @@ EXEC sp_BlitzIndex
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `@AI` | 0 | 0 = off, 1 = call AI API, 2 = generate prompt only |
-| `@AIModel` | `gpt-5-nano` | Model name. Gemini models auto-detect URL and payload template. |
+| `@AIModel` | `gpt-5-nano` | Model name or nickname. Matches against both `AI_Model` and `Model_Nickname` in the providers table. Gemini models auto-detect URL and payload template. |
 | `@AIURL` | `https://api.openai.com/v1/chat/completions` | API endpoint URL. |
 | `@AICredential` | Auto-detected from URL | Database-scoped credential name. |
 | `@AIConfigTable` | NULL | Three-part name of your providers config table. |
@@ -342,4 +342,6 @@ With `@AI = 2`:
 - **Database context matters** for `@AI = 1`: you must run the query in the database where your credentials are stored, or the API call will fail.
 - **Timeout**: The default timeout is 230 seconds. Larger models may need the full timeout; smaller models like `gpt-5-nano` respond in seconds.
 - **Cost**: Each call sends your query/index data to the AI provider and costs API credits. Use `@Top = 1` with sp_BlitzCache to limit costs during testing.
+- **Context size**: If the `Context` column in your AI Providers table has a value greater than 0, the payload will be trimmed to that length to avoid exceeding the model's context window. Set `Context` to 0 or NULL for unlimited payload size.
+- **Model nicknames**: The `@AIModel` parameter matches against both the `AI_Model` and `Model_Nickname` columns in your providers table. This lets you use friendly names like `'ChatGPT Slow'` instead of model identifiers like `'gpt-5.4'`.
 - **Security**: Your query text, index definitions, and table structures are sent to the AI provider's API. Do not use this feature if your data or schema is subject to restrictions on external sharing.
