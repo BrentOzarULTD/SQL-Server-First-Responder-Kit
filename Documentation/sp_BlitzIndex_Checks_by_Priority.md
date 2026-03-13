@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 128
-If you want to add a new check, start at 129.
+CURRENT HIGH CHECKID: 129
+If you want to add a new check, start at 130.
 
 | Priority | FindingsGroup           | Finding                                                         | URL                                                                                            | CheckID |
 | -------- | ----------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------- |
@@ -47,6 +47,7 @@ If you want to add a new check, start at 129.
 | 150      | Abnormal Design Pattern | In-Memory OLTP                                                  | https://www.brentozar.com/go/AbnormalPsychology                                                | 73      |
 | 150      | Abnormal Design Pattern | Non-Aligned Index on a Partitioned Table                        | https://www.brentozar.com/go/AbnormalPsychology                                                | 65      |
 | 150      | Abnormal Design Pattern | Partitioned Index                                               | https://www.brentozar.com/go/AbnormalPsychology                                                | 64      |
+| 150      | Abnormal Design Pattern | JSON Index                                                      | https://www.brentozar.com/go/AbnormalPsychology                                                | 129     |
 | 150      | Abnormal Design Pattern | Spatial Index                                                   | https://www.brentozar.com/go/AbnormalPsychology                                                | 62      |
 | 150      | Abnormal Design Pattern | XML Index                                                       | https://www.brentozar.com/go/AbnormalPsychology                                                | 60      |
 | 150      | Over-Indexing           | Approximate: Wide Indexes (7 or More Columns)                   | https://www.brentozar.com/go/IndexHoarder                                                      | 23      |

@@ -5895,7 +5895,7 @@ BEGIN
                     SELECT  129 AS check_id,
                             i.index_sanity_id,
                             150 AS Priority,
-                            N'Feature-Dependent Indexes' AS findings_group,
+                            N'Abnormal Design Pattern' AS findings_group,
                             N'JSON Index' AS finding,
                             [database_name] AS [Database Name],
                             N'https://www.brentozar.com/go/AbnormalPsychology' AS URL,
