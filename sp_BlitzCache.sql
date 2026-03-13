@@ -919,6 +919,24 @@ BEGIN
         + CASE WHEN @AIConfigSchemaName IS NOT NULL THEN (QUOTENAME(@AIConfigSchemaName) + N'.') ELSE N'' END
         + QUOTENAME(@AIConfigTableName) + N' WHERE (@AIModel IS NULL AND DefaultModel = 1) OR @AIModel = AI_Model ; ';
    EXEC sp_executesql @config_sql, N'@AIModel NVARCHAR(100)', @AIModel;
+
+   IF @AIModel IS NOT NULL AND NOT EXISTS (SELECT 1 FROM #ai_providers)
+   BEGIN
+      DECLARE @AIModelDefault NVARCHAR(200) = N'gpt-5-nano';
+      SET @config_sql = N'SELECT TOP 1 @AIModelDefault = AI_Model FROM '
+          + CASE WHEN @AIConfigDatabaseName IS NOT NULL THEN (QUOTENAME(@AIConfigDatabaseName) + N'.') ELSE N'' END
+          + CASE WHEN @AIConfigSchemaName IS NOT NULL THEN (QUOTENAME(@AIConfigSchemaName) + N'.') ELSE N'' END
+          + QUOTENAME(@AIConfigTableName) + N' WHERE DefaultModel = 1 ORDER BY Id ; ';
+      EXEC sp_executesql @config_sql, N'@AIModelDefault NVARCHAR(200) OUTPUT', @AIModelDefault OUTPUT;
+      RAISERROR(N'The @AIModel value ''%s'' was not found in @AIConfigTable ''%s''. Using ''%s'' instead.', 0, 1, @AIModel, @AIConfigTable, @AIModelDefault) WITH NOWAIT;
+      SET @AIModel = NULL;
+      SET @config_sql = N'INSERT INTO #ai_providers (Id, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_Parameters, Payload_Template, Timeout_Seconds, Context, DefaultModel)
+           SELECT Id, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, AI_Parameters, Payload_Template, Timeout_Seconds, Context, DefaultModel FROM '
+          + CASE WHEN @AIConfigDatabaseName IS NOT NULL THEN (QUOTENAME(@AIConfigDatabaseName) + N'.') ELSE N'' END
+          + CASE WHEN @AIConfigSchemaName IS NOT NULL THEN (QUOTENAME(@AIConfigSchemaName) + N'.') ELSE N'' END
+          + QUOTENAME(@AIConfigTableName) + N' WHERE DefaultModel = 1 ; ';
+      EXEC sp_executesql @config_sql;
+   END;
 END;
 
 IF @AIPromptConfigTable IS NOT NULL
