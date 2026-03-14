@@ -34,6 +34,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzAnalysis] (
 @Debug BIT = 0
 )
 AS 
+BEGIN
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
@@ -888,4 +889,5 @@ BEGIN
 END
 
 
+END
 GO
