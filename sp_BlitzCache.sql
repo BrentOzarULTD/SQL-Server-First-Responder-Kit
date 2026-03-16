@@ -5340,7 +5340,7 @@ XML Execution Plan:
 Thank you.'
     FROM ##BlitzCacheProcs p
     WHERE p.SPID = @@SPID
-    AND p.QueryPlan IS NOT NULL
+    AND (@AI = 2 OR p.QueryPlan IS NOT NULL) /* For @AI = 1, skip null plans (no value calling AI without a plan); for @AI = 2, build prompts even when plan is null */
     AND NOT (p.QueryType LIKE 'Procedure or Function:%'     /* This and the below exists query makes sure that we don't get advice for parent procs, only their statements, if the statements are in our result set. */
         AND EXISTS
         (
@@ -5530,7 +5530,7 @@ Thank you.'
         UPDATE ##BlitzCacheProcs
         SET ai_advice = N'AI prompt generated but not sent (running with @AI = 2). Review the ai_prompt column for the prompt that would be sent.'
         WHERE SPID = @@SPID
-        AND QueryPlan IS NOT NULL
+        AND ai_prompt IS NOT NULL
         OPTION (RECOMPILE);
     END;
 END;
