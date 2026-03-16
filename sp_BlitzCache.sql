@@ -5340,6 +5340,7 @@ XML Execution Plan:
 Thank you.'
     FROM ##BlitzCacheProcs p
     WHERE p.SPID = @@SPID
+    AND (@AI = 2 OR p.QueryPlan IS NOT NULL) /* For @AI = 1, skip null plans (no value calling AI without a plan); for @AI = 2, build prompts even when plan is null */
     AND NOT (p.QueryType LIKE 'Procedure or Function:%'     /* This and the below exists query makes sure that we don't get advice for parent procs, only their statements, if the statements are in our result set. */
         AND EXISTS
         (
