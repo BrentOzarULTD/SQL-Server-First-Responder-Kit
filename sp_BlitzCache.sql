@@ -5201,7 +5201,7 @@ BEGIN
         SELECT DISTINCT DatabaseName
         FROM ##BlitzCacheProcs
         WHERE SPID = @@SPID
-          AND QueryPlan IS NOT NULL
+          AND (QueryPlan IS NOT NULL OR QueryText IS NOT NULL)
           AND DatabaseName IS NOT NULL;
 
     OPEN ai_db_cursor;
@@ -5330,17 +5330,16 @@ Plan Info:
 Here are the warnings that popular query analysis tool sp_BlitzCache detected and suggested that we focus on - although there may be more issues, too: ' + ISNULL(Warnings, N'None') + N'
 
 Query Text (which is cut off for long queries):
-' + ISNULL(LEFT(QueryText, 4000), N'N/A') + N'
+' + CASE WHEN QueryText IS NULL THEN N'(Query text could not be retrieved.)' ELSE LEFT(QueryText, 4000) END + N'
 
 ' + CASE WHEN QueryType LIKE N'Statement (parent%' THEN N' The above query is part of a batch, stored procedure, or function, so other queries may show up in the query plan. However, those other queries are irrelevant here. Focus on this specific query above, because it is one of the most resource-intensive queries in the batch. The execution plan below includes other statements in the batch, but ignore those and focus only the query above and its specific plan in the batch below. ' ELSE N' ' END + N'
 
 XML Execution Plan:
-' + ISNULL(CAST(QueryPlan AS NVARCHAR(MAX)), N'N/A') + N'
+' + CASE WHEN QueryPlan IS NULL THEN N'(Query plan could not be retrieved.)' ELSE CAST(QueryPlan AS NVARCHAR(MAX)) END + N'
 
 Thank you.'
     FROM ##BlitzCacheProcs p
     WHERE p.SPID = @@SPID
-    AND (@AI = 2 OR p.QueryPlan IS NOT NULL) /* For @AI = 1, skip null plans (no value calling AI without a plan); for @AI = 2, build prompts even when plan is null */
     AND NOT (p.QueryType LIKE 'Procedure or Function:%'     /* This and the below exists query makes sure that we don't get advice for parent procs, only their statements, if the statements are in our result set. */
         AND EXISTS
         (
@@ -5369,6 +5368,14 @@ Thank you.'
     )
     OPTION (RECOMPILE);
 
+    /* If both query text and query plan are null, override with a simple message - no metrics or system prompt needed */
+    UPDATE ##BlitzCacheProcs
+    SET ai_prompt = N'Prompt not generated because we can''t find the query text or query plan.'
+    WHERE SPID = @@SPID
+    AND QueryText IS NULL
+    AND QueryPlan IS NULL
+    OPTION (RECOMPILE);
+
     IF @Debug = 2
         SELECT 'After setting up ai_prompt, before calling AI' AS ai_stage, SqlHandle, QueryHash, PlanHandle, QueryPlan, ai_prompt, ai_advice, ai_raw_response
             FROM ##BlitzCacheProcs
@@ -5391,8 +5398,8 @@ Thank you.'
         SELECT DISTINCT SqlHandle, QueryHash, PlanHandle, ai_prompt, COALESCE(QueryType, N'') + N' - ' + LEFT(QueryText, 100)
         FROM ##BlitzCacheProcs
         WHERE SPID = @@SPID
-        AND QueryPlan IS NOT NULL
-        AND ai_prompt IS NOT NULL;
+        AND ai_prompt IS NOT NULL
+        AND (QueryPlan IS NOT NULL OR QueryText IS NOT NULL);
         
         OPEN ai_cursor;
         
@@ -5531,6 +5538,7 @@ Thank you.'
         SET ai_advice = N'AI prompt generated but not sent (running with @AI = 2). Review the ai_prompt column for the prompt that would be sent.'
         WHERE SPID = @@SPID
         AND ai_prompt IS NOT NULL
+        AND (QueryPlan IS NOT NULL OR QueryText IS NOT NULL)
         OPTION (RECOMPILE);
     END;
 END;
@@ -5729,8 +5737,10 @@ BEGIN
 		implicit_conversion_info AS [Implicit Conversion Info],
 		cached_execution_parameters AS [Cached Execution Parameters], '
         + CASE WHEN @AI = 2 THEN N'
-        [AI Prompt] = (
-            SELECT (@AISystemPrompt + NCHAR(13) + NCHAR(10) + NCHAR(13) + NCHAR(10) + ai_prompt) AS [text()] FOR XML PATH(''ai_prompt''), TYPE),' ELSE N'' END
+        [AI Prompt] = CASE WHEN QueryText IS NULL AND QueryPlan IS NULL THEN (
+            SELECT ai_prompt AS [text()] FOR XML PATH(''ai_prompt''), TYPE)
+        ELSE (
+            SELECT (@AISystemPrompt + NCHAR(13) + NCHAR(10) + NCHAR(13) + NCHAR(10) + ai_prompt) AS [text()] FOR XML PATH(''ai_prompt''), TYPE) END,' ELSE N'' END
         + CASE WHEN @AI = 1 THEN N'
         [AI Advice] = CASE WHEN ai_advice IS NULL THEN NULL ELSE (
             SELECT ai_advice AS [text()] FOR XML PATH(''ai_advice''), TYPE) END, ' ELSE N'' END
@@ -5865,8 +5875,10 @@ BEGIN
         StatementEndOffset,
 		PlanGenerationNum, '
         + CASE WHEN @AI <> 2 THEN N'
-        [AI Prompt] = (
-            SELECT (@AISystemPrompt + NCHAR(13) + NCHAR(10) + NCHAR(13) + NCHAR(10) + ai_prompt) AS [text()] FOR XML PATH(''ai_prompt''), TYPE),' ELSE N'' END
+        [AI Prompt] = CASE WHEN QueryText IS NULL AND QueryPlan IS NULL THEN (
+            SELECT ai_prompt AS [text()] FOR XML PATH(''ai_prompt''), TYPE)
+        ELSE (
+            SELECT (@AISystemPrompt + NCHAR(13) + NCHAR(10) + NCHAR(13) + NCHAR(10) + ai_prompt) AS [text()] FOR XML PATH(''ai_prompt''), TYPE) END,' ELSE N'' END
         + CASE WHEN @AI = 1 THEN N'
         [AI Payload] = CASE WHEN ai_payload IS NULL THEN NULL ELSE (
             SELECT ai_payload AS [text()] FOR XML PATH(''ai_payload''), TYPE) END,
