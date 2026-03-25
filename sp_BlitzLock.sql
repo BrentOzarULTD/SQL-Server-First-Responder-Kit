@@ -3616,7 +3616,7 @@ BEGIN
                     en =
                         DENSE_RANK() OVER (ORDER BY dp.event_date),
                     qn =
-                        ROW_NUMBER() OVER (PARTITION BY dp.event_date ORDER BY dp.event_date) - 1,
+                        ROW_NUMBER() OVER (PARTITION BY dp.event_date ORDER BY dp.event_date),
                     dn =
                         ROW_NUMBER() OVER (PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date),
                     dp.is_victim,
@@ -3701,7 +3701,7 @@ BEGIN
                     en =
                         DENSE_RANK() OVER (ORDER BY dp.event_date),
                     qn =
-                        ROW_NUMBER() OVER (PARTITION BY dp.event_date ORDER BY dp.event_date) - 1,
+                        ROW_NUMBER() OVER (PARTITION BY dp.event_date ORDER BY dp.event_date),
                     dn =
                         ROW_NUMBER() OVER (PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date),
                     is_victim = 1,
@@ -4063,6 +4063,7 @@ BEGIN
             FROM #deadlock_results AS dr
             ORDER BY
                 dr.event_date,
+                dr.deadlock_group,
                 dr.is_victim DESC
             OPTION(RECOMPILE, LOOP JOIN, HASH JOIN);
             ';
