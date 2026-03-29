@@ -209,24 +209,35 @@ For more info, visit http://FirstResponderKit.org
 	SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1, CHARINDEX('.', @ProductVersion) + 1),
 		@ProductVersionMinor = PARSENAME(CONVERT(VARCHAR(32), @ProductVersion), 2);
 
-	/* Check for live query plan support (SQL 2016 SP1+ or Azure) */
-	IF EXISTS (SELECT * FROM sys.all_objects WHERE [name] = N'dm_exec_query_statistics_xml')
+	/* Check for live query plan support (SQL 2016 SP1+ or Azure).
+	   Guard against problematic builds by requiring:
+	   - Azure SQL DB, OR
+	   - SQL Server 2016 SP1 (13.0.4001) or higher, including 2017+,
+	   AND the presence of sys.dm_exec_query_statistics_xml. */
+	IF (
+			@AzureSQLDB = 1
+			OR (
+				   @ProductVersionMajor >= 14
+				   OR (@ProductVersionMajor = 13 AND @ProductVersionMinor >= 4001)
+			   )
+	   )
+	   AND EXISTS (SELECT 1 FROM sys.all_objects WHERE [name] = N'dm_exec_query_statistics_xml')
 		SET @HasLiveQueryPlan = 1;
 
-	/* Build @ParametersUsed string */
+	/* Build @ParametersUsed string (escape single quotes in all string params) */
 	SET @ParametersUsed = N'EXEC sp_kill';
-	IF @ExecuteKills <> 'N' SET @ParametersUsed = @ParametersUsed + N' @ExecuteKills = ''' + @ExecuteKills + N'''';
+	IF @ExecuteKills <> 'N' SET @ParametersUsed = @ParametersUsed + N' @ExecuteKills = ''' + REPLACE(@ExecuteKills, N'''', N'''''') + N'''';
 	IF @SPID IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @SPID = ' + CAST(@SPID AS NVARCHAR(10));
-	IF @LoginName IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @LoginName = ''' + @LoginName + N'''';
-	IF @AppName IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @AppName = ''' + @AppName + N'''';
-	IF @DatabaseName IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @DatabaseName = ''' + @DatabaseName + N'''';
-	IF @HostName IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @HostName = ''' + @HostName + N'''';
-	IF @LeadBlockers <> 'N' SET @ParametersUsed = @ParametersUsed + N', @LeadBlockers = ''' + @LeadBlockers + N'''';
-	IF @ReadOnly <> 'N' SET @ParametersUsed = @ParametersUsed + N', @ReadOnly = ''' + @ReadOnly + N'''';
-	IF @OrderBy <> 'duration' SET @ParametersUsed = @ParametersUsed + N', @OrderBy = ''' + @OrderBy + N'''';
-	IF @SPIDState <> '' SET @ParametersUsed = @ParametersUsed + N', @SPIDState = ''' + @SPIDState + N'''';
-	IF @OmitLogin <> '' SET @ParametersUsed = @ParametersUsed + N', @OmitLogin = ''' + @OmitLogin + N'''';
-	IF @HasOpenTran <> '' SET @ParametersUsed = @ParametersUsed + N', @HasOpenTran = ''' + @HasOpenTran + N'''';
+	IF @LoginName IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @LoginName = N''' + REPLACE(@LoginName, N'''', N'''''') + N'''';
+	IF @AppName IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @AppName = N''' + REPLACE(@AppName, N'''', N'''''') + N'''';
+	IF @DatabaseName IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @DatabaseName = N''' + REPLACE(@DatabaseName, N'''', N'''''') + N'''';
+	IF @HostName IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @HostName = N''' + REPLACE(@HostName, N'''', N'''''') + N'''';
+	IF @LeadBlockers <> 'N' SET @ParametersUsed = @ParametersUsed + N', @LeadBlockers = ''' + REPLACE(@LeadBlockers, N'''', N'''''') + N'''';
+	IF @ReadOnly <> 'N' SET @ParametersUsed = @ParametersUsed + N', @ReadOnly = ''' + REPLACE(@ReadOnly, N'''', N'''''') + N'''';
+	IF @OrderBy <> 'duration' SET @ParametersUsed = @ParametersUsed + N', @OrderBy = N''' + REPLACE(@OrderBy, N'''', N'''''') + N'''';
+	IF @SPIDState <> '' SET @ParametersUsed = @ParametersUsed + N', @SPIDState = ''' + REPLACE(@SPIDState, N'''', N'''''') + N'''';
+	IF @OmitLogin <> '' SET @ParametersUsed = @ParametersUsed + N', @OmitLogin = N''' + REPLACE(@OmitLogin, N'''', N'''''') + N'''';
+	IF @HasOpenTran <> '' SET @ParametersUsed = @ParametersUsed + N', @HasOpenTran = ''' + REPLACE(@HasOpenTran, N'''', N'''''') + N'''';
 	IF @RequestsOlderThanMinutes IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @RequestsOlderThanMinutes = ' + CAST(@RequestsOlderThanMinutes AS NVARCHAR(10));
 
 	/*-------------------------------------------------------
@@ -262,6 +273,12 @@ For more info, visit http://FirstResponderKit.org
 		RETURN;
 	END;
 
+	IF @RequestsOlderThanMinutes IS NOT NULL AND @RequestsOlderThanMinutes < 0
+	BEGIN
+		RAISERROR('@RequestsOlderThanMinutes must be >= 0.', 11, 1) WITH NOWAIT;
+		RETURN;
+	END;
+
 	SET @OrderBy = LOWER(@OrderBy);
 	IF @OrderBy NOT IN ('duration', 'cpu', 'reads', 'writes', 'tempdb', 'transactions')
 	BEGIN
@@ -269,7 +286,9 @@ For more info, visit http://FirstResponderKit.org
 		RETURN;
 	END;
 
-	/* Safety check: require at least one targeting filter when ExecuteKills = Y */
+	/* Safety check: require at least one inclusive targeting filter when ExecuteKills = Y.
+	   @OmitLogin is excluded from this check because it's an exclusion filter -
+	   using only @OmitLogin would kill nearly everything except that login. */
 	IF @ExecuteKills = 'Y'
 		AND @SPID IS NULL
 		AND @LoginName IS NULL
@@ -281,7 +300,6 @@ For more info, visit http://FirstResponderKit.org
 		AND @SPIDState = ''
 		AND @HasOpenTran = ''
 		AND @RequestsOlderThanMinutes IS NULL
-		AND @OmitLogin = ''
 	BEGIN
 		RAISERROR('You must specify at least one targeting filter when @ExecuteKills = ''Y''. Otherwise we might kill everything.', 11, 1) WITH NOWAIT;
 		RETURN;
@@ -389,7 +407,7 @@ For more info, visit http://FirstResponderKit.org
 		r.wait_type,
 		r.wait_time AS wait_time_ms,
 		r.wait_resource,
-		COALESCE(r.open_transaction_count, 0) AS open_transaction_count,
+		COALESCE(r.open_transaction_count, s.open_transaction_count, 0) AS open_transaction_count,
 		CASE WHEN EXISTS (
 			SELECT 1
 			FROM sys.dm_tran_active_transactions AS tat
@@ -438,7 +456,7 @@ For more info, visit http://FirstResponderKit.org
 		CASE
 			WHEN COALESCE(r.writes, s.writes, 0) = 0
 				AND (r.command IS NULL OR r.command IN (''SELECT'', ''FETCH'', ''RECEIVE''))
-				AND COALESCE(r.open_transaction_count, 0) <= 1
+				AND COALESCE(r.open_transaction_count, s.open_transaction_count, 0) <= 1
 			THEN 1 ELSE 0
 		END AS is_read_only,
 		CASE WHEN r.plan_handle IS NOT NULL
@@ -465,7 +483,7 @@ For more info, visit http://FirstResponderKit.org
 	WHERE s.session_id <> @OurSessionID
 		AND s.session_id > 50
 		AND s.is_user_process = 1
-	OPTION (MAX_GRANT_PERCENT = 1, MAXDOP 1);';
+	OPTION (MAXDOP 1);';
 
 	IF @Debug = 1
 		RAISERROR('Executing DMV collection query...', 0, 1) WITH NOWAIT;
