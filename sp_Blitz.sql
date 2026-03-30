@@ -614,6 +614,7 @@ BEGIN
 					(NULL,  79, NULL), /*Shrink Database Job*/
 					(NULL,  94, NULL), /*Agent Jobs Without Failure Emails*/
 					(NULL, 123, NULL), /*Agent Jobs Starting Simultaneously*/
+					(NULL, 127, NULL), /*Agent Jobs Starting Risky DST*/			
 					(NULL, 180, NULL), /*Shrink Database Step In Maintenance Plan*/
 					(NULL, 181, NULL), /*Repetitive Maintenance Tasks*/
 					
@@ -816,6 +817,7 @@ BEGIN
 						INSERT INTO #SkipChecks (CheckID) VALUES (96); /* Agent alerts for corruption */
 						INSERT INTO #SkipChecks (CheckID) VALUES (98); /* check for disabled alerts */
 						INSERT INTO #SkipChecks (CheckID) VALUES (123); /* Agent Jobs Starting Simultaneously */
+						INSERT INTO #SkipChecks (CheckID) VALUES (127); /*Agent Jobs Starting Risky DST*/
 						INSERT INTO #SkipChecks (CheckID) VALUES (219); /* check for alerts that do NOT include event descriptions in their outputs via email/pager/net-send */
 			            INSERT  INTO #BlitzResults
 			            ( CheckID ,
@@ -9149,6 +9151,43 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 								FROM    msdb.dbo.sysjobactivity
 								WHERE start_execution_date > DATEADD(dd, -14, GETDATE())
 								GROUP BY start_execution_date HAVING COUNT(*) > 1;
+					END;
+
+				IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 127 )
+					BEGIN
+						
+						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 127) WITH NOWAIT;
+						
+						INSERT  INTO #BlitzResults
+								( CheckID ,
+								  Priority ,
+								  FindingsGroup ,
+								  Finding ,
+								  URL ,
+								  Details
+								)
+								SELECT TOP 1 127 AS CheckID ,
+										200 AS Priority ,
+										'Informational' AS FindingsGroup ,
+										'Job Scheduled During DST Window' AS Finding ,
+										'https://learn.microsoft.com/en-us/sql/ssms/agent/schedule-a-job' AS URL ,
+										'The job [' + j.[name] + '] has an active schedule ['
+										+ ssc.[name]
+										+ '] configured to start between 03:00 and 04:00 (Time: ' 
+										+ STUFF(STUFF(RIGHT('000000' + CAST(ssc.active_start_time AS VARCHAR(6)), 6), 3, 0, ':'), 6, 0, ':')
+										+ '). This can cause the job to run twice or be skipped during Daylight Saving Time (DST) transitions.' AS Details
+								FROM    msdb.dbo.sysjobs j
+										INNER JOIN msdb.dbo.sysjobschedules AS sjsc
+											ON j.job_id = sjsc.job_id
+										INNER JOIN msdb.dbo.sysschedules AS ssc
+											ON sjsc.schedule_id = ssc.schedule_id
+								WHERE   j.[enabled] = 1
+										AND ssc.[enabled] = 1										
+										AND ssc.active_start_time >= 30000 
+										AND ssc.active_start_time < 40000
+
 					END;
 
 				IF @CheckServerInfo = 1
