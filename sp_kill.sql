@@ -282,7 +282,7 @@ For more info, visit http://FirstResponderKit.org
 	/*-------------------------------------------------------
 	  Section 5: Temp Table Creation
 	-------------------------------------------------------*/
-	CREATE TABLE #sp_kill_sessions (
+	CREATE TABLE #hitlist (
 		Id INT IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED,
 		ServerName NVARCHAR(128) NULL,
 		CheckDate DATETIMEOFFSET NULL,
@@ -335,7 +335,7 @@ For more info, visit http://FirstResponderKit.org
 		RAISERROR('Collecting session data from DMVs...', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute = CAST(N'' AS NVARCHAR(MAX)) + N'
-	INSERT INTO #sp_kill_sessions (
+	INSERT INTO #hitlist (
 		ServerName, CheckDate, CallerLoginName, CallerHostName, ParametersUsed,
 		KillCommand, session_id, [status], blocking_session_id,
 		wait_type, wait_time_ms, wait_resource,
@@ -463,7 +463,7 @@ For more info, visit http://FirstResponderKit.org
 		RAISERROR('Applying kill recommendation logic...', 0, 1) WITH NOWAIT;
 
 	/* 7a: Mark rollbacks as not killable */
-	UPDATE #sp_kill_sessions
+	UPDATE #hitlist
 	SET KillRecommended = 0,
 		Reason = N'Session is rolling back - not safe to kill.'
 	WHERE [status] = 'rollback';
@@ -471,141 +471,30 @@ For more info, visit http://FirstResponderKit.org
 	/* 7b: If @SPID is specified, only recommend that one */
 	IF @SPID IS NOT NULL
 	BEGIN
-		IF NOT EXISTS (SELECT 1 FROM #sp_kill_sessions WHERE session_id = @SPID)
+		IF NOT EXISTS (SELECT 1 FROM #hitlist WHERE session_id = @SPID)
 		BEGIN
 			RAISERROR('The specified @SPID %d was not found among active user sessions.', 11, 1, @SPID) WITH NOWAIT;
 			/* Still return results so user can see what IS running */
 		END
-		ELSE IF EXISTS (SELECT 1 FROM #sp_kill_sessions WHERE session_id = @SPID AND [status] = 'rollback')
+		ELSE IF EXISTS (SELECT 1 FROM #hitlist WHERE session_id = @SPID AND [status] = 'rollback')
 		BEGIN
 			RAISERROR('The specified @SPID %d is currently rolling back and cannot be killed.', 11, 1, @SPID) WITH NOWAIT;
 		END
 		ELSE
 		BEGIN
-			UPDATE #sp_kill_sessions
+			UPDATE #hitlist
 			SET KillRecommended = 1,
 				Reason = N'Targeted by @SPID parameter.'
 			WHERE session_id = @SPID
 			AND [status] <> 'rollback';
 		END;
 	END
-	/* 7c: Otherwise, apply filters */
+	/* 7c: Otherwise, apply all filters as AND conditions in a single pass.
+	   A session must match ALL specified filters to be recommended for kill.
+	   If @ExecuteKills = 'N' and no filters are set, don't recommend anything. */
 	ELSE
 	BEGIN
-		/* Start by recommending all non-rollback sessions */
-		UPDATE #sp_kill_sessions
-		SET KillRecommended = 1
-		WHERE [status] <> 'rollback';
-
-		/* Apply each filter to narrow down */
-		IF @LoginName IS NOT NULL
-		BEGIN
-			UPDATE #sp_kill_sessions
-			SET KillRecommended = 0,
-				Reason = ISNULL(Reason + N' ', N'') + N'Does not match @LoginName filter.'
-			WHERE KillRecommended = 1
-			AND login_name <> @LoginName;
-		END;
-
-		IF @AppName IS NOT NULL
-		BEGIN
-			UPDATE #sp_kill_sessions
-			SET KillRecommended = 0,
-				Reason = ISNULL(Reason + N' ', N'') + N'Does not match @AppName filter.'
-			WHERE KillRecommended = 1
-			AND program_name NOT LIKE @AppName;
-		END;
-
-		IF @DatabaseName IS NOT NULL
-		BEGIN
-			UPDATE #sp_kill_sessions
-			SET KillRecommended = 0,
-				Reason = ISNULL(Reason + N' ', N'') + N'Does not match @DatabaseName filter.'
-			WHERE KillRecommended = 1
-			AND database_name <> @DatabaseName;
-		END;
-
-		IF @HostName IS NOT NULL
-		BEGIN
-			UPDATE #sp_kill_sessions
-			SET KillRecommended = 0,
-				Reason = ISNULL(Reason + N' ', N'') + N'Does not match @HostName filter.'
-			WHERE KillRecommended = 1
-			AND host_name <> @HostName;
-		END;
-
-		IF @LeadBlockers = 'Y'
-		BEGIN
-			/* A lead blocker blocks at least one other session and is not itself blocked */
-			UPDATE #sp_kill_sessions
-			SET KillRecommended = 0,
-				Reason = ISNULL(Reason + N' ', N'') + N'Not a lead blocker.'
-			WHERE KillRecommended = 1
-			AND NOT (
-				/* This session is blocking someone */
-				EXISTS (SELECT 1 FROM #sp_kill_sessions blocked WHERE blocked.blocking_session_id = #sp_kill_sessions.session_id)
-				/* And this session is not itself blocked */
-				AND (blocking_session_id IS NULL OR blocking_session_id = 0)
-			);
-		END;
-
-		IF @ReadOnly = 'Y'
-		BEGIN
-			UPDATE #sp_kill_sessions
-			SET KillRecommended = 0,
-				Reason = ISNULL(Reason + N' ', N'') + N'Not a read-only query.'
-			WHERE KillRecommended = 1
-			AND is_read_only = 0;
-		END;
-
-		IF @SPIDState = 'S'
-		BEGIN
-			UPDATE #sp_kill_sessions
-			SET KillRecommended = 0,
-				Reason = ISNULL(Reason + N' ', N'') + N'Not sleeping (@SPIDState = S).'
-			WHERE KillRecommended = 1
-			AND [status] <> 'sleeping';
-		END;
-
-		IF @SPIDState = 'R'
-		BEGIN
-			UPDATE #sp_kill_sessions
-			SET KillRecommended = 0,
-				Reason = ISNULL(Reason + N' ', N'') + N'Not running (@SPIDState = R).'
-			WHERE KillRecommended = 1
-			AND [status] <> 'running';
-		END;
-
-		IF @HasOpenTran = 'Y'
-		BEGIN
-			UPDATE #sp_kill_sessions
-			SET KillRecommended = 0,
-				Reason = ISNULL(Reason + N' ', N'') + N'No open transactions.'
-			WHERE KillRecommended = 1
-			AND ISNULL(open_transaction_count, 0) = 0;
-		END;
-
-		IF @RequestsOlderThanMinutes IS NOT NULL
-		BEGIN
-			UPDATE #sp_kill_sessions
-			SET KillRecommended = 0,
-				Reason = ISNULL(Reason + N' ', N'') + N'Request not old enough for @RequestsOlderThanMinutes filter.'
-			WHERE KillRecommended = 1
-			AND last_request_start_time > DATEADD(MINUTE, -@RequestsOlderThanMinutes, GETDATE());
-		END;
-
-		IF @OmitLogin <> ''
-		BEGIN
-			UPDATE #sp_kill_sessions
-			SET KillRecommended = 0,
-				Reason = ISNULL(Reason + N' ', N'') + N'Login excluded by @OmitLogin.'
-			WHERE KillRecommended = 1
-			AND login_name = @OmitLogin;
-		END;
-
-		/* If no targeting filters were set and @ExecuteKills = 'N', don't recommend
-		   killing anything - just show all sessions. When @ExecuteKills = 'Y',
-		   no filters means kill everything (except our own session). */
+		/* When in display mode with no filters, just show sessions without recommending kills */
 		IF @ExecuteKills = 'N'
 			AND @LoginName IS NULL
 			AND @AppName IS NULL
@@ -618,10 +507,30 @@ For more info, visit http://FirstResponderKit.org
 			AND @RequestsOlderThanMinutes IS NULL
 			AND @OmitLogin = ''
 		BEGIN
-			UPDATE #sp_kill_sessions
-			SET KillRecommended = 0,
-				Reason = NULL
-			WHERE KillRecommended = 1;
+			/* No filters in display mode - nothing to recommend */
+			IF @Debug = 1
+				RAISERROR('No filters specified in display mode - showing all sessions without recommendations.', 0, 1) WITH NOWAIT;
+		END
+		ELSE
+		BEGIN
+			/* Recommend sessions that match ALL specified filters */
+			UPDATE h
+			SET KillRecommended = 1
+			FROM #hitlist h
+			WHERE [status] <> 'rollback'
+			AND (@LoginName IS NULL OR login_name = @LoginName)
+			AND (@AppName IS NULL OR program_name LIKE @AppName)
+			AND (@DatabaseName IS NULL OR database_name = @DatabaseName)
+			AND (@HostName IS NULL OR host_name = @HostName)
+			AND (@ReadOnly = 'N' OR is_read_only = 1)
+			AND (@SPIDState = '' OR (@SPIDState = 'S' AND [status] = 'sleeping') OR (@SPIDState = 'R' AND [status] = 'running'))
+			AND (@HasOpenTran = '' OR ISNULL(open_transaction_count, 0) > 0)
+			AND (@RequestsOlderThanMinutes IS NULL OR last_request_start_time <= DATEADD(MINUTE, -@RequestsOlderThanMinutes, GETDATE()))
+			AND (@OmitLogin = '' OR login_name <> @OmitLogin)
+			AND (@LeadBlockers = 'N' OR (
+				EXISTS (SELECT 1 FROM #hitlist blocked WHERE blocked.blocking_session_id = h.session_id)
+				AND (h.blocking_session_id IS NULL OR h.blocking_session_id = 0)
+			));
 		END;
 	END; /* End of filter logic */
 
@@ -633,10 +542,10 @@ For more info, visit http://FirstResponderKit.org
 		+ N' session(s) for '
 		+ CAST(ISNULL(DATEDIFF(SECOND, COALESCE(t.start_time, t.last_request_start_time), GETDATE()), 0) AS NVARCHAR(10))
 		+ N' seconds.'
-	FROM #sp_kill_sessions t
+	FROM #hitlist t
 	CROSS APPLY (
 		SELECT COUNT(*) AS cnt
-		FROM #sp_kill_sessions blocked
+		FROM #hitlist blocked
 		WHERE blocked.blocking_session_id = t.session_id
 	) blocked_count
 	WHERE t.KillRecommended = 1
@@ -645,7 +554,7 @@ For more info, visit http://FirstResponderKit.org
 	AND (t.Reason IS NULL OR t.Reason = N'Targeted by @SPID parameter.');
 
 	/* Sleeping with open transactions */
-	UPDATE #sp_kill_sessions
+	UPDATE #hitlist
 	SET Reason = N'Sleeping session with '
 		+ CAST(open_transaction_count AS NVARCHAR(10))
 		+ N' open transaction(s), idle for '
@@ -657,7 +566,7 @@ For more info, visit http://FirstResponderKit.org
 	AND Reason IS NULL;
 
 	/* Long-running read-only */
-	UPDATE #sp_kill_sessions
+	UPDATE #hitlist
 	SET Reason = N'Long-running read-only query: running for '
 		+ CAST(ISNULL(DATEDIFF(SECOND, COALESCE(start_time, last_request_start_time), GETDATE()), 0) AS NVARCHAR(10))
 		+ N' seconds'
@@ -671,7 +580,7 @@ For more info, visit http://FirstResponderKit.org
 	AND Reason IS NULL;
 
 	/* Long-running write queries */
-	UPDATE #sp_kill_sessions
+	UPDATE #hitlist
 	SET Reason = N'Long-running query: running for '
 		+ CAST(ISNULL(DATEDIFF(SECOND, COALESCE(start_time, last_request_start_time), GETDATE()), 0) AS NVARCHAR(10))
 		+ N' seconds, writes: ' + CAST(ISNULL(writes, 0) AS NVARCHAR(20))
@@ -685,13 +594,13 @@ For more info, visit http://FirstResponderKit.org
 	AND Reason IS NULL;
 
 	/* Catch-all for anything that matched filters but wasn't categorized above */
-	UPDATE #sp_kill_sessions
+	UPDATE #hitlist
 	SET Reason = N'Matched filter criteria.'
 	WHERE KillRecommended = 1
 	AND Reason IS NULL;
 
 	/* Clear KillCommand for sessions we're NOT recommending to kill */
-	UPDATE #sp_kill_sessions
+	UPDATE #hitlist
 	SET KillCommand = NULL,
 		FreeProcCacheCommand = NULL
 	WHERE KillRecommended = 0;
@@ -709,7 +618,7 @@ For more info, visit http://FirstResponderKit.org
 				CASE WHEN @OrderBy = 'tempdb' THEN CAST(ISNULL(tempdb_allocations_mb, 0) AS BIGINT) END DESC,
 				CASE WHEN @OrderBy = 'transactions' THEN ISNULL(open_transaction_count, 0) END DESC
 			) AS rn
-		FROM #sp_kill_sessions
+		FROM #hitlist
 		WHERE KillRecommended = 1
 	)
 	UPDATE cte SET OrderByNum = rn;
@@ -717,10 +626,10 @@ For more info, visit http://FirstResponderKit.org
 	/*-------------------------------------------------------
 	  Section 9: Rollback Warning
 	-------------------------------------------------------*/
-	IF EXISTS (SELECT 1 FROM #sp_kill_sessions WHERE [status] = 'rollback')
+	IF EXISTS (SELECT 1 FROM #hitlist WHERE [status] = 'rollback')
 	BEGIN
 		DECLARE @RollbackCount INT;
-		SELECT @RollbackCount = COUNT(*) FROM #sp_kill_sessions WHERE [status] = 'rollback';
+		SELECT @RollbackCount = COUNT(*) FROM #hitlist WHERE [status] = 'rollback';
 		SET @msg = N'WARNING: ' + CAST(@RollbackCount AS NVARCHAR(10))
 			+ N' session(s) are currently rolling back. These will not be killed.';
 		RAISERROR(@msg, 0, 1) WITH NOWAIT;
@@ -809,7 +718,7 @@ For more info, visit http://FirstResponderKit.org
 				start_time, last_request_start_time, last_request_end_time, command, sql_text,
 				sql_handle, plan_handle, query_plan, live_query_plan,
 				transaction_isolation_level, is_read_only, FreeProcCacheCommand
-			FROM #sp_kill_sessions
+			FROM #hitlist
 			ORDER BY KillRecommended DESC, ISNULL(OrderByNum, 2147483647), session_id;';
 
 		EXEC(@StringToExecute);
@@ -820,7 +729,7 @@ For more info, visit http://FirstResponderKit.org
 	-------------------------------------------------------*/
 	IF @ExecuteKills = 'Y'
 	BEGIN
-		SELECT @TotalKills = COUNT(*) FROM #sp_kill_sessions WHERE KillRecommended = 1;
+		SELECT @TotalKills = COUNT(*) FROM #hitlist WHERE KillRecommended = 1;
 
 		IF @TotalKills = 0
 		BEGIN
@@ -833,7 +742,7 @@ For more info, visit http://FirstResponderKit.org
 
 			DECLARE kill_cursor CURSOR LOCAL FAST_FORWARD FOR
 				SELECT session_id, plan_handle, sql_handle, start_time, last_request_start_time
-				FROM #sp_kill_sessions
+				FROM #hitlist
 				WHERE KillRecommended = 1
 				ORDER BY OrderByNum;
 
@@ -907,7 +816,7 @@ For more info, visit http://FirstResponderKit.org
 				SET @KillEndTime = GETDATE();
 
 				/* Update temp table with kill results */
-				UPDATE #sp_kill_sessions
+				UPDATE #hitlist
 				SET KillStartedTime = @KillStartTime,
 					KillEndedTime = @KillEndTime,
 					KillError = @KillError
@@ -932,7 +841,7 @@ For more info, visit http://FirstResponderKit.org
 						ot.KillEndedTime = t.KillEndedTime,
 						ot.KillError = t.KillError
 					FROM ' + @ObjectFullName + N' ot
-					INNER JOIN #sp_kill_sessions t ON ot.session_id = t.session_id
+					INNER JOIN #hitlist t ON ot.session_id = t.session_id
 						AND ot.CheckDate = t.CheckDate
 						AND ot.ServerName = t.ServerName
 					WHERE t.KillRecommended = 1;';
@@ -958,7 +867,7 @@ For more info, visit http://FirstResponderKit.org
 		command, sql_text, sql_handle, plan_handle,
 		query_plan, live_query_plan,
 		transaction_isolation_level, is_read_only, FreeProcCacheCommand
-	FROM #sp_kill_sessions
+	FROM #hitlist
 	ORDER BY KillRecommended DESC, ISNULL(OrderByNum, 2147483647), session_id;
 
 END;
