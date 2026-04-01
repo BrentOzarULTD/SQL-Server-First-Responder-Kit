@@ -1,51 +1,3 @@
-/*
-sp_kill from http://FirstResponderKit.org
-
-This script helps you kill queries during a performance emergency.
-
-It collects all running session data, recommends which queries to kill
-(with reasons), optionally executes the kills, frees plan cache entries
-for killed queries, and logs everything to an output table.
-
-This is NOT targeted at DBAs who want to pull on the latex gloves to do
-careful analysis first. This IS targeted at people who would otherwise
-just restart the whole server.
-
-To learn more, visit http://FirstResponderKit.org where you can download new
-versions for free, watch training videos on how it works, get more info on
-the findings, contribute your own code, and more.
-
-Known limitations of this version:
- - Only Microsoft-supported versions of SQL Server (2016+).
- - Does not kill system sessions (session_id <= 50).
- - Does not kill sessions that are already rolling back.
-
-Unknown limitations of this version:
- - None. (If we knew them, they would be known. Duh.)
-
-MIT License
-
-Copyright (c) Brent Ozar Unlimited
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-*/
-
 IF OBJECT_ID('dbo.sp_kill') IS NULL
 	EXEC ('CREATE PROCEDURE dbo.sp_kill AS RETURN 0;');
 GO
@@ -78,6 +30,54 @@ BEGIN
 	SET NOCOUNT ON;
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+
+	/*
+	sp_kill from http://FirstResponderKit.org
+
+	This script helps you kill queries during a performance emergency.
+
+	It collects all running session data, recommends which queries to kill
+	(with reasons), optionally executes the kills, frees plan cache entries
+	for killed queries, and logs everything to an output table.
+
+	This is NOT targeted at DBAs who want to pull on the latex gloves to do
+	careful analysis first. This IS targeted at people who would otherwise
+	just restart the whole server.
+
+	To learn more, visit http://FirstResponderKit.org where you can download new
+	versions for free, watch training videos on how it works, get more info on
+	the findings, contribute your own code, and more.
+
+	Known limitations of this version:
+	 - Only Microsoft-supported versions of SQL Server (2016+).
+	 - Does not kill system sessions (session_id <= 50).
+	 - Does not kill sessions that are already rolling back.
+
+	Unknown limitations of this version:
+	 - None. (If we knew them, they would be known. Duh.)
+
+	MIT License
+
+	Copyright (c) Brent Ozar Unlimited
+
+	Permission is hereby granted, free of charge, to any person obtaining a copy
+	of this software and associated documentation files (the "Software"), to deal
+	in the Software without restriction, including without limitation the rights
+	to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+	copies of the Software, and to permit persons to whom the Software is
+	furnished to do so, subject to the following conditions:
+
+	The above copyright notice and this permission notice shall be included in all
+	copies or substantial portions of the Software.
+
+	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+	IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+	FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+	AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+	SOFTWARE.
+	*/
 
 	SELECT @Version = '8.30', @VersionDate = '20260313';
 
@@ -176,12 +176,7 @@ For more info, visit http://FirstResponderKit.org
 	/*-------------------------------------------------------
 	  Section 2: Variable Declarations & Platform Detection
 	-------------------------------------------------------*/
-	DECLARE @ProductVersion NVARCHAR(128) = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128))
-		,@EngineEdition INT = CAST(SERVERPROPERTY('EngineEdition') AS INT)
-		,@ProductVersionMajor DECIMAL(10,2)
-		,@ProductVersionMinor DECIMAL(10,2)
-		,@Platform NVARCHAR(8) = (SELECT CASE WHEN @@VERSION LIKE '%Azure%' THEN N'Azure' ELSE N'NonAzure' END)
-		,@AzureSQLDB BIT = (SELECT CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN 1 ELSE 0 END)
+	DECLARE @AzureSQLDB BIT = (SELECT CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN 1 ELSE 0 END)
 		,@HasLiveQueryPlan BIT = 0
 		,@StringToExecute NVARCHAR(MAX)
 		,@ObjectFullName NVARCHAR(2000)
@@ -206,22 +201,8 @@ For more info, visit http://FirstResponderKit.org
 		,@LineFeed NVARCHAR(10) = CHAR(13) + CHAR(10)
 		,@BlockedSessionCount INT;
 
-	SELECT @ProductVersionMajor = SUBSTRING(@ProductVersion, 1, CHARINDEX('.', @ProductVersion) + 1),
-		@ProductVersionMinor = PARSENAME(CONVERT(VARCHAR(32), @ProductVersion), 2);
-
-	/* Check for live query plan support (SQL 2016 SP1+ or Azure).
-	   Guard against problematic builds by requiring:
-	   - Azure SQL DB, OR
-	   - SQL Server 2016 SP1 (13.0.4001) or higher, including 2017+,
-	   AND the presence of sys.dm_exec_query_statistics_xml. */
-	IF (
-			@AzureSQLDB = 1
-			OR (
-				   @ProductVersionMajor >= 14
-				   OR (@ProductVersionMajor = 13 AND @ProductVersionMinor >= 4001)
-			   )
-	   )
-	   AND EXISTS (SELECT 1 FROM sys.all_objects WHERE [name] = N'dm_exec_query_statistics_xml')
+	/* Check for live query plan support - if the DMV exists, it's supported */
+	IF EXISTS (SELECT 1 FROM sys.all_objects WHERE [name] = N'dm_exec_query_statistics_xml')
 		SET @HasLiveQueryPlan = 1;
 
 	/* Build @ParametersUsed string (escape single quotes in all string params) */
