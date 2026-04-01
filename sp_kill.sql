@@ -15,7 +15,7 @@ ALTER PROCEDURE dbo.sp_kill
 	@SPIDState VARCHAR(1) = NULL,
 	@OmitLogin NVARCHAR(256) = NULL,
 	@HasOpenTran VARCHAR(1) = NULL,
-	@RequestsOlderThanMinutes INT = NULL,
+	@RequestsOlderThanSeconds INT = NULL,
 	@OutputDatabaseName NVARCHAR(256) = NULL,
 	@OutputSchemaName NVARCHAR(256) = NULL,
 	@OutputTableName NVARCHAR(256) = NULL,
@@ -127,8 +127,8 @@ Parameters:
   @HasOpenTran VARCHAR(1) = NULL
     Y = only target sessions with open transactions.
 
-  @RequestsOlderThanMinutes INT = NULL
-    Only target sessions whose last request started at least this many minutes ago.
+  @RequestsOlderThanSeconds INT = NULL
+    Only target sessions whose last request started at least this many seconds ago.
 
   @OutputDatabaseName, @OutputSchemaName, @OutputTableName
     Optional 3-part name for persistent logging table.
@@ -152,9 +152,9 @@ Example usage:
   -- Kill a specific session:
   EXEC sp_kill @SPID = 55, @ExecuteKills = ''Y'';
 
-  -- Kill sleeping sessions with open transactions older than 5 minutes:
+  -- Kill sleeping sessions with open transactions older than 10 seconds:
   EXEC sp_kill @HasOpenTran = ''Y'', @SPIDState = ''S'',
-    @RequestsOlderThanMinutes = 5, @ExecuteKills = ''Y'';
+    @RequestsOlderThanSeconds = 10, @ExecuteKills = ''Y'';
 
   -- Just show what we would kill for a specific login, sorted by CPU:
   EXEC sp_kill @LoginName = ''DOMAIN\TroublesomeUser'', @OrderBy = ''cpu'';
@@ -214,7 +214,7 @@ For more info, visit http://FirstResponderKit.org
 	IF @SPIDState IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @SPIDState = ''' + REPLACE(@SPIDState, N'''', N'''''') + N'''';
 	IF @OmitLogin IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @OmitLogin = N''' + REPLACE(@OmitLogin, N'''', N'''''') + N'''';
 	IF @HasOpenTran IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @HasOpenTran = ''' + REPLACE(@HasOpenTran, N'''', N'''''') + N'''';
-	IF @RequestsOlderThanMinutes IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @RequestsOlderThanMinutes = ' + CAST(@RequestsOlderThanMinutes AS NVARCHAR(10));
+	IF @RequestsOlderThanSeconds IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @RequestsOlderThanSeconds = ' + CAST(@RequestsOlderThanSeconds AS NVARCHAR(10));
 
 	/*-------------------------------------------------------
 	  Section 3: Parameter Validation
@@ -249,9 +249,9 @@ For more info, visit http://FirstResponderKit.org
 		RETURN;
 	END;
 
-	IF @RequestsOlderThanMinutes IS NOT NULL AND @RequestsOlderThanMinutes < 0
+	IF @RequestsOlderThanSeconds IS NOT NULL AND @RequestsOlderThanSeconds < 0
 	BEGIN
-		RAISERROR('@RequestsOlderThanMinutes must be >= 0.', 11, 1) WITH NOWAIT;
+		RAISERROR('@RequestsOlderThanSeconds must be >= 0.', 11, 1) WITH NOWAIT;
 		RETURN;
 	END;
 
@@ -508,7 +508,7 @@ For more info, visit http://FirstResponderKit.org
 			AND @ReadOnly IS NULL
 			AND @SPIDState IS NULL
 			AND @HasOpenTran IS NULL
-			AND @RequestsOlderThanMinutes IS NULL
+			AND @RequestsOlderThanSeconds IS NULL
 			AND @OmitLogin IS NULL
 		BEGIN
 			/* No filters in display mode - nothing to recommend */
@@ -529,7 +529,7 @@ For more info, visit http://FirstResponderKit.org
 			AND (@ReadOnly IS NULL OR is_read_only = 1)
 			AND (@SPIDState IS NULL OR (@SPIDState = 'S' AND [status] = 'sleeping') OR (@SPIDState = 'R' AND [status] = 'running'))
 			AND (@HasOpenTran IS NULL OR ISNULL(open_transaction_count, 0) > 0)
-			AND (@RequestsOlderThanMinutes IS NULL OR last_request_start_time <= DATEADD(MINUTE, -@RequestsOlderThanMinutes, GETDATE()))
+			AND (@RequestsOlderThanSeconds IS NULL OR last_request_start_time <= DATEADD(SECOND, -@RequestsOlderThanSeconds, GETDATE()))
 			AND (@OmitLogin IS NULL OR login_name <> @OmitLogin)
 			AND (@LeadBlockers IS NULL OR (
 				EXISTS (SELECT 1 FROM #hitlist blocked WHERE blocked.blocking_session_id = h.session_id)
