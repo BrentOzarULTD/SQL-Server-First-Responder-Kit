@@ -9,12 +9,12 @@ ALTER PROCEDURE dbo.sp_kill
 	@AppName NVARCHAR(256) = NULL,
 	@DatabaseName NVARCHAR(256) = NULL,
 	@HostName NVARCHAR(256) = NULL,
-	@LeadBlockers VARCHAR(1) = 'N',
-	@ReadOnly VARCHAR(1) = 'N',
+	@LeadBlockers VARCHAR(1) = NULL,
+	@ReadOnly VARCHAR(1) = NULL,
 	@OrderBy VARCHAR(20) = 'duration',
-	@SPIDState VARCHAR(1) = '',
-	@OmitLogin NVARCHAR(256) = '',
-	@HasOpenTran VARCHAR(1) = '',
+	@SPIDState VARCHAR(1) = NULL,
+	@OmitLogin NVARCHAR(256) = NULL,
+	@HasOpenTran VARCHAR(1) = NULL,
 	@RequestsOlderThanMinutes INT = NULL,
 	@OutputDatabaseName NVARCHAR(256) = NULL,
 	@OutputSchemaName NVARCHAR(256) = NULL,
@@ -109,22 +109,22 @@ Parameters:
   @HostName NVARCHAR(256) = NULL
     Kill sessions from this host.
 
-  @LeadBlockers VARCHAR(1) = ''N''
+  @LeadBlockers VARCHAR(1) = NULL
     Y = kill only lead blockers (sessions blocking others but not blocked themselves).
 
-  @ReadOnly VARCHAR(1) = ''N''
+  @ReadOnly VARCHAR(1) = NULL
     Y = only kill read-only queries (SELECT with no writes).
 
   @OrderBy VARCHAR(20) = ''duration''
     Sort order for kill recommendations: duration, cpu, reads, writes, tempdb, transactions.
 
-  @SPIDState VARCHAR(1) = ''''
-    S = only sleeping sessions, R = only running sessions, empty = both.
+  @SPIDState VARCHAR(1) = NULL
+    S = only sleeping sessions, R = only running sessions.
 
-  @OmitLogin NVARCHAR(256) = ''''
+  @OmitLogin NVARCHAR(256) = NULL
     Exclude sessions belonging to this login from kill recommendations.
 
-  @HasOpenTran VARCHAR(1) = ''''
+  @HasOpenTran VARCHAR(1) = NULL
     Y = only target sessions with open transactions.
 
   @RequestsOlderThanMinutes INT = NULL
@@ -142,6 +142,9 @@ Parameters:
 Example usage:
   -- Just show recommendations, no killing:
   EXEC sp_kill;
+
+  -- Kill everything (except system sessions, rollbacks, and your own session):
+  EXEC sp_kill @ExecuteKills = ''Y'';
 
   -- Kill all lead blockers:
   EXEC sp_kill @LeadBlockers = ''Y'', @ExecuteKills = ''Y'';
@@ -205,12 +208,12 @@ For more info, visit http://FirstResponderKit.org
 	IF @AppName IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @AppName = N''' + REPLACE(@AppName, N'''', N'''''') + N'''';
 	IF @DatabaseName IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @DatabaseName = N''' + REPLACE(@DatabaseName, N'''', N'''''') + N'''';
 	IF @HostName IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @HostName = N''' + REPLACE(@HostName, N'''', N'''''') + N'''';
-	IF @LeadBlockers <> 'N' SET @ParametersUsed = @ParametersUsed + N', @LeadBlockers = ''' + REPLACE(@LeadBlockers, N'''', N'''''') + N'''';
-	IF @ReadOnly <> 'N' SET @ParametersUsed = @ParametersUsed + N', @ReadOnly = ''' + REPLACE(@ReadOnly, N'''', N'''''') + N'''';
+	IF @LeadBlockers IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @LeadBlockers = ''' + REPLACE(@LeadBlockers, N'''', N'''''') + N'''';
+	IF @ReadOnly IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @ReadOnly = ''' + REPLACE(@ReadOnly, N'''', N'''''') + N'''';
 	IF @OrderBy <> 'duration' SET @ParametersUsed = @ParametersUsed + N', @OrderBy = N''' + REPLACE(@OrderBy, N'''', N'''''') + N'''';
-	IF @SPIDState <> '' SET @ParametersUsed = @ParametersUsed + N', @SPIDState = ''' + REPLACE(@SPIDState, N'''', N'''''') + N'''';
-	IF @OmitLogin <> '' SET @ParametersUsed = @ParametersUsed + N', @OmitLogin = N''' + REPLACE(@OmitLogin, N'''', N'''''') + N'''';
-	IF @HasOpenTran <> '' SET @ParametersUsed = @ParametersUsed + N', @HasOpenTran = ''' + REPLACE(@HasOpenTran, N'''', N'''''') + N'''';
+	IF @SPIDState IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @SPIDState = ''' + REPLACE(@SPIDState, N'''', N'''''') + N'''';
+	IF @OmitLogin IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @OmitLogin = N''' + REPLACE(@OmitLogin, N'''', N'''''') + N'''';
+	IF @HasOpenTran IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @HasOpenTran = ''' + REPLACE(@HasOpenTran, N'''', N'''''') + N'''';
 	IF @RequestsOlderThanMinutes IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @RequestsOlderThanMinutes = ' + CAST(@RequestsOlderThanMinutes AS NVARCHAR(10));
 
 	/*-------------------------------------------------------
@@ -222,27 +225,27 @@ For more info, visit http://FirstResponderKit.org
 		RETURN;
 	END;
 
-	IF @LeadBlockers NOT IN ('Y', 'N')
+	IF @LeadBlockers IS NOT NULL AND @LeadBlockers <> 'Y'
 	BEGIN
-		RAISERROR('@LeadBlockers must be Y or N.', 11, 1) WITH NOWAIT;
+		RAISERROR('@LeadBlockers must be Y or NULL.', 11, 1) WITH NOWAIT;
 		RETURN;
 	END;
 
-	IF @ReadOnly NOT IN ('Y', 'N')
+	IF @ReadOnly IS NOT NULL AND @ReadOnly <> 'Y'
 	BEGIN
-		RAISERROR('@ReadOnly must be Y or N.', 11, 1) WITH NOWAIT;
+		RAISERROR('@ReadOnly must be Y or NULL.', 11, 1) WITH NOWAIT;
 		RETURN;
 	END;
 
-	IF @SPIDState NOT IN ('S', 'R', '')
+	IF @SPIDState IS NOT NULL AND @SPIDState NOT IN ('S', 'R')
 	BEGIN
-		RAISERROR('@SPIDState must be S (sleeping), R (running), or empty string (both).', 11, 1) WITH NOWAIT;
+		RAISERROR('@SPIDState must be S (sleeping), R (running), or NULL (both).', 11, 1) WITH NOWAIT;
 		RETURN;
 	END;
 
-	IF @HasOpenTran NOT IN ('Y', '')
+	IF @HasOpenTran IS NOT NULL AND @HasOpenTran <> 'Y'
 	BEGIN
-		RAISERROR('@HasOpenTran must be Y or empty string.', 11, 1) WITH NOWAIT;
+		RAISERROR('@HasOpenTran must be Y or NULL.', 11, 1) WITH NOWAIT;
 		RETURN;
 	END;
 
@@ -491,7 +494,8 @@ For more info, visit http://FirstResponderKit.org
 	END
 	/* 7c: Otherwise, apply all filters as AND conditions in a single pass.
 	   A session must match ALL specified filters to be recommended for kill.
-	   If @ExecuteKills = 'N' and no filters are set, don't recommend anything. */
+	   With no filters, @ExecuteKills = 'Y' kills everything;
+	   @ExecuteKills = 'N' just shows sessions without recommending. */
 	ELSE
 	BEGIN
 		/* When in display mode with no filters, just show sessions without recommending kills */
@@ -500,12 +504,12 @@ For more info, visit http://FirstResponderKit.org
 			AND @AppName IS NULL
 			AND @DatabaseName IS NULL
 			AND @HostName IS NULL
-			AND @LeadBlockers = 'N'
-			AND @ReadOnly = 'N'
-			AND @SPIDState = ''
-			AND @HasOpenTran = ''
+			AND @LeadBlockers IS NULL
+			AND @ReadOnly IS NULL
+			AND @SPIDState IS NULL
+			AND @HasOpenTran IS NULL
 			AND @RequestsOlderThanMinutes IS NULL
-			AND @OmitLogin = ''
+			AND @OmitLogin IS NULL
 		BEGIN
 			/* No filters in display mode - nothing to recommend */
 			IF @Debug = 1
@@ -522,12 +526,12 @@ For more info, visit http://FirstResponderKit.org
 			AND (@AppName IS NULL OR program_name LIKE @AppName)
 			AND (@DatabaseName IS NULL OR database_name = @DatabaseName)
 			AND (@HostName IS NULL OR host_name = @HostName)
-			AND (@ReadOnly = 'N' OR is_read_only = 1)
-			AND (@SPIDState = '' OR (@SPIDState = 'S' AND [status] = 'sleeping') OR (@SPIDState = 'R' AND [status] = 'running'))
-			AND (@HasOpenTran = '' OR ISNULL(open_transaction_count, 0) > 0)
+			AND (@ReadOnly IS NULL OR is_read_only = 1)
+			AND (@SPIDState IS NULL OR (@SPIDState = 'S' AND [status] = 'sleeping') OR (@SPIDState = 'R' AND [status] = 'running'))
+			AND (@HasOpenTran IS NULL OR ISNULL(open_transaction_count, 0) > 0)
 			AND (@RequestsOlderThanMinutes IS NULL OR last_request_start_time <= DATEADD(MINUTE, -@RequestsOlderThanMinutes, GETDATE()))
-			AND (@OmitLogin = '' OR login_name <> @OmitLogin)
-			AND (@LeadBlockers = 'N' OR (
+			AND (@OmitLogin IS NULL OR login_name <> @OmitLogin)
+			AND (@LeadBlockers IS NULL OR (
 				EXISTS (SELECT 1 FROM #hitlist blocked WHERE blocked.blocking_session_id = h.session_id)
 				AND (h.blocking_session_id IS NULL OR h.blocking_session_id = 0)
 			));
