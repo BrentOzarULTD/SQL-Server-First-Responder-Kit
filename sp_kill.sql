@@ -48,14 +48,6 @@ BEGIN
 	versions for free, watch training videos on how it works, get more info on
 	the findings, contribute your own code, and more.
 
-	Known limitations of this version:
-	 - Only Microsoft-supported versions of SQL Server (2016+).
-	 - Does not kill system sessions (session_id <= 50).
-	 - Does not kill sessions that are already rolling back.
-
-	Unknown limitations of this version:
-	 - None. (If we knew them, they would be known. Duh.)
-
 	MIT License
 
 	Copyright (c) Brent Ozar Unlimited
@@ -264,25 +256,6 @@ For more info, visit http://FirstResponderKit.org
 	IF @OrderBy NOT IN ('duration', 'cpu', 'reads', 'writes', 'tempdb', 'transactions')
 	BEGIN
 		RAISERROR('@OrderBy must be one of: duration, cpu, reads, writes, tempdb, transactions.', 11, 1) WITH NOWAIT;
-		RETURN;
-	END;
-
-	/* Safety check: require at least one inclusive targeting filter when ExecuteKills = Y.
-	   @OmitLogin is excluded from this check because it's an exclusion filter -
-	   using only @OmitLogin would kill nearly everything except that login. */
-	IF @ExecuteKills = 'Y'
-		AND @SPID IS NULL
-		AND @LoginName IS NULL
-		AND @AppName IS NULL
-		AND @DatabaseName IS NULL
-		AND @HostName IS NULL
-		AND @LeadBlockers = 'N'
-		AND @ReadOnly = 'N'
-		AND @SPIDState = ''
-		AND @HasOpenTran = ''
-		AND @RequestsOlderThanMinutes IS NULL
-	BEGIN
-		RAISERROR('You must specify at least one targeting filter when @ExecuteKills = ''Y''. Otherwise we might kill everything.', 11, 1) WITH NOWAIT;
 		RETURN;
 	END;
 
@@ -630,10 +603,11 @@ For more info, visit http://FirstResponderKit.org
 			AND login_name = @OmitLogin;
 		END;
 
-		/* If no targeting filters were set and @ExecuteKills = 'N', keep recommendations
-		   but clear KillCommand for sessions that don't look problematic.
-		   If @ExecuteKills = 'Y', the safety check in Section 3 already prevented this. */
-		IF @LoginName IS NULL
+		/* If no targeting filters were set and @ExecuteKills = 'N', don't recommend
+		   killing anything - just show all sessions. When @ExecuteKills = 'Y',
+		   no filters means kill everything (except our own session). */
+		IF @ExecuteKills = 'N'
+			AND @LoginName IS NULL
 			AND @AppName IS NULL
 			AND @DatabaseName IS NULL
 			AND @HostName IS NULL
@@ -644,7 +618,6 @@ For more info, visit http://FirstResponderKit.org
 			AND @RequestsOlderThanMinutes IS NULL
 			AND @OmitLogin = ''
 		BEGIN
-			/* No filters at all - don't recommend killing anything */
 			UPDATE #sp_kill_sessions
 			SET KillRecommended = 0,
 				Reason = NULL
