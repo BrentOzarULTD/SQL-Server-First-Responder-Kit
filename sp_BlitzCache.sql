@@ -5099,7 +5099,7 @@ SET
     ),
     b.Warnings = 'This is a huge query plan (>128 levels of nesting). Click the plan link, remove the headers and footers, and save it as a .sqlplan file to view it.'
 FROM ##BlitzCacheProcs AS b
-CROSS APPLY sys.dm_exec_text_query_plan(b.PlanHandle, b.StatementStartOffset, b.StatementEndOffset) AS tqp
+CROSS APPLY sys.dm_exec_text_query_plan(b.PlanHandle, COALESCE(b.StatementStartOffset, 0), COALESCE(b.StatementEndOffset, -1)) AS tqp
 CROSS APPLY sys.dm_exec_query_plan(b.PlanHandle) AS qp
 WHERE b.QueryPlan IS NULL
 AND   b.SPID = @@SPID
