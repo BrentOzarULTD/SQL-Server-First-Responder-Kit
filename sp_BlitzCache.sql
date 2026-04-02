@@ -5115,7 +5115,7 @@ SET
     b.Warnings = 'We couldn''t find a plan for this query. More info on possible reasons: https://www.brentozar.com/go/noplans'
 FROM ##BlitzCacheProcs AS b
 WHERE b.QueryPlan IS NULL
-AND   b.Warnings IS NULL
+AND   (b.Warnings IS NULL OR b.Warnings = '')
 AND   b.SPID = @@SPID
 OPTION (RECOMPILE);			  
 
