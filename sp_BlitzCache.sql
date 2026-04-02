@@ -5077,25 +5077,46 @@ WHERE QueryType LIKE 'Procedure or Function%'
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
-RAISERROR('Checking for plans with >128 levels of nesting', 0, 1) WITH NOWAIT;	
-WITH plan_handle AS (
-SELECT b.PlanHandle
-FROM ##BlitzCacheProcs b
-   CROSS APPLY sys.dm_exec_text_query_plan(b.PlanHandle, 0, -1) tqp
-   CROSS APPLY sys.dm_exec_query_plan(b.PlanHandle) qp
-   WHERE tqp.encrypted = 0
-   AND b.SPID = @@SPID
-   AND (qp.query_plan IS NULL
-			AND tqp.query_plan IS NOT NULL)
-)
-UPDATE b
-SET Warnings = ISNULL('Your query plan is >128 levels of nested nodes, and can''t be converted to XML. Use SELECT * FROM sys.dm_exec_text_query_plan('+ CONVERT(VARCHAR(128), ph.PlanHandle, 1) + ', 0, -1) to get more information' 
-                        , 'We couldn''t find a plan for this query. More info on possible reasons: https://www.brentozar.com/go/noplans')
-FROM ##BlitzCacheProcs b
-LEFT JOIN plan_handle ph ON
-b.PlanHandle = ph.PlanHandle
+/* Populate oversized plans as processing instructions so they're clickable in SSMS */
+RAISERROR('Checking for plans with >128 levels of nesting', 0, 1) WITH NOWAIT;
+UPDATE
+    b
+SET
+    b.QueryPlan =
+    (
+        SELECT
+            [processing-instruction(query_plan)] =
+                N'-- ' + NCHAR(13) + NCHAR(10) +
+                N'-- This is a huge query plan.' + NCHAR(13) + NCHAR(10) +
+                N'-- Remove the headers and footers, save it as a .sqlplan file, and re-open it.' + NCHAR(13) + NCHAR(10) +
+                NCHAR(13) + NCHAR(10) +
+                REPLACE(tqp.query_plan, N'<RelOp', NCHAR(13) + NCHAR(10) + N'<RelOp') +
+                NCHAR(13) + NCHAR(10)
+        FOR
+            XML
+            PATH(N''),
+            TYPE
+    ),
+    b.Warnings = 'This is a huge query plan (>128 levels of nesting). Click the plan link, remove the headers and footers, and save it as a .sqlplan file to view it.'
+FROM ##BlitzCacheProcs AS b
+CROSS APPLY sys.dm_exec_text_query_plan(b.PlanHandle, b.StatementStartOffset, b.StatementEndOffset) AS tqp
+CROSS APPLY sys.dm_exec_query_plan(b.PlanHandle) AS qp
 WHERE b.QueryPlan IS NULL
-AND b.SPID = @@SPID
+AND   b.SPID = @@SPID
+AND   tqp.encrypted = 0
+AND   qp.query_plan IS NULL
+AND   tqp.query_plan IS NOT NULL
+OPTION (RECOMPILE);
+
+/* Handle truly missing plans (encrypted, evicted, etc.) */
+UPDATE
+    b
+SET
+    b.Warnings = 'We couldn''t find a plan for this query. More info on possible reasons: https://www.brentozar.com/go/noplans'
+FROM ##BlitzCacheProcs AS b
+WHERE b.QueryPlan IS NULL
+AND   b.Warnings IS NULL
+AND   b.SPID = @@SPID
 OPTION (RECOMPILE);			  
 
 RAISERROR('Checking for plans with no warnings', 0, 1) WITH NOWAIT;	
