@@ -8,6 +8,25 @@ SET STATISTICS IO OFF;
 SET STATISTICS TIME OFF;
 GO
 
+IF (
+SELECT
+  CASE
+     WHEN CAST(SERVERPROPERTY('EngineEdition') AS INT) IN (5, 6, 8) THEN 1 /* Azure SQL DB, MI, Synapse */
+     WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '8%' THEN 0
+     WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '9%' THEN 0
+     WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '10%' THEN 0
+     WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '11%' THEN 0
+     WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '12%' THEN 0
+	 ELSE 1
+  END
+) = 0
+BEGIN
+	DECLARE @msg VARCHAR(8000);
+	SELECT @msg = 'Sorry, sp_BlitzIndex doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933);
+	PRINT @msg;
+	RETURN;
+END;
+
 IF OBJECT_ID('dbo.sp_BlitzIndex') IS NULL
   EXEC ('CREATE PROCEDURE dbo.sp_BlitzIndex AS RETURN 0;');
 GO
@@ -326,70 +345,28 @@ BEGIN
 	*/
 END;
 
-IF OBJECT_ID('tempdb..#IndexSanity') IS NOT NULL 
-    DROP TABLE #IndexSanity;
-
-IF OBJECT_ID('tempdb..#IndexPartitionSanity') IS NOT NULL 
-    DROP TABLE #IndexPartitionSanity;
-
-IF OBJECT_ID('tempdb..#IndexSanitySize') IS NOT NULL 
-    DROP TABLE #IndexSanitySize;
-
-IF OBJECT_ID('tempdb..#IndexColumns') IS NOT NULL 
-    DROP TABLE #IndexColumns;
-
-IF OBJECT_ID('tempdb..#MissingIndexes') IS NOT NULL 
-    DROP TABLE #MissingIndexes;
-
-IF OBJECT_ID('tempdb..#ForeignKeys') IS NOT NULL 
-    DROP TABLE #ForeignKeys;
-
-IF OBJECT_ID('tempdb..#UnindexedForeignKeys') IS NOT NULL 
-    DROP TABLE #UnindexedForeignKeys;
-
-IF OBJECT_ID('tempdb..#BlitzIndexResults') IS NOT NULL 
-    DROP TABLE #BlitzIndexResults;
-        
-IF OBJECT_ID('tempdb..#IndexCreateTsql') IS NOT NULL    
-    DROP TABLE #IndexCreateTsql;
-
-IF OBJECT_ID('tempdb..#DatabaseList') IS NOT NULL 
-    DROP TABLE #DatabaseList;
-
-IF OBJECT_ID('tempdb..#DatabasesNoAccess') IS NOT NULL 
-    DROP TABLE #DatabasesNoAccess;
-
-IF OBJECT_ID('tempdb..#Statistics') IS NOT NULL 
-    DROP TABLE #Statistics;
-
-IF OBJECT_ID('tempdb..#PartitionCompressionInfo') IS NOT NULL 
-    DROP TABLE #PartitionCompressionInfo;
-
-IF OBJECT_ID('tempdb..#ComputedColumns') IS NOT NULL 
-    DROP TABLE #ComputedColumns;
-	
-IF OBJECT_ID('tempdb..#TraceStatus') IS NOT NULL
-	DROP TABLE #TraceStatus;
-
-IF OBJECT_ID('tempdb..#TemporalTables') IS NOT NULL
-	DROP TABLE #TemporalTables;
-
-IF OBJECT_ID('tempdb..#CheckConstraints') IS NOT NULL
-	DROP TABLE #CheckConstraints;
-
-IF OBJECT_ID('tempdb..#FilteredIndexes') IS NOT NULL
-	DROP TABLE #FilteredIndexes;
-
-IF OBJECT_ID('tempdb..#Ignore_Databases') IS NOT NULL 
-    DROP TABLE #Ignore_Databases;
-
-IF OBJECT_ID('tempdb..#IndexResumableOperations') IS NOT NULL 
-    DROP TABLE #IndexResumableOperations;
-
-IF OBJECT_ID('tempdb..#dm_db_partition_stats_etc') IS NOT NULL 
-    DROP TABLE #dm_db_partition_stats_etc
-IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL 
-    DROP TABLE #dm_db_index_operational_stats
+DROP TABLE IF EXISTS #IndexSanity;
+DROP TABLE IF EXISTS #IndexPartitionSanity;
+DROP TABLE IF EXISTS #IndexSanitySize;
+DROP TABLE IF EXISTS #IndexColumns;
+DROP TABLE IF EXISTS #MissingIndexes;
+DROP TABLE IF EXISTS #ForeignKeys;
+DROP TABLE IF EXISTS #UnindexedForeignKeys;
+DROP TABLE IF EXISTS #BlitzIndexResults;
+DROP TABLE IF EXISTS #IndexCreateTsql;
+DROP TABLE IF EXISTS #DatabaseList;
+DROP TABLE IF EXISTS #DatabasesNoAccess;
+DROP TABLE IF EXISTS #Statistics;
+DROP TABLE IF EXISTS #PartitionCompressionInfo;
+DROP TABLE IF EXISTS #ComputedColumns;
+DROP TABLE IF EXISTS #TraceStatus;
+DROP TABLE IF EXISTS #TemporalTables;
+DROP TABLE IF EXISTS #CheckConstraints;
+DROP TABLE IF EXISTS #FilteredIndexes;
+DROP TABLE IF EXISTS #Ignore_Databases;
+DROP TABLE IF EXISTS #IndexResumableOperations;
+DROP TABLE IF EXISTS #dm_db_partition_stats_etc;
+DROP TABLE IF EXISTS #dm_db_index_operational_stats;
 
         RAISERROR (N'Create temp tables.',0,1) WITH NOWAIT;
         CREATE TABLE #BlitzIndexResults
@@ -1489,16 +1466,6 @@ BEGIN TRY
         DECLARE @d VARCHAR(19) = CONVERT(VARCHAR(19), GETDATE(), 121);
         RAISERROR (N'starting at %s',0,1, @d) WITH NOWAIT;
 
-        --Validate SQL Server Version
-
-        IF (SELECT LEFT(@SQLServerProductVersion,
-              CHARINDEX('.',@SQLServerProductVersion,0)-1
-              )) <= 9
-        BEGIN
-            SET @msg=N'sp_BlitzIndex is only supported on SQL Server 2008 and higher. The version of this instance is: ' + @SQLServerProductVersion;
-            RAISERROR(@msg,16,1);
-        END;
-
         --Short circuit here if database name does not exist.
         IF @DatabaseName IS NULL OR @DatabaseID IS NULL
         BEGIN
@@ -1603,8 +1570,8 @@ BEGIN TRY
                     c.is_identity,
                     c.is_computed,
                     c.is_replicated,
-                    ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'c.is_sparse' ELSE N'NULL as is_sparse' END + N',
-                    ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'c.is_filestream' ELSE N'NULL as is_filestream' END + N',
+                    c.is_sparse,
+                    c.is_filestream,
                     CAST(ic.seed_value AS DECIMAL(38,0)),
                     CAST(ic.increment_value AS DECIMAL(38,0)),
                     CAST(ic.last_value AS DECIMAL(38,0)),
@@ -1696,8 +1663,8 @@ BEGIN TRY
                     c.is_identity,
                     c.is_computed,
                     c.is_replicated,
-                    ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'c.is_sparse' ELSE N'NULL AS is_sparse' END + N',
-                    ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'c.is_filestream' ELSE N'NULL AS is_filestream' END + N'                
+                    c.is_sparse,
+                    c.is_filestream
                 FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS si
                 JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.columns AS c ON
                     si.object_id=c.object_id
@@ -1761,11 +1728,10 @@ BEGIN TRY
                         si.is_disabled,
                         si.is_hypothetical, 
                         si.is_padded, 
-                        si.fill_factor,'
-                        + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'
+                        si.fill_factor,
                         CASE WHEN si.filter_definition IS NOT NULL THEN si.filter_definition
                              ELSE N''''
-                        END AS filter_definition' ELSE N''''' AS filter_definition' END 
+                        END AS filter_definition'
 						+ CASE
 						      WHEN @OptimizeForSequentialKey = 1
 						      THEN N', si.optimize_for_sequential_key'
@@ -1861,8 +1827,7 @@ BEGIN TRY
 			--This change was made because on a table with lots of partitions, the OUTER APPLY was crazy slow.
 
 			-- get relevant columns from sys.dm_db_partition_stats, sys.partitions and sys.objects 
-			IF OBJECT_ID('tempdb..#dm_db_partition_stats_etc') IS NOT NULL
-				DROP TABLE #dm_db_partition_stats_etc;
+			DROP TABLE IF EXISTS #dm_db_partition_stats_etc;
 
 			create table #dm_db_partition_stats_etc
 			(
@@ -1881,8 +1846,7 @@ BEGIN TRY
 			)
 
 			-- get relevant info from sys.dm_db_index_operational_stats
-			IF OBJECT_ID('tempdb..#dm_db_index_operational_stats') IS NOT NULL
-				DROP TABLE #dm_db_index_operational_stats;
+			DROP TABLE IF EXISTS #dm_db_index_operational_stats;
 			create table #dm_db_index_operational_stats
 			(
 				database_id smallint not null
@@ -1933,7 +1897,7 @@ BEGIN TRY
                                 ps.lob_reserved_page_count * 8. / 1024. AS reserved_LOB_MB,
                                 ps.row_overflow_reserved_page_count * 8. / 1024. AS reserved_row_overflow_MB,
 								le.lock_escalation_desc,
-                            ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc ' END + N'
+                            par.data_compression_desc
 ';
 
             SET @dsql = @dsql + N'
@@ -1960,12 +1924,9 @@ BEGIN TRY
                                 ps.lob_reserved_page_count,
                                 ps.row_overflow_reserved_page_count,
 								le.lock_escalation_desc,
-                            ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc ' END + N'
+                            par.data_compression_desc
 			ORDER BY ps.object_id,  ps.index_id, ps.partition_number
-	        OPTION    ( RECOMPILE ' + 
-			CASE WHEN (PARSENAME(@SQLServerProductVersion, 4) ) > 12 THEN N', min_grant_percent = 1 '
-				ELSE N' '
-			END + N');
+	        OPTION    ( RECOMPILE, min_grant_percent = 1 );
 
             SET @d = CONVERT(VARCHAR(19), GETDATE(), 121)
             RAISERROR (N''start getting data into #dm_db_index_operational_stats at %s.'',0,1, @d) WITH NOWAIT;
@@ -2004,10 +1965,8 @@ BEGIN TRY
             select os.database_id
                  , os.object_id
                  , os.index_id
-                 , os.partition_number ' + 
-				CASE WHEN (PARSENAME(@SQLServerProductVersion, 4) ) > 12 THEN N', os.hobt_id '
-					ELSE N', NULL AS hobt_id '
-				END + N'
+                 , os.partition_number
+                 , os.hobt_id
                  , os.leaf_insert_count
                  , os.leaf_delete_count
                  , os.leaf_update_count
@@ -2031,10 +1990,7 @@ BEGIN TRY
                  , os.page_io_latch_wait_count
                  , os.page_io_latch_wait_in_ms
                 from ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_index_operational_stats('+ CAST(@DatabaseID AS NVARCHAR(10)) +', NULL, NULL,NULL) AS os 
-	            OPTION    ( RECOMPILE ' + 
-				CASE WHEN (PARSENAME(@SQLServerProductVersion, 4) ) > 12 THEN N', min_grant_percent = 1 '
-					ELSE N' '
-				END + N');
+	            OPTION    ( RECOMPILE, min_grant_percent = 1 );
 
                 SET @d = CONVERT(VARCHAR(19), GETDATE(), 121)
                 RAISERROR (N''finished getting data into #dm_db_index_operational_stats at %s.'',0,1, @d) WITH NOWAIT;
@@ -2056,7 +2012,7 @@ BEGIN TRY
                                 ps.lob_reserved_page_count * 8. / 1024. AS reserved_LOB_MB,
                                 ps.row_overflow_reserved_page_count * 8. / 1024. AS reserved_row_overflow_MB,
 								le.lock_escalation_desc,
-                                ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc' END + N',
+                                par.data_compression_desc,
                                 SUM(os.leaf_insert_count), 
                                 SUM(os.leaf_delete_count), 
                                 SUM(os.leaf_update_count), 
@@ -2113,7 +2069,7 @@ BEGIN TRY
                                 ps.lob_reserved_page_count,
                                 ps.row_overflow_reserved_page_count,
 								le.lock_escalation_desc,
-                            ' + CASE WHEN @SQLServerProductVersion NOT LIKE '9%' THEN N'par.data_compression_desc ' ELSE N'null as data_compression_desc ' END + N'
+                            par.data_compression_desc
 				ORDER BY ps.object_id,  ps.index_id, ps.partition_number
                 OPTION    ( RECOMPILE );
                 ';
@@ -2671,11 +2627,7 @@ OPTION (RECOMPILE);';
 		BEGIN
 		IF @SkipStatistics = 0 /* AND DB_NAME() = @DatabaseName /* Can only get stats in the current database - see https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1947 */ */
 			BEGIN
-		IF  ((PARSENAME(@SQLServerProductVersion, 4) >= 12)
-		OR   (PARSENAME(@SQLServerProductVersion, 4) = 11 AND PARSENAME(@SQLServerProductVersion, 2) >= 3000)
-		OR   (PARSENAME(@SQLServerProductVersion, 4) = 10 AND PARSENAME(@SQLServerProductVersion, 3) = 50 AND PARSENAME(@SQLServerProductVersion, 2) >= 2500))
-		BEGIN
-		RAISERROR (N'Gathering Statistics Info With Newer Syntax.',0,1) WITH NOWAIT;
+		RAISERROR (N'Gathering Statistics Info.',0,1) WITH NOWAIT;
 		SET @dsql=N'USE ' + QUOTENAME(@DatabaseName) + N'; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			INSERT #Statistics ( database_id, database_name, object_id, table_name, schema_name, index_name, column_names, statistics_name, last_statistics_update, 
 								days_since_last_stats_update, rows, rows_sampled, percent_sampled, histogram_steps, modification_counter, 
@@ -2768,103 +2720,10 @@ OPTION (RECOMPILE);';
 			
 			EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
 			END;
-			ELSE 
-			BEGIN
-			RAISERROR (N'Gathering Statistics Info With Older Syntax.',0,1) WITH NOWAIT;
-			SET @dsql=N'USE ' + QUOTENAME(@DatabaseName) + N'; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-			INSERT #Statistics(database_id, database_name, object_id, table_name, schema_name, index_name, column_names, statistics_name, 
-								last_statistics_update, days_since_last_stats_update, rows, modification_counter, 
-								percent_modifications, modifications_before_auto_update, index_type_desc, table_create_date, table_modify_date,
-								no_recompute, has_filter, filter_definition, persisted_sample_percent, is_incremental)
-							SELECT DB_ID(@i_DatabaseName) AS [database_id], 
-							    @i_DatabaseName AS database_name,
-								obj.object_id,
-								obj.name AS table_name,
-								sch.name AS schema_name,
-						        ISNULL(i.name, ''System Or User Statistic'') AS index_name,
-						        ca.column_names  AS column_names,
-						        s.name AS statistics_name,
-						        CONVERT(DATETIME, STATS_DATE(s.object_id, s.stats_id)) AS last_statistics_update,
-						        DATEDIFF(DAY, STATS_DATE(s.object_id, s.stats_id), GETDATE()) AS days_since_last_stats_update,
-						        si.rowcnt,
-						        si.rowmodctr,
-						        CASE WHEN si.rowmodctr > 0 THEN CAST(si.rowmodctr / ( 1. * NULLIF(si.rowcnt, 0) ) * 100 AS DECIMAL(18, 1))
-						             ELSE si.rowmodctr
-						        END AS percent_modifications,
-						        CASE WHEN si.rowcnt < 500 THEN 500
-						             ELSE CAST(( si.rowcnt * .20 ) + 500 AS BIGINT)
-						        END AS modifications_before_auto_update,
-						        ISNULL(i.type_desc, ''System Or User Statistic - N/A'') AS index_type_desc,
-						        CONVERT(DATETIME, obj.create_date) AS table_create_date,
-						        CONVERT(DATETIME, obj.modify_date) AS table_modify_date,
-								s.no_recompute,
-								'
-								+ CASE WHEN @SQLServerProductVersion NOT LIKE '9%' 
-								THEN N's.has_filter,
-									   s.filter_definition,' 
-								ELSE N'NULL AS has_filter,
-								       NULL AS filter_definition,' END
-								/* Certainly NULL. This branch does not even join on the table that this column comes from. */
-								+ N'NULL AS persisted_sample_percent,
-                                '
-                                + CASE WHEN EXISTS
-                                  (
-                                      SELECT 1
-                                      FROM sys.all_columns AS all_cols
-                                      WHERE all_cols.[object_id] = OBJECT_ID(N'sys.stats', N'V') AND all_cols.[name] = N'is_incremental'
-                                  )
-                                  THEN N's.is_incremental'
-                                  ELSE N'NULL AS is_incremental' END
-						+ N'								
-						FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.stats AS s
-						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.sysindexes si
-						ON      si.name = s.name AND s.object_id = si.id
-						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.objects obj
-						ON      s.object_id = obj.object_id
-						INNER HASH JOIN    ' + QUOTENAME(@DatabaseName) + N'.sys.schemas sch
-						ON		sch.schema_id = obj.schema_id
-						LEFT HASH JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS i
-						ON      i.object_id = s.object_id
-						        AND i.index_id = s.stats_id
-						CROSS APPLY ( SELECT  STUFF((SELECT   '', '' + c.name
-									  FROM     ' + QUOTENAME(@DatabaseName) + N'.sys.stats_columns AS sc
-									  JOIN     ' + QUOTENAME(@DatabaseName) + N'.sys.columns AS c
-									  ON       sc.column_id = c.column_id AND sc.object_id = c.object_id
-									  WHERE    sc.stats_id = s.stats_id AND sc.object_id = s.object_id
-									  ORDER BY sc.stats_column_id
-									  FOR   XML PATH(''''), TYPE).value(''.'', ''nvarchar(max)''), 1, 2, '''') 
-									) ca (column_names)
-						WHERE obj.is_ms_shipped = 0
-						AND si.rowcnt > 0
-						OPTION (RECOMPILE);';
-
-			IF @dsql IS NULL 
-            RAISERROR('@dsql is null',16,1);
-
-			RAISERROR (N'Inserting data into #Statistics',0,1) WITH NOWAIT;
-            IF @Debug = 1
-                BEGIN
-                    PRINT SUBSTRING(@dsql, 0, 4000);
-                    PRINT SUBSTRING(@dsql, 4000, 8000);
-                    PRINT SUBSTRING(@dsql, 8000, 12000);
-                    PRINT SUBSTRING(@dsql, 12000, 16000);
-                    PRINT SUBSTRING(@dsql, 16000, 20000);
-                    PRINT SUBSTRING(@dsql, 20000, 24000);
-                    PRINT SUBSTRING(@dsql, 24000, 28000);
-                    PRINT SUBSTRING(@dsql, 28000, 32000);
-                    PRINT SUBSTRING(@dsql, 32000, 36000);
-                    PRINT SUBSTRING(@dsql, 36000, 40000);
-                END;
-			
-			EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
-			END;
-			END;
 			END;
 
 		IF @Mode NOT IN(1, 2)
 		BEGIN
-			IF  (PARSENAME(@SQLServerProductVersion, 4) >= 10)
-			BEGIN
 			RAISERROR (N'Gathering Computed Column Info.',0,1) WITH NOWAIT;
 			SET @dsql=N'SELECT DB_ID(@i_DatabaseName) AS [database_id], 
 							   @i_DatabaseName AS database_name,
@@ -2896,7 +2755,6 @@ OPTION (RECOMPILE);';
 			        ( database_id, [database_name], table_name, schema_name, column_name, is_nullable, definition, 
 					  uses_database_collation, is_persisted, is_computed, is_function, column_definition )			
 			EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
-			END;
             END;
 
 		IF @Mode NOT IN(1, 2)
@@ -2905,8 +2763,6 @@ OPTION (RECOMPILE);';
 			INSERT #TraceStatus
 			EXEC ('DBCC TRACESTATUS(-1) WITH NO_INFOMSGS');			
 
-			IF  (PARSENAME(@SQLServerProductVersion, 4) >= 13)
-			BEGIN
 			RAISERROR (N'Gathering Temporal Table Info',0,1) WITH NOWAIT;
 			SET @dsql=N'SELECT ' + QUOTENAME(@DatabaseName,'''') + N' AS database_name,
 								   DB_ID(@i_DatabaseName) AS [database_id], 
@@ -2946,9 +2802,8 @@ OPTION (RECOMPILE);';
 									 history_table_name, start_column_name, end_column_name, period_name, history_table_object_id )
 					
 			EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
-        END;
 
-             SET @dsql=N'SELECT DB_ID(@i_DatabaseName) AS [database_id], 
+             SET @dsql=N'SELECT DB_ID(@i_DatabaseName) AS [database_id],
              				   @i_DatabaseName AS database_name,
              		   		   t.name AS table_name,
              		           s.name AS schema_name,
@@ -3465,7 +3320,7 @@ SELECT
 FROM #IndexSanity;
 	  
 RAISERROR (N'Populate #PartitionCompressionInfo.',0,1) WITH NOWAIT;
-IF OBJECT_ID('tempdb..#maps') IS NOT NULL DROP TABLE #maps;
+DROP TABLE IF EXISTS #maps;
 WITH maps
     AS
      (
@@ -3480,7 +3335,7 @@ SELECT *
 INTO   #maps
 FROM   maps;
 
-IF OBJECT_ID('tempdb..#grps') IS NOT NULL DROP TABLE #grps;
+DROP TABLE IF EXISTS #grps;
 WITH grps
     AS
      (
