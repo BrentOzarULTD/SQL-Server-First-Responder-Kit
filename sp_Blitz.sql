@@ -1,3 +1,32 @@
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET QUOTED_IDENTIFIER ON;
+SET STATISTICS IO OFF;
+SET STATISTICS TIME OFF;
+GO
+
+IF (
+SELECT
+  CASE
+     WHEN CAST(SERVERPROPERTY('EngineEdition') AS INT) IN (5, 6, 8) THEN 1 /* Azure SQL DB, MI, Synapse */
+     WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '8%' THEN 0
+     WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '9%' THEN 0
+     WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '10%' THEN 0
+     WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '11%' THEN 0
+     WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '12%' THEN 0
+	 ELSE 1
+  END
+) = 0
+BEGIN
+	DECLARE @msg VARCHAR(8000);
+	SELECT @msg = 'Sorry, sp_Blitz doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933);
+	PRINT @msg;
+	RETURN;
+END;
+
 IF OBJECT_ID('dbo.sp_Blitz') IS NULL
   EXEC ('CREATE PROCEDURE dbo.sp_Blitz AS RETURN 0;');
 GO
@@ -62,7 +91,7 @@ BEGIN
 	the findings, contribute your own code, and more.
 
 	Known limitations of this version:
-	 - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
+	 - Only Microsoft-supported versions of SQL Server. Sorry, 2014 and older.
 	 - If a database name has a question mark in it, some tests will fail. Gotta
 	   love that unsupported sp_MSforeachdb.
 	 - If you have offline databases, sp_Blitz fails the first time you run it,
@@ -231,8 +260,7 @@ BEGIN
         ;
 
         /* Create temp table for check 73 */
-        IF OBJECT_ID('tempdb..#AlertInfo') IS NOT NULL
-			EXEC sp_executesql N'DROP TABLE #AlertInfo;';
+        DROP TABLE IF EXISTS #AlertInfo;
 
         CREATE TABLE #AlertInfo
 		(
@@ -248,9 +276,8 @@ BEGIN
 		);
 
 		/* Create temp table for check 2301 */
-		IF OBJECT_ID('tempdb..#InvalidLogins') IS NOT NULL
-			EXEC sp_executesql N'DROP TABLE #InvalidLogins;';
-								 
+		DROP TABLE IF EXISTS #InvalidLogins;
+
 		CREATE TABLE #InvalidLogins
 		(
 			LoginSID    varbinary(85),
@@ -478,8 +505,7 @@ BEGIN
 		checks, we insert data into this table, and we manually put in the CheckID.
 		For a list of checks, visit http://FirstResponderKit.org.
 		*/
-		IF OBJECT_ID('tempdb..#BlitzResults') IS NOT NULL
-			DROP TABLE #BlitzResults;
+		DROP TABLE IF EXISTS #BlitzResults;
 		CREATE TABLE #BlitzResults
 			(
 			  ID INT IDENTITY(1, 1) ,
@@ -494,8 +520,7 @@ BEGIN
 			  QueryPlanFiltered [NVARCHAR](MAX) NULL
 			);
 
-		IF OBJECT_ID('tempdb..#TemporaryDatabaseResults') IS NOT NULL
-			DROP TABLE #TemporaryDatabaseResults;
+		DROP TABLE IF EXISTS #TemporaryDatabaseResults;
 		CREATE TABLE #TemporaryDatabaseResults
 			(
 			  DatabaseName NVARCHAR(128) ,
@@ -504,10 +529,7 @@ BEGIN
 
         /* First Responder Kit consistency (temporary tables) */
         
-        IF(OBJECT_ID('tempdb..#FRKObjects') IS NOT NULL)
-        BEGIN
-            EXEC sp_executesql N'DROP TABLE #FRKObjects;';
-        END;    
+        DROP TABLE IF EXISTS #FRKObjects;
 
         -- this one represents FRK objects
         CREATE TABLE #FRKObjects (
@@ -519,10 +541,7 @@ BEGIN
         );
         
         
-        IF(OBJECT_ID('tempdb..#StatementsToRun4FRKVersionCheck') IS NOT NULL)
-        BEGIN
-            EXEC sp_executesql N'DROP TABLE #StatementsToRun4FRKVersionCheck;';
-        END;
+        DROP TABLE IF EXISTS #StatementsToRun4FRKVersionCheck;
 
 
         -- This one will contain the statements to be executed
@@ -556,8 +575,7 @@ BEGIN
 		need to skip it.
 		*/
 		/* --TOURSTOP07-- */
-		IF OBJECT_ID('tempdb..#SkipChecks') IS NOT NULL
-			DROP TABLE #SkipChecks;
+		DROP TABLE IF EXISTS #SkipChecks;
 		CREATE TABLE #SkipChecks
 			(
 			  DatabaseName NVARCHAR(128) ,
@@ -908,8 +926,7 @@ BEGIN
 		That's the end of the SkipChecks stuff.
 		The next several tables are used by various checks later.
 		*/
-		IF OBJECT_ID('tempdb..#ConfigurationDefaults') IS NOT NULL
-			DROP TABLE #ConfigurationDefaults;
+		DROP TABLE IF EXISTS #ConfigurationDefaults;
 		CREATE TABLE #ConfigurationDefaults
 			(
 			  name NVARCHAR(128) ,
@@ -917,8 +934,7 @@ BEGIN
 			  CheckID INT
 			);
 
-        IF OBJECT_ID ('tempdb..#Recompile') IS NOT NULL
-            DROP TABLE #Recompile;
+        DROP TABLE IF EXISTS #Recompile;
         CREATE TABLE #Recompile(
             DBName varchar(200),
             ProcName varchar(300),
@@ -926,8 +942,7 @@ BEGIN
             SPSchema varchar(50)
         );
 
-		IF OBJECT_ID('tempdb..#DatabaseDefaults') IS NOT NULL
-			DROP TABLE #DatabaseDefaults;
+		DROP TABLE IF EXISTS #DatabaseDefaults;
 		CREATE TABLE #DatabaseDefaults
 			(
 				name NVARCHAR(128) ,
@@ -939,13 +954,18 @@ BEGIN
 		        Details NVARCHAR(4000)
 			);
 
-		IF OBJECT_ID('tempdb..#DatabaseScopedConfigurationDefaults') IS NOT NULL
-			DROP TABLE #DatabaseScopedConfigurationDefaults;
+		DROP TABLE IF EXISTS #DatabaseScopedConfigurationDefaults;
 		CREATE TABLE #DatabaseScopedConfigurationDefaults
-			(ID INT IDENTITY(1,1), configuration_id INT, [name] NVARCHAR(60), default_value sql_variant, default_value_for_secondary sql_variant, CheckID INT, );
+			(
+			  ID INT IDENTITY(1,1),
+			  configuration_id INT,
+			  [name] NVARCHAR(60),
+			  default_value sql_variant,
+			  default_value_for_secondary sql_variant,
+			  CheckID INT
+			);
 
-		IF OBJECT_ID('tempdb..#DBCCs') IS NOT NULL
-			DROP TABLE #DBCCs;
+		DROP TABLE IF EXISTS #DBCCs;
 		CREATE TABLE #DBCCs
 			(
 			  ID INT IDENTITY(1, 1)
@@ -957,9 +977,8 @@ BEGIN
 			  DbName NVARCHAR(128) NULL
 			);
 
-		IF OBJECT_ID('tempdb..#LogInfo2012') IS NOT NULL
-			DROP TABLE #LogInfo2012;
-		CREATE TABLE #LogInfo2012
+		DROP TABLE IF EXISTS #LogInfo;
+		CREATE TABLE #LogInfo
 			(
 			  recoveryunitid INT ,
 			  FileID SMALLINT ,
@@ -971,21 +990,7 @@ BEGIN
 			  CreateLSN NUMERIC(38)
 			);
 
-		IF OBJECT_ID('tempdb..#LogInfo') IS NOT NULL
-			DROP TABLE #LogInfo;
-		CREATE TABLE #LogInfo
-			(
-			  FileID SMALLINT ,
-			  FileSize BIGINT ,
-			  StartOffset BIGINT ,
-			  FSeqNo BIGINT ,
-			  [Status] TINYINT ,
-			  Parity TINYINT ,
-			  CreateLSN NUMERIC(38)
-			);
-
-		IF OBJECT_ID('tempdb..#partdb') IS NOT NULL
-			DROP TABLE #partdb;
+		DROP TABLE IF EXISTS #partdb;
 		CREATE TABLE #partdb
 			(
 			  dbname NVARCHAR(128) ,
@@ -993,8 +998,7 @@ BEGIN
 			  type_desc NVARCHAR(128)
 			);
 
-		IF OBJECT_ID('tempdb..#TraceStatus') IS NOT NULL
-			DROP TABLE #TraceStatus;
+		DROP TABLE IF EXISTS #TraceStatus;
 		CREATE TABLE #TraceStatus
 			(
 			  TraceFlag VARCHAR(10) ,
@@ -1003,8 +1007,7 @@ BEGIN
 			  Session BIT
 			);
 
-		IF OBJECT_ID('tempdb..#driveInfo') IS NOT NULL
-			DROP TABLE #driveInfo;
+		DROP TABLE IF EXISTS #driveInfo;
 		CREATE TABLE #driveInfo
 			(
 			  drive NVARCHAR(2),
@@ -1014,8 +1017,7 @@ BEGIN
               used_percent DECIMAL(18, 2)
 			);
 
-		IF OBJECT_ID('tempdb..#dm_exec_query_stats') IS NOT NULL
-			DROP TABLE #dm_exec_query_stats;
+		DROP TABLE IF EXISTS #dm_exec_query_stats;
 		CREATE TABLE #dm_exec_query_stats
 			(
 			  [id] [int] NOT NULL
@@ -1062,8 +1064,7 @@ BEGIN
 											  NULL
 			);
 
-		IF OBJECT_ID('tempdb..#ErrorLog') IS NOT NULL
-			DROP TABLE #ErrorLog;
+		DROP TABLE IF EXISTS #ErrorLog;
 		CREATE TABLE #ErrorLog
 			(
 			  LogDate DATETIME ,
@@ -1071,8 +1072,7 @@ BEGIN
 			  [Text] NVARCHAR(1000)
 			);
 
-		IF OBJECT_ID('tempdb..#fnTraceGettable') IS NOT NULL
-			DROP TABLE #fnTraceGettable;
+		DROP TABLE IF EXISTS #fnTraceGettable;
 		CREATE TABLE #fnTraceGettable
 			(
 			  TextData NVARCHAR(4000) ,
@@ -1090,8 +1090,7 @@ BEGIN
 			  DBUserName NVARCHAR(256)
 			 );
 
-		IF OBJECT_ID('tempdb..#Instances') IS NOT NULL
-			DROP TABLE #Instances;
+		DROP TABLE IF EXISTS #Instances;
 		CREATE TABLE #Instances
             (
               Instance_Number NVARCHAR(MAX) ,
@@ -1099,8 +1098,7 @@ BEGIN
               Data_Field NVARCHAR(MAX)
             );
 
-		IF OBJECT_ID('tempdb..#IgnorableWaits') IS NOT NULL
-			DROP TABLE #IgnorableWaits;
+		DROP TABLE IF EXISTS #IgnorableWaits;
 		CREATE TABLE #IgnorableWaits (wait_type NVARCHAR(60));
 		INSERT INTO #IgnorableWaits VALUES ('BROKER_EVENTHANDLER');
 		INSERT INTO #IgnorableWaits VALUES ('BROKER_RECEIVE_WAITFOR');
@@ -1526,40 +1524,29 @@ BEGIN
 																  -7, GETDATE()) );
 					END;
 
-				/*
-				Next up, we've got CheckID 8. (These don't have to go in order.) This one
-				won't work on SQL Server 2005 because it relies on a new DMV that didn't
-				exist prior to SQL Server 2008. This means we have to check the SQL Server
-				version first, then build a dynamic string with the query we want to run:
-				*/
-
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 8 )
 					BEGIN
-						IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
-							AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%'
-							BEGIN
 
-							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 8) WITH NOWAIT;
+						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 8) WITH NOWAIT;
 
-								SET @StringToExecute = 'INSERT INTO #BlitzResults
-							(CheckID, Priority,
-							FindingsGroup,
-							Finding, URL,
-							Details)
-					  SELECT 8 AS CheckID,
-					  230 AS Priority,
-					  ''Security'' AS FindingsGroup,
-					  ''Server Audits Running'' AS Finding,
-					  ''https://www.brentozar.com/go/audits'' AS URL,
-					  (''SQL Server built-in audit functionality is being used by server audit: '' + [name]) AS Details FROM sys.dm_server_audit_status  OPTION (RECOMPILE);';
-								
-								IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
-								IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
-								
-								EXECUTE(@StringToExecute);
-							END;
+							SET @StringToExecute = 'INSERT INTO #BlitzResults
+						(CheckID, Priority,
+						FindingsGroup,
+						Finding, URL,
+						Details)
+				  SELECT 8 AS CheckID,
+				  230 AS Priority,
+				  ''Security'' AS FindingsGroup,
+				  ''Server Audits Running'' AS Finding,
+				  ''https://www.brentozar.com/go/audits'' AS URL,
+				  (''SQL Server built-in audit functionality is being used by server audit: '' + [name]) AS Details FROM sys.dm_server_audit_status  OPTION (RECOMPILE);';
+
+							IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
+							IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
+
+							EXECUTE(@StringToExecute);
 					END;
 
 				/*
@@ -1999,12 +1986,9 @@ BEGIN
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 10 )
 					BEGIN
-						IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
-							AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%'
-							BEGIN
-								
+
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 10) WITH NOWAIT;
-								
+
 								SET @StringToExecute = 'INSERT INTO #BlitzResults
 							(CheckID,
 							Priority,
@@ -2023,18 +2007,15 @@ BEGIN
 								IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
 
 								EXECUTE(@StringToExecute);
-							END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 11 )
 					BEGIN
-						IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
-							BEGIN
-								
+
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 11) WITH NOWAIT;
-								
+
 								SET @StringToExecute = 'INSERT INTO #BlitzResults
 							(CheckID,
 							Priority,
@@ -2055,7 +2036,6 @@ BEGIN
 								IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
 
 								EXECUTE(@StringToExecute);
-							END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -2127,9 +2107,7 @@ BEGIN
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 14 )
 					BEGIN
-						IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
-							BEGIN
-								
+
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 14) WITH NOWAIT;
 
 								SET @StringToExecute = 'INSERT INTO #BlitzResults
@@ -2152,12 +2130,11 @@ BEGIN
 					  AND name <> ''tempdb''
 					  AND state NOT IN (1, 6) /* Restoring, Offline */
 					  and name not in (select distinct DatabaseName from #SkipChecks WHERE CheckID IS NULL OR CheckID = 14) OPTION (RECOMPILE);';
-								
+
 								IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
 								IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
-								
+
 								EXECUTE(@StringToExecute);
-							END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -2293,12 +2270,9 @@ BEGIN
 								WHERE   DatabaseName IS NULL AND CheckID = 21 )
 					BEGIN
 						/* --TOURSTOP04-- */
-						IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
-							AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%'
-							BEGIN
-								
+
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 21) WITH NOWAIT;
-								
+
 								SET @StringToExecute = 'INSERT INTO #BlitzResults
 							(CheckID,
 							DatabaseName,
@@ -2317,12 +2291,11 @@ BEGIN
 					  FROM sys.databases
 					  WHERE is_encrypted = 1
 					  and name not in (select distinct DatabaseName from #SkipChecks WHERE CheckID IS NULL OR CheckID = 21) OPTION (RECOMPILE);';
-								
+
 								IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
 								IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
-								
+
 								EXECUTE(@StringToExecute);
-							END;
 					END;
 
 				/*
@@ -2391,11 +2364,7 @@ BEGIN
 					( 'recovery interval (min)', 0, 1047 ),
 					( 'remote access', 1, 1048 ),
 					( 'remote admin connections', 0, 1049 ),
-					( 'remote login timeout (s)', CASE
-						WHEN @@VERSION LIKE '%Microsoft SQL Server 2005%'
-						  OR @@VERSION LIKE '%Microsoft SQL Server 2008%' THEN 20
-						ELSE 10
-					  END, 1069 ),
+					( 'remote login timeout (s)', 10, 1069 ),
 					( 'remote proc trans', 0, 1050 ),
 					( 'remote query timeout (s)', 600, 1051 ),
 					( 'Replication XPs', 0, 1052 ),
@@ -3334,9 +3303,6 @@ BEGIN
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 50 )
 					BEGIN
-						IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
-							AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%'
-							BEGIN
 
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 50) WITH NOWAIT;
 
@@ -3359,16 +3325,12 @@ BEGIN
 								IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
 
 								EXECUTE(@StringToExecute);
-							END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 51 )
 					BEGIN
-						IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
-							AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%'
-							BEGIN
 
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 51) WITH NOWAIT
 
@@ -3387,16 +3349,12 @@ BEGIN
 								IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
 
 								EXECUTE(@StringToExecute);
-							END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 159 )
 					BEGIN
-						IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
-							AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%'
-							BEGIN
 
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 159) WITH NOWAIT;
 
@@ -3414,7 +3372,6 @@ BEGIN
 								IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
 
 								EXECUTE(@StringToExecute);
-							END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -4198,10 +4155,6 @@ BEGIN
 								DECLARE @user_perm_sql NVARCHAR(MAX) = N'';
 								DECLARE @user_perm_gb_out DECIMAL(38,2);
 								
-								IF @ProductVersionMajor >= 11
-								
-								BEGIN
-								
 								SET @user_perm_sql += N'
 									SELECT @user_perm_gb = CASE WHEN (pages_kb / 1024. / 1024.) >= 2.
 											THEN CONVERT(DECIMAL(38, 2), (pages_kb / 1024. / 1024.))
@@ -4211,23 +4164,6 @@ BEGIN
 									WHERE type = ''USERSTORE_TOKENPERM''
 									AND    name = ''TokenAndPermUserStore''
 								';
-								
-								END
-								
-								IF @ProductVersionMajor < 11
-								
-								BEGIN
-								SET @user_perm_sql += N'
-									SELECT @user_perm_gb = CASE WHEN ((single_pages_kb + multi_pages_kb) / 1024.0 / 1024.) >= 2.
-											THEN CONVERT(DECIMAL(38, 2), ((single_pages_kb + multi_pages_kb)  / 1024.0 / 1024.))
-											ELSE NULL 
-										   END
-									FROM sys.dm_os_memory_clerks
-									WHERE type = ''USERSTORE_TOKENPERM''
-									AND    name = ''TokenAndPermUserStore''
-								';
-								
-								END
 
 								EXEC sys.sp_executesql @user_perm_sql, 
 								                       N'@user_perm_gb DECIMAL(38,2) OUTPUT', 
@@ -4277,71 +4213,19 @@ BEGIN
 
 							IF (@ProductVersionMajor = 15 AND @ProductVersionMinor < 2000) OR
 							   (@ProductVersionMajor = 14 AND @ProductVersionMinor < 1000) OR
-							   (@ProductVersionMajor = 13 AND @ProductVersionMinor < 6300) OR
-							   (@ProductVersionMajor = 12 AND @ProductVersionMinor < 6024) OR
-							   (@ProductVersionMajor = 11 /*AND @ProductVersionMinor < 7001)*/) OR
-							   (@ProductVersionMajor = 10.5 /*AND @ProductVersionMinor < 6000*/) OR
-							   (@ProductVersionMajor = 10 /*AND @ProductVersionMinor < 6000*/) OR
-							   (@ProductVersionMajor = 9 /*AND @ProductVersionMinor <= 5000*/)
+							   (@ProductVersionMajor = 13 AND @ProductVersionMinor < 6300)
 								BEGIN
-								
+
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 128) WITH NOWAIT;
-								
+
 								INSERT INTO #BlitzResults(CheckID, Priority, FindingsGroup, Finding, URL, Details)
 									VALUES(128, 20, 'Reliability', 'Unsupported Build of SQL Server', 'https://www.brentozar.com/go/unsupported',
-										'Version ' + CAST(@ProductVersionMajor AS VARCHAR(100)) + 
-										CASE WHEN @ProductVersionMajor >= 12 THEN
-										'.' + CAST(@ProductVersionMinor AS VARCHAR(100)) + ' is no longer supported by Microsoft. You need to apply a service pack.'
-										ELSE ' is no longer supported by Microsoft. You should be making plans to upgrade to a modern version of SQL Server.' END);
+										'Version ' + CAST(@ProductVersionMajor AS VARCHAR(100)) +
+										'.' + CAST(@ProductVersionMinor AS VARCHAR(100)) + ' is no longer supported by Microsoft. You need to apply a service pack.');
 								END;
 
 							END;
 							
-						/* Reliability - Dangerous Build of SQL Server (Corruption) */
-						IF NOT EXISTS ( SELECT  1
-										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 129 )
-                            AND SERVERPROPERTY('EngineEdition') <> 8 /* Azure Managed Instances */
-							BEGIN
-							IF (@ProductVersionMajor = 11 AND @ProductVersionMinor >= 3000 AND @ProductVersionMinor <= 3436) OR
-							   (@ProductVersionMajor = 11 AND @ProductVersionMinor = 5058) OR
-							   (@ProductVersionMajor = 12 AND @ProductVersionMinor >= 2000 AND @ProductVersionMinor <= 2342)
-								BEGIN
-								
-								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 129) WITH NOWAIT;
-								
-								INSERT INTO #BlitzResults(CheckID, Priority, FindingsGroup, Finding, URL, Details)
-									VALUES(129, 20, 'Reliability', 'Dangerous Build of SQL Server (Corruption)', 'http://sqlperformance.com/2014/06/sql-indexes/hotfix-sql-2012-rebuilds',
-										'There are dangerous known bugs with version ' + CAST(@ProductVersionMajor AS VARCHAR(100)) + '.' + CAST(@ProductVersionMinor AS VARCHAR(100)) + '. Check the URL for details and apply the right service pack or hotfix.');
-								END;
-
-							END;
-
-						/* Reliability - Dangerous Build of SQL Server (Security) */
-						IF NOT EXISTS ( SELECT  1
-										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 157 )
-                            AND SERVERPROPERTY('EngineEdition') <> 8 /* Azure Managed Instances */
-							BEGIN
-							IF (@ProductVersionMajor = 10 AND @ProductVersionMinor >= 5500 AND @ProductVersionMinor <= 5512) OR
-							   (@ProductVersionMajor = 10 AND @ProductVersionMinor >= 5750 AND @ProductVersionMinor <= 5867) OR
-							   (@ProductVersionMajor = 10.5 AND @ProductVersionMinor >= 4000 AND @ProductVersionMinor <= 4017) OR
-							   (@ProductVersionMajor = 10.5 AND @ProductVersionMinor >= 4251 AND @ProductVersionMinor <= 4319) OR
-							   (@ProductVersionMajor = 11 AND @ProductVersionMinor >= 3000 AND @ProductVersionMinor <= 3129) OR
-							   (@ProductVersionMajor = 11 AND @ProductVersionMinor >= 3300 AND @ProductVersionMinor <= 3447) OR
-							   (@ProductVersionMajor = 12 AND @ProductVersionMinor >= 2000 AND @ProductVersionMinor <= 2253) OR
-							   (@ProductVersionMajor = 12 AND @ProductVersionMinor >= 2300 AND @ProductVersionMinor <= 2370)
-								BEGIN
-								
-								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 157) WITH NOWAIT;
-								
-								INSERT INTO #BlitzResults(CheckID, Priority, FindingsGroup, Finding, URL, Details)
-									VALUES(157, 20, 'Reliability', 'Dangerous Build of SQL Server (Security)', 'https://technet.microsoft.com/en-us/library/security/MS14-044',
-										'There are dangerous known bugs with version ' + CAST(@ProductVersionMajor AS VARCHAR(100)) + '.' + CAST(@ProductVersionMinor AS VARCHAR(100)) + '. Check the URL for details and apply the right service pack or hotfix.');
-								END;
-
-							END;
-						
 						/* Check if SQL 2016 Standard Edition but not SP1 */
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
@@ -4971,8 +4855,7 @@ IF EXISTS (SELECT * FROM sys.all_columns WHERE name = 'is_optimized_locking_on' 
 
 /* Check if target recovery interval <> 60 */
 IF
-    @ProductVersionMajor >= 10
-    AND NOT EXISTS
+    NOT EXISTS
         (
             SELECT
                 1/0
@@ -5044,8 +4927,7 @@ IF
 							
 
 /*This checks to see if Agent is Offline*/
-IF @ProductVersionMajor >= 10
-			   AND NOT EXISTS ( SELECT  1
+IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 167 )
 					BEGIN
@@ -5081,7 +4963,7 @@ IF @ProductVersionMajor >= 10
 					END;
 				END;
 /* CheckID 258 - Security - SQL Server Service is running as LocalSystem or NT AUTHORITY\SYSTEM */
-IF (@ProductVersionMajor >= 10 AND @IsWindowsOperatingSystem = 1)
+IF @IsWindowsOperatingSystem = 1
 			   AND NOT EXISTS ( SELECT  1
 							    FROM    #SkipChecks
 							    WHERE   DatabaseName IS NULL AND CheckID = 258 )
@@ -5118,7 +5000,7 @@ IF (@ProductVersionMajor >= 10 AND @IsWindowsOperatingSystem = 1)
 				END;
 
 /* CheckID 259 - Security - SQL Server Agent Service is running as LocalSystem or NT AUTHORITY\SYSTEM */
-IF (@ProductVersionMajor >= 10 AND @IsWindowsOperatingSystem = 1)
+IF @IsWindowsOperatingSystem = 1
 			   AND NOT EXISTS ( SELECT  1
 							    FROM    #SkipChecks
 							    WHERE   DatabaseName IS NULL AND CheckID = 259 )
@@ -5154,8 +5036,7 @@ IF (@ProductVersionMajor >= 10 AND @IsWindowsOperatingSystem = 1)
 				END;
 
 /*This checks to see if the Full Text thingy is offline*/
-IF @ProductVersionMajor >= 10
-			   AND NOT EXISTS ( SELECT  1
+IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 168 )
 					BEGIN
@@ -5191,7 +5072,7 @@ IF @ProductVersionMajor >= 10
 					END;
 
 /*This checks which service account SQL Server is running as.*/
-IF (@ProductVersionMajor >= 10 AND @IsWindowsOperatingSystem = 1)
+IF @IsWindowsOperatingSystem = 1
 			   AND NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 169 )
@@ -5231,7 +5112,7 @@ IF (@ProductVersionMajor >= 10 AND @IsWindowsOperatingSystem = 1)
 					END;
 
 /*This checks which service account SQL Agent is running as.*/
-IF (@ProductVersionMajor >= 10 AND @IsWindowsOperatingSystem = 1)
+IF @IsWindowsOperatingSystem = 1
 			   AND NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 170 )
@@ -5777,9 +5658,7 @@ END;
 
 
 /*This counts memory dumps and gives min and max date of in view*/
-IF @ProductVersionMajor >= 10
-               AND NOT (@ProductVersionMajor = 10.5 AND @ProductVersionMinor < 4297) /* Skip due to crash bug: https://support.microsoft.com/en-us/help/2908087 */
-			   AND NOT EXISTS ( SELECT  1
+IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 171 )
 					BEGIN
@@ -5854,8 +5733,7 @@ IF @ProductVersionMajor >= 10
 					END;
 
 /*Checks to see if Buffer Pool Extensions are in use*/
-			IF @ProductVersionMajor >= 12
-			   AND NOT EXISTS ( SELECT  1
+			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 174 )
 					BEGIN
@@ -6695,10 +6573,7 @@ IF @ProductVersionMajor >= 10
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 233) WITH NOWAIT;
 						
 
-						IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_os_memory_clerks') AND name = 'pages_kb')
-							BEGIN
-							/* SQL 2012+ version */
-							SET @StringToExecute = N'
+						SET @StringToExecute = N'
 							INSERT  INTO #BlitzResults
 									( CheckID ,
 									  Priority ,
@@ -6706,45 +6581,19 @@ IF @ProductVersionMajor >= 10
 									  Finding ,
 									  URL ,
 									  Details
-									)														
+									)
 							SELECT 233 AS CheckID,
 							       50 AS Priority,
 							       ''Performance'' AS FindingsGroup,
 							       ''Memory Leak in USERSTORE_TOKENPERM Cache'' AS Finding,
 							       ''https://www.BrentOzar.com/go/userstore'' AS URL,
-							       N''UserStore_TokenPerm clerk is using '' + CAST(CAST(SUM(CASE WHEN type = ''USERSTORE_TOKENPERM'' AND name = ''TokenAndPermUserStore'' THEN pages_kb * 1.0 ELSE 0.0 END) / 1024.0 / 1024.0 AS INT) AS NVARCHAR(100)) 
+							       N''UserStore_TokenPerm clerk is using '' + CAST(CAST(SUM(CASE WHEN type = ''USERSTORE_TOKENPERM'' AND name = ''TokenAndPermUserStore'' THEN pages_kb * 1.0 ELSE 0.0 END) / 1024.0 / 1024.0 AS INT) AS NVARCHAR(100))
 								   		+ N''GB RAM, total buffer pool is '' + CAST(CAST(SUM(pages_kb) / 1024.0 / 1024.0 AS INT) AS NVARCHAR(100)) + N''GB.''
 								   AS details
 							FROM sys.dm_os_memory_clerks
-							HAVING SUM(CASE WHEN type = ''USERSTORE_TOKENPERM'' AND name = ''TokenAndPermUserStore'' THEN pages_kb * 1.0 ELSE 0.0 END) / SUM(pages_kb) >= 0.1					
+							HAVING SUM(CASE WHEN type = ''USERSTORE_TOKENPERM'' AND name = ''TokenAndPermUserStore'' THEN pages_kb * 1.0 ELSE 0.0 END) / SUM(pages_kb) >= 0.1
 							  AND SUM(pages_kb) / 1024.0 / 1024.0 >= 1; /* At least 1GB RAM overall */';
 							EXEC sp_executesql @StringToExecute;
-							END
-						ELSE
-							BEGIN
-							/* Antiques Roadshow SQL 2008R2 - version */
-							SET @StringToExecute = N'
-							INSERT  INTO #BlitzResults
-									( CheckID ,
-									  Priority ,
-									  FindingsGroup ,
-									  Finding ,
-									  URL ,
-									  Details
-									)														
-							SELECT 233 AS CheckID,
-							       50 AS Priority,
-							       ''Performance'' AS FindingsGroup,
-							       ''Memory Leak in USERSTORE_TOKENPERM Cache'' AS Finding,
-							       ''https://www.BrentOzar.com/go/userstore'' AS URL,
-							       N''UserStore_TokenPerm clerk is using '' + CAST(CAST(SUM(CASE WHEN type = ''USERSTORE_TOKENPERM'' AND name = ''TokenAndPermUserStore'' THEN single_pages_kb + multi_pages_kb * 1.0 ELSE 0.0 END) / 1024.0 / 1024.0 AS INT) AS NVARCHAR(100)) 
-								   		+ N''GB RAM, total buffer pool is '' + CAST(CAST(SUM(single_pages_kb + multi_pages_kb) / 1024.0 / 1024.0 AS INT) AS NVARCHAR(100)) + N''GB.''
-								   AS details
-							FROM sys.dm_os_memory_clerks
-							HAVING SUM(CASE WHEN type = ''USERSTORE_TOKENPERM'' AND name = ''TokenAndPermUserStore'' THEN single_pages_kb + multi_pages_kb * 1.0 ELSE 0.0 END) / SUM(single_pages_kb + multi_pages_kb) >= 0.1
-							  AND SUM(single_pages_kb + multi_pages_kb) / 1024.0 / 1024.0 >= 1; /* At least 1GB RAM overall */';
-							EXEC sp_executesql @StringToExecute;
-							END
 
 					END;
 
@@ -7333,9 +7182,7 @@ IF @ProductVersionMajor >= 10
 								        FROM    #SkipChecks
 								        WHERE   DatabaseName IS NULL AND CheckID = 33 )
 					        BEGIN
-						        IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
-							        AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%'
-									AND @SkipBlockingChecks = 0
+						        IF @SkipBlockingChecks = 0
 							        BEGIN
 								
 										IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 33) WITH NOWAIT;
@@ -7604,12 +7451,9 @@ IF @ProductVersionMajor >= 10
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 95 )
 							BEGIN
-								IF @@VERSION NOT LIKE '%Microsoft SQL Server 2000%'
-									AND @@VERSION NOT LIKE '%Microsoft SQL Server 2005%'
-									BEGIN
-										
+
 										IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 95) WITH NOWAIT;
-										
+
 										EXEC dbo.sp_MSforeachdb 'USE [?];
 			SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
             INSERT INTO #BlitzResults
@@ -7628,7 +7472,6 @@ IF @ProductVersionMajor >= 10
 			''https://www.brentozar.com/go/guides'' AS URL,
 			(''Database ['' + DB_NAME() + ''] has query plan guides so a query will always get a specific execution plan. If you are having trouble getting query performance to improve, it might be due to a frozen plan. Review the DMV sys.plan_guides to learn more about the plan guides in place on this server.'') AS Details
 			FROM [?].sys.plan_guides WHERE is_disabled = 0 OPTION (RECOMPILE);';
-									END;
 							END;
 
 						IF NOT EXISTS ( SELECT  1
@@ -7875,44 +7718,8 @@ IF @ProductVersionMajor >= 10
 								        FROM    #SkipChecks
 								        WHERE   DatabaseName IS NULL AND CheckID = 69 )
 					        BEGIN
-						        IF @ProductVersionMajor >= 11
 
-							        BEGIN
-								
-										IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d] (2012 version of Log Info).', 0, 1, 69) WITH NOWAIT;
-										
-										EXEC sp_MSforeachdb N'USE [?];
-		                                      SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-                                              INSERT INTO #LogInfo2012
-		                                      EXEC sp_executesql N''DBCC LogInfo() WITH NO_INFOMSGS'';
-		                                      IF    @@ROWCOUNT > 999
-		                                      BEGIN
-			                                    INSERT  INTO #BlitzResults
-			                                    ( CheckID
-			                                    ,DatabaseName
-			                                    ,Priority
-			                                    ,FindingsGroup
-			                                    ,Finding
-			                                    ,URL
-			                                    ,Details)
-			                                    SELECT      69
-			                                    ,DB_NAME()
-			                                    ,170
-			                                    ,''File Configuration''
-			                                    ,''High VLF Count''
-			                                    ,''https://www.brentozar.com/go/vlf''
-			                                    ,''The ['' + DB_NAME() + ''] database has '' +  CAST(COUNT(*) as VARCHAR(20)) + '' virtual log files (VLFs). This may be slowing down startup, restores, and even inserts/updates/deletes.''
-			                                    FROM #LogInfo2012
-			                                    WHERE EXISTS (SELECT name FROM master.sys.databases
-					                                    WHERE source_database_id is null)  OPTION (RECOMPILE);
-		                                      END
-		                                    TRUNCATE TABLE #LogInfo2012;';
-								        DROP TABLE #LogInfo2012;
-							        END;
-						        ELSE
-							        BEGIN
-								
-										IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d] (pre-2012 version of Log Info).', 0, 1, 69) WITH NOWAIT;
+										IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 69) WITH NOWAIT;
 										
 										EXEC sp_MSforeachdb N'USE [?];
 		                                      SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
@@ -7937,11 +7744,10 @@ IF @ProductVersionMajor >= 10
 			                                    ,''The ['' + DB_NAME() + ''] database has '' +  CAST(COUNT(*) as VARCHAR(20)) + '' virtual log files (VLFs). This may be slowing down startup, restores, and even inserts/updates/deletes.''
 			                                    FROM #LogInfo
 			                                    WHERE EXISTS (SELECT name FROM master.sys.databases
-			                                    WHERE source_database_id is null) OPTION (RECOMPILE);
+					                                    WHERE source_database_id is null)  OPTION (RECOMPILE);
 		                                      END
-		                                      TRUNCATE TABLE #LogInfo;';
+		                                    TRUNCATE TABLE #LogInfo;';
 								        DROP TABLE #LogInfo;
-							        END;
 					        END;
 
 				        IF NOT EXISTS ( SELECT  1
@@ -8312,72 +8118,6 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 										HAVING  COUNT(*) > 1;
 							END;
 
-		  /* Set up the cache tables. Different on 2005 since it doesn't support query_hash, query_plan_hash. */
-						IF @@VERSION LIKE '%Microsoft SQL Server 2005%'
-							BEGIN
-								IF @CheckProcedureCacheFilter = 'CPU'
-									OR @CheckProcedureCacheFilter IS NULL
-									BEGIN
-										SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time])
-			  AS (SELECT TOP 20 qs.[sql_handle],qs.[statement_start_offset],qs.[statement_end_offset],qs.[plan_generation_num],qs.[plan_handle],qs.[creation_time],qs.[last_execution_time],qs.[execution_count],qs.[total_worker_time],qs.[last_worker_time],qs.[min_worker_time],qs.[max_worker_time],qs.[total_physical_reads],qs.[last_physical_reads],qs.[min_physical_reads],qs.[max_physical_reads],qs.[total_logical_writes],qs.[last_logical_writes],qs.[min_logical_writes],qs.[max_logical_writes],qs.[total_logical_reads],qs.[last_logical_reads],qs.[min_logical_reads],qs.[max_logical_reads],qs.[total_clr_time],qs.[last_clr_time],qs.[min_clr_time],qs.[max_clr_time],qs.[total_elapsed_time],qs.[last_elapsed_time],qs.[min_elapsed_time],qs.[max_elapsed_time]
-			  FROM sys.dm_exec_query_stats qs
-			  ORDER BY qs.total_worker_time DESC)
-			  INSERT INTO #dm_exec_query_stats ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time])
-			  SELECT qs.[sql_handle],qs.[statement_start_offset],qs.[statement_end_offset],qs.[plan_generation_num],qs.[plan_handle],qs.[creation_time],qs.[last_execution_time],qs.[execution_count],qs.[total_worker_time],qs.[last_worker_time],qs.[min_worker_time],qs.[max_worker_time],qs.[total_physical_reads],qs.[last_physical_reads],qs.[min_physical_reads],qs.[max_physical_reads],qs.[total_logical_writes],qs.[last_logical_writes],qs.[min_logical_writes],qs.[max_logical_writes],qs.[total_logical_reads],qs.[last_logical_reads],qs.[min_logical_reads],qs.[max_logical_reads],qs.[total_clr_time],qs.[last_clr_time],qs.[min_clr_time],qs.[max_clr_time],qs.[total_elapsed_time],qs.[last_elapsed_time],qs.[min_elapsed_time],qs.[max_elapsed_time]
-			  FROM queries qs
-			  LEFT OUTER JOIN #dm_exec_query_stats qsCaught ON qs.sql_handle = qsCaught.sql_handle AND qs.plan_handle = qsCaught.plan_handle AND qs.statement_start_offset = qsCaught.statement_start_offset
-			  WHERE qsCaught.sql_handle IS NULL OPTION (RECOMPILE);';
-										EXECUTE(@StringToExecute);
-									END;
-
-								IF @CheckProcedureCacheFilter = 'Reads'
-									OR @CheckProcedureCacheFilter IS NULL
-									BEGIN
-										SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time])
-		  AS (SELECT TOP 20 qs.[sql_handle],qs.[statement_start_offset],qs.[statement_end_offset],qs.[plan_generation_num],qs.[plan_handle],qs.[creation_time],qs.[last_execution_time],qs.[execution_count],qs.[total_worker_time],qs.[last_worker_time],qs.[min_worker_time],qs.[max_worker_time],qs.[total_physical_reads],qs.[last_physical_reads],qs.[min_physical_reads],qs.[max_physical_reads],qs.[total_logical_writes],qs.[last_logical_writes],qs.[min_logical_writes],qs.[max_logical_writes],qs.[total_logical_reads],qs.[last_logical_reads],qs.[min_logical_reads],qs.[max_logical_reads],qs.[total_clr_time],qs.[last_clr_time],qs.[min_clr_time],qs.[max_clr_time],qs.[total_elapsed_time],qs.[last_elapsed_time],qs.[min_elapsed_time],qs.[max_elapsed_time]
-		  FROM sys.dm_exec_query_stats qs
-		  ORDER BY qs.total_logical_reads DESC)
-		  INSERT INTO #dm_exec_query_stats ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time])
-		  SELECT qs.[sql_handle],qs.[statement_start_offset],qs.[statement_end_offset],qs.[plan_generation_num],qs.[plan_handle],qs.[creation_time],qs.[last_execution_time],qs.[execution_count],qs.[total_worker_time],qs.[last_worker_time],qs.[min_worker_time],qs.[max_worker_time],qs.[total_physical_reads],qs.[last_physical_reads],qs.[min_physical_reads],qs.[max_physical_reads],qs.[total_logical_writes],qs.[last_logical_writes],qs.[min_logical_writes],qs.[max_logical_writes],qs.[total_logical_reads],qs.[last_logical_reads],qs.[min_logical_reads],qs.[max_logical_reads],qs.[total_clr_time],qs.[last_clr_time],qs.[min_clr_time],qs.[max_clr_time],qs.[total_elapsed_time],qs.[last_elapsed_time],qs.[min_elapsed_time],qs.[max_elapsed_time]
-		  FROM queries qs
-		  LEFT OUTER JOIN #dm_exec_query_stats qsCaught ON qs.sql_handle = qsCaught.sql_handle AND qs.plan_handle = qsCaught.plan_handle AND qs.statement_start_offset = qsCaught.statement_start_offset
-		  WHERE qsCaught.sql_handle IS NULL OPTION (RECOMPILE);';
-										EXECUTE(@StringToExecute);
-									END;
-
-								IF @CheckProcedureCacheFilter = 'ExecCount'
-									OR @CheckProcedureCacheFilter IS NULL
-									BEGIN
-										SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time])
-		  AS (SELECT TOP 20 qs.[sql_handle],qs.[statement_start_offset],qs.[statement_end_offset],qs.[plan_generation_num],qs.[plan_handle],qs.[creation_time],qs.[last_execution_time],qs.[execution_count],qs.[total_worker_time],qs.[last_worker_time],qs.[min_worker_time],qs.[max_worker_time],qs.[total_physical_reads],qs.[last_physical_reads],qs.[min_physical_reads],qs.[max_physical_reads],qs.[total_logical_writes],qs.[last_logical_writes],qs.[min_logical_writes],qs.[max_logical_writes],qs.[total_logical_reads],qs.[last_logical_reads],qs.[min_logical_reads],qs.[max_logical_reads],qs.[total_clr_time],qs.[last_clr_time],qs.[min_clr_time],qs.[max_clr_time],qs.[total_elapsed_time],qs.[last_elapsed_time],qs.[min_elapsed_time],qs.[max_elapsed_time]
-		  FROM sys.dm_exec_query_stats qs
-		  ORDER BY qs.execution_count DESC)
-		  INSERT INTO #dm_exec_query_stats ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time])
-		  SELECT qs.[sql_handle],qs.[statement_start_offset],qs.[statement_end_offset],qs.[plan_generation_num],qs.[plan_handle],qs.[creation_time],qs.[last_execution_time],qs.[execution_count],qs.[total_worker_time],qs.[last_worker_time],qs.[min_worker_time],qs.[max_worker_time],qs.[total_physical_reads],qs.[last_physical_reads],qs.[min_physical_reads],qs.[max_physical_reads],qs.[total_logical_writes],qs.[last_logical_writes],qs.[min_logical_writes],qs.[max_logical_writes],qs.[total_logical_reads],qs.[last_logical_reads],qs.[min_logical_reads],qs.[max_logical_reads],qs.[total_clr_time],qs.[last_clr_time],qs.[min_clr_time],qs.[max_clr_time],qs.[total_elapsed_time],qs.[last_elapsed_time],qs.[min_elapsed_time],qs.[max_elapsed_time]
-		  FROM queries qs
-		  LEFT OUTER JOIN #dm_exec_query_stats qsCaught ON qs.sql_handle = qsCaught.sql_handle AND qs.plan_handle = qsCaught.plan_handle AND qs.statement_start_offset = qsCaught.statement_start_offset
-		  WHERE qsCaught.sql_handle IS NULL OPTION (RECOMPILE);';
-										EXECUTE(@StringToExecute);
-									END;
-
-								IF @CheckProcedureCacheFilter = 'Duration'
-									OR @CheckProcedureCacheFilter IS NULL
-									BEGIN
-										SET @StringToExecute = 'WITH queries ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time])
-			AS (SELECT TOP 20 qs.[sql_handle],qs.[statement_start_offset],qs.[statement_end_offset],qs.[plan_generation_num],qs.[plan_handle],qs.[creation_time],qs.[last_execution_time],qs.[execution_count],qs.[total_worker_time],qs.[last_worker_time],qs.[min_worker_time],qs.[max_worker_time],qs.[total_physical_reads],qs.[last_physical_reads],qs.[min_physical_reads],qs.[max_physical_reads],qs.[total_logical_writes],qs.[last_logical_writes],qs.[min_logical_writes],qs.[max_logical_writes],qs.[total_logical_reads],qs.[last_logical_reads],qs.[min_logical_reads],qs.[max_logical_reads],qs.[total_clr_time],qs.[last_clr_time],qs.[min_clr_time],qs.[max_clr_time],qs.[total_elapsed_time],qs.[last_elapsed_time],qs.[min_elapsed_time],qs.[max_elapsed_time]
-			FROM sys.dm_exec_query_stats qs
-			ORDER BY qs.total_elapsed_time DESC)
-			INSERT INTO #dm_exec_query_stats ([sql_handle],[statement_start_offset],[statement_end_offset],[plan_generation_num],[plan_handle],[creation_time],[last_execution_time],[execution_count],[total_worker_time],[last_worker_time],[min_worker_time],[max_worker_time],[total_physical_reads],[last_physical_reads],[min_physical_reads],[max_physical_reads],[total_logical_writes],[last_logical_writes],[min_logical_writes],[max_logical_writes],[total_logical_reads],[last_logical_reads],[min_logical_reads],[max_logical_reads],[total_clr_time],[last_clr_time],[min_clr_time],[max_clr_time],[total_elapsed_time],[last_elapsed_time],[min_elapsed_time],[max_elapsed_time])
-			SELECT qs.[sql_handle],qs.[statement_start_offset],qs.[statement_end_offset],qs.[plan_generation_num],qs.[plan_handle],qs.[creation_time],qs.[last_execution_time],qs.[execution_count],qs.[total_worker_time],qs.[last_worker_time],qs.[min_worker_time],qs.[max_worker_time],qs.[total_physical_reads],qs.[last_physical_reads],qs.[min_physical_reads],qs.[max_physical_reads],qs.[total_logical_writes],qs.[last_logical_writes],qs.[min_logical_writes],qs.[max_logical_writes],qs.[total_logical_reads],qs.[last_logical_reads],qs.[min_logical_reads],qs.[max_logical_reads],qs.[total_clr_time],qs.[last_clr_time],qs.[min_clr_time],qs.[max_clr_time],qs.[total_elapsed_time],qs.[last_elapsed_time],qs.[min_elapsed_time],qs.[max_elapsed_time]
-			FROM queries qs
-			LEFT OUTER JOIN #dm_exec_query_stats qsCaught ON qs.sql_handle = qsCaught.sql_handle AND qs.plan_handle = qsCaught.plan_handle AND qs.statement_start_offset = qsCaught.statement_start_offset
-			WHERE qsCaught.sql_handle IS NULL OPTION (RECOMPILE);';
-										EXECUTE(@StringToExecute);
-									END;
-
-							END;
-						IF @ProductVersionMajor >= 10
-							BEGIN
 								IF @CheckProcedureCacheFilter = 'CPU'
 									OR @CheckProcedureCacheFilter IS NULL
 									BEGIN
@@ -8446,8 +8186,6 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 																  qs.statement_start_offset,
 																  qs.statement_end_offset)
 										AS qp;
-
-							END;
 
 		/* Populate the additional query_plan, text, and text_filtered fields */
 						UPDATE  #dm_exec_query_stats
@@ -8666,8 +8404,7 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 				END;
 									
 		/*Check to see if the HA endpoint account is set at the same as the SQL Server Service Account*/
-		IF @ProductVersionMajor >= 10
-								AND NOT EXISTS ( SELECT 1
+		IF NOT EXISTS ( SELECT 1
 								FROM #SkipChecks
 								WHERE DatabaseName IS NULL AND CheckID = 187 )
 
@@ -8831,9 +8568,7 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 											 WHEN [T].[TraceFlag] = '7745' AND @CheckUserDatabaseObjects = 0 THEN '7745 enabled globally, which makes shutdowns/failovers quicker by not waiting for Query Store to flush to disk. This good idea loses you the non-flushed Query Store data. @CheckUserDatabaseObjects was set to 0, so we skipped checking if any databases have Query Store enabled.'
 											 WHEN [T].[TraceFlag] = '7745' AND @QueryStoreInUse = 1 THEN '7745 enabled globally, which makes shutdowns/failovers quicker by not waiting for Query Store to flush to disk. This good idea loses you the non-flushed Query Store data.'
 											 WHEN [T].[TraceFlag] = '7745' AND  @ProductVersionMajor > 12 THEN '7745 enabled globally, which is for Query Store. None of your databases have Query Store enabled, so why do you have this turned on?'
-											 WHEN [T].[TraceFlag] = '7745' AND  @ProductVersionMajor <= 12 THEN '7745 enabled globally, which is for Query Store. Query Store does not exist on your SQL Server version, so why do you have this turned on?'
 											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor > 14 THEN '7752 enabled globally, which is for Query Store. However, it has no effect in your SQL Server version. Consider turning it off.'
-											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor <= 12 THEN '7752 enabled globally, which is for Query Store. Query Store does not exist on your SQL Server version, so why do you have this turned on?'
 											 WHEN [T].[TraceFlag] = '7752' AND @CheckUserDatabaseObjects = 0 THEN '7752 enabled globally, which stops queries needing to wait on Query Store loading up after database recovery. @CheckUserDatabaseObjects was set to 0, so we skipped checking if any databases have Query Store enabled.'
 											 WHEN [T].[TraceFlag] = '7752' AND @QueryStoreInUse = 1 THEN '7752 enabled globally, which stops queries needing to wait on Query Store loading up after database recovery.'
 											 WHEN [T].[TraceFlag] = '7752' AND  @ProductVersionMajor > 12 THEN '7752 enabled globally, which is for Query Store. None of your databases have Query Store enabled, so why do you have this turned on?'
@@ -8896,7 +8631,7 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
                This check has to be run AFTER the globally enabled trace flag check,
                since it uses the #TraceStatus table to know if flags are enabled.
             */
-			IF @ProductVersionMajor >= 11 AND NOT EXISTS ( SELECT 1
+			IF NOT EXISTS ( SELECT 1
 									FROM   #SkipChecks
 									WHERE  DatabaseName IS NULL AND CheckID = 162 )
 				BEGIN
@@ -9155,8 +8890,7 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 					BEGIN
 
 /*This checks Windows version. It would be better if Microsoft gave everything a separate build number, but whatever.*/
-IF @ProductVersionMajor >= 10
-			   AND NOT EXISTS ( SELECT  1
+IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 172 )
 					BEGIN
@@ -9241,7 +8975,7 @@ This check hits the dm_os_process_memory system view
 to see if locked_page_allocations_kb is > 0,
 which could indicate that locked pages in memory is enabled.
 */
-IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
+IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 166 )
 					BEGIN
@@ -9706,11 +9440,8 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 												 AS Details
 										FROM    #driveInfo AS i;'
 
-									IF (@ProductVersionMajor >= 11)
-									BEGIN
-										SET @StringToExecute=REPLACE(@StringToExecute,'CAST(i.available_MB/1024 AS NUMERIC(18,2))','FORMAT(i.available_MB/1024,''N2'')');
-										SET @StringToExecute=REPLACE(@StringToExecute,'CAST(i.total_MB/1024 AS NUMERIC(18,2))','FORMAT(i.total_MB/1024,''N2'')');
-									END;
+									SET @StringToExecute=REPLACE(@StringToExecute,'CAST(i.available_MB/1024 AS NUMERIC(18,2))','FORMAT(i.available_MB/1024,''N2'')');
+									SET @StringToExecute=REPLACE(@StringToExecute,'CAST(i.total_MB/1024 AS NUMERIC(18,2))','FORMAT(i.total_MB/1024,''N2'')');
 
 									EXECUTE(@StringToExecute);
 
@@ -10070,7 +9801,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								IF (SELECT value_in_use FROM  sys.configurations WHERE [name] = 'xp_cmdshell') = 1
                                 BEGIN
                                     
-                                    IF OBJECT_ID('tempdb..#services') IS NOT NULL DROP TABLE #services;
+                                    DROP TABLE IF EXISTS #services;
                                     CREATE TABLE #services (cmdshell_output varchar(max));
                                     
                                     INSERT INTO #services
@@ -10111,8 +9842,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 								
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 232) WITH NOWAIT;
                                 
-								IF OBJECT_ID('tempdb..#MasterFiles') IS NOT NULL
-									DROP TABLE #MasterFiles;
+								DROP TABLE IF EXISTS #MasterFiles;
 								CREATE TABLE #MasterFiles (database_id INT, file_id INT, type_desc NVARCHAR(50), name NVARCHAR(255), physical_name NVARCHAR(255), size BIGINT);
 								/* Azure SQL Database doesn't have sys.master_files, so we have to build our own. */
 								IF ((SERVERPROPERTY('Edition')) = 'SQL Azure' 
@@ -10145,14 +9875,14 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
                         /* CheckID 260 - Security - SQL Server service account is member of Administrators */
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 260 ) AND @ProductVersionMajor >= 10 
+										WHERE   DatabaseName IS NULL AND CheckID = 260 )
 							BEGIN
                                 
 								IF (SELECT value_in_use FROM  sys.configurations WHERE [name] = 'xp_cmdshell') = 1
 								AND EXISTS ( SELECT  1 FROM    sys.all_objects	WHERE   [name] = 'dm_server_services' )
                                 BEGIN
 								    IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 260) WITH NOWAIT;
-                                    IF OBJECT_ID('tempdb..#localadmins') IS NOT NULL DROP TABLE #localadmins;
+                                    DROP TABLE IF EXISTS #localadmins;
                                     CREATE TABLE #localadmins (cmdshell_output NVARCHAR(1000));
                                     
                                     INSERT INTO #localadmins
@@ -10190,7 +9920,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
                         /* CheckID 261 - Security - SQL Server Agent service account is member of Administrators */
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
-										WHERE   DatabaseName IS NULL AND CheckID = 261 ) AND @ProductVersionMajor >= 10 
+										WHERE   DatabaseName IS NULL AND CheckID = 261 )
 							BEGIN
 								
 								IF (SELECT value_in_use FROM  sys.configurations WHERE [name] = 'xp_cmdshell') = 1
@@ -10233,7 +9963,7 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 									ELSE /*can't piggyback*/
 									BEGIN
 									    /*had to use a different table name because SQL Server/SSMS complains when parsing that the table still exists when it gets to the create part*/
-									    IF OBJECT_ID('tempdb..#localadminsag') IS NOT NULL DROP TABLE #localadminsag;
+									    DROP TABLE IF EXISTS #localadminsag;
 									    CREATE TABLE #localadminsag (cmdshell_output NVARCHAR(1000));
 										/* language specific call of xp cmdshell */
 										IF (SELECT os_language_version FROM sys.dm_os_windows_info) = 1031  /* os language code for German. Again, this is a very specific fix, see #3673  */
@@ -10802,18 +10532,11 @@ IF @ProductVersionMajor >= 10 AND  NOT EXISTS ( SELECT  1
 	   Cleanups - drop temporary tables that have been created by this SP.													 
     */
 																 
-	IF(OBJECT_ID('tempdb..#InvalidLogins') IS NOT NULL)
-	BEGIN
-		EXEC sp_executesql N'DROP TABLE #InvalidLogins;';
-	END;
-
-	IF OBJECT_ID('tempdb..#AlertInfo') IS NOT NULL
-	BEGIN
-		EXEC sp_executesql N'DROP TABLE #AlertInfo;';
-	END;
+	DROP TABLE IF EXISTS #InvalidLogins;
+	DROP TABLE IF EXISTS #AlertInfo;
 
 	/*
-	Reset the Nmumeric_RoundAbort session state back to enabled if it was disabled earlier. 
+	Reset the Numeric_RoundAbort session state back to enabled if it was disabled earlier. 
 	See Github issue #2302 for more info.
 	*/
 	IF @NeedToTurnNumericRoundabortBackOn = 1
