@@ -2812,9 +2812,8 @@ OPTION (RECOMPILE);';
 									 history_table_name, start_column_name, end_column_name, period_name, history_table_object_id )
 					
 			EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
-        END;
 
-             SET @dsql=N'SELECT DB_ID(@i_DatabaseName) AS [database_id], 
+             SET @dsql=N'SELECT DB_ID(@i_DatabaseName) AS [database_id],
              				   @i_DatabaseName AS database_name,
              		   		   t.name AS table_name,
              		           s.name AS schema_name,
