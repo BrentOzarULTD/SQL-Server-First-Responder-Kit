@@ -1466,16 +1466,6 @@ BEGIN TRY
         DECLARE @d VARCHAR(19) = CONVERT(VARCHAR(19), GETDATE(), 121);
         RAISERROR (N'starting at %s',0,1, @d) WITH NOWAIT;
 
-        --Validate SQL Server Version
-
-        IF (SELECT LEFT(@SQLServerProductVersion,
-              CHARINDEX('.',@SQLServerProductVersion,0)-1
-              )) <= 12
-        BEGIN
-            SET @msg=N'sp_BlitzIndex is only supported on SQL Server 2016 and higher. The version of this instance is: ' + @SQLServerProductVersion;
-            RAISERROR(@msg,16,1);
-        END;
-
         --Short circuit here if database name does not exist.
         IF @DatabaseName IS NULL OR @DatabaseID IS NULL
         BEGIN
