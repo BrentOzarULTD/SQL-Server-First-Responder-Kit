@@ -956,7 +956,14 @@ BEGIN
 
 		DROP TABLE IF EXISTS #DatabaseScopedConfigurationDefaults;
 		CREATE TABLE #DatabaseScopedConfigurationDefaults
-			(ID INT IDENTITY(1,1), configuration_id INT, [name] NVARCHAR(60), default_value sql_variant, default_value_for_secondary sql_variant, CheckID INT, );
+			(
+			  ID INT IDENTITY(1,1),
+			  configuration_id INT,
+			  [name] NVARCHAR(60),
+			  default_value sql_variant,
+			  default_value_for_secondary sql_variant,
+			  CheckID INT
+			);
 
 		DROP TABLE IF EXISTS #DBCCs;
 		CREATE TABLE #DBCCs
@@ -10529,7 +10536,7 @@ IF NOT EXISTS ( SELECT  1
 	DROP TABLE IF EXISTS #AlertInfo;
 
 	/*
-	Reset the Nmumeric_RoundAbort session state back to enabled if it was disabled earlier. 
+	Reset the Numeric_RoundAbort session state back to enabled if it was disabled earlier. 
 	See Github issue #2302 for more info.
 	*/
 	IF @NeedToTurnNumericRoundabortBackOn = 1
