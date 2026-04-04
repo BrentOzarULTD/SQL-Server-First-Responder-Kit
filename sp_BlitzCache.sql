@@ -1619,6 +1619,19 @@ CREATE TABLE #plan_usage
 );
 
 
+CREATE TABLE #plan_usage_by_database
+(
+    database_id INT NULL,
+    database_name NVARCHAR(128) NULL,
+    plan_count BIGINT NULL,
+    duplicate_plan_hashes BIGINT NULL,
+    percent_duplicate DECIMAL(9, 2) NULL,
+    single_use_plan_count BIGINT NULL,
+    percent_single DECIMAL(9, 2) NULL,
+    spid INT
+);
+
+
 IF @IgnoreReadableReplicaDBs = 1 AND EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
 BEGIN
 	RAISERROR('Checking for Read intent databases to exclude',0,0) WITH NOWAIT;
@@ -1627,90 +1640,114 @@ BEGIN
     EXEC('INSERT INTO #ReadableDBs VALUES (32767) ;');		-- Exclude internal resource database as well
 END
 
-RAISERROR(N'Checking plan cache age', 0, 1) WITH NOWAIT;
-WITH x AS (
-SELECT SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) <= 24 THEN 1 ELSE 0 END) AS [plans_24],
-	   SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) <= 4 THEN 1 ELSE 0 END) AS [plans_4],
-	   SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) <= 1 THEN 1 ELSE 0 END) AS [plans_1],
-	   COUNT(deqs.creation_time) AS [total_plans]
-FROM sys.dm_exec_query_stats AS deqs
+RAISERROR(N'Materializing plan cache attributes', 0, 1) WITH NOWAIT;
+
+/*
+    Materialize plan cache data into a temp table once to avoid repeated
+    scans of sys.dm_exec_query_stats and CROSS APPLY sys.dm_exec_plan_attributes.
+    This single pass feeds plan cache age, server-wide plan usage, and
+    per-database plan usage calculations.
+    Addresses #3878.
+*/
+CREATE TABLE #plan_cache_by_db
+(
+    database_id INT NOT NULL,
+    query_hash BINARY(8) NOT NULL,
+    query_plan_hash BINARY(8) NOT NULL,
+    execution_count BIGINT NOT NULL,
+    creation_time DATETIME NOT NULL,
+    object_id INT NULL
+);
+
+INSERT #plan_cache_by_db
+(
+    database_id,
+    query_hash,
+    query_plan_hash,
+    execution_count,
+    creation_time,
+    object_id
 )
-INSERT INTO #plan_creation ( percent_24, percent_4, percent_1, total_plans, SPID )
-SELECT CONVERT(DECIMAL(5,2), NULLIF(x.plans_24, 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_24],
-	   CONVERT(DECIMAL(5,2), NULLIF(x.plans_4 , 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_4],
-	   CONVERT(DECIMAL(5,2), NULLIF(x.plans_1 , 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_1],
-	   x.total_plans,
-	   @@SPID AS SPID
-FROM x
+SELECT
+    CONVERT(INT, pa.value),
+    qs.query_hash,
+    qs.query_plan_hash,
+    qs.execution_count,
+    qs.creation_time,
+    ps.object_id
+FROM sys.dm_exec_query_stats AS qs
+LEFT JOIN sys.dm_exec_procedure_stats AS ps
+    ON qs.plan_handle = ps.plan_handle
+CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) AS pa
+WHERE pa.attribute = N'dbid'
+AND   pa.value <> 32767 /*Omit Resource database-based queries, we're not going to "fix" them no matter what. Addresses #3314*/
 OPTION (RECOMPILE);
 
+RAISERROR(N'Checking plan cache age', 0, 1) WITH NOWAIT;
+INSERT INTO #plan_creation ( percent_24, percent_4, percent_1, total_plans, SPID )
+SELECT CONVERT(DECIMAL(5,2), NULLIF(SUM(CASE WHEN DATEDIFF(HOUR, pc.creation_time, SYSDATETIME()) <= 24 THEN 1 ELSE 0 END), 0)
+           / (1. * NULLIF(COUNT_BIG(*), 0))) * 100,
+       CONVERT(DECIMAL(5,2), NULLIF(SUM(CASE WHEN DATEDIFF(HOUR, pc.creation_time, SYSDATETIME()) <= 4 THEN 1 ELSE 0 END), 0)
+           / (1. * NULLIF(COUNT_BIG(*), 0))) * 100,
+       CONVERT(DECIMAL(5,2), NULLIF(SUM(CASE WHEN DATEDIFF(HOUR, pc.creation_time, SYSDATETIME()) <= 1 THEN 1 ELSE 0 END), 0)
+           / (1. * NULLIF(COUNT_BIG(*), 0))) * 100,
+       COUNT_BIG(*),
+       @@SPID
+FROM #plan_cache_by_db AS pc
+OPTION (RECOMPILE);
 
 RAISERROR(N'Checking for single use plans and plans with many queries', 0, 1) WITH NOWAIT;
-WITH total_plans AS 
-(
-    SELECT
-	    COUNT_BIG(deqs.query_plan_hash) AS total_plans
-    FROM sys.dm_exec_query_stats AS deqs
-),
-     many_plans AS 
-(
-    SELECT
-	    SUM(x.duplicate_plan_hashes) AS duplicate_plan_hashes
-    FROM
-	(
-        SELECT
-		    COUNT_BIG(qs.query_plan_hash) AS duplicate_plan_hashes
-        FROM sys.dm_exec_query_stats qs
-        LEFT JOIN sys.dm_exec_procedure_stats ps ON qs.plan_handle = ps.plan_handle
-        CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) pa
-        WHERE pa.attribute = N'dbid'
-		AND   pa.value <> 32767 /*Omit Resource database-based queries, we're not going to "fix" them no matter what. Addresses #3314*/
-        AND   qs.query_plan_hash <> 0x0000000000000000
-        GROUP BY
-		    /* qs.query_plan_hash,  BGO 20210524 commenting this out to fix #2909 */
-            qs.query_hash,
-			ps.object_id,
-            pa.value
-        HAVING COUNT_BIG(qs.query_plan_hash) > 5
-    ) AS x
-),
-     single_use_plans AS 
-(
-    SELECT
-	    COUNT_BIG(*) AS single_use_plan_count
-    FROM sys.dm_exec_query_stats AS s
-    WHERE s.execution_count = 1
-)
 INSERT
     #plan_usage
 (
     duplicate_plan_hashes,
-	percent_duplicate,
-	single_use_plan_count,
-	percent_single,
-	total_plans,
-	spid
+    percent_duplicate,
+    single_use_plan_count,
+    percent_single,
+    total_plans,
+    spid
 )
 SELECT
-    m.duplicate_plan_hashes, 
+    SUM(x.duplicate_plan_hashes),
     CONVERT
-	(
-	    decimal(5,2),
-		m.duplicate_plan_hashes
-		    / (1. * NULLIF(t.total_plans, 0))
-    ) * 100. AS percent_duplicate,
-    s.single_use_plan_count, 
+    (
+        DECIMAL(5, 2),
+        SUM(x.duplicate_plan_hashes)
+            / (1. * NULLIF(t.total_plans, 0))
+    ) * 100.,
+    t.single_use_plan_count,
     CONVERT
-	(
-	    decimal(5,2),
-		s.single_use_plan_count
-		    / (1. * NULLIF(t.total_plans, 0))
-	) * 100. AS percent_single,
+    (
+        DECIMAL(5, 2),
+        t.single_use_plan_count
+            / (1. * NULLIF(t.total_plans, 0))
+    ) * 100.,
     t.total_plans,
-	@@SPID
-FROM many_plans AS m
-CROSS JOIN single_use_plans AS s 
-CROSS JOIN total_plans AS t;
+    @@SPID
+FROM
+(
+    SELECT
+        COUNT_BIG(pc.query_plan_hash) AS duplicate_plan_hashes
+    FROM #plan_cache_by_db AS pc
+    WHERE pc.query_plan_hash <> 0x0000000000000000
+    GROUP BY
+        /* qs.query_plan_hash,  BGO 20210524 commenting this out to fix #2909 */
+        pc.query_hash,
+        pc.object_id,
+        pc.database_id
+    HAVING COUNT_BIG(pc.query_plan_hash) > 5
+) AS x
+CROSS JOIN
+(
+    SELECT
+        COUNT_BIG(*) AS total_plans,
+        SUM(CASE WHEN pc.execution_count = 1 THEN 1 ELSE 0 END) AS single_use_plan_count
+    FROM #plan_cache_by_db AS pc
+) AS t
+GROUP BY
+    t.total_plans,
+    t.single_use_plan_count
+OPTION (RECOMPILE);
 
 
 /*
@@ -1722,6 +1759,71 @@ UPDATE #plan_usage
 	SET percent_duplicate = CASE WHEN percent_duplicate > 100 THEN 100 ELSE percent_duplicate END,
 	percent_single = CASE WHEN percent_duplicate > 100 THEN 100 ELSE percent_duplicate END;
 */
+
+RAISERROR(N'Checking for per-database single use plans and duplicate plan hashes', 0, 1) WITH NOWAIT;
+INSERT
+    #plan_usage_by_database
+(
+    database_id,
+    database_name,
+    plan_count,
+    duplicate_plan_hashes,
+    percent_duplicate,
+    single_use_plan_count,
+    percent_single,
+    spid
+)
+SELECT
+    p.database_id,
+    DB_NAME(p.database_id),
+    p.plan_count,
+    ISNULL(d.duplicate_plan_hashes, 0),
+    CONVERT
+    (
+        DECIMAL(9, 2),
+        ISNULL(d.duplicate_plan_hashes, 0)
+            / (1. * NULLIF(p.plan_count, 0))
+    ) * 100.,
+    p.single_use_plan_count,
+    CONVERT
+    (
+        DECIMAL(9, 2),
+        p.single_use_plan_count
+            / (1. * NULLIF(p.plan_count, 0))
+    ) * 100.,
+    @@SPID
+FROM
+(
+    SELECT
+        pc.database_id,
+        COUNT_BIG(*) AS plan_count,
+        SUM(CASE WHEN pc.execution_count = 1 THEN 1 ELSE 0 END) AS single_use_plan_count
+    FROM #plan_cache_by_db AS pc
+    GROUP BY pc.database_id
+) AS p
+LEFT JOIN
+(
+    SELECT
+        x.database_id,
+        SUM(x.duplicate_plan_hashes) AS duplicate_plan_hashes
+    FROM
+    (
+        SELECT
+            pc.database_id,
+            COUNT_BIG(pc.query_plan_hash) AS duplicate_plan_hashes
+        FROM #plan_cache_by_db AS pc
+        WHERE pc.query_plan_hash <> 0x0000000000000000
+        GROUP BY
+            pc.query_hash,
+            pc.object_id,
+            pc.database_id
+        HAVING COUNT_BIG(pc.query_plan_hash) > 5
+    ) AS x
+    GROUP BY x.database_id
+) AS d
+    ON p.database_id = d.database_id
+OPTION (RECOMPILE);
+
 
 SET @OnlySqlHandles = LTRIM(RTRIM(@OnlySqlHandles)) ;
 SET @OnlyQueryHashes = LTRIM(RTRIM(@OnlyQueryHashes)) ;
@@ -6833,6 +6935,58 @@ BEGIN
 								+ ' Forced Parameterization and/or Optimize For Ad Hoc Workloads may fix the issue.'
 					            + 'To find troublemakers, use: EXEC sp_BlitzCache @SortOrder = ''query hash''; '
 			FROM #plan_usage AS p ;
+
+        /* Per-database duplicate plan findings. Addresses #3878 */
+        IF EXISTS (SELECT 1/0
+                   FROM   #plan_usage_by_database p
+                   WHERE  p.percent_duplicate > 10
+                   AND    p.spid = @@SPID)
+            INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            SELECT p.spid,
+                    1001,
+                    CASE WHEN ISNULL(p.percent_duplicate, 0) > 75 THEN 1 ELSE 254 END AS Priority,
+                    'Plan Cache Information',
+                    CASE WHEN ISNULL(p.percent_duplicate, 0) > 75
+                         THEN 'Many Duplicate Plans In ' + ISNULL(p.database_name, N'Unknown')
+                         ELSE 'Duplicate Plans In ' + ISNULL(p.database_name, N'Unknown')
+                    END AS Finding,
+                    'https://www.brentozar.com/archive/2018/03/why-multiple-plans-for-one-query-are-bad/',
+                    'Database ' + ISNULL(p.database_name, N'Unknown')
+                                + ' has ' + CONVERT(NVARCHAR(20), p.plan_count)
+                                + ' plans in the cache, and '
+                                + CONVERT(NVARCHAR(10), p.percent_duplicate)
+                                + '% are duplicates with more than 5 entries'
+                                + ', meaning similar queries in this database are generating the same plan repeatedly.'
+                                + ' Forced Parameterization may fix the issue.'
+            FROM #plan_usage_by_database AS p
+            WHERE p.percent_duplicate > 10
+            AND   p.spid = @@SPID;
+
+        /* Per-database single-use plan findings. Addresses #3878 */
+        IF EXISTS (SELECT 1/0
+                   FROM   #plan_usage_by_database p
+                   WHERE  p.percent_single > 10
+                   AND    p.spid = @@SPID)
+            INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            SELECT p.spid,
+                    1002,
+                    CASE WHEN ISNULL(p.percent_single, 0) > 75 THEN 1 ELSE 254 END AS Priority,
+                    'Plan Cache Information',
+                    CASE WHEN ISNULL(p.percent_single, 0) > 75
+                         THEN 'Many Single-Use Plans In ' + ISNULL(p.database_name, N'Unknown')
+                         ELSE 'Single-Use Plans In ' + ISNULL(p.database_name, N'Unknown')
+                    END AS Finding,
+                    'https://www.brentozar.com/blitz/single-use-plans-procedure-cache/',
+                    'Database ' + ISNULL(p.database_name, N'Unknown')
+                                + ' has ' + CONVERT(NVARCHAR(20), p.plan_count)
+                                + ' plans in the cache, and '
+                                + CONVERT(NVARCHAR(10), p.percent_single)
+                                + '% are single use plans'
+                                + ', meaning SQL Server thinks it''s seeing a lot of "new" queries from this database.'
+                                + ' Forced Parameterization and/or Optimize For Ad Hoc Workloads may fix the issue.'
+            FROM #plan_usage_by_database AS p
+            WHERE p.percent_single > 10
+            AND   p.spid = @@SPID;
 
         IF @is_tokenstore_big = 1
 		INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
