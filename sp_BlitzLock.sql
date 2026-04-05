@@ -1635,7 +1635,9 @@ BEGIN
             dp.id,
             dp.event_date,
             proc_name = ca.dp.value('@procname', 'nvarchar(1024)'),
-            sql_handle = ca.dp.value('@sqlhandle', 'nvarchar(131)')
+            sql_handle = ca.dp.value('@sqlhandle', 'nvarchar(131)'),
+            stmtstart = ca.dp.value('@stmtstart', 'int'),
+            stmtend = ca.dp.value('@stmtend', 'int')
         INTO #deadlock_stack
         FROM #deadlock_process AS dp
         CROSS APPLY dp.process_xml.nodes('//executionStack/frame') AS ca(dp)
@@ -4194,11 +4196,12 @@ BEGIN
                     ds.proc_name,
                     sql_handle =
                         CONVERT(varbinary(64), ds.sql_handle, 1),
+                    ds.stmtstart,
+                    ds.stmtend,
                     dow.database_name,
                     dow.database_id,
-                    dow.object_name,
                     query_xml =
-                        TRY_CAST(dr.query_xml AS nvarchar(MAX))
+                        MAX(TRY_CAST(dr.query_xml AS nvarchar(MAX)))
                 INTO #available_plans
                 FROM #deadlock_stack AS ds
                 JOIN #deadlock_owner_waiter AS dow
@@ -4207,6 +4210,13 @@ BEGIN
                 JOIN #deadlock_results AS dr
                   ON  dr.id = ds.id
                   AND dr.event_date = ds.event_date
+                GROUP BY
+                    ds.proc_name,
+                    CONVERT(varbinary(64), ds.sql_handle, 1),
+                    ds.stmtstart,
+                    ds.stmtend,
+                    dow.database_name,
+                    dow.database_id
                 OPTION(RECOMPILE);
 
                 SELECT
@@ -4360,6 +4370,8 @@ BEGIN
                         ) AS deps
                         WHERE deqs.sql_handle = ap.sql_handle
                         AND   deps.dbid = ap.database_id
+                        AND   (ap.stmtstart IS NULL OR deqs.statement_start_offset = ap.stmtstart)
+                        AND   (ap.stmtend   IS NULL OR deqs.statement_end_offset = ap.stmtend)
                     ) AS c
                 ) AS ap
                 WHERE ap.query_plan IS NOT NULL
