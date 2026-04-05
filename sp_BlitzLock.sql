@@ -4316,8 +4316,8 @@ BEGIN
                         ) AS deps
                         WHERE deqs.sql_handle = ap.sql_handle
                         AND   deps.dbid = ap.database_id
-                        AND   deqs.statement_start_offset = ap.stmtstart
-                        AND   deqs.statement_end_offset = ap.stmtend
+                        AND   (ap.stmtstart IS NULL OR deqs.statement_start_offset = ap.stmtstart)
+                        AND   (ap.stmtend   IS NULL OR deqs.statement_end_offset = ap.stmtend)
                     ) AS c
                 ) AS ap
                 WHERE ap.query_plan IS NOT NULL
