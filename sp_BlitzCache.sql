@@ -1766,7 +1766,7 @@ Erik Darling:
 
 UPDATE #plan_usage
 	SET percent_duplicate = CASE WHEN percent_duplicate > 100 THEN 100 ELSE percent_duplicate END,
-	percent_single = CASE WHEN percent_duplicate > 100 THEN 100 ELSE percent_duplicate END;
+	percent_single = CASE WHEN percent_single > 100 THEN 100 ELSE percent_single END;
 */
 
 RAISERROR(N'Checking for per-database single use plans and duplicate plan hashes', 0, 1) WITH NOWAIT;
