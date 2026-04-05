@@ -1326,10 +1326,11 @@ DROP TABLE IF EXISTS #missing_index_usage;
 DROP TABLE IF EXISTS #missing_index_detail;
 DROP TABLE IF EXISTS #missing_index_pretty;
 DROP TABLE IF EXISTS #index_spool_ugly;
-	
 DROP TABLE IF EXISTS #ReadableDBs;
 DROP TABLE IF EXISTS #plan_usage;
-
+DROP TABLE IF EXISTS #plan_usage_by_database;
+DROP TABLE IF EXISTS #plan_cache_by_db;
+	
 CREATE TABLE #only_query_hashes (
     query_hash BINARY(8)
 );
