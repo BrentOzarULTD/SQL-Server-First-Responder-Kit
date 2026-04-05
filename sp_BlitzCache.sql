@@ -1681,6 +1681,15 @@ LEFT JOIN sys.dm_exec_procedure_stats AS ps
 CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) AS pa
 WHERE pa.attribute = N'dbid'
 AND   pa.value <> 32767 /*Omit Resource database-based queries, we're not going to "fix" them no matter what. Addresses #3314*/
+AND   (
+          ISNULL(@IgnoreReadableReplicaDBs, 0) = 0
+          OR NOT EXISTS
+          (
+              SELECT 1
+              FROM #ReadableDBs AS rdb
+              WHERE rdb.DatabaseID = CONVERT(INT, pa.value)
+          )
+      )
 OPTION (RECOMPILE);
 
 RAISERROR(N'Checking plan cache age', 0, 1) WITH NOWAIT;
