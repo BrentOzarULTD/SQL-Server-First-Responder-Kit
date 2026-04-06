@@ -26,13 +26,14 @@ $RepoRoot   = (Resolve-Path "$ScriptDir\..\..\").Path
 $ErrorLog   = Join-Path $ScriptDir "release_errors_$(Get-Date -Format 'yyyyMMdd').log"
 $Today      = Get-Date -Format "yyyyMMdd"
 $BranchName = "${Today}_release_prep"
+$Utf8NoBom  = New-Object System.Text.UTF8Encoding $false
 
 # ── Helper: run a SQL string via sqlcmd, return output ───────────────────────
 function Invoke-SqlCmd-String {
     param([string]$Sql, [string]$Label)
 
     $tmpFile = [System.IO.Path]::GetTempFileName() + ".sql"
-    $Sql | Set-Content -Path $tmpFile -Encoding UTF8
+    [System.IO.File]::WriteAllText($tmpFile, $Sql, $Utf8NoBom)
 
     $prevPref = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
@@ -69,7 +70,7 @@ $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
 --------------------------------------------------------------------------------
 $Details
 "@
-    Add-Content -Path $ErrorLog -Value $entry
+    Add-Content -Path $ErrorLog -Value $entry -Encoding UTF8
     Write-Host "  FAIL: $Label" -ForegroundColor Red
 }
 
@@ -118,13 +119,11 @@ try {
 # ══════════════════════════════════════════════════════════════════════════════
 Write-Host "`n=== Step 3: Update version numbers ===" -ForegroundColor Cyan
 
-$versionPattern = "(?<=SELECT\s+@Version\s*=\s*')[^']+(?=',\s*@VersionDate\s*=\s*')[^']*'[^']+'"
-# Simpler approach: match the entire SELECT @Version line and replace
 $spFiles = Get-ChildItem -Path $RepoRoot -Filter "sp_*.sql"
 foreach ($file in $spFiles) {
-    $content = Get-Content $file.FullName -Raw
+    $content = [System.IO.File]::ReadAllText($file.FullName)
     $content = $content -replace "SELECT\s+@Version\s*=\s*'[^']+',\s*@VersionDate\s*=\s*'[^']+';", "SELECT @Version = '$newVersion', @VersionDate = '$Today';"
-    Set-Content -Path $file.FullName -Value $content -NoNewline
+    [System.IO.File]::WriteAllText($file.FullName, $content, $Utf8NoBom)
     Write-Host "  Updated: $($file.Name)"
 }
 
@@ -133,41 +132,41 @@ foreach ($file in $spFiles) {
 # ══════════════════════════════════════════════════════════════════════════════
 Write-Host "`n=== Step 4: Build Install-*.sql ===" -ForegroundColor Cyan
 
-$SqlVersionsPath = Join-Path $RepoRoot "SqlServerVersions.sql"
-$BlitzFirstPath  = Join-Path $RepoRoot "sp_BlitzFirst.sql"
-$InstallAllPath  = Join-Path $RepoRoot "Install-All-Scripts.sql"
+$SqlVersionsPath  = Join-Path $RepoRoot "SqlServerVersions.sql"
+$BlitzFirstPath   = Join-Path $RepoRoot "sp_BlitzFirst.sql"
+$InstallAllPath   = Join-Path $RepoRoot "Install-All-Scripts.sql"
 $InstallAzurePath = Join-Path $RepoRoot "Install-Azure.sql"
 
 # ── Install-Azure.sql ────────────────────────────────────────────────────────
-# All sp_Blitz*.sql except sp_Blitz.sql, sp_BlitzBackups.sql, sp_DatabaseRestore.sql
-Get-ChildItem -Path $RepoRoot -Filter "sp_Blitz*.sql" |
+# All sp_Blitz*.sql except sp_Blitz.sql, sp_BlitzBackups.sql, sp_DatabaseRestore.sql, sp_BlitzFirst.sql
+$azureContent = Get-ChildItem -Path $RepoRoot -Filter "sp_Blitz*.sql" |
     Where-Object { $_.Name -ne "sp_Blitz.sql" -and $_.Name -notlike "*BlitzBackups*" -and $_.Name -notlike "*DatabaseRestore*" -and $_.Name -notlike "*BlitzFirst*" } |
-    ForEach-Object { Get-Content $_.FullName } |
-    Set-Content -Path $InstallAzurePath -Force
+    ForEach-Object { Get-Content $_.FullName -Raw }
 
 if (Test-Path $BlitzFirstPath) {
-    Add-Content -Path $InstallAzurePath -Value (Get-Content -Path $BlitzFirstPath)
+    $azureContent += Get-Content -Path $BlitzFirstPath -Raw
 }
 
+[System.IO.File]::WriteAllText($InstallAzurePath, ($azureContent -join "`r`n"), $Utf8NoBom)
 Write-Host "  Built: Install-Azure.sql"
 
 # ── Install-All-Scripts.sql ──────────────────────────────────────────────────
 # All sp_*.sql except sp_BlitzInMemoryOLTP.sql and sp_BlitzFirst.sql
-Get-ChildItem -Path $RepoRoot -Filter "sp_*.sql" |
+$allContent = Get-ChildItem -Path $RepoRoot -Filter "sp_*.sql" |
     Where-Object { $_.Name -notlike "*BlitzInMemoryOLTP*" -and $_.Name -notlike "*BlitzFirst*" } |
-    ForEach-Object { Get-Content $_.FullName } |
-    Set-Content -Path $InstallAllPath -Force
+    ForEach-Object { Get-Content $_.FullName -Raw }
 
 # Append SqlServerVersions.sql
 if (Test-Path $SqlVersionsPath) {
-    Add-Content -Path $InstallAllPath -Value (Get-Content -Path $SqlVersionsPath)
+    $allContent += Get-Content -Path $SqlVersionsPath -Raw
 }
 
 # Append sp_BlitzFirst.sql last
 if (Test-Path $BlitzFirstPath) {
-    Add-Content -Path $InstallAllPath -Value (Get-Content -Path $BlitzFirstPath)
+    $allContent += Get-Content -Path $BlitzFirstPath -Raw
 }
 
+[System.IO.File]::WriteAllText($InstallAllPath, ($allContent -join "`r`n"), $Utf8NoBom)
 Write-Host "  Built: Install-All-Scripts.sql"
 
 # ══════════════════════════════════════════════════════════════════════════════
