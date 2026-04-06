@@ -3618,7 +3618,7 @@ BEGIN
                     en =
                         DENSE_RANK() OVER (ORDER BY dp.event_date),
                     qn =
-                        ROW_NUMBER() OVER (PARTITION BY dp.event_date ORDER BY dp.event_date),
+                        ROW_NUMBER() OVER (PARTITION BY dp.event_date ORDER BY dp.event_date) - 1,
                     dn =
                         ROW_NUMBER() OVER (PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date),
                     dp.is_victim,
@@ -3703,7 +3703,7 @@ BEGIN
                     en =
                         DENSE_RANK() OVER (ORDER BY dp.event_date),
                     qn =
-                        ROW_NUMBER() OVER (PARTITION BY dp.event_date ORDER BY dp.event_date),
+                        ROW_NUMBER() OVER (PARTITION BY dp.event_date ORDER BY dp.event_date) - 1,
                     dn =
                         ROW_NUMBER() OVER (PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date),
                     is_victim = 1,
@@ -3765,11 +3765,8 @@ BEGIN
                         d.en
                     ) +
                     N', Query #'
-                    + CASE
-                          WHEN d.qn = 0
-                          THEN N'1'
-                          ELSE CONVERT(nvarchar(10), d.qn)
-                      END + CASE
+                    + CONVERT(nvarchar(10), d.qn + 1)
+                      + CASE
                                 WHEN d.is_victim = 1
                                 THEN N' - VICTIM'
                                 ELSE N''
