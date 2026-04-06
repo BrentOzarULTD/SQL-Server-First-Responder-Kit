@@ -1688,7 +1688,7 @@ AND   (
           (
               SELECT 1
               FROM #ReadableDBs AS rdb
-              WHERE rdb.DatabaseID = CONVERT(INT, pa.value)
+              WHERE rdb.database_id = CONVERT(INT, pa.value)
           )
       )
 OPTION (RECOMPILE);
