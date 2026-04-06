@@ -350,7 +350,7 @@ EXEC sp_kill @SPID = 55, @ExecuteKills = 'Y';
 
 /* Kill sleeping sessions with open transactions idle for 5+ minutes: */
 EXEC sp_kill @HasOpenTran = 'Y', @SPIDState = 'S',
-    @RequestsOlderThanMinutes = 5, @ExecuteKills = 'Y';
+    @RequestsOlderThanSeconds = 300, @ExecuteKills = 'Y';
 
 /* Show what we'd kill for a login, sorted by CPU: */
 EXEC sp_kill @LoginName = 'DOMAIN\TroublesomeUser', @OrderBy = 'cpu';
@@ -358,7 +358,7 @@ EXEC sp_kill @LoginName = 'DOMAIN\TroublesomeUser', @OrderBy = 'cpu';
 
 Parameters for targeting sessions:
 
-* @ExecuteKills = 'Y' or 'N' (default 'N') - whether to actually kill, or just show recommendations. When set to 'Y', you must also specify at least one targeting filter to prevent accidentally killing everything.
+* @ExecuteKills = 'Y' or 'N' (default 'N') - whether to actually kill, or just show recommendations. When set to 'Y' with no targeting filters, all non-system sessions are killed - so always specify at least one filter to avoid killing everything.
 * @SPID - target a specific session ID.
 * @LoginName - kill sessions belonging to this login.
 * @AppName - kill sessions from this application (supports LIKE wildcards).
@@ -366,9 +366,9 @@ Parameters for targeting sessions:
 * @HostName - kill sessions from this host.
 * @LeadBlockers = 'Y' - kill only lead blockers (sessions blocking others but not blocked themselves).
 * @ReadOnly = 'Y' - only kill read-only queries (SELECTs with no writes).
-* @SPIDState - 'S' for sleeping sessions only, 'R' for running only, empty string for both (default).
+* @SPIDState - 'S' for sleeping sessions only, 'R' for running only, NULL for both (default).
 * @HasOpenTran = 'Y' - only target sessions with open transactions. Combine with @SPIDState = 'S' to catch sleeping sessions with forgotten transactions.
-* @RequestsOlderThanMinutes - only target sessions whose last request started at least this many minutes ago.
+* @RequestsOlderThanSeconds - only target sessions whose last request started at least this many seconds ago.
 * @OmitLogin - exclude sessions belonging to this login from kill recommendations.
 * @OrderBy - sort order for kill recommendations: duration (default), cpu, reads, writes, tempdb, transactions. Useful when you want to kill the worst offenders one by one.
 
