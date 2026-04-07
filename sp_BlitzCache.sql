@@ -10,15 +10,19 @@ GO
 
 IF (
 SELECT
-  CASE 
+  CASE
+     WHEN CAST(SERVERPROPERTY('EngineEdition') AS INT) IN (5, 6, 8) THEN 1 /* Azure SQL DB, MI, Synapse */
      WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '8%' THEN 0
      WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '9%' THEN 0
+     WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '10%' THEN 0
+     WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '11%' THEN 0
+     WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '12%' THEN 0
 	 ELSE 1
-  END 
+  END
 ) = 0
 BEGIN
-	DECLARE @msg VARCHAR(8000); 
-	SELECT @msg = 'Sorry, sp_BlitzCache doesn''t work on versions of SQL prior to 2008.' + REPLICATE(CHAR(13), 7933);
+	DECLARE @msg VARCHAR(8000);
+	SELECT @msg = 'Sorry, sp_BlitzCache doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933);
 	PRINT @msg;
 	RETURN;
 END;
@@ -294,7 +298,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.30', @VersionDate = '20260313';
+SELECT @Version = '8.32', @VersionDate = '20260407';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -807,17 +811,28 @@ IF @Help = 1
 /*Validate version*/
 IF (
 SELECT
-  CASE 
+  CASE
+     WHEN CAST(SERVERPROPERTY('EngineEdition') AS INT) IN (5, 6, 8) THEN 1 /* Azure SQL DB, MI, Synapse */
      WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '8%' THEN 0
      WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '9%' THEN 0
+     WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '10%' THEN 0
+     WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '11%' THEN 0
+     WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '12%' THEN 0
 	 ELSE 1
-  END 
+  END
 ) = 0
 BEGIN
-	DECLARE @version_msg VARCHAR(8000); 
-	SELECT @version_msg = 'Sorry, sp_BlitzCache doesn''t work on versions of SQL prior to 2008.' + REPLICATE(CHAR(13), 7933);
+	DECLARE @version_msg VARCHAR(8000);
+	SELECT @version_msg = 'Sorry, sp_BlitzCache doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933);
 	PRINT @version_msg;
 	RETURN;
+END;
+
+/* Check database compatibility level for STRING_SPLIT support */
+IF (SELECT compatibility_level FROM sys.databases WHERE database_id = DB_ID()) < 130
+BEGIN
+    RAISERROR('sp_BlitzCache requires database compatibility level 130 or higher. If your user databases aren''t at that compat level yet, install sp_BlitzCache in master instead.', 16, 1);
+    RETURN;
 END;
 
 IF(@OutputType = 'NONE' AND (@OutputTableName IS NULL OR @OutputSchemaName IS NULL OR @OutputDatabaseName IS NULL))
@@ -852,8 +867,7 @@ IF (
    END;
 
 
-IF OBJECT_ID ('tempdb..#configuration') IS NOT NULL
-    DROP TABLE #configuration;
+DROP TABLE IF EXISTS #configuration;
 
 CREATE TABLE #configuration (
     parameter_name VARCHAR(100),
@@ -1298,75 +1312,32 @@ IF @SortOrder IN ('all', 'all avg')
 	END;
 
 RAISERROR(N'Creating temp tables for internal processing', 0, 1) WITH NOWAIT;
-IF OBJECT_ID('tempdb..#only_query_hashes') IS NOT NULL
-    DROP TABLE #only_query_hashes ;
-
-IF OBJECT_ID('tempdb..#ignore_query_hashes') IS NOT NULL
-    DROP TABLE #ignore_query_hashes ;
-
-IF OBJECT_ID('tempdb..#only_sql_handles') IS NOT NULL
-    DROP TABLE #only_sql_handles ;
-
-IF OBJECT_ID('tempdb..#ignore_sql_handles') IS NOT NULL
-    DROP TABLE #ignore_sql_handles ;
-   
-IF OBJECT_ID('tempdb..#p') IS NOT NULL
-    DROP TABLE #p;
-
-IF OBJECT_ID ('tempdb..#checkversion') IS NOT NULL
-    DROP TABLE #checkversion;
-
-IF OBJECT_ID ('tempdb..#stored_proc_info') IS NOT NULL
-    DROP TABLE #stored_proc_info;
-
-IF OBJECT_ID ('tempdb..#plan_creation') IS NOT NULL
-    DROP TABLE #plan_creation;
-
-IF OBJECT_ID ('tempdb..#est_rows') IS NOT NULL
-    DROP TABLE #est_rows;
-
-IF OBJECT_ID ('tempdb..#plan_cost') IS NOT NULL
-    DROP TABLE #plan_cost;
-
-IF OBJECT_ID ('tempdb..#proc_costs') IS NOT NULL
-    DROP TABLE #proc_costs;
-
-IF OBJECT_ID ('tempdb..#stats_agg') IS NOT NULL
-    DROP TABLE #stats_agg;
-
-IF OBJECT_ID ('tempdb..#trace_flags') IS NOT NULL
-    DROP TABLE #trace_flags;
-
-IF OBJECT_ID('tempdb..#variable_info') IS NOT NULL
-    DROP TABLE #variable_info;
-
-IF OBJECT_ID('tempdb..#conversion_info') IS NOT NULL
-    DROP TABLE #conversion_info;
-
-IF OBJECT_ID('tempdb..#missing_index_xml') IS NOT NULL
-    DROP TABLE #missing_index_xml;
-
-IF OBJECT_ID('tempdb..#missing_index_schema') IS NOT NULL
-    DROP TABLE #missing_index_schema;
-
-IF OBJECT_ID('tempdb..#missing_index_usage') IS NOT NULL
-    DROP TABLE #missing_index_usage;
-
-IF OBJECT_ID('tempdb..#missing_index_detail') IS NOT NULL
-    DROP TABLE #missing_index_detail;
-
-IF OBJECT_ID('tempdb..#missing_index_pretty') IS NOT NULL
-    DROP TABLE #missing_index_pretty;
-
-IF OBJECT_ID('tempdb..#index_spool_ugly') IS NOT NULL
-    DROP TABLE #index_spool_ugly;
+DROP TABLE IF EXISTS #only_query_hashes;
+DROP TABLE IF EXISTS #ignore_query_hashes;
+DROP TABLE IF EXISTS #only_sql_handles;
+DROP TABLE IF EXISTS #ignore_sql_handles;
+DROP TABLE IF EXISTS #p;
+DROP TABLE IF EXISTS #checkversion;
+DROP TABLE IF EXISTS #stored_proc_info;
+DROP TABLE IF EXISTS #plan_creation;
+DROP TABLE IF EXISTS #est_rows;
+DROP TABLE IF EXISTS #plan_cost;
+DROP TABLE IF EXISTS #proc_costs;
+DROP TABLE IF EXISTS #stats_agg;
+DROP TABLE IF EXISTS #trace_flags;
+DROP TABLE IF EXISTS #variable_info;
+DROP TABLE IF EXISTS #conversion_info;
+DROP TABLE IF EXISTS #missing_index_xml;
+DROP TABLE IF EXISTS #missing_index_schema;
+DROP TABLE IF EXISTS #missing_index_usage;
+DROP TABLE IF EXISTS #missing_index_detail;
+DROP TABLE IF EXISTS #missing_index_pretty;
+DROP TABLE IF EXISTS #index_spool_ugly;
+DROP TABLE IF EXISTS #ReadableDBs;
+DROP TABLE IF EXISTS #plan_usage;
+DROP TABLE IF EXISTS #plan_usage_by_database;
+DROP TABLE IF EXISTS #plan_cache_by_db;
 	
-IF OBJECT_ID('tempdb..#ReadableDBs') IS NOT NULL 
-	DROP TABLE #ReadableDBs;	
-
-IF OBJECT_ID('tempdb..#plan_usage') IS NOT NULL 
-	DROP TABLE #plan_usage;	
-
 CREATE TABLE #only_query_hashes (
     query_hash BINARY(8)
 );
@@ -1656,6 +1627,19 @@ CREATE TABLE #plan_usage
 );
 
 
+CREATE TABLE #plan_usage_by_database
+(
+    database_id INT NULL,
+    database_name NVARCHAR(128) NULL,
+    plan_count BIGINT NULL,
+    duplicate_plan_hashes BIGINT NULL,
+    percent_duplicate DECIMAL(9, 2) NULL,
+    single_use_plan_count BIGINT NULL,
+    percent_single DECIMAL(9, 2) NULL,
+    spid INT
+);
+
+
 IF @IgnoreReadableReplicaDBs = 1 AND EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
 BEGIN
 	RAISERROR('Checking for Read intent databases to exclude',0,0) WITH NOWAIT;
@@ -1664,90 +1648,123 @@ BEGIN
     EXEC('INSERT INTO #ReadableDBs VALUES (32767) ;');		-- Exclude internal resource database as well
 END
 
-RAISERROR(N'Checking plan cache age', 0, 1) WITH NOWAIT;
-WITH x AS (
-SELECT SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) <= 24 THEN 1 ELSE 0 END) AS [plans_24],
-	   SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) <= 4 THEN 1 ELSE 0 END) AS [plans_4],
-	   SUM(CASE WHEN DATEDIFF(HOUR, deqs.creation_time, SYSDATETIME()) <= 1 THEN 1 ELSE 0 END) AS [plans_1],
-	   COUNT(deqs.creation_time) AS [total_plans]
-FROM sys.dm_exec_query_stats AS deqs
+RAISERROR(N'Materializing plan cache attributes', 0, 1) WITH NOWAIT;
+
+/*
+    Materialize plan cache data into a temp table once to avoid repeated
+    scans of sys.dm_exec_query_stats and CROSS APPLY sys.dm_exec_plan_attributes.
+    This single pass feeds plan cache age, server-wide plan usage, and
+    per-database plan usage calculations.
+    Addresses #3878.
+*/
+CREATE TABLE #plan_cache_by_db
+(
+    database_id INT NOT NULL,
+    query_hash BINARY(8) NOT NULL,
+    query_plan_hash BINARY(8) NOT NULL,
+    execution_count BIGINT NOT NULL,
+    creation_time DATETIME NOT NULL,
+    object_id INT NULL
+);
+
+INSERT #plan_cache_by_db
+(
+    database_id,
+    query_hash,
+    query_plan_hash,
+    execution_count,
+    creation_time,
+    object_id
 )
-INSERT INTO #plan_creation ( percent_24, percent_4, percent_1, total_plans, SPID )
-SELECT CONVERT(DECIMAL(5,2), NULLIF(x.plans_24, 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_24],
-	   CONVERT(DECIMAL(5,2), NULLIF(x.plans_4 , 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_4],
-	   CONVERT(DECIMAL(5,2), NULLIF(x.plans_1 , 0) / (1. * NULLIF(x.total_plans, 0))) * 100 AS [percent_1],
-	   x.total_plans,
-	   @@SPID AS SPID
-FROM x
+SELECT
+    CONVERT(INT, pa.value),
+    qs.query_hash,
+    qs.query_plan_hash,
+    qs.execution_count,
+    qs.creation_time,
+    ps.object_id
+FROM sys.dm_exec_query_stats AS qs
+LEFT JOIN sys.dm_exec_procedure_stats AS ps
+    ON qs.plan_handle = ps.plan_handle
+CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) AS pa
+WHERE pa.attribute = N'dbid'
+AND   pa.value <> 32767 /*Omit Resource database-based queries, we're not going to "fix" them no matter what. Addresses #3314*/
+AND   (
+          ISNULL(@IgnoreReadableReplicaDBs, 0) = 0
+          OR NOT EXISTS
+          (
+              SELECT 1
+              FROM #ReadableDBs AS rdb
+              WHERE rdb.database_id = CONVERT(INT, pa.value)
+          )
+      )
 OPTION (RECOMPILE);
 
+RAISERROR(N'Checking plan cache age', 0, 1) WITH NOWAIT;
+INSERT INTO #plan_creation ( percent_24, percent_4, percent_1, total_plans, SPID )
+SELECT CONVERT(DECIMAL(5,2), NULLIF(SUM(CASE WHEN DATEDIFF(HOUR, pc.creation_time, SYSDATETIME()) <= 24 THEN 1 ELSE 0 END), 0)
+           / (1. * NULLIF(COUNT_BIG(*), 0))) * 100,
+       CONVERT(DECIMAL(5,2), NULLIF(SUM(CASE WHEN DATEDIFF(HOUR, pc.creation_time, SYSDATETIME()) <= 4 THEN 1 ELSE 0 END), 0)
+           / (1. * NULLIF(COUNT_BIG(*), 0))) * 100,
+       CONVERT(DECIMAL(5,2), NULLIF(SUM(CASE WHEN DATEDIFF(HOUR, pc.creation_time, SYSDATETIME()) <= 1 THEN 1 ELSE 0 END), 0)
+           / (1. * NULLIF(COUNT_BIG(*), 0))) * 100,
+       COUNT_BIG(*),
+       @@SPID
+FROM #plan_cache_by_db AS pc
+OPTION (RECOMPILE);
 
 RAISERROR(N'Checking for single use plans and plans with many queries', 0, 1) WITH NOWAIT;
-WITH total_plans AS 
-(
-    SELECT
-	    COUNT_BIG(deqs.query_plan_hash) AS total_plans
-    FROM sys.dm_exec_query_stats AS deqs
-),
-     many_plans AS 
-(
-    SELECT
-	    SUM(x.duplicate_plan_hashes) AS duplicate_plan_hashes
-    FROM
-	(
-        SELECT
-		    COUNT_BIG(qs.query_plan_hash) AS duplicate_plan_hashes
-        FROM sys.dm_exec_query_stats qs
-        LEFT JOIN sys.dm_exec_procedure_stats ps ON qs.plan_handle = ps.plan_handle
-        CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) pa
-        WHERE pa.attribute = N'dbid'
-		AND   pa.value <> 32767 /*Omit Resource database-based queries, we're not going to "fix" them no matter what. Addresses #3314*/
-        AND   qs.query_plan_hash <> 0x0000000000000000
-        GROUP BY
-		    /* qs.query_plan_hash,  BGO 20210524 commenting this out to fix #2909 */
-            qs.query_hash,
-			ps.object_id,
-            pa.value
-        HAVING COUNT_BIG(qs.query_plan_hash) > 5
-    ) AS x
-),
-     single_use_plans AS 
-(
-    SELECT
-	    COUNT_BIG(*) AS single_use_plan_count
-    FROM sys.dm_exec_query_stats AS s
-    WHERE s.execution_count = 1
-)
 INSERT
     #plan_usage
 (
     duplicate_plan_hashes,
-	percent_duplicate,
-	single_use_plan_count,
-	percent_single,
-	total_plans,
-	spid
+    percent_duplicate,
+    single_use_plan_count,
+    percent_single,
+    total_plans,
+    spid
 )
 SELECT
-    m.duplicate_plan_hashes, 
+    SUM(x.duplicate_plan_hashes),
     CONVERT
-	(
-	    decimal(5,2),
-		m.duplicate_plan_hashes
-		    / (1. * NULLIF(t.total_plans, 0))
-    ) * 100. AS percent_duplicate,
-    s.single_use_plan_count, 
+    (
+        DECIMAL(5, 2),
+        SUM(x.duplicate_plan_hashes)
+            / (1. * NULLIF(t.total_plans, 0))
+    ) * 100.,
+    t.single_use_plan_count,
     CONVERT
-	(
-	    decimal(5,2),
-		s.single_use_plan_count
-		    / (1. * NULLIF(t.total_plans, 0))
-	) * 100. AS percent_single,
+    (
+        DECIMAL(5, 2),
+        t.single_use_plan_count
+            / (1. * NULLIF(t.total_plans, 0))
+    ) * 100.,
     t.total_plans,
-	@@SPID
-FROM many_plans AS m
-CROSS JOIN single_use_plans AS s 
-CROSS JOIN total_plans AS t;
+    @@SPID
+FROM
+(
+    SELECT
+        COUNT_BIG(pc.query_plan_hash) AS duplicate_plan_hashes
+    FROM #plan_cache_by_db AS pc
+    WHERE pc.query_plan_hash <> 0x0000000000000000
+    GROUP BY
+        /* qs.query_plan_hash,  BGO 20210524 commenting this out to fix #2909 */
+        pc.query_hash,
+        pc.object_id,
+        pc.database_id
+    HAVING COUNT_BIG(pc.query_plan_hash) > 5
+) AS x
+CROSS JOIN
+(
+    SELECT
+        COUNT_BIG(*) AS total_plans,
+        SUM(CASE WHEN pc.execution_count = 1 THEN 1 ELSE 0 END) AS single_use_plan_count
+    FROM #plan_cache_by_db AS pc
+) AS t
+GROUP BY
+    t.total_plans,
+    t.single_use_plan_count
+OPTION (RECOMPILE);
 
 
 /*
@@ -1757,14 +1774,78 @@ Erik Darling:
 
 UPDATE #plan_usage
 	SET percent_duplicate = CASE WHEN percent_duplicate > 100 THEN 100 ELSE percent_duplicate END,
-	percent_single = CASE WHEN percent_duplicate > 100 THEN 100 ELSE percent_duplicate END;
+	percent_single = CASE WHEN percent_single > 100 THEN 100 ELSE percent_single END;
 */
+
+RAISERROR(N'Checking for per-database single use plans and duplicate plan hashes', 0, 1) WITH NOWAIT;
+INSERT
+    #plan_usage_by_database
+(
+    database_id,
+    database_name,
+    plan_count,
+    duplicate_plan_hashes,
+    percent_duplicate,
+    single_use_plan_count,
+    percent_single,
+    spid
+)
+SELECT
+    p.database_id,
+    DB_NAME(p.database_id),
+    p.plan_count,
+    ISNULL(d.duplicate_plan_hashes, 0),
+    CONVERT
+    (
+        DECIMAL(9, 2),
+        ISNULL(d.duplicate_plan_hashes, 0)
+            / (1. * NULLIF(p.plan_count, 0))
+    ) * 100.,
+    p.single_use_plan_count,
+    CONVERT
+    (
+        DECIMAL(9, 2),
+        p.single_use_plan_count
+            / (1. * NULLIF(p.plan_count, 0))
+    ) * 100.,
+    @@SPID
+FROM
+(
+    SELECT
+        pc.database_id,
+        COUNT_BIG(*) AS plan_count,
+        SUM(CASE WHEN pc.execution_count = 1 THEN 1 ELSE 0 END) AS single_use_plan_count
+    FROM #plan_cache_by_db AS pc
+    GROUP BY pc.database_id
+) AS p
+LEFT JOIN
+(
+    SELECT
+        x.database_id,
+        SUM(x.duplicate_plan_hashes) AS duplicate_plan_hashes
+    FROM
+    (
+        SELECT
+            pc.database_id,
+            COUNT_BIG(pc.query_plan_hash) AS duplicate_plan_hashes
+        FROM #plan_cache_by_db AS pc
+        WHERE pc.query_plan_hash <> 0x0000000000000000
+        GROUP BY
+            pc.query_hash,
+            pc.object_id,
+            pc.database_id
+        HAVING COUNT_BIG(pc.query_plan_hash) > 5
+    ) AS x
+    GROUP BY x.database_id
+) AS d
+    ON p.database_id = d.database_id
+OPTION (RECOMPILE);
+
 
 SET @OnlySqlHandles = LTRIM(RTRIM(@OnlySqlHandles)) ;
 SET @OnlyQueryHashes = LTRIM(RTRIM(@OnlyQueryHashes)) ;
 SET @IgnoreQueryHashes = LTRIM(RTRIM(@IgnoreQueryHashes)) ;
 
-DECLARE @individual VARCHAR(100) ;
 
 IF (@OnlySqlHandles IS NOT NULL AND @IgnoreSqlHandles IS NOT NULL)
 BEGIN
@@ -1782,72 +1863,28 @@ IF @OnlySqlHandles IS NOT NULL
     AND LEN(@OnlySqlHandles) > 0
 BEGIN
     RAISERROR(N'Processing SQL Handles', 0, 1) WITH NOWAIT;
-	SET @individual = '';
 
-    WHILE LEN(@OnlySqlHandles) > 0
-    BEGIN
-        IF PATINDEX('%,%', @OnlySqlHandles) > 0
-        BEGIN  
-               SET @individual = SUBSTRING(@OnlySqlHandles, 0, PATINDEX('%,%',@OnlySqlHandles)) ;
-               
-               INSERT INTO #only_sql_handles
-               SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
-               FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos)
-			   OPTION (RECOMPILE) ;
-               
-               --SELECT CAST(SUBSTRING(@individual, 1, 2) AS BINARY(8));
-
-               SET @OnlySqlHandles = SUBSTRING(@OnlySqlHandles, LEN(@individual + ',') + 1, LEN(@OnlySqlHandles)) ;
-        END;
-        ELSE
-        BEGIN
-               SET @individual = @OnlySqlHandles;
-               SET @OnlySqlHandles = NULL;
-
-               INSERT INTO #only_sql_handles
-               SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
-               FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos)
-			   OPTION (RECOMPILE) ;
-
-               --SELECT CAST(SUBSTRING(@individual, 1, 2) AS VARBINARY(MAX)) ;
-        END;
-    END;
+    INSERT INTO #only_sql_handles (sql_handle)
+    SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:column("v.val"), sql:column("t.pos")) )', 'varbinary(max)')
+    FROM STRING_SPLIT(@OnlySqlHandles, ',') AS ss
+    CROSS APPLY (SELECT LTRIM(RTRIM(ss.value))) AS v(val)
+    CROSS APPLY (SELECT CASE WHEN SUBSTRING(v.val, 1, 2) = '0x' THEN 3 ELSE 1 END) AS t(pos)
+    WHERE v.val <> ''
+    OPTION (RECOMPILE);
 END;    
 
 IF @IgnoreSqlHandles IS NOT NULL
     AND LEN(@IgnoreSqlHandles) > 0
 BEGIN
     RAISERROR(N'Processing SQL Handles To Ignore', 0, 1) WITH NOWAIT;
-	SET @individual = '';
 
-    WHILE LEN(@IgnoreSqlHandles) > 0
-    BEGIN
-        IF PATINDEX('%,%', @IgnoreSqlHandles) > 0
-        BEGIN  
-               SET @individual = SUBSTRING(@IgnoreSqlHandles, 0, PATINDEX('%,%',@IgnoreSqlHandles)) ;
-               
-               INSERT INTO #ignore_sql_handles
-               SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
-               FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos)
-			   OPTION (RECOMPILE) ;
-               
-               --SELECT CAST(SUBSTRING(@individual, 1, 2) AS BINARY(8));
-
-               SET @IgnoreSqlHandles = SUBSTRING(@IgnoreSqlHandles, LEN(@individual + ',') + 1, LEN(@IgnoreSqlHandles)) ;
-        END;
-        ELSE
-        BEGIN
-               SET @individual = @IgnoreSqlHandles;
-               SET @IgnoreSqlHandles = NULL;
-
-               INSERT INTO #ignore_sql_handles
-               SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
-               FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos)
-			   OPTION (RECOMPILE) ;
-
-               --SELECT CAST(SUBSTRING(@individual, 1, 2) AS VARBINARY(MAX)) ;
-        END;
-    END;
+    INSERT INTO #ignore_sql_handles (sql_handle)
+    SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:column("v.val"), sql:column("t.pos")) )', 'varbinary(max)')
+    FROM STRING_SPLIT(@IgnoreSqlHandles, ',') AS ss
+    CROSS APPLY (SELECT LTRIM(RTRIM(ss.value))) AS v(val)
+    CROSS APPLY (SELECT CASE WHEN SUBSTRING(v.val, 1, 2) = '0x' THEN 3 ELSE 1 END) AS t(pos)
+    WHERE v.val <> ''
+    OPTION (RECOMPILE);
 END;  
 
 IF @StoredProcName IS NOT NULL AND @StoredProcName <> N''
@@ -1911,36 +1948,14 @@ IF @OnlyQueryHashes IS NOT NULL
    AND LEN(@OnlyQueryHashes) > 0
 BEGIN
 	RAISERROR(N'Setting up filter for Query Hashes', 0, 1) WITH NOWAIT;
-    SET @individual = '';
 
-   WHILE LEN(@OnlyQueryHashes) > 0
-   BEGIN
-        IF PATINDEX('%,%', @OnlyQueryHashes) > 0
-        BEGIN  
-               SET @individual = SUBSTRING(@OnlyQueryHashes, 0, PATINDEX('%,%',@OnlyQueryHashes)) ;
-               
-               INSERT INTO #only_query_hashes
-               SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
-               FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos)
-			   OPTION (RECOMPILE) ;
-               
-               --SELECT CAST(SUBSTRING(@individual, 1, 2) AS BINARY(8));
-
-               SET @OnlyQueryHashes = SUBSTRING(@OnlyQueryHashes, LEN(@individual + ',') + 1, LEN(@OnlyQueryHashes)) ;
-        END;
-        ELSE
-        BEGIN
-               SET @individual = @OnlyQueryHashes;
-               SET @OnlyQueryHashes = NULL;
-
-               INSERT INTO #only_query_hashes
-               SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
-               FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos)
-			   OPTION (RECOMPILE) ;
-
-               --SELECT CAST(SUBSTRING(@individual, 1, 2) AS VARBINARY(MAX)) ;
-        END;
-   END;
+    INSERT INTO #only_query_hashes (query_hash)
+    SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:column("v.val"), sql:column("t.pos")) )', 'varbinary(max)')
+    FROM STRING_SPLIT(@OnlyQueryHashes, ',') AS ss
+    CROSS APPLY (SELECT LTRIM(RTRIM(ss.value))) AS v(val)
+    CROSS APPLY (SELECT CASE WHEN SUBSTRING(v.val, 1, 2) = '0x' THEN 3 ELSE 1 END) AS t(pos)
+    WHERE v.val <> ''
+    OPTION (RECOMPILE);
 END;
 
 /* If the user is setting up a list of query hashes to ignore, those
@@ -1954,33 +1969,20 @@ IF @IgnoreQueryHashes IS NOT NULL
    AND LEN(@IgnoreQueryHashes) > 0
 BEGIN
 	RAISERROR(N'Setting up filter to ignore query hashes', 0, 1) WITH NOWAIT;
-   SET @individual = '' ;
 
-   WHILE LEN(@IgnoreQueryHashes) > 0
-   BEGIN
-        IF PATINDEX('%,%', @IgnoreQueryHashes) > 0
-        BEGIN  
-               SET @individual = SUBSTRING(@IgnoreQueryHashes, 0, PATINDEX('%,%',@IgnoreQueryHashes)) ;
-               
-               INSERT INTO #ignore_query_hashes
-               SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
-               FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos) 
-			   OPTION (RECOMPILE) ;
-               
-               SET @IgnoreQueryHashes = SUBSTRING(@IgnoreQueryHashes, LEN(@individual + ',') + 1, LEN(@IgnoreQueryHashes)) ;
-        END;
-        ELSE
-        BEGIN
-               SET @individual = @IgnoreQueryHashes ;
-               SET @IgnoreQueryHashes = NULL ;
-
-               INSERT INTO #ignore_query_hashes
-               SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:variable("@individual"), sql:column("t.pos")) )', 'varbinary(max)')
-               FROM (SELECT CASE SUBSTRING(@individual, 1, 2) WHEN '0x' THEN 3 ELSE 0 END) AS t(pos) 
-			   OPTION (RECOMPILE) ;
-        END;
-   END;
+    INSERT INTO #ignore_query_hashes (query_hash)
+    SELECT CAST('' AS XML).value('xs:hexBinary( substring(sql:column("v.val"), sql:column("t.pos")) )', 'varbinary(max)')
+    FROM STRING_SPLIT(@IgnoreQueryHashes, ',') AS ss
+    CROSS APPLY (SELECT LTRIM(RTRIM(ss.value))) AS v(val)
+    CROSS APPLY (SELECT CASE WHEN SUBSTRING(v.val, 1, 2) = '0x' THEN 3 ELSE 1 END) AS t(pos)
+    WHERE v.val <> ''
+    OPTION (RECOMPILE);
 END;
+
+DECLARE @only_query_hashes_count INT = (SELECT COUNT(*) FROM #only_query_hashes);
+DECLARE @ignore_query_hashes_count INT = (SELECT COUNT(*) FROM #ignore_query_hashes);
+DECLARE @only_sql_handles_count INT = (SELECT COUNT(*) FROM #only_sql_handles);
+DECLARE @ignore_sql_handles_count INT = (SELECT COUNT(*) FROM #ignore_sql_handles);
 
 RAISERROR(N'Setting up variables', 0, 1) WITH NOWAIT;
 DECLARE @sql NVARCHAR(MAX) = N'',
@@ -2021,11 +2023,6 @@ BEGIN
    RETURN;
 END;
 
-IF ((LEFT(@QueryFilter, 3) = 'fun') AND (@v < 13))
-BEGIN
-   RAISERROR('Your version of SQL does not support filtering by functions. Please use another filter.', 16, 1);
-   RETURN;
-END;
 
 RAISERROR (N'Creating dynamic SQL based on SQL Server version.',0,1) WITH NOWAIT;
 
@@ -2086,30 +2083,30 @@ IF @DatabaseName IS NOT NULL AND @DatabaseName <> N''
                  + N') ' + @nl;
 	END; 
 
-IF (SELECT COUNT(*) FROM #only_sql_handles) > 0
+IF @only_sql_handles_count > 0
 BEGIN
     RAISERROR(N'Including only chosen SQL Handles', 0, 1) WITH NOWAIT;
 	SET @body += N'               AND EXISTS(SELECT 1/0 FROM #only_sql_handles q WHERE q.sql_handle = x.sql_handle) ' + @nl ;
 END;      
 
-IF (SELECT COUNT(*) FROM #ignore_sql_handles) > 0
+IF @ignore_sql_handles_count > 0
 BEGIN
     RAISERROR(N'Including only chosen SQL Handles', 0, 1) WITH NOWAIT;
 	SET @body += N'               AND NOT EXISTS(SELECT 1/0 FROM #ignore_sql_handles q WHERE q.sql_handle = x.sql_handle) ' + @nl ;
 END;    
 
-IF (SELECT COUNT(*) FROM #only_query_hashes) > 0
-   AND (SELECT COUNT(*) FROM #ignore_query_hashes) = 0
-   AND (SELECT COUNT(*) FROM #only_sql_handles) = 0
-   AND (SELECT COUNT(*) FROM #ignore_sql_handles) = 0
+IF @only_query_hashes_count > 0
+   AND @ignore_query_hashes_count = 0
+   AND @only_sql_handles_count = 0
+   AND @ignore_sql_handles_count = 0
 BEGIN
     RAISERROR(N'Including only chosen Query Hashes', 0, 1) WITH NOWAIT;
 	SET @body += N'               AND EXISTS(SELECT 1/0 FROM #only_query_hashes q WHERE q.query_hash = x.query_hash) ' + @nl ;
 END;
 
 /* filtering for query hashes */
-IF (SELECT COUNT(*) FROM #ignore_query_hashes) > 0
-   AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
+IF @ignore_query_hashes_count > 0
+   AND @only_query_hashes_count = 0
 BEGIN
     RAISERROR(N'Excluding chosen Query Hashes', 0, 1) WITH NOWAIT;
 	SET @body += N'               AND NOT EXISTS(SELECT 1/0 FROM #ignore_query_hashes iq WHERE iq.query_hash = x.query_hash) ' + @nl ;
@@ -2363,26 +2360,12 @@ BEGIN
            qs.statement_end_offset AS StatementEndOffset,
 		   qs.plan_generation_num AS PlanGenerationNum, ';
     
-    IF (@v >= 11) OR (@v >= 10.5 AND @build >= 2500)
-    BEGIN
-        RAISERROR(N'Adding additional info columns for newer versions of SQL', 0, 1) WITH NOWAIT;
-		SET @sql += N'
+    SET @sql += N'
            qs.min_rows AS MinReturnedRows,
            qs.max_rows AS MaxReturnedRows,
            CAST(qs.total_rows as MONEY) / execution_count AS AvgReturnedRows,
            qs.total_rows AS TotalReturnedRows,
            qs.last_rows AS LastReturnedRows, ' ;
-    END;
-    ELSE
-    BEGIN
-		RAISERROR(N'Substituting NULLs for more info columns in older versions of SQL', 0, 1) WITH NOWAIT;
-        SET @sql += N'
-           NULL AS MinReturnedRows,
-           NULL AS MaxReturnedRows,
-           NULL AS AvgReturnedRows,
-           NULL AS TotalReturnedRows,
-           NULL AS LastReturnedRows, ' ;
-    END;
 
     IF @VersionShowsMemoryGrants = 1
     BEGIN
@@ -2501,8 +2484,8 @@ END;
 
 
 IF (@QueryFilter = 'all' 
-   AND (SELECT COUNT(*) FROM #only_query_hashes) = 0 
-   AND (SELECT COUNT(*) FROM #ignore_query_hashes) = 0) 
+   AND @only_query_hashes_count = 0 
+   AND @ignore_query_hashes_count = 0) 
    AND (@SortOrder NOT IN ('memory grant', 'avg memory grant', 'unused grant', 'duplicate'))	/* Issue #3345 added 'duplicate' */
    OR (LEFT(@QueryFilter, 3) = 'pro')
 BEGIN
@@ -2520,10 +2503,9 @@ BEGIN
 	SET @sql += @body_order + @nl + @nl + @nl ;
 END;
 
-IF (@v >= 13
-   AND @QueryFilter = 'all'
-   AND (SELECT COUNT(*) FROM #only_query_hashes) = 0 
-   AND (SELECT COUNT(*) FROM #ignore_query_hashes) = 0) 
+IF (@QueryFilter = 'all'
+   AND @only_query_hashes_count = 0
+   AND @ignore_query_hashes_count = 0)
    AND (@SortOrder NOT IN ('memory grant', 'avg memory grant', 'unused grant', 'duplicate'))	/* Issue #3345 added 'duplicate' */
    AND (@SortOrder NOT IN ('spills', 'avg spills'))
    OR (LEFT(@QueryFilter, 3) = 'fun')
@@ -2552,20 +2534,8 @@ BEGIN
 	SET @sql += @body_order + @nl + @nl + @nl ;
 END;
 
-/*******************************************************************************
- *
- * Because the trigger execution count in SQL Server 2008R2 and earlier is not
- * correct, we ignore triggers for these versions of SQL Server. If you'd like
- * to include trigger numbers, just know that the ExecutionCount,
- * PercentExecutions, and ExecutionsPerMinute are wildly inaccurate for
- * triggers on these versions of SQL Server.
- *
- * This is why we can't have nice things.
- *
- ******************************************************************************/
-IF (@UseTriggersAnyway = 1 OR @v >= 11)
-   AND (SELECT COUNT(*) FROM #only_query_hashes) = 0
-   AND (SELECT COUNT(*) FROM #ignore_query_hashes) = 0
+IF @only_query_hashes_count = 0
+   AND @ignore_query_hashes_count = 0
    AND (@QueryFilter = 'all')
    AND (@SortOrder NOT IN ('memory grant', 'avg memory grant', 'unused grant', 'duplicate'))	/* Issue #3345 added 'duplicate' */
 BEGIN
@@ -3899,10 +3869,6 @@ JOIN selects AS s
 ON s.QueryHash = b.QueryHash
 AND b.AverageWrites > 1024.;
 
-/* 2012+ only */
-IF @v >= 11
-BEGIN
-
 	RAISERROR(N'Checking for forced serialization', 0, 1) WITH NOWAIT;
 	WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 	UPDATE  ##BlitzCacheProcs
@@ -3930,34 +3896,27 @@ BEGIN
 	WHERE ##BlitzCacheProcs.SqlHandle = x.SqlHandle
 	AND SPID = @@SPID
 	OPTION (RECOMPILE);
-	END; 
+	END;
 
-END;
-
-/* 2014+ only */
-IF @v >= 12
-BEGIN
-    RAISERROR('Checking for downlevel cardinality estimators being used on SQL Server 2014.', 0, 1) WITH NOWAIT;
+    RAISERROR('Checking for downlevel cardinality estimators being used on SQL Server 2014+.', 0, 1) WITH NOWAIT;
 
     WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
     UPDATE  p
     SET     downlevel_estimator = CASE WHEN statement.value('min(//p:StmtSimple/@CardinalityEstimationModelVersion)', 'int') < (@v * 10) THEN 1 END
     FROM    ##BlitzCacheProcs p
-            JOIN #statements s ON p.QueryHash = s.QueryHash 
+            JOIN #statements s ON p.QueryHash = s.QueryHash
 	WHERE SPID = @@SPID
 	OPTION (RECOMPILE);
-END ;
 
-/* 2016+ only */
-IF @v >= 13 AND @ExpertMode > 0
+IF @ExpertMode > 0
 BEGIN
-    RAISERROR('Checking for row level security in 2016 only', 0, 1) WITH NOWAIT;
+    RAISERROR('Checking for row level security', 0, 1) WITH NOWAIT;
 
     WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
     UPDATE  p
     SET     p.is_row_level = 1
     FROM    ##BlitzCacheProcs p
-            JOIN #statements s ON p.QueryHash = s.QueryHash 
+            JOIN #statements s ON p.QueryHash = s.QueryHash
 	WHERE SPID = @@SPID
 	AND statement.exist('/p:StmtSimple/@SecurityPolicyApplied[.="true"]') = 1
 	OPTION (RECOMPILE);
@@ -4022,9 +3981,8 @@ AND b.SPID = @@SPID
 OPTION (RECOMPILE);
 END; 
 
-IF ((@v >= 14 
-       OR (@v = 13 AND @build >= 5026) 
-       OR (@v = 12 AND @build >= 6024))
+IF ((@v >= 14
+       OR (@v = 13 AND @build >= 5026))
    AND @ExpertMode > 0)
 
 BEGIN;
@@ -4111,10 +4069,6 @@ IF EXISTS (SELECT 1/0 FROM sys.all_objects AS o WHERE o.name = 'dm_exec_function
    END
 
 
-/* Trace Flag Checks 2012 SP3, 2014 SP2 and 2016 SP1 only)*/
-IF @v >= 11
-BEGIN
-
 RAISERROR(N'Trace flag checks', 0, 1) WITH NOWAIT;
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 , tf_pretty AS (
@@ -4152,8 +4106,6 @@ FROM   ##BlitzCacheProcs p
 JOIN #trace_flags tf ON tf.QueryHash = p.QueryHash 
 WHERE SPID = @@SPID
 OPTION (RECOMPILE);
-
-END;
 
 
 RAISERROR(N'Checking for MSTVFs', 0, 1) WITH NOWAIT;
@@ -5140,25 +5092,46 @@ WHERE QueryType LIKE 'Procedure or Function%'
 AND SPID = @@SPID
 OPTION (RECOMPILE);
 
-RAISERROR('Checking for plans with >128 levels of nesting', 0, 1) WITH NOWAIT;	
-WITH plan_handle AS (
-SELECT b.PlanHandle
-FROM ##BlitzCacheProcs b
-   CROSS APPLY sys.dm_exec_text_query_plan(b.PlanHandle, 0, -1) tqp
-   CROSS APPLY sys.dm_exec_query_plan(b.PlanHandle) qp
-   WHERE tqp.encrypted = 0
-   AND b.SPID = @@SPID
-   AND (qp.query_plan IS NULL
-			AND tqp.query_plan IS NOT NULL)
-)
-UPDATE b
-SET Warnings = ISNULL('Your query plan is >128 levels of nested nodes, and can''t be converted to XML. Use SELECT * FROM sys.dm_exec_text_query_plan('+ CONVERT(VARCHAR(128), ph.PlanHandle, 1) + ', 0, -1) to get more information' 
-                        , 'We couldn''t find a plan for this query. More info on possible reasons: https://www.brentozar.com/go/noplans')
-FROM ##BlitzCacheProcs b
-LEFT JOIN plan_handle ph ON
-b.PlanHandle = ph.PlanHandle
+/* Populate oversized plans as processing instructions so they're clickable in SSMS */
+RAISERROR('Checking for plans with >128 levels of nesting', 0, 1) WITH NOWAIT;
+UPDATE
+    b
+SET
+    b.QueryPlan =
+    (
+        SELECT
+            [processing-instruction(query_plan)] =
+                N'-- ' + NCHAR(13) + NCHAR(10) +
+                N'-- This is a huge query plan.' + NCHAR(13) + NCHAR(10) +
+                N'-- Remove the headers and footers, save it as a .sqlplan file, and re-open it.' + NCHAR(13) + NCHAR(10) +
+                NCHAR(13) + NCHAR(10) +
+                REPLACE(tqp.query_plan, N'<RelOp', NCHAR(13) + NCHAR(10) + N'<RelOp') +
+                NCHAR(13) + NCHAR(10)
+        FOR
+            XML
+            PATH(N''),
+            TYPE
+    ),
+    b.Warnings = 'This is a huge query plan (>128 levels of nesting). Click the plan link, remove the headers and footers, and save it as a .sqlplan file to view it.'
+FROM ##BlitzCacheProcs AS b
+CROSS APPLY sys.dm_exec_text_query_plan(b.PlanHandle, COALESCE(b.StatementStartOffset, 0), COALESCE(b.StatementEndOffset, -1)) AS tqp
+CROSS APPLY sys.dm_exec_query_plan(b.PlanHandle) AS qp
 WHERE b.QueryPlan IS NULL
-AND b.SPID = @@SPID
+AND   b.SPID = @@SPID
+AND   tqp.encrypted = 0
+AND   qp.query_plan IS NULL
+AND   tqp.query_plan IS NOT NULL
+OPTION (RECOMPILE);
+
+/* Handle truly missing plans (encrypted, evicted, etc.) */
+UPDATE
+    b
+SET
+    b.Warnings = 'We couldn''t find a plan for this query. More info on possible reasons: https://www.brentozar.com/go/noplans'
+FROM ##BlitzCacheProcs AS b
+WHERE b.QueryPlan IS NULL
+AND   (b.Warnings IS NULL OR b.Warnings = '')
+AND   b.SPID = @@SPID
 OPTION (RECOMPILE);			  
 
 RAISERROR('Checking for plans with no warnings', 0, 1) WITH NOWAIT;	
@@ -5181,8 +5154,7 @@ BEGIN
 
     /* If the target database has a database-level extended property named CONSTITUTION.md,
        include it in the prompt as additional guidance for the LLM. */
-    IF OBJECT_ID('tempdb..#ai_constitution', 'U') IS NOT NULL
-        DROP TABLE #ai_constitution;
+    DROP TABLE IF EXISTS #ai_constitution;
 
     CREATE TABLE #ai_constitution
     (
@@ -5201,7 +5173,7 @@ BEGIN
         SELECT DISTINCT DatabaseName
         FROM ##BlitzCacheProcs
         WHERE SPID = @@SPID
-          AND QueryPlan IS NOT NULL
+          AND (QueryPlan IS NOT NULL OR QueryText IS NOT NULL)
           AND DatabaseName IS NOT NULL;
 
     OPEN ai_db_cursor;
@@ -5330,17 +5302,16 @@ Plan Info:
 Here are the warnings that popular query analysis tool sp_BlitzCache detected and suggested that we focus on - although there may be more issues, too: ' + ISNULL(Warnings, N'None') + N'
 
 Query Text (which is cut off for long queries):
-' + ISNULL(LEFT(QueryText, 4000), N'N/A') + N'
+' + CASE WHEN QueryText IS NULL THEN N'(Query text could not be retrieved.)' ELSE LEFT(QueryText, 4000) END + N'
 
 ' + CASE WHEN QueryType LIKE N'Statement (parent%' THEN N' The above query is part of a batch, stored procedure, or function, so other queries may show up in the query plan. However, those other queries are irrelevant here. Focus on this specific query above, because it is one of the most resource-intensive queries in the batch. The execution plan below includes other statements in the batch, but ignore those and focus only the query above and its specific plan in the batch below. ' ELSE N' ' END + N'
 
 XML Execution Plan:
-' + ISNULL(CAST(QueryPlan AS NVARCHAR(MAX)), N'N/A') + N'
+' + CASE WHEN QueryPlan IS NULL THEN N'(Query plan could not be retrieved.)' ELSE CAST(QueryPlan AS NVARCHAR(MAX)) END + N'
 
 Thank you.'
     FROM ##BlitzCacheProcs p
     WHERE p.SPID = @@SPID
-    AND p.QueryPlan IS NOT NULL
     AND NOT (p.QueryType LIKE 'Procedure or Function:%'     /* This and the below exists query makes sure that we don't get advice for parent procs, only their statements, if the statements are in our result set. */
         AND EXISTS
         (
@@ -5369,6 +5340,14 @@ Thank you.'
     )
     OPTION (RECOMPILE);
 
+    /* If both query text and query plan are null, override with a simple message - no metrics or system prompt needed */
+    UPDATE ##BlitzCacheProcs
+    SET ai_prompt = N'Prompt not generated because we can''t find the query text or query plan.'
+    WHERE SPID = @@SPID
+    AND QueryText IS NULL
+    AND QueryPlan IS NULL
+    OPTION (RECOMPILE);
+
     IF @Debug = 2
         SELECT 'After setting up ai_prompt, before calling AI' AS ai_stage, SqlHandle, QueryHash, PlanHandle, QueryPlan, ai_prompt, ai_advice, ai_raw_response
             FROM ##BlitzCacheProcs
@@ -5388,11 +5367,11 @@ Thank you.'
         DECLARE @AIErrorMessage NVARCHAR(4000);
         
         DECLARE ai_cursor CURSOR LOCAL FAST_FORWARD FOR
-        SELECT DISTINCT SqlHandle, QueryHash, PlanHandle, ai_prompt, COALESCE(QueryType, N'') + N' - ' + LEFT(QueryText, 100)
+        SELECT DISTINCT SqlHandle, QueryHash, PlanHandle, ai_prompt, COALESCE(QueryType, N'') + N' - ' + LEFT(COALESCE(QueryText, N'(no text)'), 100)
         FROM ##BlitzCacheProcs
         WHERE SPID = @@SPID
-        AND QueryPlan IS NOT NULL
-        AND ai_prompt IS NOT NULL;
+        AND ai_prompt IS NOT NULL
+        AND (QueryPlan IS NOT NULL OR QueryText IS NOT NULL);
         
         OPEN ai_cursor;
         
@@ -5530,7 +5509,8 @@ Thank you.'
         UPDATE ##BlitzCacheProcs
         SET ai_advice = N'AI prompt generated but not sent (running with @AI = 2). Review the ai_prompt column for the prompt that would be sent.'
         WHERE SPID = @@SPID
-        AND QueryPlan IS NOT NULL
+        AND ai_prompt IS NOT NULL
+        AND (QueryPlan IS NOT NULL OR QueryText IS NOT NULL)
         OPTION (RECOMPILE);
     END;
 END;
@@ -5729,8 +5709,10 @@ BEGIN
 		implicit_conversion_info AS [Implicit Conversion Info],
 		cached_execution_parameters AS [Cached Execution Parameters], '
         + CASE WHEN @AI = 2 THEN N'
-        [AI Prompt] = (
-            SELECT (@AISystemPrompt + NCHAR(13) + NCHAR(10) + NCHAR(13) + NCHAR(10) + ai_prompt) AS [text()] FOR XML PATH(''ai_prompt''), TYPE),' ELSE N'' END
+        [AI Prompt] = CASE WHEN QueryText IS NULL AND QueryPlan IS NULL THEN (
+            SELECT ai_prompt AS [text()] FOR XML PATH(''ai_prompt''), TYPE)
+        ELSE (
+            SELECT (@AISystemPrompt + NCHAR(13) + NCHAR(10) + NCHAR(13) + NCHAR(10) + ai_prompt) AS [text()] FOR XML PATH(''ai_prompt''), TYPE) END,' ELSE N'' END
         + CASE WHEN @AI = 1 THEN N'
         [AI Advice] = CASE WHEN ai_advice IS NULL THEN NULL ELSE (
             SELECT ai_advice AS [text()] FOR XML PATH(''ai_advice''), TYPE) END, ' ELSE N'' END
@@ -5865,8 +5847,10 @@ BEGIN
         StatementEndOffset,
 		PlanGenerationNum, '
         + CASE WHEN @AI <> 2 THEN N'
-        [AI Prompt] = (
-            SELECT (@AISystemPrompt + NCHAR(13) + NCHAR(10) + NCHAR(13) + NCHAR(10) + ai_prompt) AS [text()] FOR XML PATH(''ai_prompt''), TYPE),' ELSE N'' END
+        [AI Prompt] = CASE WHEN QueryText IS NULL AND QueryPlan IS NULL THEN (
+            SELECT ai_prompt AS [text()] FOR XML PATH(''ai_prompt''), TYPE)
+        ELSE (
+            SELECT (@AISystemPrompt + NCHAR(13) + NCHAR(10) + NCHAR(13) + NCHAR(10) + ai_prompt) AS [text()] FOR XML PATH(''ai_prompt''), TYPE) END,' ELSE N'' END
         + CASE WHEN @AI = 1 THEN N'
         [AI Payload] = CASE WHEN ai_payload IS NULL THEN NULL ELSE (
             SELECT ai_payload AS [text()] FOR XML PATH(''ai_payload''), TYPE) END,
@@ -5950,16 +5934,9 @@ SELECT @common_version =
            CONVERT(DECIMAL(10,2), c.common_version)
 FROM #checkversion AS c;
 
-IF @common_version >= 11
-	SET @user_perm_sql = N'
+SET @user_perm_sql = N'
 	SET @buffer_pool_memory_gb = 0;
 	SELECT @buffer_pool_memory_gb = SUM(pages_kb)/ 1024. / 1024.
-	FROM sys.dm_os_memory_clerks
-	WHERE type = ''MEMORYCLERK_SQLBUFFERPOOL'';'
-ELSE
-	SET @user_perm_sql = N'
-	SET @buffer_pool_memory_gb = 0;
-	SELECT @buffer_pool_memory_gb = SUM(single_pages_kb + multi_pages_kb)/ 1024. / 1024.
 	FROM sys.dm_os_memory_clerks
 	WHERE type = ''MEMORYCLERK_SQLBUFFERPOOL'';'
 
@@ -5967,29 +5944,14 @@ EXEC sys.sp_executesql @user_perm_sql,
 	N'@buffer_pool_memory_gb DECIMAL(10,2) OUTPUT',
 	@buffer_pool_memory_gb = @buffer_pool_memory_gb OUTPUT;
 
-IF @common_version >= 11
-BEGIN
-    SET @user_perm_sql = N'
+SET @user_perm_sql = N'
     	SELECT @user_perm_gb = CASE WHEN (pages_kb / 1024.0 / 1024.) >= 2.
     			                    THEN CONVERT(DECIMAL(38, 2), (pages_kb / 1024.0 / 1024.))
-    			                    ELSE 0 
+    			                    ELSE 0
     		                   END
     	FROM sys.dm_os_memory_clerks
     	WHERE type = ''USERSTORE_TOKENPERM''
     	AND   name = ''TokenAndPermUserStore'';';
-END;
-
-IF @common_version < 11
-BEGIN
-    SET @user_perm_sql = N'
-    	SELECT @user_perm_gb = CASE WHEN ((single_pages_kb + multi_pages_kb) / 1024.0 / 1024.) >= 2.
-    			                    THEN CONVERT(DECIMAL(38, 2), ((single_pages_kb + multi_pages_kb)  / 1024.0 / 1024.))
-    			                    ELSE 0 
-    		                   END
-    	FROM sys.dm_os_memory_clerks
-    	WHERE type = ''USERSTORE_TOKENPERM''
-    	AND   name = ''TokenAndPermUserStore'';';
-END;
 
 EXEC sys.sp_executesql @user_perm_sql, 
                        N'@user_perm_gb DECIMAL(10,2) OUTPUT', 
@@ -6991,6 +6953,58 @@ BEGIN
 					            + 'To find troublemakers, use: EXEC sp_BlitzCache @SortOrder = ''query hash''; '
 			FROM #plan_usage AS p ;
 
+        /* Per-database duplicate plan findings. Addresses #3878 */
+        IF EXISTS (SELECT 1/0
+                   FROM   #plan_usage_by_database p
+                   WHERE  p.percent_duplicate > 10
+                   AND    p.spid = @@SPID)
+            INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            SELECT p.spid,
+                    1001,
+                    CASE WHEN ISNULL(p.percent_duplicate, 0) > 75 THEN 1 ELSE 254 END AS Priority,
+                    'Plan Cache Information',
+                    CASE WHEN ISNULL(p.percent_duplicate, 0) > 75
+                         THEN 'Many Duplicate Plans In ' + ISNULL(p.database_name, N'Unknown')
+                         ELSE 'Duplicate Plans In ' + ISNULL(p.database_name, N'Unknown')
+                    END AS Finding,
+                    'https://www.brentozar.com/archive/2018/03/why-multiple-plans-for-one-query-are-bad/',
+                    'Database ' + ISNULL(p.database_name, N'Unknown')
+                                + ' has ' + CONVERT(NVARCHAR(20), p.plan_count)
+                                + ' plans in the cache, and '
+                                + CONVERT(NVARCHAR(10), p.percent_duplicate)
+                                + '% are duplicates with more than 5 entries'
+                                + ', meaning similar queries in this database are generating the same plan repeatedly.'
+                                + ' Forced Parameterization may fix the issue.'
+            FROM #plan_usage_by_database AS p
+            WHERE p.percent_duplicate > 10
+            AND   p.spid = @@SPID;
+
+        /* Per-database single-use plan findings. Addresses #3878 */
+        IF EXISTS (SELECT 1/0
+                   FROM   #plan_usage_by_database p
+                   WHERE  p.percent_single > 10
+                   AND    p.spid = @@SPID)
+            INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
+            SELECT p.spid,
+                    1002,
+                    CASE WHEN ISNULL(p.percent_single, 0) > 75 THEN 1 ELSE 254 END AS Priority,
+                    'Plan Cache Information',
+                    CASE WHEN ISNULL(p.percent_single, 0) > 75
+                         THEN 'Many Single-Use Plans In ' + ISNULL(p.database_name, N'Unknown')
+                         ELSE 'Single-Use Plans In ' + ISNULL(p.database_name, N'Unknown')
+                    END AS Finding,
+                    'https://www.brentozar.com/blitz/single-use-plans-procedure-cache/',
+                    'Database ' + ISNULL(p.database_name, N'Unknown')
+                                + ' has ' + CONVERT(NVARCHAR(20), p.plan_count)
+                                + ' plans in the cache, and '
+                                + CONVERT(NVARCHAR(10), p.percent_single)
+                                + '% are single use plans'
+                                + ', meaning SQL Server thinks it''s seeing a lot of "new" queries from this database.'
+                                + ' Forced Parameterization and/or Optimize For Ad Hoc Workloads may fix the issue.'
+            FROM #plan_usage_by_database AS p
+            WHERE p.percent_single > 10
+            AND   p.spid = @@SPID;
+
         IF @is_tokenstore_big = 1
 		INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
 		SELECT @@SPID,
@@ -7002,10 +7016,8 @@ BEGIN
 			   N'https://www.brentozar.com/go/userstore',
 			   N'A growing USERSTORE_TOKENPERM cache can cause the plan cache to clear out'
 
-		IF @v >= 11
-		BEGIN	
         IF EXISTS (SELECT 1/0
-                   FROM   #trace_flags AS tf 
+                   FROM   #trace_flags AS tf
                    WHERE  tf.global_trace_flags IS NOT NULL
 				   )
             INSERT INTO ##BlitzCacheResults (SPID, CheckID, Priority, FindingsGroup, Finding, URL, Details)
@@ -7016,7 +7028,6 @@ BEGIN
                     'You have Global Trace Flags enabled on your server',
                     'https://www.brentozar.com/blitz/trace-flags-enabled-globally/',
                     'You have the following Global Trace Flags enabled: ' + (SELECT TOP 1 tf.global_trace_flags FROM #trace_flags AS tf WHERE tf.global_trace_flags IS NOT NULL)) ;
-		END; 
 
         IF NOT EXISTS (SELECT 1/0
 					   FROM   ##BlitzCacheResults AS bcr

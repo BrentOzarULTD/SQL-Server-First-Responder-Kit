@@ -42,7 +42,7 @@ BEGIN
     SET XACT_ABORT OFF;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-    SELECT @Version = '8.30', @VersionDate = '20260313';
+    SELECT @Version = '8.32', @VersionDate = '20260407';
 
     IF @VersionCheckMode = 1
     BEGIN
@@ -570,8 +570,38 @@ BEGIN
             AND   dxs.create_time IS NOT NULL
         )
         BEGIN
-            RAISERROR('A session with the name %s does not exist or is not currently active.', 11, 1, @EventSessionName) WITH NOWAIT;
-            RETURN;
+            IF @EventSessionName = N'system_health'
+            AND NOT EXISTS
+            (
+                SELECT
+                    1/0
+                FROM sys.database_event_sessions AS ses
+                WHERE ses.name = @EventSessionName
+            )
+            BEGIN
+                RAISERROR('
+The system_health extended events session is not available in Azure SQL DB.
+
+To use sp_BlitzLock in Azure SQL DB, you have two options:
+
+1. Create a database-scoped deadlock XE session, e.g.:
+
+   CREATE EVENT SESSION [deadlocks] ON DATABASE
+   ADD EVENT sqlserver.database_xml_deadlock_report
+   ADD TARGET package0.ring_buffer;
+   ALTER EVENT SESSION [deadlocks] ON DATABASE STATE = START;
+
+   Then call: EXEC sp_BlitzLock @EventSessionName = N''deadlocks'', @TargetSessionType = N''ring_buffer'';
+
+2. Log deadlock XML to a table and use the @TargetTableName parameter.
+', 0, 1) WITH NOWAIT;
+                RETURN;
+            END;
+            ELSE
+            BEGIN
+                RAISERROR('A session with the name %s does not exist or is not currently active.', 11, 1, @EventSessionName) WITH NOWAIT;
+                RETURN;
+            END;
         END;
     END;
 
@@ -1635,7 +1665,9 @@ BEGIN
             dp.id,
             dp.event_date,
             proc_name = ca.dp.value('@procname', 'nvarchar(1024)'),
-            sql_handle = ca.dp.value('@sqlhandle', 'nvarchar(131)')
+            sql_handle = ca.dp.value('@sqlhandle', 'nvarchar(131)'),
+            stmtstart = ca.dp.value('@stmtstart', 'int'),
+            stmtend = ca.dp.value('@stmtend', 'int')
         INTO #deadlock_stack
         FROM #deadlock_process AS dp
         CROSS APPLY dp.process_xml.nodes('//executionStack/frame') AS ca(dp)
@@ -3763,11 +3795,8 @@ BEGIN
                         d.en
                     ) +
                     N', Query #'
-                    + CASE
-                          WHEN d.qn = 0
-                          THEN N'1'
-                          ELSE CONVERT(nvarchar(10), d.qn)
-                      END + CASE
+                    + CONVERT(nvarchar(10), d.qn + 1)
+                      + CASE
                                 WHEN d.is_victim = 1
                                 THEN N' - VICTIM'
                                 ELSE N''
@@ -4063,6 +4092,7 @@ BEGIN
             FROM #deadlock_results AS dr
             ORDER BY
                 dr.event_date,
+                dr.deadlock_group,
                 dr.is_victim DESC
             OPTION(RECOMPILE, LOOP JOIN, HASH JOIN);
             ';
@@ -4193,11 +4223,12 @@ BEGIN
                     ds.proc_name,
                     sql_handle =
                         CONVERT(varbinary(64), ds.sql_handle, 1),
+                    ds.stmtstart,
+                    ds.stmtend,
                     dow.database_name,
                     dow.database_id,
-                    dow.object_name,
                     query_xml =
-                        TRY_CAST(dr.query_xml AS nvarchar(MAX))
+                        MAX(TRY_CAST(dr.query_xml AS nvarchar(MAX)))
                 INTO #available_plans
                 FROM #deadlock_stack AS ds
                 JOIN #deadlock_owner_waiter AS dow
@@ -4206,6 +4237,13 @@ BEGIN
                 JOIN #deadlock_results AS dr
                   ON  dr.id = ds.id
                   AND dr.event_date = ds.event_date
+                GROUP BY
+                    ds.proc_name,
+                    CONVERT(varbinary(64), ds.sql_handle, 1),
+                    ds.stmtstart,
+                    ds.stmtend,
+                    dow.database_name,
+                    dow.database_id
                 OPTION(RECOMPILE);
 
                 SELECT
@@ -4359,6 +4397,8 @@ BEGIN
                         ) AS deps
                         WHERE deqs.sql_handle = ap.sql_handle
                         AND   deps.dbid = ap.database_id
+                        AND   (ap.stmtstart IS NULL OR deqs.statement_start_offset = ap.stmtstart)
+                        AND   (ap.stmtend   IS NULL OR deqs.statement_end_offset = ap.stmtend)
                     ) AS c
                 ) AS ap
                 WHERE ap.query_plan IS NOT NULL

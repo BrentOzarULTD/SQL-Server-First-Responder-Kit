@@ -53,12 +53,13 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @RunStoredProcAfterRestore NVARCHAR(260) = NULL,
     @EnableBroker BIT = 0
 AS
+BEGIN
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
 /*Versioning details*/
 
-SELECT @Version = '8.30', @VersionDate = '20260313';
+SELECT @Version = '8.32', @VersionDate = '20260407';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -1696,4 +1697,5 @@ IF @TestRestore = 1
 IF OBJECT_ID( 'tempdb..#SplitFullBackups' ) IS NOT NULL DROP TABLE #SplitFullBackups;
 IF OBJECT_ID( 'tempdb..#SplitDiffBackups' ) IS NOT NULL DROP TABLE #SplitDiffBackups;
 IF OBJECT_ID( 'tempdb..#SplitLogBackups' ) IS NOT NULL DROP TABLE #SplitLogBackups;
+END
 GO

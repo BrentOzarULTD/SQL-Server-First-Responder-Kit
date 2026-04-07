@@ -19,10 +19,11 @@ Navigation
    - [sp_BlitzFirst: Real-Time Performance Advice](#sp_blitzfirst-real-time-performance-advice)
    - [sp_BlitzIndex: Tune Your Indexes](#sp_blitzindex-tune-your-indexes)
      - [Advanced sp_BlitzIndex Parameters](#advanced-sp_blitzindex-parameters)
- - Performance Tuning:   
-   - [sp_BlitzLock: Deadlock Analysis](#sp_blitzlock-deadlock-analysis) 
-   - [sp_BlitzWho: What Queries are Running Now](#sp_blitzwho-what-queries-are-running-now)   
-   - [sp_BlitzAnalysis: Query sp_BlitzFirst output tables](#sp_blitzanalysis-query-sp_BlitzFirst-output-tables) 
+ - Performance Tuning:
+   - [sp_BlitzLock: Deadlock Analysis](#sp_blitzlock-deadlock-analysis)
+   - [sp_BlitzWho: What Queries are Running Now](#sp_blitzwho-what-queries-are-running-now)
+   - [sp_kill: Emergency Session Killer](#sp_kill-emergency-session-killer)
+   - [sp_BlitzAnalysis: Query sp_BlitzFirst output tables](#sp_blitzanalysis-query-sp_BlitzFirst-output-tables)
  - Backups and Restores:
    - [sp_BlitzBackups: How Much Data Could You Lose](#sp_blitzbackups-how-much-data-could-you-lose)  
    - [sp_DatabaseRestore: Easier Multi-File Restores](#sp_databaserestore-easier-multi-file-restores)  
@@ -189,7 +190,7 @@ Other common parameters include:
 
 In addition to the [parameters common to many of the stored procedures](#parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_BlitzCache:
 
-* @AskAI - when set to 2, returns a prompt you can copy into your favorite LLM to get advice on the query. When set to 1, we'll actually call the LLM for you on SQL Server 2025 or newer, or Azure SQL DB. [Learn more about using AI with the First Responder Kit.](Documentation/Using_AI.md)
+* @AI - when set to 2, returns a prompt you can copy into your favorite LLM to get advice on the query. When set to 1, we'll actually call the LLM for you on SQL Server 2025 or newer, or Azure SQL DB. [Learn more about using AI with the First Responder Kit.](Documentation/Using_AI.md)
 * @OnlyQueryHashes - if you want to examine specific query plans, you can pass in a comma-separated list of them in a string.
 * @IgnoreQueryHashes - if you know some queries suck and you don't want to see them, you can pass in a comma-separated list of them.
 * @OnlySqlHandles, @IgnoreSqlHandles - just like the above two params
@@ -287,7 +288,7 @@ sp_BlitzIndex focuses on mainstream index types. Other index types have varying 
 
 In addition to the [parameters common to many of the stored procedures](#parameters-common-to-many-of-the-stored-procedures), here are the ones specific to sp_BlitzIndex:
 
-* @AskAI - when set to 2, returns a prompt you can copy into your favorite LLM to get index advice for a table (requires @TableName). When set to 1, we'll actually call the LLM for you on SQL Server 2025 or newer, or Azure SQL DB. [Learn more about using AI with the First Responder Kit.](Documentation/Using_AI.md)
+* @AI - when set to 2, returns a prompt you can copy into your favorite LLM to get index advice for a table (requires @TableName). When set to 1, we'll actually call the LLM for you on SQL Server 2025 or newer, or Azure SQL DB. [Learn more about using AI with the First Responder Kit.](Documentation/Using_AI.md)
 * @SkipPartitions = 1 - add this if you want to analyze large partitioned tables. We skip these by default for performance reasons.
 * @SkipStatistics = 0 - right now, by default, we skip statistics analysis because we've had some performance issues on this.
 * @UsualStatisticsSamplingPercent = 100 (default) - By default, @SkipStatistics = 0 with either @Mode = 0 or @Mode = 4 does not inform you of persisted statistics sample rates if that rate is 100. Use a different float if you usually persist a different sample percentage and do not want to be warned about it. Use NULL if you want to hear about every persisted sample rate.
@@ -328,6 +329,61 @@ Known issues:
 This is like sp_who, except it goes into way, way, way more details.
 
 It's designed for query tuners, so it includes things like memory grants, degrees of parallelism, and execution plans.
+
+[*Back to top*](#header1)
+
+
+## sp_kill: Emergency Session Killer
+
+When the server is on fire and you're about to restart it out of desperation, run sp_kill instead. It collects all running session data, recommends which queries to kill (with reasons), optionally executes the kills for you, frees their plan cache entries, and logs everything.
+
+By default, sp_kill runs in read-only mode - it just shows you what's happening and suggests what to kill. You have to explicitly opt in to actually killing sessions.
+
+```tsql
+/* Just show me what's running - no killing: */
+EXEC sp_kill;
+
+/* Kill all lead blockers: */
+EXEC sp_kill @LeadBlockers = 'Y', @ExecuteKills = 'Y';
+
+/* Kill a specific session: */
+EXEC sp_kill @SPID = 55, @ExecuteKills = 'Y';
+
+/* Kill sleeping sessions with open transactions idle for 5+ minutes: */
+EXEC sp_kill @HasOpenTran = 'Y', @SPIDState = 'S',
+    @RequestsOlderThanSeconds = 300, @ExecuteKills = 'Y';
+
+/* Show what we'd kill for a login, sorted by CPU: */
+EXEC sp_kill @LoginName = 'DOMAIN\TroublesomeUser', @OrderBy = 'cpu';
+```
+
+Parameters for targeting sessions:
+
+* @ExecuteKills = 'Y' or 'N' (default 'N') - whether to actually kill, or just show recommendations. When set to 'Y' with no targeting filters, all non-system sessions are killed - so always specify at least one filter to avoid killing everything.
+* @SPID - target a specific session ID.
+* @LoginName - kill sessions belonging to this login.
+* @AppName - kill sessions from this application (supports LIKE wildcards).
+* @DatabaseName - kill sessions using this database.
+* @HostName - kill sessions from this host.
+* @LeadBlockers = 'Y' - kill only lead blockers (sessions blocking others but not blocked themselves).
+* @ReadOnly = 'Y' - only kill read-only queries (SELECTs with no writes).
+* @SPIDState - 'S' for sleeping sessions only, 'R' for running only, NULL for both (default).
+* @HasOpenTran = 'Y' - only target sessions with open transactions. Combine with @SPIDState = 'S' to catch sleeping sessions with forgotten transactions.
+* @RequestsOlderThanSeconds - only target sessions whose last request started at least this many seconds ago.
+* @OmitLogin - exclude sessions belonging to this login from kill recommendations.
+* @OrderBy - sort order for kill recommendations: duration (default), cpu, reads, writes, tempdb, transactions. Useful when you want to kill the worst offenders one by one.
+
+Safety features:
+
+* Never kills system sessions (session_id <= 50) or its own session.
+* Never kills sessions that are already rolling back.
+* Before each kill, verifies the session still has the same query it had when captured. If the query changed (because the original finished and a new one started on the same session ID), the kill is skipped.
+* Frees the plan cache entry for each killed query via DBCC FREEPROCCACHE.
+* When @ExecuteKills = 'Y', shows progress messages like "Killing query 3 of 12 (SPID 78)..." so you can follow along.
+
+Output table logging:
+
+* @OutputDatabaseName, @OutputSchemaName, @OutputTableName - pass all three to log results to a persistent table. The table is created automatically if it doesn't exist, and each run appends new rows. Includes who ran sp_kill, when, what parameters they used, what sessions were running, which ones were killed, and any errors.
 
 [*Back to top*](#header1)
 
