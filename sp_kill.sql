@@ -850,7 +850,10 @@ For more info, visit http://FirstResponderKit.org
 			IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL
 				AND EXISTS (SELECT * FROM sys.databases WHERE QUOTENAME([name]) = @OutputDatabaseName)
 			BEGIN
-				SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' + @OutputTableName;
+				IF @AzureSQLDB = 1
+						SET @ObjectFullName = @OutputSchemaName + N'.' + @OutputTableName;
+					ELSE
+						SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' + @OutputTableName;
 				SET @StringToExecute = N'UPDATE ot
 					SET ot.KillStartedTime = t.KillStartedTime,
 						ot.KillEndedTime = t.KillEndedTime,
