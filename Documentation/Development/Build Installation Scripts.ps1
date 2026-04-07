@@ -80,7 +80,7 @@ $Details
 Write-Host "`n=== Step 1: Determine version ===" -ForegroundColor Cyan
 
 $sampleFile = Get-ChildItem -Path $RepoRoot -Filter "sp_Blitz.sql" | Select-Object -First 1
-$sampleContent = Get-Content $sampleFile.FullName -Raw
+$sampleContent = Get-Content $sampleFile.FullName -Raw -Encoding UTF8
 
 if ($sampleContent -match "SELECT\s+@Version\s*=\s*'([^']+)',\s*@VersionDate\s*=\s*'([^']+)'") {
     $currentVersion = $Matches[1]
@@ -141,10 +141,10 @@ $InstallAzurePath = Join-Path $RepoRoot "Install-Azure.sql"
 # All sp_Blitz*.sql except sp_Blitz.sql, sp_BlitzBackups.sql, sp_DatabaseRestore.sql, sp_BlitzFirst.sql
 $azureContent = Get-ChildItem -Path $RepoRoot -Filter "sp_Blitz*.sql" |
     Where-Object { $_.Name -ne "sp_Blitz.sql" -and $_.Name -notlike "*BlitzBackups*" -and $_.Name -notlike "*DatabaseRestore*" -and $_.Name -notlike "*BlitzFirst*" } |
-    ForEach-Object { Get-Content $_.FullName -Raw }
+    ForEach-Object { Get-Content $_.FullName -Raw -Encoding UTF8 }
 
 if (Test-Path $BlitzFirstPath) {
-    $azureContent += Get-Content -Path $BlitzFirstPath -Raw
+    $azureContent += Get-Content -Path $BlitzFirstPath -Raw -Encoding UTF8
 }
 
 [System.IO.File]::WriteAllText($InstallAzurePath, ($azureContent -join "`r`n"), $Utf8NoBom)
@@ -154,16 +154,16 @@ Write-Host "  Built: Install-Azure.sql"
 # All sp_*.sql except sp_BlitzInMemoryOLTP.sql and sp_BlitzFirst.sql
 $allContent = Get-ChildItem -Path $RepoRoot -Filter "sp_*.sql" |
     Where-Object { $_.Name -notlike "*BlitzInMemoryOLTP*" -and $_.Name -notlike "*BlitzFirst*" } |
-    ForEach-Object { Get-Content $_.FullName -Raw }
+    ForEach-Object { Get-Content $_.FullName -Raw -Encoding UTF8 }
 
 # Append SqlServerVersions.sql
 if (Test-Path $SqlVersionsPath) {
-    $allContent += Get-Content -Path $SqlVersionsPath -Raw
+    $allContent += Get-Content -Path $SqlVersionsPath -Raw -Encoding UTF8
 }
 
 # Append sp_BlitzFirst.sql last
 if (Test-Path $BlitzFirstPath) {
-    $allContent += Get-Content -Path $BlitzFirstPath -Raw
+    $allContent += Get-Content -Path $BlitzFirstPath -Raw -Encoding UTF8
 }
 
 [System.IO.File]::WriteAllText($InstallAllPath, ($allContent -join "`r`n"), $Utf8NoBom)
