@@ -38,7 +38,7 @@ BEGIN
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
-SELECT @Version = '8.31', @VersionDate = '20260406';
+SELECT @Version = '8.32', @VersionDate = '20260407';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -891,6 +891,7 @@ END
 
 END
 GO
+
 SET ANSI_NULLS ON;
 SET ANSI_PADDING ON;
 SET ANSI_WARNINGS ON;
@@ -1191,7 +1192,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.31', @VersionDate = '20260406';
+SELECT @Version = '8.32', @VersionDate = '20260407';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -1719,6 +1720,13 @@ BEGIN
 	SELECT @version_msg = 'Sorry, sp_BlitzCache doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933);
 	PRINT @version_msg;
 	RETURN;
+END;
+
+/* Check database compatibility level for STRING_SPLIT support */
+IF (SELECT compatibility_level FROM sys.databases WHERE database_id = DB_ID()) < 130
+BEGIN
+    RAISERROR('sp_BlitzCache requires database compatibility level 130 or higher. If your user databases aren''t at that compat level yet, install sp_BlitzCache in master instead.', 16, 1);
+    RETURN;
 END;
 
 IF(@OutputType = 'NONE' AND (@OutputTableName IS NULL OR @OutputSchemaName IS NULL OR @OutputDatabaseName IS NULL))
@@ -9221,6 +9229,7 @@ END; /* End of writing results to table */
 END; /*Final End*/
 
 GO
+
 SET ANSI_NULLS ON;
 SET ANSI_PADDING ON;
 SET ANSI_WARNINGS ON;
@@ -9300,7 +9309,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.31', @VersionDate = '20260406';
+SELECT @Version = '8.32', @VersionDate = '20260407';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -9321,7 +9330,7 @@ versions for free, watch training videos on how it works, get more info on
 the findings, contribute your own code, and more.
 
 Known limitations of this version:
- - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
+ - Only Microsoft-supported versions of SQL Server. Sorry, 2014 and older.
  - Index create statements are just to give you a rough idea of the syntax. It includes filters and fillfactor.
  --        Example 1: index creates use ONLINE=? instead of ONLINE=ON / ONLINE=OFF. This is because it is important 
            for the user to understand if it is going to be offline and not just run a script.
@@ -16715,6 +16724,7 @@ BEGIN CATCH
     END CATCH;
 END
 GO
+
 IF OBJECT_ID('dbo.sp_BlitzLock') IS NULL
 BEGIN
     EXECUTE ('CREATE PROCEDURE dbo.sp_BlitzLock AS RETURN 0;');
@@ -16759,7 +16769,7 @@ BEGIN
     SET XACT_ABORT OFF;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-    SELECT @Version = '8.31', @VersionDate = '20260406';
+    SELECT @Version = '8.32', @VersionDate = '20260407';
 
     IF @VersionCheckMode = 1
     BEGIN
@@ -17287,8 +17297,38 @@ BEGIN
             AND   dxs.create_time IS NOT NULL
         )
         BEGIN
-            RAISERROR('A session with the name %s does not exist or is not currently active.', 11, 1, @EventSessionName) WITH NOWAIT;
-            RETURN;
+            IF @EventSessionName = N'system_health'
+            AND NOT EXISTS
+            (
+                SELECT
+                    1/0
+                FROM sys.database_event_sessions AS ses
+                WHERE ses.name = @EventSessionName
+            )
+            BEGIN
+                RAISERROR('
+The system_health extended events session is not available in Azure SQL DB.
+
+To use sp_BlitzLock in Azure SQL DB, you have two options:
+
+1. Create a database-scoped deadlock XE session, e.g.:
+
+   CREATE EVENT SESSION [deadlocks] ON DATABASE
+   ADD EVENT sqlserver.database_xml_deadlock_report
+   ADD TARGET package0.ring_buffer;
+   ALTER EVENT SESSION [deadlocks] ON DATABASE STATE = START;
+
+   Then call: EXEC sp_BlitzLock @EventSessionName = N''deadlocks'', @TargetSessionType = N''ring_buffer'';
+
+2. Log deadlock XML to a table and use the @TargetTableName parameter.
+', 0, 1) WITH NOWAIT;
+                RETURN;
+            END;
+            ELSE
+            BEGIN
+                RAISERROR('A session with the name %s does not exist or is not currently active.', 11, 1, @EventSessionName) WITH NOWAIT;
+                RETURN;
+            END;
         END;
     END;
 
@@ -20335,7 +20375,7 @@ BEGIN
                     en =
                         DENSE_RANK() OVER (ORDER BY dp.event_date),
                     qn =
-                        ROW_NUMBER() OVER (PARTITION BY dp.event_date ORDER BY dp.event_date),
+                        ROW_NUMBER() OVER (PARTITION BY dp.event_date ORDER BY dp.event_date) - 1,
                     dn =
                         ROW_NUMBER() OVER (PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date),
                     dp.is_victim,
@@ -20420,7 +20460,7 @@ BEGIN
                     en =
                         DENSE_RANK() OVER (ORDER BY dp.event_date),
                     qn =
-                        ROW_NUMBER() OVER (PARTITION BY dp.event_date ORDER BY dp.event_date),
+                        ROW_NUMBER() OVER (PARTITION BY dp.event_date ORDER BY dp.event_date) - 1,
                     dn =
                         ROW_NUMBER() OVER (PARTITION BY dp.event_date, dp.id ORDER BY dp.event_date),
                     is_victim = 1,
@@ -20482,11 +20522,8 @@ BEGIN
                         d.en
                     ) +
                     N', Query #'
-                    + CASE
-                          WHEN d.qn = 0
-                          THEN N'1'
-                          ELSE CONVERT(nvarchar(10), d.qn)
-                      END + CASE
+                    + CONVERT(nvarchar(10), d.qn + 1)
+                      + CASE
                                 WHEN d.is_victim = 1
                                 THEN N' - VICTIM'
                                 ELSE N''
@@ -21306,6 +21343,7 @@ BEGIN
         END; /*End debug*/
     END; /*Final End*/
 GO
+
 SET ANSI_NULLS ON;
 SET ANSI_PADDING ON;
 SET ANSI_WARNINGS ON;
@@ -21325,12 +21363,14 @@ SELECT
      WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '10%' THEN 0
      WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '11%' THEN 0
      WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '12%' THEN 0
+     WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '13%'
+          AND CAST(PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 2) AS INT) < 5026 THEN 0
 	 ELSE 1
   END
 ) = 0
 BEGIN
 	DECLARE @msg VARCHAR(8000);
-	SELECT @msg = 'Sorry, sp_BlitzWho doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933);
+	SELECT @msg = 'Sorry, sp_BlitzWho doesn''t work on versions of SQL prior to 2016 SP2.' + REPLICATE(CHAR(13), 7933);
 	PRINT @msg;
 	RETURN;
 END;
@@ -21370,7 +21410,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.31', @VersionDate = '20260406';
+	SELECT @Version = '8.32', @VersionDate = '20260407';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -21391,7 +21431,7 @@ versions for free, watch training videos on how it works, get more info on
 the findings, contribute your own code, and more.
 
 Known limitations of this version:
- - Only SQL Server 2016 and newer. Sorry, 2014 and earlier.
+ - Only SQL Server 2016 SP2 and newer. Sorry, 2016 SP1 and earlier.
  - If @OutputDatabaseName and @OutputSchemaName are populated, the database and
    schema must already exist. We will not create them, only the table.
    
@@ -22424,6 +22464,7 @@ EXEC sp_executesql @StringToExecute,
 
 END
 GO 
+
 IF OBJECT_ID('dbo.sp_BlitzFirst') IS NULL
   EXEC ('CREATE PROCEDURE dbo.sp_BlitzFirst AS RETURN 0;');
 GO
@@ -22473,7 +22514,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.31', @VersionDate = '20260406';
+SELECT @Version = '8.32', @VersionDate = '20260407';
 
 IF(@VersionCheckMode = 1)
 BEGIN
