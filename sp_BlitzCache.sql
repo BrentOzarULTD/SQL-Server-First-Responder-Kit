@@ -828,6 +828,13 @@ BEGIN
 	RETURN;
 END;
 
+/* Check database compatibility level for STRING_SPLIT support */
+IF (SELECT compatibility_level FROM sys.databases WHERE database_id = DB_ID()) < 130
+BEGIN
+    RAISERROR('sp_BlitzCache requires database compatibility level 130 or higher. If your user databases aren''t at that compat level yet, install sp_BlitzCache in master instead.', 16, 1);
+    RETURN;
+END;
+
 IF(@OutputType = 'NONE' AND (@OutputTableName IS NULL OR @OutputSchemaName IS NULL OR @OutputDatabaseName IS NULL))
 BEGIN
     RAISERROR('This procedure should be called with a value for all @Output* parameters, as @OutputType is set to NONE',12,1);

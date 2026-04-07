@@ -651,10 +651,10 @@ For more info, visit http://FirstResponderKit.org
 		SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' + @OutputTableName;
 
 		/* Create table if it doesn't exist */
-		SET @StringToExecute = N'USE ' + @OutputDatabaseName + N';
+		SET @StringToExecute = N'
 			IF EXISTS(SELECT * FROM ' + @OutputDatabaseName + N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = ''' + @OutputSchemaName + N''')
 			AND NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = ''' + @OutputSchemaName + N''' AND QUOTENAME(TABLE_NAME) = ''' + @OutputTableName + N''')
-			CREATE TABLE ' + @OutputSchemaName + N'.' + @OutputTableName + N' (
+			CREATE TABLE ' + @ObjectFullName + N' (
 				Id INT IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED,
 				ServerName NVARCHAR(128) NULL,
 				CheckDate DATETIMEOFFSET NULL,
