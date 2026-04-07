@@ -580,7 +580,7 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
 1. Create a database-scoped deadlock XE session, e.g.:
 
    CREATE EVENT SESSION [deadlocks] ON DATABASE
-   ADD EVENT sqlserver.xml_deadlock_report
+   ADD EVENT sqlserver.database_xml_deadlock_report
    ADD TARGET package0.ring_buffer;
    ALTER EVENT SESSION [deadlocks] ON DATABASE STATE = START;
 
