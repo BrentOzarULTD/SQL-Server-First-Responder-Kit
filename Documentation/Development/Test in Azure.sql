@@ -1,4 +1,3 @@
-DROP TABLE IF EXISTS dbo.Blitz;
 DROP TABLE IF EXISTS dbo.BlitzWho_Results;
 DROP TABLE IF EXISTS dbo.BlitzFirst;
 DROP TABLE IF EXISTS dbo.BlitzFirst_FileStats;
@@ -7,10 +6,6 @@ DROP TABLE IF EXISTS dbo.BlitzFirst_WaitStats;
 DROP TABLE IF EXISTS dbo.BlitzCache;
 DROP TABLE IF EXISTS dbo.BlitzWho;
 DROP TABLE IF EXISTS dbo.BlitzLock;
-GO
-EXEC dbo.sp_Blitz @CheckUserDatabaseObjects = 1, @CheckServerInfo = 1;
-GO
-EXEC dbo.sp_Blitz @CheckUserDatabaseObjects = 1, @CheckServerInfo = 1, @OutputSchemaName = 'dbo', @OutputTableName = 'Blitz';
 GO
 EXEC dbo.sp_BlitzCache @SortOrder = 'all';
 GO
