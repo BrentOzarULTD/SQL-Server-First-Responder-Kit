@@ -17,12 +17,14 @@ SELECT
      WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '10%' THEN 0
      WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '11%' THEN 0
      WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '12%' THEN 0
+     WHEN CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')) LIKE '13%'
+          AND CAST(PARSENAME(CONVERT(NVARCHAR(128), SERVERPROPERTY ('PRODUCTVERSION')), 2) AS INT) < 5026 THEN 0
 	 ELSE 1
   END
 ) = 0
 BEGIN
 	DECLARE @msg VARCHAR(8000);
-	SELECT @msg = 'Sorry, sp_BlitzWho doesn''t work on versions of SQL prior to 2016.' + REPLICATE(CHAR(13), 7933);
+	SELECT @msg = 'Sorry, sp_BlitzWho doesn''t work on versions of SQL prior to 2016 SP2.' + REPLICATE(CHAR(13), 7933);
 	PRINT @msg;
 	RETURN;
 END;
@@ -83,7 +85,7 @@ versions for free, watch training videos on how it works, get more info on
 the findings, contribute your own code, and more.
 
 Known limitations of this version:
- - Only SQL Server 2016 and newer. Sorry, 2014 and earlier.
+ - Only SQL Server 2016 SP2 and newer. Sorry, 2016 SP1 and earlier.
  - If @OutputDatabaseName and @OutputSchemaName are populated, the database and
    schema must already exist. We will not create them, only the table.
    

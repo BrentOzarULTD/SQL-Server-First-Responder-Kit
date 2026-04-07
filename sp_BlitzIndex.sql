@@ -98,7 +98,7 @@ versions for free, watch training videos on how it works, get more info on
 the findings, contribute your own code, and more.
 
 Known limitations of this version:
- - Only Microsoft-supported versions of SQL Server. Sorry, 2005 and 2000.
+ - Only Microsoft-supported versions of SQL Server. Sorry, 2014 and older.
  - Index create statements are just to give you a rough idea of the syntax. It includes filters and fillfactor.
  --        Example 1: index creates use ONLINE=? instead of ONLINE=ON / ONLINE=OFF. This is because it is important 
            for the user to understand if it is going to be offline and not just run a script.

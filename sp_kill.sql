@@ -648,13 +648,24 @@ For more info, visit http://FirstResponderKit.org
 		IF @Debug = 1
 			RAISERROR('Creating/updating persistent output table...', 0, 1) WITH NOWAIT;
 
-		SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' + @OutputTableName;
+		IF @AzureSQLDB = 1
+			SET @ObjectFullName = @OutputSchemaName + N'.' + @OutputTableName;
+		ELSE
+			SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' + @OutputTableName;
 
 		/* Create table if it doesn't exist */
-		SET @StringToExecute = N'USE ' + @OutputDatabaseName + N';
-			IF EXISTS(SELECT * FROM ' + @OutputDatabaseName + N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = ''' + @OutputSchemaName + N''')
-			AND NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = ''' + @OutputSchemaName + N''' AND QUOTENAME(TABLE_NAME) = ''' + @OutputTableName + N''')
-			CREATE TABLE ' + @OutputSchemaName + N'.' + @OutputTableName + N' (
+		IF @AzureSQLDB = 1
+			SET @StringToExecute = N'
+				IF EXISTS(SELECT * FROM INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = ''' + @OutputSchemaName + N''')
+				AND NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = ''' + @OutputSchemaName + N''' AND QUOTENAME(TABLE_NAME) = ''' + @OutputTableName + N''')
+				CREATE TABLE ' + @ObjectFullName + N' (';
+		ELSE
+			SET @StringToExecute = N'
+				IF EXISTS(SELECT * FROM ' + @OutputDatabaseName + N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = ''' + @OutputSchemaName + N''')
+				AND NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = ''' + @OutputSchemaName + N''' AND QUOTENAME(TABLE_NAME) = ''' + @OutputTableName + N''')
+				CREATE TABLE ' + @ObjectFullName + N' (';
+
+		SET @StringToExecute = @StringToExecute + N'
 				Id INT IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED,
 				ServerName NVARCHAR(128) NULL,
 				CheckDate DATETIMEOFFSET NULL,
@@ -839,7 +850,10 @@ For more info, visit http://FirstResponderKit.org
 			IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL
 				AND EXISTS (SELECT * FROM sys.databases WHERE QUOTENAME([name]) = @OutputDatabaseName)
 			BEGIN
-				SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' + @OutputTableName;
+				IF @AzureSQLDB = 1
+						SET @ObjectFullName = @OutputSchemaName + N'.' + @OutputTableName;
+					ELSE
+						SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' + @OutputTableName;
 				SET @StringToExecute = N'UPDATE ot
 					SET ot.KillStartedTime = t.KillStartedTime,
 						ot.KillEndedTime = t.KillEndedTime,
