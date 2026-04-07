@@ -85,7 +85,7 @@ versions for free, watch training videos on how it works, get more info on
 the findings, contribute your own code, and more.
 
 Known limitations of this version:
- - Only SQL Server 2016 and newer. Sorry, 2014 and earlier.
+ - Only SQL Server 2016 SP2 and newer. Sorry, 2016 SP1 and earlier.
  - If @OutputDatabaseName and @OutputSchemaName are populated, the database and
    schema must already exist. We will not create them, only the table.
    
