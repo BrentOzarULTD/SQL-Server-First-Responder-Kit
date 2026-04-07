@@ -571,6 +571,13 @@ BEGIN
         )
         BEGIN
             IF @EventSessionName = N'system_health'
+            AND NOT EXISTS
+            (
+                SELECT
+                    1/0
+                FROM sys.database_event_sessions AS ses
+                WHERE ses.name = @EventSessionName
+            )
             BEGIN
                 RAISERROR('
 The system_health extended events session is not available in Azure SQL DB.
