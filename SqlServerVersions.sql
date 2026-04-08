@@ -28,7 +28,7 @@ BEGIN
 
     -- table
     IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'Description', N'SCHEMA', N'dbo', N'TABLE', N'SqlServerVersions', NULL, NULL))
-        EXEC sys.sp_dropextendedproperty @name = N'Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'SqlServerVersions';;
+        EXEC sys.sp_dropextendedproperty @name = N'Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'SqlServerVersions';
     -- columns
     IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'Description', N'SCHEMA', N'dbo', N'TABLE', N'SqlServerVersions', N'COLUMN', N'MajorVersionNumber'))
         EXEC sys.sp_dropextendedproperty @name = N'Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'SqlServerVersions', @level2type = N'COLUMN', @level2name = N'MajorVersionNumber';
