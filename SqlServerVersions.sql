@@ -1,18 +1,17 @@
-
 IF (OBJECT_ID('dbo.SqlServerVersions') IS NULL)
 BEGIN
 
     CREATE TABLE dbo.SqlServerVersions
     (
-        MajorVersionNumber tinyint not null,
-        MinorVersionNumber smallint not null,
-        Branch varchar(34) not null,
-        [Url] varchar(99) not null,
-        ReleaseDate date not null,
-        MainstreamSupportEndDate date not null,
-        ExtendedSupportEndDate date not null,
-        MajorVersionName varchar(19) not null,
-        MinorVersionName varchar(67) not null,
+        MajorVersionNumber tinyint NOT NULL,
+        MinorVersionNumber smallint NOT NULL,
+        Branch varchar(34) NOT NULL,
+        [Url] varchar(99) NOT NULL,
+        ReleaseDate date NOT NULL,
+        MainstreamSupportEndDate date NOT NULL,
+        ExtendedSupportEndDate date NOT NULL,
+        MajorVersionName varchar(19) NOT NULL,
+        MinorVersionName varchar(67) NOT NULL,
 
         CONSTRAINT PK_SqlServerVersions PRIMARY KEY CLUSTERED
         (
@@ -21,19 +20,75 @@ BEGIN
             ReleaseDate ASC
         )
     );
-	
-	EXEC sys.sp_addextendedproperty @name=N'Description', @value=N'The major version number.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'MajorVersionNumber'
-	EXEC sys.sp_addextendedproperty @name=N'Description', @value=N'The minor version number.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'MinorVersionNumber'
-	EXEC sys.sp_addextendedproperty @name=N'Description', @value=N'The update level of the build. CU indicates a cumulative update. SP indicates a service pack. RTM indicates Release To Manufacturer. GDR indicates a General Distribution Release. QFE indicates Quick Fix Engineering (aka hotfix).' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'Branch'
-	EXEC sys.sp_addextendedproperty @name=N'Description', @value=N'A link to the KB article for a version.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'Url'
-	EXEC sys.sp_addextendedproperty @name=N'Description', @value=N'The date the version was publicly released.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'ReleaseDate'
-	EXEC sys.sp_addextendedproperty @name=N'Description', @value=N'The date main stream Microsoft support ends for the version.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'MainstreamSupportEndDate'
-	EXEC sys.sp_addextendedproperty @name=N'Description', @value=N'The date extended Microsoft support ends for the version.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'ExtendedSupportEndDate'
-	EXEC sys.sp_addextendedproperty @name=N'Description', @value=N'The major version name.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'MajorVersionName'
-	EXEC sys.sp_addextendedproperty @name=N'Description', @value=N'The minor version name.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'MinorVersionName'
-	EXEC sys.sp_addextendedproperty @name=N'Description', @value=N'A reference for SQL Server major and minor versions.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions'
 
+END
+ELSE
+BEGIN
+    -- if the table exists, drop any legacy 'Description' properties
+
+    -- table
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'Description', N'SCHEMA', N'dbo', N'TABLE', N'SqlServerVersions', NULL, NULL))
+        EXEC sys.sp_dropextendedproperty @name = N'Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'SqlServerVersions';
+    -- columns
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'Description', N'SCHEMA', N'dbo', N'TABLE', N'SqlServerVersions', N'COLUMN', N'MajorVersionNumber'))
+        EXEC sys.sp_dropextendedproperty @name = N'Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'SqlServerVersions', @level2type = N'COLUMN', @level2name = N'MajorVersionNumber';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'Description', N'SCHEMA', N'dbo', N'TABLE', N'SqlServerVersions', N'COLUMN', N'MinorVersionNumber'))
+        EXEC sys.sp_dropextendedproperty @name = N'Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'SqlServerVersions', @level2type = N'COLUMN', @level2name = N'MinorVersionNumber';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'Description', N'SCHEMA', N'dbo', N'TABLE', N'SqlServerVersions', N'COLUMN', N'Branch'))
+        EXEC sys.sp_dropextendedproperty @name = N'Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'SqlServerVersions', @level2type = N'COLUMN', @level2name = N'Branch';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'Description', N'SCHEMA', N'dbo', N'TABLE', N'SqlServerVersions', N'COLUMN', N'Url'))
+        EXEC sys.sp_dropextendedproperty @name = N'Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'SqlServerVersions', @level2type = N'COLUMN', @level2name = N'Url';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'Description', N'SCHEMA', N'dbo', N'TABLE', N'SqlServerVersions', N'COLUMN', N'ReleaseDate'))
+        EXEC sys.sp_dropextendedproperty @name = N'Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'SqlServerVersions', @level2type = N'COLUMN', @level2name = N'ReleaseDate';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'Description', N'SCHEMA', N'dbo', N'TABLE', N'SqlServerVersions', N'COLUMN', N'MainstreamSupportEndDate'))
+        EXEC sys.sp_dropextendedproperty @name = N'Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'SqlServerVersions', @level2type = N'COLUMN', @level2name = N'MainstreamSupportEndDate';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'Description', N'SCHEMA', N'dbo', N'TABLE', N'SqlServerVersions', N'COLUMN', N'ExtendedSupportEndDate'))
+        EXEC sys.sp_dropextendedproperty @name = N'Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'SqlServerVersions', @level2type = N'COLUMN', @level2name = N'ExtendedSupportEndDate';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'Description', N'SCHEMA', N'dbo', N'TABLE', N'SqlServerVersions', N'COLUMN', N'MajorVersionName'))
+        EXEC sys.sp_dropextendedproperty @name = N'Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'SqlServerVersions', @level2type = N'COLUMN', @level2name = N'MajorVersionName';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'Description', N'SCHEMA', N'dbo', N'TABLE', N'SqlServerVersions', N'COLUMN', N'MinorVersionName'))
+        EXEC sys.sp_dropextendedproperty @name = N'Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'SqlServerVersions', @level2type = N'COLUMN', @level2name = N'MinorVersionName';
+
+    -- drop any 'MS_Description' properties if they exist, they will be replaced next
+
+    -- table
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', N'SCHEMA', N'dbo', N'TABLE', N'SqlServerVersions', NULL, NULL))
+        EXEC sys.sp_dropextendedproperty @name = N'MS_Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'SqlServerVersions';
+    -- columns
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', N'SCHEMA', N'dbo', N'TABLE', N'SqlServerVersions', N'COLUMN', N'MajorVersionNumber'))
+        EXEC sys.sp_dropextendedproperty @name = N'MS_Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'SqlServerVersions', @level2type = N'COLUMN', @level2name = N'MajorVersionNumber';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', N'SCHEMA', N'dbo', N'TABLE', N'SqlServerVersions', N'COLUMN', N'MinorVersionNumber'))
+        EXEC sys.sp_dropextendedproperty @name = N'MS_Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'SqlServerVersions', @level2type = N'COLUMN', @level2name = N'MinorVersionNumber';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', N'SCHEMA', N'dbo', N'TABLE', N'SqlServerVersions', N'COLUMN', N'Branch'))
+        EXEC sys.sp_dropextendedproperty @name = N'MS_Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'SqlServerVersions', @level2type = N'COLUMN', @level2name = N'Branch';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', N'SCHEMA', N'dbo', N'TABLE', N'SqlServerVersions', N'COLUMN', N'Url'))
+        EXEC sys.sp_dropextendedproperty @name = N'MS_Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'SqlServerVersions', @level2type = N'COLUMN', @level2name = N'Url';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', N'SCHEMA', N'dbo', N'TABLE', N'SqlServerVersions', N'COLUMN', N'ReleaseDate'))
+        EXEC sys.sp_dropextendedproperty @name = N'MS_Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'SqlServerVersions', @level2type = N'COLUMN', @level2name = N'ReleaseDate';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', N'SCHEMA', N'dbo', N'TABLE', N'SqlServerVersions', N'COLUMN', N'MainstreamSupportEndDate'))
+        EXEC sys.sp_dropextendedproperty @name = N'MS_Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'SqlServerVersions', @level2type = N'COLUMN', @level2name = N'MainstreamSupportEndDate';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', N'SCHEMA', N'dbo', N'TABLE', N'SqlServerVersions', N'COLUMN', N'ExtendedSupportEndDate'))
+        EXEC sys.sp_dropextendedproperty @name = N'MS_Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'SqlServerVersions', @level2type = N'COLUMN', @level2name = N'ExtendedSupportEndDate';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', N'SCHEMA', N'dbo', N'TABLE', N'SqlServerVersions', N'COLUMN', N'MajorVersionName'))
+        EXEC sys.sp_dropextendedproperty @name = N'MS_Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'SqlServerVersions', @level2type = N'COLUMN', @level2name = N'MajorVersionName';
+    IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', N'SCHEMA', N'dbo', N'TABLE', N'SqlServerVersions', N'COLUMN', N'MinorVersionName'))
+        EXEC sys.sp_dropextendedproperty @name = N'MS_Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'SqlServerVersions', @level2type = N'COLUMN', @level2name = N'MinorVersionName';
 END;
+
+-- add 'MS_Description' properties and values
+
+-- table
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'A reference for SQL Server major and minor versions.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions';
+-- columns
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'The major version number.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'MajorVersionNumber';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'The minor version number.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'MinorVersionNumber';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'The update level of the build. CU indicates a cumulative update. SP indicates a service pack. RTM indicates Release To Manufacturer. GDR indicates a General Distribution Release. QFE indicates Quick Fix Engineering (aka hotfix).' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'Branch';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'A link to the KB article for a version.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'Url';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'The date the version was publicly released.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'ReleaseDate';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'The date main stream Microsoft support ends for the version.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'MainstreamSupportEndDate';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'The date extended Microsoft support ends for the version.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'ExtendedSupportEndDate';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'The major version name.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'MajorVersionName';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'The minor version name.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'MinorVersionName';
 GO
 
 DELETE FROM dbo.SqlServerVersions;
