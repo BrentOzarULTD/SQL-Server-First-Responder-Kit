@@ -21,7 +21,7 @@ BEGIN
         )
     );
 
-END;
+END
 ELSE
 BEGIN
     -- if the table exists, drop any legacy 'Description' properties
