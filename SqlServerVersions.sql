@@ -91,7 +91,7 @@ EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'The major vers
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'The minor version name.' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'SqlServerVersions', @level2type=N'COLUMN',@level2name=N'MinorVersionName';
 GO
 
-DELETE FROM dbo.SqlServerVersions WHERE 1 = 1;
+DELETE FROM dbo.SqlServerVersions;
 
 INSERT INTO dbo.SqlServerVersions
     (MajorVersionNumber, MinorVersionNumber, Branch, [Url], ReleaseDate, MainstreamSupportEndDate, ExtendedSupportEndDate, MajorVersionName, MinorVersionName)
