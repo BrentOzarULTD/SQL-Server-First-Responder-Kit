@@ -3554,6 +3554,175 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
 
         RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
 
+        /*Check 17 is top deadlock queries by involvement*/
+        SET @d = CONVERT(varchar(40), GETDATE(), 109);
+        RAISERROR('Check 17 top deadlock queries %s', 0, 1, @d) WITH NOWAIT;
+
+        WITH
+            top_frame AS
+        (
+            SELECT
+                ds.id,
+                ds.event_date,
+                ds.proc_name,
+                ds.sql_handle,
+                ds.stmtstart,
+                ds.stmtend,
+                rn =
+                    ROW_NUMBER() OVER
+                    (
+                        PARTITION BY
+                            ds.id,
+                            ds.event_date
+                        ORDER BY
+                            ds.stmtstart
+                    )
+            FROM #deadlock_stack AS ds
+            WHERE ds.sql_handle <> N'0x'
+            AND   ds.sql_handle <> N''
+            AND   ds.sql_handle IS NOT NULL
+        ),
+            deadlock_queries AS
+        (
+            SELECT
+                dp.database_name,
+                tf.sql_handle,
+                tf.stmtstart,
+                tf.stmtend,
+                tf.proc_name,
+                dp.event_date,
+                dp.is_victim,
+                inputbuf =
+                    dp.process_xml.value
+                    (
+                        '(//process/inputbuf/text())[1]',
+                        'nvarchar(256)'
+                    )
+            FROM top_frame AS tf
+            JOIN #deadlock_process AS dp
+              ON dp.id = tf.id
+              AND dp.event_date = tf.event_date
+            WHERE tf.rn = 1
+            AND (dp.database_name = @DatabaseName OR @DatabaseName IS NULL)
+            AND (dp.event_date >= @StartDate OR @StartDate IS NULL)
+            AND (dp.event_date < @EndDate OR @EndDate IS NULL)
+            AND (dp.client_app = @AppName OR @AppName IS NULL)
+            AND (dp.host_name = @HostName OR @HostName IS NULL)
+            AND (dp.login_name = @LoginName OR @LoginName IS NULL)
+        )
+        INSERT
+            #deadlock_findings WITH(TABLOCKX)
+        (
+            check_id,
+            database_name,
+            object_name,
+            finding_group,
+            finding,
+            sort_order
+        )
+        SELECT
+            check_id = 17,
+            dq.database_name,
+            object_name =
+                LEFT
+                (
+                    REPLACE
+                    (
+                        REPLACE
+                        (
+                            CASE
+                                WHEN dq.proc_name <> N'adhoc'
+                                THEN dq.proc_name
+                                ELSE
+                                    ISNULL
+                                    (
+                                        MAX(dq.inputbuf),
+                                        N'[Unknown]'
+                                    )
+                            END,
+                            NCHAR(13),
+                            N' '
+                        ),
+                        NCHAR(10),
+                        N' '
+                    ),
+                    200
+                ),
+            finding_group = N'Top Deadlock Query',
+            finding =
+                N'This query was involved in ' +
+                CONVERT
+                (
+                    nvarchar(20),
+                    COUNT_BIG(DISTINCT dq.event_date)
+                ) +
+                N' deadlocks (victim ' +
+                CONVERT
+                (
+                    nvarchar(20),
+                    SUM
+                    (
+                        CONVERT(int, dq.is_victim)
+                    )
+                ) +
+                N' times, survived ' +
+                CONVERT
+                (
+                    nvarchar(20),
+                    COUNT_BIG(DISTINCT dq.event_date) -
+                    SUM
+                    (
+                        CONVERT(int, dq.is_victim)
+                    )
+                ) +
+                N' times), ' +
+                ISNULL
+                (
+                    CONVERT
+                    (
+                        nvarchar(10),
+                        CONVERT
+                        (
+                            decimal(5, 1),
+                            100.0 *
+                            COUNT_BIG(DISTINCT dq.event_date) /
+                            NULLIF
+                            (
+                                SUM
+                                (
+                                    COUNT_BIG(DISTINCT dq.event_date)
+                                ) OVER (),
+                                0
+                            )
+                        )
+                    ),
+                    N'0.0'
+                ) +
+                N'% of total.',
+            sort_order =
+                ROW_NUMBER() OVER
+                (
+                    ORDER BY
+                        COUNT_BIG(DISTINCT dq.event_date) DESC
+                )
+        FROM deadlock_queries AS dq
+        GROUP BY
+            dq.database_name,
+            dq.sql_handle,
+            dq.stmtstart,
+            dq.stmtend,
+            dq.proc_name
+        HAVING
+            COUNT_BIG(DISTINCT dq.event_date) * 10 >=
+            (
+                SELECT
+                    COUNT_BIG(DISTINCT dq2.event_date)
+                FROM deadlock_queries AS dq2
+            )
+        OPTION(RECOMPILE);
+
+        RAISERROR('Finished at %s', 0, 1, @d) WITH NOWAIT;
+
         /*Thank you goodnight*/
         INSERT
             #deadlock_findings WITH(TABLOCKX)
