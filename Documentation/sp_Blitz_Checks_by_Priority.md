@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 275.
-If you want to add a new one, start at 276.
+CURRENT HIGH CHECKID: 276.
+If you want to add a new one, start at 277.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
@@ -300,6 +300,7 @@ If you want to add a new one, start at 276.
 | 240 | Wait Stats | No Significant Waits Detected | https://www.BrentOzar.com/go/waits | 153 |
 | 240 | Wait Stats | Top Wait Stats | https://www.BrentOzar.com/go/waits | 152 |
 | 240 | Wait Stats | Wait Stats Have Been Cleared | https://www.BrentOzar.com/go/waits | 185 |
+| 250 | Informational | AG Not Fully Configured | https://www.BrentOzar.com/go/ag | 276 |
 | 250 | Informational | SQL Server Agent is running under an NT Service account | https://www.BrentOzar.com/go/setup | 170 |
 | 250 | Informational | SQL Server is running under an NT Service account | https://www.BrentOzar.com/go/setup | 169 |
 | 250 | Server Info | Agent is Currently Offline |  | 167 |

@@ -10036,6 +10036,34 @@ IF NOT EXISTS ( SELECT  1
 
 
 
+					/* Check if AG is enabled at server level but no databases are in an AG */
+					IF NOT EXISTS ( SELECT  1
+									FROM    #SkipChecks
+									WHERE   DatabaseName IS NULL AND CheckID = 276 )
+						BEGIN
+							IF SERVERPROPERTY('IsHadrEnabled') = 1
+								AND NOT EXISTS ( SELECT 1 FROM sys.databases WHERE replica_id IS NOT NULL )
+								BEGIN
+
+									IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 276) WITH NOWAIT;
+
+									INSERT  INTO #BlitzResults
+											( CheckID ,
+											  Priority ,
+											  FindingsGroup ,
+											  Finding ,
+											  URL ,
+											  Details
+											)
+									SELECT  276 AS CheckID ,
+											250 AS Priority ,
+											'Informational' AS FindingsGroup ,
+											'AG Not Fully Configured' AS Finding ,
+											'https://www.BrentOzar.com/go/ag' AS URL ,
+											'Availability Groups is turned on at the server level, but no databases are in an Availability Group.' AS Details;
+								END;
+						END;
+
 					END; /* IF @CheckServerInfo = 1 */
 			END; /* IF ( ( SERVERPROPERTY('ServerName') NOT IN ( SELECT ServerName */
 
