@@ -155,7 +155,13 @@ Output columns include:
 * Warnings - problems we found.
 * Created At - when the plan showed up in the cache.
 * Last Execution - maybe the query only runs at night.
-* Query Plan - click on this, and the graphical plan pops up.
+* Query Plan - click on this, and the graphical plan pops up. 
+
+By default, SQL Server caches the estimated plan only. If you want the most recent actual query plan, you can enable the database-level option for last query plan stats with the following statement, but that does come with a CPU performance overhead, especially on database servers that run thousands of batch requests per second.
+
+```tsql
+ALTER DATABASE SCOPED CONFIGURATION SET LAST_QUERY_PLAN_STATS = ON;
+```
 
 ### Common sp_BlitzCache Parameters
 
