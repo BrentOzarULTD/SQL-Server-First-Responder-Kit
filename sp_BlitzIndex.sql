@@ -4272,9 +4272,10 @@ BEGIN
                                 di.database_id = ip.database_id AND
                                 di.first_key_column_name = ip.first_key_column_name AND
                                 di.key_column_names <> ip.key_column_names AND
-                                di.number_dupes > 1    
+                                di.number_dupes > 1
                         )
-						AND ip.is_primary_key = 0                                          
+						AND ip.is_primary_key = 0
+                        AND ips.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE ips.total_reserved_MB END
                         ORDER BY ips.total_rows DESC, ip.[schema_name], ip.[object_name], ip.key_column_names, ip.include_column_names
             OPTION    ( RECOMPILE );
 
@@ -4424,6 +4425,7 @@ BEGIN
                 FROM    #IndexSanity AS i
                 JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
                 WHERE    (total_row_lock_wait_in_ms + total_page_lock_wait_in_ms) > 300000
+                AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
 				GROUP BY i.index_sanity_id, [database_name], i.db_schema_object_indexid, sz.index_lock_wait_summary, i.index_definition, i.secret_columns, i.index_usage_summary, sz.index_size_summary, sz.index_sanity_id
                 ORDER BY SUM(total_row_lock_wait_in_ms + total_page_lock_wait_in_ms) DESC, 4, [database_name], 8
                 OPTION    ( RECOMPILE );
@@ -4458,9 +4460,10 @@ BEGIN
                         FROM    #IndexSanity i
                         JOIN #IndexSanitySize ip ON i.index_sanity_id = ip.index_sanity_id
                         WHERE    index_id NOT IN ( 0, 1 )
+                        AND ip.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE ip.total_reserved_MB END
                         GROUP BY db_schema_object_name, [i].[database_name]
                         HAVING    COUNT(*) >= 10
-                        ORDER BY i.db_schema_object_name DESC  
+                        ORDER BY i.db_schema_object_name DESC
 						OPTION    ( RECOMPILE );
 
                 RAISERROR(N'check_id 22: NC indexes with 0 reads and >= 10,000 writes', 0,1) WITH NOWAIT;
@@ -4523,6 +4526,7 @@ BEGIN
                         FROM    #IndexSanity i
                         JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                         WHERE   i.filter_columns_not_in_index IS NOT NULL
+                        AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                         ORDER BY i.db_schema_object_indexid
                         OPTION    ( RECOMPILE );
 
@@ -4554,6 +4558,7 @@ BEGIN
                         AND i.[database_id] = hist.[database_id]
                         WHERE hist.history_table_object_id IS NOT NULL
                         AND i.index_type = 2 /* NC only */
+                        AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                         ORDER BY i.db_schema_object_indexid
                         OPTION    ( RECOMPILE );
 
@@ -4586,7 +4591,9 @@ BEGIN
                     FROM    #IndexSanity AS i
                     JOIN    #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
                     WHERE    index_id > 1
-                    AND    fill_factor BETWEEN 1 AND 80 OPTION    ( RECOMPILE );
+                    AND    fill_factor BETWEEN 1 AND 80
+                    AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
+                    OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 40: Fillfactor in clustered 80 percent or less', 0,1) WITH NOWAIT;
                 INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
@@ -4613,7 +4620,9 @@ BEGIN
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
                     WHERE    index_id = 1
-                    AND fill_factor BETWEEN 1 AND 80 OPTION    ( RECOMPILE );
+                    AND fill_factor BETWEEN 1 AND 80
+                    AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
+                    OPTION    ( RECOMPILE );
 
 
             RAISERROR(N'check_id 43: Heaps with forwarded records', 0,1) WITH NOWAIT;
@@ -4655,7 +4664,7 @@ BEGIN
                         JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                         WHERE    i.index_id = 0 
                         AND h.forwarded_fetch_count / @DaysUptime > 1000
-                        AND sz.total_reserved_MB >= CASE WHEN NOT (@GetAllDatabases = 1 OR @Mode = 4) THEN @ThresholdMB ELSE sz.total_reserved_MB END
+                        AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                 OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 44: Large Heaps with reads or writes.', 0,1) WITH NOWAIT;
@@ -4800,6 +4809,7 @@ BEGIN
                               AND   i.object_id = isa.object_id
                               AND   isa.index_id = 0
                             )
+                        AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
 						OPTION    ( RECOMPILE );
 
 
@@ -4820,9 +4830,10 @@ BEGIN
                                 sz.index_size_summary
                         FROM    #IndexSanity i
                         JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
-                        WHERE    i.index_id = 0 
+                        WHERE    i.index_id = 0
                                 AND (i.total_reads > 0 OR i.user_updates > 0) /*it doesn't matter that much if it's not active*/
 								AND sz.data_compression_desc LIKE '%PAGE%' /*using LIKE here because there are some variations for this value*/
+                                AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                 OPTION    ( RECOMPILE );
 
 	            RAISERROR(N'check_id 48: Nonclustered indexes with a bad read to write ratio', 0,1) WITH NOWAIT;
@@ -4997,6 +5008,7 @@ BEGIN
                                 ) AS calc1
                         WHERE    i.index_id IN (1,0)
                             AND calc1.percent_remaining <= 30
+                            AND ip.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE ip.total_reserved_MB END
                         OPTION (RECOMPILE);
 
 
@@ -5021,6 +5033,7 @@ BEGIN
                 FROM    #IndexSanity AS i
                 JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                 WHERE i.index_type IN (5,6)
+                AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                 OPTION    ( RECOMPILE );
 			END;
 
@@ -5224,7 +5237,7 @@ BEGIN
                                 AND i.is_unique = 0
                                 AND total_reads = 0
                                 /*Skipping tables created in the last week, or modified in past 2 days*/
-                                AND	i.create_date < DATEADD(dd,-7,GETDATE()) 
+                                AND	i.create_date < DATEADD(dd,-7,GETDATE())
                                 AND i.modify_date < DATEADD(dd,-2,GETDATE())
                                 AND perc.percent_NC_indexes_unused >= 5
                         GROUP BY i.database_name 
@@ -5248,6 +5261,7 @@ BEGIN
                     FROM    #IndexSanity AS i
                     JOIN    #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
                     WHERE    ( count_key_columns + count_included_columns ) >= 7
+                    AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                     OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 24: Wide clustered indexes (> 3 columns or > 16 bytes).', 0,1) WITH NOWAIT;
@@ -5290,10 +5304,11 @@ BEGIN
                         JOIN    count_columns AS cc ON i.[object_id]=cc.[object_id]
                                                    AND i.database_id = cc.database_id
                         WHERE    index_id = 1 /* clustered only */
-                                AND 
+                                AND
                                     (count_key_columns > 3 /*More than three key columns.*/
                                     OR cc.sum_max_length > 16 /*More than 16 bytes in key */)
 									AND i.is_CX_columnstore = 0
+                                AND ip.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE ip.total_reserved_MB END
                         ORDER BY i.db_schema_object_name DESC OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 25: High ratio of nullable columns.', 0,1) WITH NOWAIT;
@@ -5379,9 +5394,10 @@ BEGIN
 								AND cc.database_id = i.database_id
 								AND cc.[schema_name] = i.[schema_name]
                         WHERE    i.index_id IN (1,0)
-                            AND 
+                            AND
                             (cc.total_columns >= 35 OR
                             cc.sum_max_length >= 2000)
+                            AND ip.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE ip.total_reserved_MB END
                         ORDER BY i.db_schema_object_name DESC OPTION    ( RECOMPILE );
                     
             RAISERROR(N'check_id 27: High Ratio of Strings.', 0,1) WITH NOWAIT;
@@ -5423,6 +5439,7 @@ BEGIN
                         WHERE    i.index_id IN (1,0)
                             AND calc1.non_string_or_lob_columns <= 1
                             AND cc.total_columns > 3
+                            AND ip.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE ip.total_reserved_MB END
                         ORDER BY i.db_schema_object_name DESC OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 28: Non-unique clustered index.', 0,1) WITH NOWAIT;
@@ -5455,6 +5472,7 @@ BEGIN
                         WHERE    index_id = 1 /* clustered only */
                                 AND is_unique=0 /* not unique */
                                 AND is_CX_columnstore=0 /* not a clustered columnstore-- no unique option on those */
+                                AND ip.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE ip.total_reserved_MB END
                         ORDER BY i.db_schema_object_name DESC OPTION    ( RECOMPILE );
 
         RAISERROR(N'check_id 29: NC indexes with 0 reads and < 10,000 writes', 0,1) WITH NOWAIT;
@@ -5594,6 +5612,7 @@ BEGIN
 					    OR column_name LIKE '%archive%'
 					    OR column_name LIKE '%active%'
 					    OR column_name LIKE '%flag%')
+					AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
 					OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 41: Hypothetical indexes ', 0,1) WITH NOWAIT;
@@ -5669,7 +5688,7 @@ BEGIN
 							 AND i.[schema_name] = h.[schema_name]
                         JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                         WHERE    i.index_id = 0 
-                        AND sz.total_reserved_MB >= CASE WHEN NOT (@GetAllDatabases = 1 OR @Mode = 4) THEN @ThresholdMB ELSE sz.total_reserved_MB END
+                        AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                 OPTION    ( RECOMPILE );
 
          ----------------------------------------
@@ -5692,7 +5711,8 @@ BEGIN
                             ISNULL(sz.index_size_summary,'') AS index_size_summary
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
-                    WHERE i.is_XML = 1 
+                    WHERE i.is_XML = 1
+                    AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
 					OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 61: Columnstore indexes', 0,1) WITH NOWAIT;
@@ -5715,7 +5735,8 @@ BEGIN
                             ISNULL(sz.index_size_summary,'') AS index_size_summary
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
-                    WHERE i.is_NC_columnstore = 1 OR i.is_CX_columnstore=1
+                    WHERE (i.is_NC_columnstore = 1 OR i.is_CX_columnstore=1)
+                    AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                     OPTION    ( RECOMPILE );
 
 
@@ -5737,6 +5758,7 @@ BEGIN
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                     Where i.is_spatial = 1
+                    AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
 					OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 129: JSON indexes', 0,1) WITH NOWAIT;
@@ -5757,6 +5779,7 @@ BEGIN
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                     WHERE i.is_json = 1
+                    AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
 					OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 63: Compressed indexes', 0,1) WITH NOWAIT;
@@ -5776,7 +5799,8 @@ BEGIN
                             ISNULL(sz.index_size_summary,'') AS index_size_summary
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
-                    WHERE sz.data_compression_desc LIKE '%PAGE%' OR sz.data_compression_desc LIKE '%ROW%' 
+                    WHERE (sz.data_compression_desc LIKE '%PAGE%' OR sz.data_compression_desc LIKE '%ROW%')
+                    AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
 					OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 64: Partitioned', 0,1) WITH NOWAIT;
@@ -5796,7 +5820,8 @@ BEGIN
                             ISNULL(sz.index_size_summary,'') AS index_size_summary
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
-                    WHERE i.partition_key_column_name IS NOT NULL 
+                    WHERE i.partition_key_column_name IS NOT NULL
+                    AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
 					OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 65: Non-Aligned Partitioned', 0,1) WITH NOWAIT;
@@ -5822,7 +5847,8 @@ BEGIN
                         AND iParent.index_id IN (0,1) /* could be a partitioned heap or clustered table */
                         AND iParent.partition_key_column_name IS NOT NULL /* parent is partitioned*/         
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
-                    WHERE i.partition_key_column_name IS NULL 
+                    WHERE i.partition_key_column_name IS NULL
+                    AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                     OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 66: Recently created tables/indexes (1 week)', 0,1) WITH NOWAIT;
@@ -5845,7 +5871,8 @@ BEGIN
                             ISNULL(sz.index_size_summary,'') AS index_size_summary
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
-                    WHERE i.create_date >= DATEADD(dd,-7,GETDATE()) 
+                    WHERE i.create_date >= DATEADD(dd,-7,GETDATE())
+                    AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                     OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 67: Recently modified tables/indexes (2 days)', 0,1) WITH NOWAIT;
@@ -5868,9 +5895,10 @@ BEGIN
                             ISNULL(sz.index_size_summary,'') AS index_size_summary
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
-                    WHERE i.modify_date > DATEADD(dd,-2,GETDATE()) 
+                    WHERE i.modify_date > DATEADD(dd,-2,GETDATE())
                     AND /*Exclude recently created tables.*/
-                    i.create_date < DATEADD(dd,-7,GETDATE()) 
+                    i.create_date < DATEADD(dd,-7,GETDATE())
+                    AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                     OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 69: Column collation does not match database collation', 0,1) WITH NOWAIT;
@@ -5910,6 +5938,7 @@ BEGIN
 								AND cc.database_id = i.database_id
 								AND cc.schema_name = i.schema_name
                         WHERE    i.index_id IN (1,0)
+                            AND ip.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE ip.total_reserved_MB END
                         ORDER BY i.db_schema_object_name DESC OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 70: Replicated columns', 0,1) WITH NOWAIT;
@@ -5951,7 +5980,8 @@ BEGIN
 								AND i.schema_name = cc.schema_name
                         WHERE    i.index_id IN (1,0)
                             AND replicated_column_count > 0
-                        ORDER BY i.db_schema_object_name DESC 
+                            AND ip.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE ip.total_reserved_MB END
+                        ORDER BY i.db_schema_object_name DESC
 						OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 71: Cascading updates or cascading deletes.', 0,1) WITH NOWAIT;
@@ -6040,6 +6070,7 @@ BEGIN
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                     WHERE i.is_in_memory_oltp = 1
+                    AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
 					OPTION    ( RECOMPILE );
 
         RAISERROR(N'check_id 74: Identity column with unusual seed', 0,1) WITH NOWAIT;
@@ -6081,7 +6112,8 @@ BEGIN
                     JOIN    #IndexSanitySize ip ON i.index_sanity_id = ip.index_sanity_id
                     WHERE    i.index_id IN (1,0)
                         AND (ic.seed_value < 0 OR ic.increment_value <> 1)
-                    ORDER BY finding, details DESC 
+                        AND ip.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE ip.total_reserved_MB END
+                    ORDER BY finding, details DESC
 					OPTION    ( RECOMPILE );
 
         ----------------------------------------
@@ -6115,6 +6147,7 @@ BEGIN
         FROM #IndexSanity i
         JOIN #IndexSanitySize iss ON i.index_sanity_id=iss.index_sanity_id
         WHERE ISNULL(i.user_scans,0) > 0
+        AND iss.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE iss.total_reserved_MB END
         ORDER BY  i.user_scans * iss.total_reserved_MB DESC
 		OPTION    ( RECOMPILE );
 
@@ -6146,6 +6179,7 @@ BEGIN
         FROM #IndexSanity i
         JOIN #IndexSanitySize iss ON i.index_sanity_id=iss.index_sanity_id
         WHERE (ISNULL(iss.total_range_scan_count,0)  > 0 OR ISNULL(iss.total_singleton_lookup_count,0) > 0)
+        AND iss.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE iss.total_reserved_MB END
         ORDER BY ((iss.total_range_scan_count + iss.total_singleton_lookup_count) * iss.total_reserved_MB) DESC
 		OPTION    ( RECOMPILE );
 
