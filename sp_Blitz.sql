@@ -93,7 +93,7 @@ BEGIN
 	Known limitations of this version:
 	 - Only Microsoft-supported versions of SQL Server. Sorry, 2014 and older.
 	 - If a database name has a question mark in it, some tests will fail. Gotta
-	   love that unsupported sp_MSforeachdb.
+	   love that question-mark-replacement placeholder in sp_ineachdb.
 	 - If you have offline databases, sp_Blitz fails the first time you run it,
 	   but does work the second time. (Hoo, boy, this will be fun to debug.)
       - @OutputServerName will output QueryPlans as NVARCHAR(MAX) since Microsoft
@@ -1280,7 +1280,7 @@ BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Extracting DBCC DBINFO data (used in checks 2 and 68).', 0, 1, 68) WITH NOWAIT;
 
-						EXEC sp_MSforeachdb N'USE [?];
+						EXEC dbo.sp_ineachdb N'USE [?];
 							SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 							INSERT #DBCCs
 								(ParentObject,
@@ -6737,15 +6737,11 @@ IF NOT EXISTS ( SELECT  1
 
                         /*
                         But what if you need to run a query in every individual database?
-				        Check out CheckID 99 below. Yes, it uses sp_MSforeachdb, and no,
-				        we're not happy about that. sp_MSforeachdb is known to have a lot
-				        of issues, like skipping databases sometimes. However, this is the
-				        only built-in option that we have. If you're writing your own code
-				        for database maintenance, consider Aaron Bertrand's alternative:
-				        http://www.mssqltips.com/sqlservertip/2201/making-a-more-reliable-and-flexible-spmsforeachdb/
-				        We don't include that as part of sp_Blitz, of course, because
-				        copying and distributing copyrighted code from others without their
-				        written permission isn't a good idea.
+				        Check out CheckID 99 below. We use sp_ineachdb (shipped in this
+				        repo) as a drop-in replacement for the built-in sp_MSforeachdb.
+				        sp_ineachdb has saner database filtering, proper error handling,
+				        and works on Azure SQL DB where sp_MSforeachdb isn't available.
+				        See sp_ineachdb.sql for its source and parameters.
 				        */
 				        IF NOT EXISTS ( SELECT  1
 								        FROM    #SkipChecks
@@ -6754,13 +6750,13 @@ IF NOT EXISTS ( SELECT  1
 						
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 99) WITH NOWAIT;
 								
-								EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; IF EXISTS (SELECT * FROM  sys.tables WITH (NOLOCK) WHERE name = ''sysmergepublications'' ) IF EXISTS ( SELECT * FROM sysmergepublications WITH (NOLOCK) WHERE retention = 0)   INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 99, DB_NAME(), 110, ''Performance'', ''Infinite merge replication metadata retention period'', ''https://www.brentozar.com/go/merge'', (''The ['' + DB_NAME() + ''] database has merge replication metadata retention period set to infinite - this can be the case of significant performance issues.'')';
+								EXEC dbo.sp_ineachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; IF EXISTS (SELECT * FROM  sys.tables WITH (NOLOCK) WHERE name = ''sysmergepublications'' ) IF EXISTS ( SELECT * FROM sysmergepublications WITH (NOLOCK) WHERE retention = 0)   INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 99, DB_NAME(), 110, ''Performance'', ''Infinite merge replication metadata retention period'', ''https://www.brentozar.com/go/merge'', (''The ['' + DB_NAME() + ''] database has merge replication metadata retention period set to infinite - this can be the case of significant performance issues.'')';
 					        END;
 				        /*
-				        Note that by using sp_MSforeachdb, we're running the query in all
+				        Note that by using sp_ineachdb, we're running the query in all
 				        databases. We're not checking #SkipChecks here for each database to
 				        see if we should run the check in this database. That means we may
-				        still run a skipped check if it involves sp_MSforeachdb. We just
+				        still run a skipped check if it involves sp_ineachdb. We just
 				        don't output those results in the last step.
                         */
 
@@ -6773,7 +6769,7 @@ IF NOT EXISTS ( SELECT  1
 
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 163) WITH NOWAIT;
 
-								EXEC dbo.sp_MSforeachdb 'USE [?];
+								EXEC dbo.sp_ineachdb 'USE [?];
                                         SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			                            INSERT INTO #BlitzResults
 			                            (CheckID,
@@ -6803,7 +6799,7 @@ IF NOT EXISTS ( SELECT  1
 
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 262) WITH NOWAIT;
 
-								EXEC dbo.sp_MSforeachdb 'USE [?];
+								EXEC dbo.sp_ineachdb 'USE [?];
                                         SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			                            INSERT INTO #BlitzResults
 			                            (CheckID,
@@ -6835,7 +6831,7 @@ IF NOT EXISTS ( SELECT  1
               
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 263) WITH NOWAIT;
 
-								EXEC dbo.sp_MSforeachdb 'USE [?];
+								EXEC dbo.sp_ineachdb 'USE [?];
                                         SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			                            INSERT INTO #BlitzResults
 			                            (CheckID,
@@ -6867,7 +6863,7 @@ IF NOT EXISTS ( SELECT  1
 
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 264) WITH NOWAIT;
 
-								EXEC dbo.sp_MSforeachdb 'USE [?];
+								EXEC dbo.sp_ineachdb 'USE [?];
                                         SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			                            INSERT INTO #BlitzResults
 			                            (CheckID,
@@ -6898,7 +6894,7 @@ IF NOT EXISTS ( SELECT  1
 							BEGIN
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 265) WITH NOWAIT;
 
-								EXEC dbo.sp_MSforeachdb 'USE [?];
+								EXEC dbo.sp_ineachdb 'USE [?];
                                         SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			                            INSERT INTO #BlitzResults
 			                            (CheckID,
@@ -6933,7 +6929,7 @@ IF NOT EXISTS ( SELECT  1
 							BEGIN
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 273) WITH NOWAIT;
 
-								EXEC dbo.sp_MSforeachdb 'USE [?];
+								EXEC dbo.sp_ineachdb 'USE [?];
                                         SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			                            INSERT INTO #BlitzResults
 			                            (CheckID,
@@ -6961,7 +6957,7 @@ IF NOT EXISTS ( SELECT  1
 							BEGIN
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 274) WITH NOWAIT;
 
-								EXEC dbo.sp_MSforeachdb 'USE [?];
+								EXEC dbo.sp_ineachdb 'USE [?];
                                         SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			                            INSERT INTO #BlitzResults
 			                            (CheckID,
@@ -7028,7 +7024,7 @@ IF NOT EXISTS ( SELECT  1
 
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 235) WITH NOWAIT;
 
-								EXEC dbo.sp_MSforeachdb 'USE [?];
+								EXEC dbo.sp_ineachdb 'USE [?];
                                         SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			                            INSERT INTO #BlitzResults
 			                            (CheckID,
@@ -7058,7 +7054,7 @@ IF NOT EXISTS ( SELECT  1
 						
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 41) WITH NOWAIT;
 								
-								EXEC dbo.sp_MSforeachdb 'use [?];
+								EXEC dbo.sp_ineachdb 'use [?];
 		                              SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                                       INSERT INTO #BlitzResults
 		                              (CheckID,
@@ -7089,7 +7085,7 @@ IF NOT EXISTS ( SELECT  1
 						
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 42) WITH NOWAIT;
 								
-								EXEC dbo.sp_MSforeachdb 'use [?];
+								EXEC dbo.sp_ineachdb 'use [?];
 			                            SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                                         INSERT INTO #BlitzResults
 			                            (CheckID,
@@ -7120,7 +7116,7 @@ IF NOT EXISTS ( SELECT  1
 
 									IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 82) WITH NOWAIT;
 
-						            EXEC sp_MSforeachdb 'use [?];
+						            EXEC dbo.sp_ineachdb 'use [?];
 		                                SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                                         INSERT INTO #BlitzResults
 		                                (CheckID,
@@ -7150,7 +7146,7 @@ IF NOT EXISTS ( SELECT  1
 
 									IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 158) WITH NOWAIT;
 
-						            EXEC sp_MSforeachdb 'use [?];
+						            EXEC dbo.sp_ineachdb 'use [?];
 		                                SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                                         INSERT INTO #BlitzResults
 		                                (CheckID,
@@ -7181,7 +7177,7 @@ IF NOT EXISTS ( SELECT  1
 								
 										IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 33) WITH NOWAIT;
 										
-										EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+										EXEC dbo.sp_ineachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                                             INSERT INTO #BlitzResults
 					                                (CheckID,
 					                                DatabaseName,
@@ -7240,7 +7236,7 @@ IF NOT EXISTS ( SELECT  1
 										        OR is_distributor = 1);
 
 						        /* Method B: check subscribers for MSreplication_objects tables */
-						        EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+						        EXEC dbo.sp_ineachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                                     INSERT INTO #BlitzResults
 										        (CheckID,
 										        DatabaseName,
@@ -7269,7 +7265,7 @@ IF NOT EXISTS ( SELECT  1
 								
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 32) WITH NOWAIT;
 								
-								EXEC dbo.sp_MSforeachdb 'USE [?];
+								EXEC dbo.sp_ineachdb 'USE [?];
 			SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
             INSERT INTO #BlitzResults
 			(CheckID,
@@ -7301,7 +7297,7 @@ IF NOT EXISTS ( SELECT  1
 								
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 164) WITH NOWAIT;
 								
-								EXEC dbo.sp_MSforeachdb 'USE [?];
+								EXEC dbo.sp_ineachdb 'USE [?];
 			SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			SET QUOTED_IDENTIFIER ON;
             INSERT INTO #BlitzResults
@@ -7331,7 +7327,7 @@ IF NOT EXISTS ( SELECT  1
 								
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 46) WITH NOWAIT;
 								
-								EXEC dbo.sp_MSforeachdb 'USE [?];
+								EXEC dbo.sp_ineachdb 'USE [?];
 		  SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
           INSERT INTO #BlitzResults
 				(CheckID,
@@ -7361,7 +7357,7 @@ IF NOT EXISTS ( SELECT  1
 								
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 47) WITH NOWAIT;
 								
-								EXEC dbo.sp_MSforeachdb 'USE [?];
+								EXEC dbo.sp_ineachdb 'USE [?];
 		  SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
           INSERT INTO #BlitzResults
 				(CheckID,
@@ -7389,7 +7385,7 @@ IF NOT EXISTS ( SELECT  1
 								
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 48) WITH NOWAIT;
 								
-								EXEC dbo.sp_MSforeachdb 'USE [?];
+								EXEC dbo.sp_ineachdb 'USE [?];
 		  SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
           INSERT INTO #BlitzResults
 				(CheckID,
@@ -7420,7 +7416,7 @@ IF NOT EXISTS ( SELECT  1
 								
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 56) WITH NOWAIT;
 								
-								EXEC dbo.sp_MSforeachdb 'USE [?];
+								EXEC dbo.sp_ineachdb 'USE [?];
 		  SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
           INSERT INTO #BlitzResults
 				(CheckID,
@@ -7449,7 +7445,7 @@ IF NOT EXISTS ( SELECT  1
 
 										IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 95) WITH NOWAIT;
 
-										EXEC dbo.sp_MSforeachdb 'USE [?];
+										EXEC dbo.sp_ineachdb 'USE [?];
 			SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
             INSERT INTO #BlitzResults
 				  (CheckID,
@@ -7476,7 +7472,7 @@ IF NOT EXISTS ( SELECT  1
 								
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 60) WITH NOWAIT;
 								
-								EXEC sp_MSforeachdb 'USE [?];
+								EXEC dbo.sp_ineachdb 'USE [?];
 		  SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
           INSERT INTO #BlitzResults
 				(CheckID,
@@ -7513,7 +7509,7 @@ IF NOT EXISTS ( SELECT  1
 
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 78) WITH NOWAIT;
 								
-								EXECUTE master.sys.sp_MSforeachdb 'USE [?];
+								EXECUTE dbo.sp_ineachdb 'USE [?];
                                     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                                     INSERT INTO #Recompile
                                     SELECT DISTINCT DBName = DB_Name(), SPName = SO.name, SM.is_recompiled, ISR.SPECIFIC_SCHEMA
@@ -7550,7 +7546,7 @@ IF NOT EXISTS ( SELECT  1
 								
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 86) WITH NOWAIT;
 								
-								EXEC dbo.sp_MSforeachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 86, DB_NAME(), 230, ''Security'', ''Elevated Permissions on a Database'', ''https://www.brentozar.com/go/elevated'', (''In ['' + DB_NAME() + ''], user ['' + u.name + '']  has the role ['' + g.name + ''].  This user can perform tasks beyond just reading and writing data.'') FROM (SELECT memberuid = convert(int, member_principal_id), groupuid = convert(int, role_principal_id) FROM [?].sys.database_role_members) m inner join [?].dbo.sysusers u on m.memberuid = u.uid inner join sysusers g on m.groupuid = g.uid where u.name <> ''dbo'' and g.name in (''db_owner'' , ''db_accessadmin'' , ''db_securityadmin'' , ''db_ddladmin'') OPTION (RECOMPILE);';
+								EXEC dbo.sp_ineachdb 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 86, DB_NAME(), 230, ''Security'', ''Elevated Permissions on a Database'', ''https://www.brentozar.com/go/elevated'', (''In ['' + DB_NAME() + ''], user ['' + u.name + '']  has the role ['' + g.name + ''].  This user can perform tasks beyond just reading and writing data.'') FROM (SELECT memberuid = convert(int, member_principal_id), groupuid = convert(int, role_principal_id) FROM [?].sys.database_role_members) m inner join [?].dbo.sysusers u on m.memberuid = u.uid inner join sysusers g on m.groupuid = g.uid where u.name <> ''dbo'' and g.name in (''db_owner'' , ''db_accessadmin'' , ''db_securityadmin'' , ''db_ddladmin'') OPTION (RECOMPILE);';
 							END;
 
 							/*Check for non-aligned indexes in partioned databases*/
@@ -7562,7 +7558,7 @@ IF NOT EXISTS ( SELECT  1
 												
 												IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 72) WITH NOWAIT;
 												
-												EXEC dbo.sp_MSforeachdb 'USE [?];
+												EXEC dbo.sp_ineachdb 'USE [?];
 								SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                                 insert into #partdb(dbname, objectname, type_desc)
 								SELECT distinct db_name(DB_ID()) as DBName,o.name Object_Name,ds.type_desc
@@ -7612,7 +7608,7 @@ IF NOT EXISTS ( SELECT  1
 							
 							  IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 113) WITH NOWAIT;
 							
-							  EXEC dbo.sp_MSforeachdb 'USE [?];
+							  EXEC dbo.sp_ineachdb 'USE [?];
 							  SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                               INSERT INTO #BlitzResults
 									(CheckID,
@@ -7639,7 +7635,7 @@ IF NOT EXISTS ( SELECT  1
 								
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 115) WITH NOWAIT;
 								
-								EXEC dbo.sp_MSforeachdb 'USE [?];
+								EXEC dbo.sp_ineachdb 'USE [?];
 		  SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
           INSERT INTO #BlitzResults
 				(CheckID,
@@ -7672,7 +7668,7 @@ IF NOT EXISTS ( SELECT  1
 									  INNER JOIN sys.all_objects o ON c.object_id = o.object_id
 									  WHERE c.name = 'is_temporary' AND o.name = 'stats')
 										
-										EXEC dbo.sp_MSforeachdb 'USE [?];
+										EXEC dbo.sp_ineachdb 'USE [?];
 												SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                                                 INSERT INTO #BlitzResults
 													(CheckID,
@@ -7693,7 +7689,7 @@ IF NOT EXISTS ( SELECT  1
                                                 HAVING SUM(1) > 0  OPTION (RECOMPILE);';
 
 									ELSE
-										EXEC dbo.sp_MSforeachdb 'USE [?];
+										EXEC dbo.sp_ineachdb 'USE [?];
 												SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                                                 INSERT INTO #BlitzResults
 													(CheckID,
@@ -7724,7 +7720,7 @@ IF NOT EXISTS ( SELECT  1
 
 										IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 69) WITH NOWAIT;
 										
-										EXEC sp_MSforeachdb N'USE [?];
+										EXEC dbo.sp_ineachdb N'USE [?];
 		                                      SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                                               INSERT INTO #LogInfo
 		                                      EXEC sp_executesql N''DBCC LogInfo() WITH NO_INFOMSGS'';
@@ -7760,7 +7756,7 @@ IF NOT EXISTS ( SELECT  1
 						
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 80) WITH NOWAIT;
 								
-								EXEC dbo.sp_MSforeachdb 'USE [?]; 
+								EXEC dbo.sp_ineachdb 'USE [?]; 
                                     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; 
                                     INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) 
                                     SELECT DISTINCT 80, DB_NAME(), 170, ''Reliability'', ''Max File Size Set'', ''https://www.brentozar.com/go/maxsize'', 
@@ -7790,7 +7786,7 @@ IF NOT EXISTS ( SELECT  1
 						
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 74) WITH NOWAIT;
 								
-								EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; IF EXISTS(SELECT * FROM sys.indexes WHERE type IN (5,6)) INSERT INTO #TemporaryDatabaseResults (DatabaseName, Finding) VALUES (DB_NAME(), ''Yup'') OPTION (RECOMPILE);';
+								EXEC dbo.sp_ineachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; IF EXISTS(SELECT * FROM sys.indexes WHERE type IN (5,6)) INSERT INTO #TemporaryDatabaseResults (DatabaseName, Finding) VALUES (DB_NAME(), ''Yup'') OPTION (RECOMPILE);';
 								IF EXISTS (SELECT * FROM #TemporaryDatabaseResults) SET @ColumnStoreIndexesInUse = 1;
 					        END;
 
@@ -7804,7 +7800,7 @@ IF NOT EXISTS ( SELECT  1
 						
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 74) WITH NOWAIT;
 								
-								EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; IF EXISTS(SELECT * FROM sys.databases WHERE is_query_store_on = 1 AND database_id <> 3) INSERT INTO #TemporaryDatabaseResults (DatabaseName, Finding) VALUES (DB_NAME(), ''Yup'') OPTION (RECOMPILE);';
+								EXEC dbo.sp_ineachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; IF EXISTS(SELECT * FROM sys.databases WHERE is_query_store_on = 1 AND database_id <> 3) INSERT INTO #TemporaryDatabaseResults (DatabaseName, Finding) VALUES (DB_NAME(), ''Yup'') OPTION (RECOMPILE);';
 								IF EXISTS (SELECT * FROM #TemporaryDatabaseResults) SET @QueryStoreInUse = 1;
 					        END;
 
@@ -7859,7 +7855,7 @@ IF NOT EXISTS ( SELECT  1
 									(47, 'OPTIONAL_PARAMETER_OPTIMIZATION', '1', NULL, 267),
 									(48, 'PREVIEW_FEATURES', '0', NULL, 267);
 
-EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
+EXEC dbo.sp_ineachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 									SELECT def1.CheckID, DB_NAME(), 210, ''Non-Default Database Scoped Config'', dsc.[name], ''https://www.brentozar.com/go/dbscope'', (''Set value: '' + COALESCE(CAST(dsc.value AS NVARCHAR(100)),''Empty'') + '' Default: '' + COALESCE(CAST(def1.default_value AS NVARCHAR(100)),''Empty'') + '' Set value for secondary: '' + COALESCE(CAST(dsc.value_for_secondary AS NVARCHAR(100)),''Empty'') + '' Default value for secondary: '' + COALESCE(CAST(def1.default_value_for_secondary AS NVARCHAR(100)),''Empty''))
 									FROM [?].sys.database_scoped_configurations dsc
 									INNER JOIN #DatabaseScopedConfigurationDefaults def1 ON dsc.configuration_id = def1.configuration_id
@@ -7885,7 +7881,7 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 					RAISERROR ('Running CheckId [%d].',0,1,275) WITH NOWAIT;
 				END
 
-				EXECUTE sp_MSforeachdb 'USE [?];
+				EXECUTE dbo.sp_ineachdb 'USE [?];
 					SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                     INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 					SELECT 275 AS CheckID
@@ -7919,7 +7915,7 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 					RAISERROR ('Running CheckId [%d].',0,1,218) WITH NOWAIT;
 				END
 
-				EXECUTE sp_MSforeachdb 'USE [?];
+				EXECUTE dbo.sp_ineachdb 'USE [?];
 					SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                     INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 					SELECT 218 AS CheckID
@@ -7958,7 +7954,7 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 					RAISERROR ('Running CheckId [%d].',0,1,225) WITH NOWAIT;
 				END
 
-				EXECUTE sp_MSforeachdb 'USE [?];
+				EXECUTE dbo.sp_ineachdb 'USE [?];
 					SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                     INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 					SELECT 225 AS CheckID
@@ -7991,7 +7987,7 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 			--		RAISERROR ('Running CheckId [%d].',0,1,220) WITH NOWAIT;
 			--	END
 
-			--	EXECUTE sp_MSforeachdb 'USE [?];
+			--	EXECUTE dbo.sp_ineachdb 'USE [?];
             --      SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 			--		INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details)
 			--		SELECT 220 AS CheckID
@@ -8021,7 +8017,7 @@ EXEC dbo.sp_MSforeachdb 'USE [?]; SET TRANSACTION ISOLATION LEVEL READ UNCOMMITT
 				IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 68) WITH NOWAIT;
 				
 				/* Removed as populating the #DBCCs table now done in advance as data is uses for multiple checks*/
-				--EXEC sp_MSforeachdb N'USE [?];
+				--EXEC dbo.sp_ineachdb N'USE [?];
 				--SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 				--INSERT #DBCCs
 				--	(ParentObject,
