@@ -190,7 +190,7 @@ BEGIN
 			,@TraceFileIssue bit
 			-- Flag for Windows OS to help with Linux support
 			,@IsWindowsOperatingSystem BIT
-			-- Flag for Azure SQL Database (EngineEdition 5) to skip checks that do not apply
+			-- Flag for Azure SQL Database (EngineEdition 5) - used to skip incompatible checks and guard email / linked-server output paths
 			,@IsAzureSQLDB BIT
 			,@DaysUptime NUMERIC(23,2)
             /* For First Responder Kit consistency check:*/
@@ -930,12 +930,14 @@ BEGIN
 		/* If the server is Azure SQL Database, skip checks that it doesn't allow */
 		IF @IsAzureSQLDB = 1
 			BEGIN
-						/* Backup / restore history - msdb does not exist on Azure SQL DB */
+						/* Backup / restore history and corruption tracking - msdb does not exist on Azure SQL DB */
 						INSERT INTO #SkipChecks (CheckID) VALUES (1);   /* Full backups */
 						INSERT INTO #SkipChecks (CheckID) VALUES (2);   /* Log backups */
 						INSERT INTO #SkipChecks (CheckID) VALUES (4);   /* Full backup of user DB */
 						INSERT INTO #SkipChecks (CheckID) VALUES (5);   /* Log backup of user DB */
 						INSERT INTO #SkipChecks (CheckID) VALUES (18);  /* Backup to same drive */
+						INSERT INTO #SkipChecks (CheckID) VALUES (90);  /* Database Corruption Detected - reads msdb.dbo.suspect_pages */
+						INSERT INTO #SkipChecks (CheckID) VALUES (93);  /* Backup to same drive as data - joins msdb backup history with sys.master_files */
 						INSERT INTO #SkipChecks (CheckID) VALUES (177); /* Disabled Internal Monitoring Features - requires dm_server_registry access */
 						INSERT INTO #SkipChecks (CheckID) VALUES (186); /* MSDB Backup History Purged Too Frequently */
 
@@ -966,9 +968,12 @@ BEGIN
 						INSERT INTO #SkipChecks (CheckID) VALUES (97);   /* Unusual SQL Server Edition */
 						INSERT INTO #SkipChecks (CheckID) VALUES (2301); /* sp_validatelogins */
 
-						/* File layout / tempdb - cannot read tempdb or system DBs cross-DB from a user DB */
+						/* File layout / tempdb - cannot read tempdb or system DBs cross-DB from a user DB, and sys.master_files is unavailable */
 						INSERT INTO #SkipChecks (CheckID) VALUES (21);  /* Database encrypted - always true on Azure SQL DB */
 						INSERT INTO #SkipChecks (CheckID) VALUES (24);  /* System DB on C drive */
+						INSERT INTO #SkipChecks (CheckID) VALUES (25);  /* TempDB on C Drive - reads sys.master_files */
+						INSERT INTO #SkipChecks (CheckID) VALUES (26);  /* User Databases on C Drive - reads sys.master_files */
+						INSERT INTO #SkipChecks (CheckID) VALUES (36);  /* Slow Storage Reads - joins sys.dm_io_virtual_file_stats with sys.master_files */
 						INSERT INTO #SkipChecks (CheckID) VALUES (40);  /* TempDB only one data file */
 						INSERT INTO #SkipChecks (CheckID) VALUES (41);  /* TempDB file size/growth mismatch */
 						INSERT INTO #SkipChecks (CheckID, DatabaseName) VALUES (80, 'master');  /* Max file size set */
