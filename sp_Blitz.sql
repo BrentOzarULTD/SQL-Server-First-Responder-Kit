@@ -7403,16 +7403,17 @@ IF NOT EXISTS ( SELECT  1
 				Finding,
 				URL,
 				Details)
-		  SELECT DISTINCT 48,
+		  SELECT 48,
 		  N''?'',
 		  150,
 		  ''Performance'',
 		  ''Foreign Keys Not Trusted'',
 		  ''https://www.brentozar.com/go/trust'',
-		  (''The ['' + DB_NAME() + ''] database has foreign keys that were probably disabled, data was changed, and then the key was enabled again.  Simply enabling the key is not enough for the optimizer to use this key - we have to alter the table using the WITH CHECK CHECK CONSTRAINT parameter.'')
+		  (''The ['' + DB_NAME() + ''] database has '' + CAST(COUNT(*) AS NVARCHAR(20)) + '' foreign keys that were probably disabled, data was changed, and then the key was enabled again.  Simply enabling the key is not enough for the optimizer to use this key - we have to alter the table using the WITH CHECK CHECK CONSTRAINT parameter.'')
 		  from [?].sys.foreign_keys i INNER JOIN [?].sys.objects o ON i.parent_object_id = o.object_id INNER JOIN [?].sys.schemas s ON o.schema_id = s.schema_id
 		  WHERE i.is_not_trusted = 1 AND i.is_not_for_replication = 0 AND i.is_disabled = 0 AND ''?''
 		  NOT IN (''gcloud_cloudsqladmin'', ''master'', ''model'', ''msdb'', ''rdsadmin'', ''ReportServer'', ''ReportServerTempDB'')
+		  HAVING COUNT(*) > 0
 		  OPTION (RECOMPILE);';
 							END;
 
