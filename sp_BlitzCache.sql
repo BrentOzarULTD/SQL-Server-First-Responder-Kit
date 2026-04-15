@@ -3181,6 +3181,7 @@ FROM
 ) AS x
 WHERE ##BlitzCacheProcs.QueryHash = x.QueryHash
 AND   ##BlitzCacheProcs.DatabaseName = x.DatabaseName
+AND   ##BlitzCacheProcs.SPID = @@SPID
 OPTION (RECOMPILE) ;
 
 -- query level checks
