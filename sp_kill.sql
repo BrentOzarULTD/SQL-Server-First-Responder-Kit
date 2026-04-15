@@ -71,7 +71,7 @@ BEGIN
 	SOFTWARE.
 	*/
 
-	SELECT @Version = '8.32', @VersionDate = '20260407';
+	SELECT @Version = '8.33', @VersionDate = '20260415';
 
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -542,18 +542,20 @@ For more info, visit http://FirstResponderKit.org
 	/* Lead blockers */
 	UPDATE t
 	SET Reason = N'Lead blocker: blocking '
-		+ CAST(blocked_count.cnt AS NVARCHAR(10))
+		+ CAST(blocked_stats.cnt AS NVARCHAR(10))
 		+ N' session(s) for '
-		+ CAST(ISNULL(DATEDIFF(SECOND, COALESCE(t.start_time, t.last_request_start_time), GETDATE()), 0) AS NVARCHAR(10))
+		+ CAST(ISNULL(blocked_stats.max_wait_time_ms / 1000, 0) AS NVARCHAR(20))
 		+ N' seconds.'
 	FROM #hitlist t
 	CROSS APPLY (
-		SELECT COUNT(*) AS cnt
+		SELECT
+			COUNT(*) AS cnt,
+			MAX(ISNULL(blocked.wait_time_ms, 0)) AS max_wait_time_ms
 		FROM #hitlist blocked
 		WHERE blocked.blocking_session_id = t.session_id
-	) blocked_count
+	) blocked_stats
 	WHERE t.KillRecommended = 1
-	AND blocked_count.cnt > 0
+	AND blocked_stats.cnt > 0
 	AND (t.blocking_session_id IS NULL OR t.blocking_session_id = 0)
 	AND (t.Reason IS NULL OR t.Reason = N'Targeted by @SPID parameter.');
 
