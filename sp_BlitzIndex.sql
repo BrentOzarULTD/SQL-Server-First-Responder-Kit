@@ -5342,6 +5342,8 @@ BEGIN
                         WHERE    i.index_id IN (1,0)
                             AND cc.non_nullable_columns < 2
                             AND cc.total_columns > 3
+                            AND ip.total_rows > 0
+                            AND ip.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE ip.total_reserved_MB END
                         ORDER BY i.db_schema_object_name DESC OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 26: Wide tables (35+ cols or > 2000 non-LOB bytes).', 0,1) WITH NOWAIT;
