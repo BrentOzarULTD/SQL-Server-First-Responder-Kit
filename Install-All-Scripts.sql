@@ -7497,16 +7497,10 @@ IF NOT EXISTS ( SELECT  1
 		  ''Performance'' AS FindingsGroup,
 		  ''Fill Factor Changed'',
 		  ''https://www.brentozar.com/go/fillfactor'' AS URL,
-		  ''The ['' + DB_NAME() + ''] database has '' + CAST(SUM(1) AS NVARCHAR(50)) + '' objects with fill factor = '' + CAST(i.fill_factor AS NVARCHAR(5)) + ''%, taking up a total size of '' + CAST(CAST(SUM(ISNULL(ps.reserved_page_count, 0)) * 8.0 / 1024 / 1024 AS DECIMAL(18,2)) AS NVARCHAR(50)) + '' GB. This can cause memory and storage performance problems.''
-		  FROM    [?].sys.indexes AS i
-		  LEFT JOIN
-		  		(
-				SELECT ps.object_id, ps.index_id, SUM(ps.reserved_page_count) AS reserved_page_count
-				FROM [?].sys.dm_db_partition_stats AS ps
-				GROUP BY ps.object_id, ps.index_id
-			) AS ps ON i.object_id = ps.object_id AND i.index_id = ps.index_id
-		  WHERE   i.fill_factor <> 0 AND i.fill_factor < 80 AND i.is_disabled = 0 AND i.is_hypothetical = 0
-		  GROUP BY i.fill_factor OPTION (RECOMPILE);';
+		  ''The ['' + DB_NAME() + ''] database has '' + CAST(SUM(1) AS NVARCHAR(50)) + '' objects with fill factor = '' + CAST(fill_factor AS NVARCHAR(5)) + ''%. This can cause memory and storage performance problems, but may also prevent page splits.''
+		  FROM    [?].sys.indexes
+		  WHERE   fill_factor <> 0 AND fill_factor < 80 AND is_disabled = 0 AND is_hypothetical = 0
+		  GROUP BY fill_factor OPTION (RECOMPILE);';
 							END;
 
 						IF NOT EXISTS ( SELECT  1
