@@ -47,7 +47,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.32', @VersionDate = '20260407';
+SELECT @Version = '8.33', @VersionDate = '20260415';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -2664,15 +2664,165 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 		IF @max_worker_threads > 0
 			BEGIN
-				INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
-				SELECT 49 AS CheckID,
-					210 AS Priority,
-					'Potential Upcoming Problems' AS FindingGroup,
-					'High Number of Connections' AS Finding,
-					'https://www.brentozar.com/archive/2014/05/connections-slow-sql-server-threadpool/' AS URL,
-					'There are ' + CAST(SUM(1) AS VARCHAR(20)) + ' open connections, which would lead to ' + @LineFeed + 'worker thread exhaustion and THREADPOOL waits' + @LineFeed + 'if they all ran queries at the same time.' AS Details
-			FROM sys.dm_exec_connections c
-			HAVING SUM(1) > @max_worker_threads;
+				/* Count connections first so we only build the Top 5 breakdowns when the
+				   alert actually fires. See issue #3903 for the feature request. */
+				DECLARE @TotalConnections INT;
+				SET @TotalConnections = (SELECT COUNT(*) FROM sys.dm_exec_connections);
+
+				IF @TotalConnections > @max_worker_threads
+				BEGIN
+					/* Load connection + session attributes into a table variable once so we can
+					   aggregate it three different ways (by host, login, and app) without
+					   re-reading the DMVs. sys.dm_exec_sessions.last_request_end_time defaults
+					   to 1900-01-01 for sessions that have never run a request - treat that
+					   sentinel as NULL so it renders as "unknown" rather than "45000 days ago". */
+					DECLARE @ConnSessions TABLE
+					(
+						HostName   NVARCHAR(128) NOT NULL,
+						LoginName  NVARCHAR(128) NOT NULL,
+						AppName    NVARCHAR(128) NOT NULL,
+						LastFinish DATETIME      NULL
+					);
+
+					INSERT INTO @ConnSessions (HostName, LoginName, AppName, LastFinish)
+					SELECT
+						COALESCE(NULLIF(s.host_name,    N''), N'(unknown host)'),
+						COALESCE(NULLIF(s.login_name,   N''), N'(unknown login)'),
+						COALESCE(NULLIF(s.program_name, N''), N'(unknown app)'),
+						NULLIF(s.last_request_end_time, CONVERT(DATETIME, '1900-01-01'))
+					FROM sys.dm_exec_connections c
+					LEFT JOIN sys.dm_exec_sessions s ON s.session_id = c.session_id;
+
+					DECLARE @TopServers NVARCHAR(MAX),
+					        @TopLogins  NVARCHAR(MAX),
+					        @TopApps    NVARCHAR(MAX);
+
+					SELECT @TopServers = STUFF((
+						SELECT @LineFeed
+						     + g.ConnectionGroup + ' - ' + CAST(g.ConnectionCount AS VARCHAR(20)) + ' connections'
+						     + ', most recent query finished '
+						     + CASE
+						         WHEN g.MostRecentSec IS NULL THEN 'unknown'
+						         WHEN g.MostRecentSec < 60    THEN CAST(g.MostRecentSec AS VARCHAR(10)) + ' seconds ago'
+						         WHEN g.MostRecentSec < 3600  THEN CAST(g.MostRecentSec / 60 AS VARCHAR(10)) + ' minutes ago'
+						         WHEN g.MostRecentSec < 86400 THEN CAST(g.MostRecentSec / 3600 AS VARCHAR(10)) + ' hours '
+						                                        + CAST((g.MostRecentSec % 3600) / 60 AS VARCHAR(10)) + ' minutes ago'
+						         ELSE CAST(g.MostRecentSec / 86400 AS VARCHAR(10)) + ' days '
+						            + CAST((g.MostRecentSec % 86400) / 3600 AS VARCHAR(10)) + ' hours ago'
+						       END
+						     + ', oldest query finished '
+						     + CASE
+						         WHEN g.OldestSec IS NULL THEN 'unknown'
+						         WHEN g.OldestSec < 60    THEN CAST(g.OldestSec AS VARCHAR(10)) + ' seconds ago'
+						         WHEN g.OldestSec < 3600  THEN CAST(g.OldestSec / 60 AS VARCHAR(10)) + ' minutes ago'
+						         WHEN g.OldestSec < 86400 THEN CAST(g.OldestSec / 3600 AS VARCHAR(10)) + ' hours '
+						                                    + CAST((g.OldestSec % 3600) / 60 AS VARCHAR(10)) + ' minutes ago'
+						         ELSE CAST(g.OldestSec / 86400 AS VARCHAR(10)) + ' days '
+						            + CAST((g.OldestSec % 86400) / 3600 AS VARCHAR(10)) + ' hours ago'
+						       END
+						FROM (
+							SELECT TOP (5)
+								ConnectionGroup = HostName,
+								ConnectionCount = COUNT(*),
+								MostRecentSec   = DATEDIFF(SECOND, MAX(LastFinish), GETDATE()),
+								OldestSec       = DATEDIFF(SECOND, MIN(LastFinish), GETDATE())
+							FROM @ConnSessions
+							GROUP BY HostName
+							ORDER BY COUNT(*) DESC, HostName
+						) g
+						ORDER BY g.ConnectionCount DESC, g.ConnectionGroup
+						FOR XML PATH(''), TYPE
+					).value('text()[1]', 'nvarchar(max)'), 1, LEN(@LineFeed), N'');
+
+					SELECT @TopLogins = STUFF((
+						SELECT @LineFeed
+						     + g.ConnectionGroup + ' - ' + CAST(g.ConnectionCount AS VARCHAR(20)) + ' connections'
+						     + ', most recent query finished '
+						     + CASE
+						         WHEN g.MostRecentSec IS NULL THEN 'unknown'
+						         WHEN g.MostRecentSec < 60    THEN CAST(g.MostRecentSec AS VARCHAR(10)) + ' seconds ago'
+						         WHEN g.MostRecentSec < 3600  THEN CAST(g.MostRecentSec / 60 AS VARCHAR(10)) + ' minutes ago'
+						         WHEN g.MostRecentSec < 86400 THEN CAST(g.MostRecentSec / 3600 AS VARCHAR(10)) + ' hours '
+						                                        + CAST((g.MostRecentSec % 3600) / 60 AS VARCHAR(10)) + ' minutes ago'
+						         ELSE CAST(g.MostRecentSec / 86400 AS VARCHAR(10)) + ' days '
+						            + CAST((g.MostRecentSec % 86400) / 3600 AS VARCHAR(10)) + ' hours ago'
+						       END
+						     + ', oldest query finished '
+						     + CASE
+						         WHEN g.OldestSec IS NULL THEN 'unknown'
+						         WHEN g.OldestSec < 60    THEN CAST(g.OldestSec AS VARCHAR(10)) + ' seconds ago'
+						         WHEN g.OldestSec < 3600  THEN CAST(g.OldestSec / 60 AS VARCHAR(10)) + ' minutes ago'
+						         WHEN g.OldestSec < 86400 THEN CAST(g.OldestSec / 3600 AS VARCHAR(10)) + ' hours '
+						                                    + CAST((g.OldestSec % 3600) / 60 AS VARCHAR(10)) + ' minutes ago'
+						         ELSE CAST(g.OldestSec / 86400 AS VARCHAR(10)) + ' days '
+						            + CAST((g.OldestSec % 86400) / 3600 AS VARCHAR(10)) + ' hours ago'
+						       END
+						FROM (
+							SELECT TOP (5)
+								ConnectionGroup = LoginName,
+								ConnectionCount = COUNT(*),
+								MostRecentSec   = DATEDIFF(SECOND, MAX(LastFinish), GETDATE()),
+								OldestSec       = DATEDIFF(SECOND, MIN(LastFinish), GETDATE())
+							FROM @ConnSessions
+							GROUP BY LoginName
+							ORDER BY COUNT(*) DESC, LoginName
+						) g
+						ORDER BY g.ConnectionCount DESC, g.ConnectionGroup
+						FOR XML PATH(''), TYPE
+					).value('text()[1]', 'nvarchar(max)'), 1, LEN(@LineFeed), N'');
+
+					SELECT @TopApps = STUFF((
+						SELECT @LineFeed
+						     + g.ConnectionGroup + ' - ' + CAST(g.ConnectionCount AS VARCHAR(20)) + ' connections'
+						     + ', most recent query finished '
+						     + CASE
+						         WHEN g.MostRecentSec IS NULL THEN 'unknown'
+						         WHEN g.MostRecentSec < 60    THEN CAST(g.MostRecentSec AS VARCHAR(10)) + ' seconds ago'
+						         WHEN g.MostRecentSec < 3600  THEN CAST(g.MostRecentSec / 60 AS VARCHAR(10)) + ' minutes ago'
+						         WHEN g.MostRecentSec < 86400 THEN CAST(g.MostRecentSec / 3600 AS VARCHAR(10)) + ' hours '
+						                                        + CAST((g.MostRecentSec % 3600) / 60 AS VARCHAR(10)) + ' minutes ago'
+						         ELSE CAST(g.MostRecentSec / 86400 AS VARCHAR(10)) + ' days '
+						            + CAST((g.MostRecentSec % 86400) / 3600 AS VARCHAR(10)) + ' hours ago'
+						       END
+						     + ', oldest query finished '
+						     + CASE
+						         WHEN g.OldestSec IS NULL THEN 'unknown'
+						         WHEN g.OldestSec < 60    THEN CAST(g.OldestSec AS VARCHAR(10)) + ' seconds ago'
+						         WHEN g.OldestSec < 3600  THEN CAST(g.OldestSec / 60 AS VARCHAR(10)) + ' minutes ago'
+						         WHEN g.OldestSec < 86400 THEN CAST(g.OldestSec / 3600 AS VARCHAR(10)) + ' hours '
+						                                    + CAST((g.OldestSec % 3600) / 60 AS VARCHAR(10)) + ' minutes ago'
+						         ELSE CAST(g.OldestSec / 86400 AS VARCHAR(10)) + ' days '
+						            + CAST((g.OldestSec % 86400) / 3600 AS VARCHAR(10)) + ' hours ago'
+						       END
+						FROM (
+							SELECT TOP (5)
+								ConnectionGroup = AppName,
+								ConnectionCount = COUNT(*),
+								MostRecentSec   = DATEDIFF(SECOND, MAX(LastFinish), GETDATE()),
+								OldestSec       = DATEDIFF(SECOND, MIN(LastFinish), GETDATE())
+							FROM @ConnSessions
+							GROUP BY AppName
+							ORDER BY COUNT(*) DESC, AppName
+						) g
+						ORDER BY g.ConnectionCount DESC, g.ConnectionGroup
+						FOR XML PATH(''), TYPE
+					).value('text()[1]', 'nvarchar(max)'), 1, LEN(@LineFeed), N'');
+
+					INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+					VALUES (
+						49,
+						210,
+						'Potential Upcoming Problems',
+						'High Number of Connections',
+						'https://www.brentozar.com/archive/2014/05/connections-slow-sql-server-threadpool/',
+						'There are ' + CAST(@TotalConnections AS VARCHAR(20)) + ' open connections, which would lead to ' + @LineFeed
+							+ 'worker thread exhaustion and THREADPOOL waits' + @LineFeed
+							+ 'if they all ran queries at the same time.'
+							+ @LineFeed + @LineFeed + 'Top 5 Servers:' + ISNULL(@TopServers, @LineFeed + '(none)')
+							+ @LineFeed + @LineFeed + 'Top 5 Logins:'  + ISNULL(@TopLogins,  @LineFeed + '(none)')
+							+ @LineFeed + @LineFeed + 'Top 5 Apps:'    + ISNULL(@TopApps,    @LineFeed + '(none)')
+					);
+				END
 			END
 		END
 
