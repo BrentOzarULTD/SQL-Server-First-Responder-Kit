@@ -7504,7 +7504,9 @@ IF NOT EXISTS ( SELECT  1
 				GROUP BY ps.object_id, ps.index_id
 			) AS ps ON i.object_id = ps.object_id AND i.index_id = ps.index_id
 		  WHERE   i.fill_factor <> 0 AND i.fill_factor < 80 AND i.is_disabled = 0 AND i.is_hypothetical = 0
-		  GROUP BY i.fill_factor OPTION (RECOMPILE);';
+		  GROUP BY i.fill_factor
+		  HAVING SUM(ISNULL(ps.reserved_page_count, 0)) >= 2560
+		  OPTION (RECOMPILE);';
 							END;
 
 						IF NOT EXISTS ( SELECT  1
