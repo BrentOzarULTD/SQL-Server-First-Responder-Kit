@@ -76,6 +76,8 @@ When you have a question about what the scripts found, first make sure you read 
 ## sp_Blitz: Overall Health Check
 Run sp_Blitz daily or weekly for an overall health check. Just run it from SQL Server Management Studio, and you'll get a prioritized list of issues on your server right now.
 
+**Note:** sp_Blitz requires `sp_ineachdb` (also shipped in this repo) to be installed in the same database. `Install-All-Scripts.sql` installs both automatically, with `sp_ineachdb` placed first. If you're installing scripts individually, install `sp_ineachdb.sql` before `sp_Blitz.sql`, or sp_Blitz will fail at runtime on its per-database checks. See the [sp_ineachdb section](#sp_ineachdb-run-a-command-in-each-database) below for details.
+
 Output columns include:
 
 * Priority - 1 is the most urgent, stuff that could get you fired. The warnings get progressively less urgent.

@@ -151,9 +151,17 @@ if (Test-Path $BlitzFirstPath) {
 Write-Host "  Built: Install-Azure.sql"
 
 # ── Install-All-Scripts.sql ──────────────────────────────────────────────────
-# All sp_*.sql except sp_BlitzInMemoryOLTP.sql and sp_BlitzFirst.sql
-$allContent = Get-ChildItem -Path $RepoRoot -Filter "sp_*.sql" |
-    Where-Object { $_.Name -notlike "*BlitzInMemoryOLTP*" -and $_.Name -notlike "*BlitzFirst*" } |
+# All sp_*.sql except sp_BlitzInMemoryOLTP.sql and sp_BlitzFirst.sql.
+# sp_ineachdb.sql must come first because sp_Blitz (and others) call it at
+# runtime — putting it ahead of sp_Blitz means the dependency exists by the
+# time later procs execute per-database checks.
+$IneachdbPath = Join-Path $RepoRoot "sp_ineachdb.sql"
+$allContent = @()
+if (Test-Path $IneachdbPath) {
+    $allContent += Get-Content -Path $IneachdbPath -Raw -Encoding UTF8
+}
+$allContent += Get-ChildItem -Path $RepoRoot -Filter "sp_*.sql" |
+    Where-Object { $_.Name -notlike "*BlitzInMemoryOLTP*" -and $_.Name -notlike "*BlitzFirst*" -and $_.Name -ne "sp_ineachdb.sql" } |
     ForEach-Object { Get-Content $_.FullName -Raw -Encoding UTF8 }
 
 # Append SqlServerVersions.sql
