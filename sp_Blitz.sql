@@ -997,8 +997,11 @@ BEGIN
 						INSERT INTO #SkipChecks (CheckID) VALUES (260); /* SQL Server service account in Administrators */
 						INSERT INTO #SkipChecks (CheckID) VALUES (261); /* Agent service account in Administrators */
 
-						/* Replication / mirroring / AGs - not applicable on Azure SQL DB */
+						/* Replication / mirroring / AGs / clustering - not applicable on Azure SQL DB */
+						INSERT INTO #SkipChecks (CheckID) VALUES (53);  /* Cluster Node - sys.dm_hadr_* DMVs unavailable */
 						INSERT INTO #SkipChecks (CheckID) VALUES (227); /* Database Mirroring */
+						INSERT INTO #SkipChecks (CheckID) VALUES (234); /* SQL Server Update May Fail - queries master.sys.master_files */
+						INSERT INTO #SkipChecks (CheckID) VALUES (268); /* AG Replica Falling Behind - sys.availability_* DMVs unavailable */
 
 			            INSERT  INTO #BlitzResults
 			            ( CheckID ,
