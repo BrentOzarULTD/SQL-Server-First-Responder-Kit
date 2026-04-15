@@ -2732,7 +2732,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 						) g
 						ORDER BY g.ConnectionCount DESC, g.ConnectionGroup
 						FOR XML PATH(''), TYPE
-					).value('text()[1]', 'nvarchar(max)'), 1, LEN(@LineFeed), N'');
+					).value(N'.[1]', N'NVARCHAR(MAX)'), 1, LEN(@LineFeed), N'');
 
 					SELECT @TopLogins = STUFF((
 						SELECT @LineFeed
@@ -2769,7 +2769,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 						) g
 						ORDER BY g.ConnectionCount DESC, g.ConnectionGroup
 						FOR XML PATH(''), TYPE
-					).value('text()[1]', 'nvarchar(max)'), 1, LEN(@LineFeed), N'');
+					).value(N'.[1]', N'NVARCHAR(MAX)'), 1, LEN(@LineFeed), N'');
 
 					SELECT @TopApps = STUFF((
 						SELECT @LineFeed
@@ -2806,7 +2806,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 						) g
 						ORDER BY g.ConnectionCount DESC, g.ConnectionGroup
 						FOR XML PATH(''), TYPE
-					).value('text()[1]', 'nvarchar(max)'), 1, LEN(@LineFeed), N'');
+					).value(N'.[1]', N'NVARCHAR(MAX)'), 1, LEN(@LineFeed), N'');
 
 					INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
 					VALUES (
@@ -2818,9 +2818,9 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 						'There are ' + CAST(@TotalConnections AS VARCHAR(20)) + ' open connections, which would lead to ' + @LineFeed
 							+ 'worker thread exhaustion and THREADPOOL waits' + @LineFeed
 							+ 'if they all ran queries at the same time.'
-							+ @LineFeed + @LineFeed + 'Top 5 Servers:' + ISNULL(@TopServers, @LineFeed + '(none)')
-							+ @LineFeed + @LineFeed + 'Top 5 Logins:'  + ISNULL(@TopLogins,  @LineFeed + '(none)')
-							+ @LineFeed + @LineFeed + 'Top 5 Apps:'    + ISNULL(@TopApps,    @LineFeed + '(none)')
+							+ @LineFeed + @LineFeed + 'Top 5 Servers:' + @LineFeed + ISNULL(@TopServers, '(none)')
+							+ @LineFeed + @LineFeed + 'Top 5 Logins:'  + @LineFeed + ISNULL(@TopLogins,  '(none)')
+							+ @LineFeed + @LineFeed + 'Top 5 Apps:'    + @LineFeed + ISNULL(@TopApps,    '(none)')
 					);
 				END
 			END
