@@ -71,7 +71,7 @@ BEGIN
 	SOFTWARE.
 	*/
 
-	SELECT @Version = '8.33', @VersionDate = '20260415';
+	SELECT @Version = '8.32', @VersionDate = '20260407';
 
 	IF(@VersionCheckMode = 1)
 	BEGIN
