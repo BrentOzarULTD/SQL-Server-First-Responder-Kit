@@ -535,6 +535,47 @@ For information about how this works, see [Tara Kizer's white paper on Log Shipp
 
 
 
+## sp_ineachdb: Run a Command in Each Database
+
+`sp_ineachdb` is a drop-in replacement for the undocumented `sp_MSforeachdb` with saner filtering and error handling. Pass a command string using `?` as a placeholder for the database name:
+
+```tsql
+EXEC sp_ineachdb @command = N'SELECT DB_NAME() AS db, COUNT(*) AS tables FROM [?].sys.tables;';
+```
+
+Useful parameters:
+
+* `@command` - the T-SQL to run. `?` (or whatever you set `@replace_character` to) gets replaced with the quoted database name.
+* `@database_list`, `@exclude_list` - comma-separated lists of databases to include or exclude. Bracket-quote names that contain special characters.
+* `@name_pattern`, `@exclude_pattern` - LIKE patterns applied to database names.
+* `@system_only`, `@user_only` - limit to system DBs (master/model/msdb/tempdb/distribution) or user DBs.
+* `@recovery_model_desc`, `@compatibility_level`, `@is_read_only`, `@is_auto_close_on`, `@is_auto_shrink_on`, `@is_broker_enabled`, `@is_query_store_on`, `@user_access`, `@state_desc` - filter by database property.
+* `@is_ag_writeable_copy = 1` - skip Availability Group secondaries.
+* `@print_dbname`, `@print_command`, `@print_command_only`, `@select_dbname` - diagnostics for debugging your command string without running it.
+
+### Azure SQL DB support
+
+Azure SQL DB forbids cross-database calls and 3-part object names, so "run in each database" collapses to "run in the current database" (Azure SQL DB sessions are bound to one user database anyway). `sp_ineachdb` detects Azure SQL DB via `SERVERPROPERTY('EngineEdition') = 5` and adapts automatically:
+
+* Seeds the database list with just the current database.
+* Executes `@command` via `EXEC sys.sp_executesql` instead of a 3-part dynamic call.
+* Rewrites common `sp_MSforeachdb`-style patterns in `@command` so they don't have to be changed:
+  * `USE [?];` and `USE ?;` (with or without brackets or semicolons) are stripped - you can't change database context in Azure SQL DB.
+  * `[?].schema.object` and `?.schema.object` are collapsed to `schema.object`, turning 3-part names into 2-part names.
+
+This means callers that already work with `sp_MSforeachdb` on box SQL (like `sp_Blitz` internals) can call `sp_ineachdb` on Azure SQL DB and Just Work.
+
+**Things to look out for on Azure SQL DB:**
+
+* **Placeholders inside string literals get rewritten too.** `PRINT 'See [?].sys.tables'` will have `[?].` stripped out - avoid putting the placeholder inside quoted strings. (This caveat also applies to box SQL, since `@command` text substitution happens everywhere.)
+* **Non-canonical whitespace isn't matched.** `USE  [?];` (double space) or `[?] . sys . tables` (spaces between name parts) won't be rewritten. Stick to the canonical `USE [?];` and `[?].sys.tables` forms.
+* **Managed Instance is not affected.** Azure SQL Managed Instance reports `EngineEdition = 8` and supports cross-database calls, so it uses the same code path as box SQL.
+* **Filter parameters still apply** - the current database is added to the list, then the usual `@name_pattern`, `@user_only`, property filters, etc. can still exclude it. If nothing matches, you get the normal `No databases to process.` message.
+
+[*Back to top*](#header1)
+
+
+
 ## Parameters Common to Many of the Stored Procedures
 
 * @Help = 1 - returns a result set or prints messages explaining the stored procedure's input and output. Make sure to check the Messages tab in SSMS to read it.
