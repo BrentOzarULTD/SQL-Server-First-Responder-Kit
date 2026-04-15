@@ -50,7 +50,6 @@ ALTER PROCEDURE dbo.sp_BlitzWho
 	@MinTempdbMB INT = 0 ,
 	@MinRequestedMemoryKB INT = 0 ,
 	@MinBlockingSeconds INT = 0 ,
-	@OnlyProblems BIT = 0 ,
 	@CheckDateOverride DATETIMEOFFSET = NULL,
 	@ShowActualParameters BIT = 0,
 	@GetOuterCommand BIT = 0,
@@ -58,7 +57,8 @@ ALTER PROCEDURE dbo.sp_BlitzWho
 	@Version     VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
     @VersionCheckMode BIT = 0,
-	@SortOrder NVARCHAR(256) = N'elapsed time'
+	@SortOrder NVARCHAR(256) = N'elapsed time',
+	@OnlyProblems BIT = 0
 AS
 BEGIN
 	SET NOCOUNT ON;
@@ -949,7 +949,7 @@ IF @OnlyProblems = 1
 		r.blocking_session_id <> 0
 		OR blocked.session_id IS NOT NULL
 		OR wt.wait_info IS NOT NULL
-		OR (s.status = ''sleeping'' AND COALESCE(r.open_transaction_count, blocked.open_tran, 0) >= 1)
+		OR (s.status = ''sleeping'' AND COALESCE(s.open_transaction_count, r.open_transaction_count, blocked.open_tran, 0) >= 1)
 		OR ABS(COALESCE(r.total_elapsed_time, 0)) / 1000 >= 30
 	) ';
 	END
