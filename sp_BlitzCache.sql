@@ -3155,27 +3155,29 @@ OPTION (RECOMPILE) ;
 
 -- high level plan stuff
 RAISERROR(N'Gathering high level plan information', 0, 1) WITH NOWAIT;
+/* Aggregate out of #plan_cache_by_db instead of rescanning sys.dm_exec_query_stats
+   + sys.dm_exec_plan_attributes. That temp table was already populated from those
+   DMVs above and has everything we need (database_id, query_hash, query_plan_hash),
+   so we save a second full pass over the plan cache. */
 UPDATE  ##BlitzCacheProcs
 SET     NumberOfDistinctPlans = distinct_plan_count,
         NumberOfPlans = number_of_plans ,
         plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN number_of_plans END
 FROM
     (
-    SELECT    
-        DatabaseName = 
-            DB_NAME(CONVERT(int, pa.value)),
-        QueryHash = 
-            qs.query_hash,
+    SELECT
+        DatabaseName =
+            DB_NAME(pc.database_id),
+        QueryHash =
+            pc.query_hash,
         number_of_plans =
-           COUNT_BIG(qs.query_plan_hash),
-        distinct_plan_count = 
-            COUNT_BIG(DISTINCT qs.query_plan_hash)
-    FROM sys.dm_exec_query_stats AS qs
-    CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) pa
-    WHERE pa.attribute = 'dbid'
-    GROUP BY 
-        DB_NAME(CONVERT(int, pa.value)), 
-        qs.query_hash
+           COUNT_BIG(pc.query_plan_hash),
+        distinct_plan_count =
+            COUNT_BIG(DISTINCT pc.query_plan_hash)
+    FROM #plan_cache_by_db AS pc
+    GROUP BY
+        DB_NAME(pc.database_id),
+        pc.query_hash
 ) AS x
 WHERE ##BlitzCacheProcs.QueryHash = x.QueryHash
 AND   ##BlitzCacheProcs.DatabaseName = x.DatabaseName
