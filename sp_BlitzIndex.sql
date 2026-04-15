@@ -5986,6 +5986,14 @@ BEGIN
             FROM #ForeignKeys fk
             WHERE ([delete_referential_action_desc] <> N'NO_ACTION'
             OR [update_referential_action_desc] <> N'NO_ACTION')
+            AND EXISTS (
+                SELECT 1/0
+                FROM #IndexSanity i
+                WHERE i.object_id = fk.parent_object_id
+                AND i.database_id = fk.database_id
+                AND i.schema_name = fk.schema_name
+                AND i.user_updates > 0
+            )
 			OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 72: Unindexed foreign keys.', 0,1) WITH NOWAIT;
