@@ -928,7 +928,7 @@ BEGIN
             END; /* Azure Managed Instance skipped checks */
 
 		/* If the server is Azure SQL Database, skip checks that it doesn't allow */
-		IF SERVERPROPERTY('EngineEdition') = 5
+		IF @IsAzureSQLDB = 1
 			BEGIN
 						/* Backup / restore history - msdb does not exist on Azure SQL DB */
 						INSERT INTO #SkipChecks (CheckID) VALUES (1);   /* Full backups */
@@ -9933,7 +9933,7 @@ IF NOT EXISTS ( SELECT  1
 								DROP TABLE IF EXISTS #MasterFiles;
 								CREATE TABLE #MasterFiles (database_id INT, file_id INT, type_desc NVARCHAR(50), name NVARCHAR(255), physical_name NVARCHAR(255), size BIGINT);
 								/* Azure SQL Database doesn't have sys.master_files, so we have to build our own. */
-								IF (CONVERT(INT, SERVERPROPERTY('EngineEdition')) = 5
+								IF (@IsAzureSQLDB = 1
 									 AND (OBJECT_ID('sys.master_files') IS NULL))
 									SET @StringToExecute = 'INSERT INTO #MasterFiles (database_id, file_id, type_desc, name, physical_name, size) SELECT DB_ID(), file_id, type_desc, name, physical_name, size FROM sys.database_files;';
 								ELSE
