@@ -41396,6 +41396,34 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         AND ps.counter_name = 'Transactions aborted/sec'
         AND ps.value_delta > (10 * @Seconds); /* Ignore servers sitting idle */
 
+    IF EXISTS
+    (
+        SELECT 1/0
+        FROM #PerfmonStats AS ps
+        WHERE ps.Pass = 2
+            AND ps.object_name = @ServiceName + ':Databases'
+            AND ps.counter_name = 'XTP Memory Used (KB)'
+            AND ps.instance_name = 'tempdb'
+            AND ps.cntr_value > 0
+    )
+        AND NOT EXISTS
+    (
+        SELECT 1/0
+        FROM #PerfmonStats AS ps
+        WHERE ps.Pass = 2
+            AND ps.object_name = @ServiceName + ':Databases'
+            AND ps.counter_name = 'XTP Memory Used (KB)'
+            AND ps.instance_name NOT IN ('tempdb', '_Total')
+            AND ps.cntr_value > 0
+    )
+    BEGIN
+        UPDATE bfr
+        SET bfr.Priority = 210
+        FROM #BlitzFirstResults AS bfr
+        WHERE bfr.FindingsGroup = 'In-Memory OLTP'
+            AND bfr.Priority < 210;
+    END;
+
     /* Query Problems - Suboptimal Plans/Sec High - CheckID 33 */
 	IF (@Debug = 1)
 	BEGIN
