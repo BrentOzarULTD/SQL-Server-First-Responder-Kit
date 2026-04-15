@@ -5202,10 +5202,6 @@ BEGIN
                 '    MandatoryComponent' + @crlf +
                 ')' + @crlf +
                 'AS (' + @crlf +
-                '    SELECT ''sp_AllNightLog'',''P'' ,0' + @crlf +
-                '    UNION ALL' + @crlf +
-                '    SELECT ''sp_AllNightLog_Setup'', ''P'',0' + @crlf +
-                '    UNION ALL ' + @crlf +
                 '    SELECT ''sp_Blitz'',''P'',0' + @crlf +
                 '    UNION ALL ' + @crlf +
                 '    SELECT ''sp_BlitzBackups'',''P'',0' + @crlf +
@@ -5217,8 +5213,6 @@ BEGIN
                 '    SELECT ''sp_BlitzIndex'',''P'',0' + @crlf +
                 '    UNION ALL ' + @crlf +
                 '    SELECT ''sp_BlitzLock'',''P'',0' + @crlf +
-                '    UNION ALL ' + @crlf +
-                '    SELECT ''sp_BlitzQueryStore'',''P'',0' + @crlf +
                 '    UNION ALL ' + @crlf +
                 '    SELECT ''sp_BlitzWho'',''P'',0' + @crlf +
                 '    UNION ALL ' + @crlf +
