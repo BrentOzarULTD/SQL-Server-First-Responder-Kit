@@ -4692,7 +4692,7 @@ BEGIN
                         JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                         WHERE    i.index_id = 0 
                                 AND (i.total_reads > 0 OR i.user_updates > 0)
-								AND sz.total_rows >= 100000
+								AND sz.total_reserved_MB > 10240
                                 AND h.[object_id] IS NULL /*don't duplicate the prior check.*/
                 OPTION    ( RECOMPILE );
 
@@ -4731,7 +4731,7 @@ BEGIN
                         WHERE    i.index_id = 0 
                                 AND 
                                     (i.total_reads > 0 OR i.user_updates > 0)
-								AND sz.total_rows >= 10000 AND sz.total_rows < 100000
+								AND sz.total_reserved_MB >= 1024 AND sz.total_reserved_MB <= 10240
                                 AND h.[object_id] IS NULL /*don't duplicate the prior check.*/
                 OPTION    ( RECOMPILE );
 
@@ -4770,7 +4770,7 @@ BEGIN
                         WHERE    i.index_id = 0 
                                 AND 
                                     (i.total_reads > 0 OR i.user_updates > 0)
-								AND sz.total_rows < 10000
+								AND sz.total_reserved_MB >= 1 AND sz.total_reserved_MB < 1024
                                 AND h.[object_id] IS NULL /*don't duplicate the prior check.*/
 						OPTION    ( RECOMPILE );
 
