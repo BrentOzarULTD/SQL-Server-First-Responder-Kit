@@ -5182,28 +5182,6 @@ BEGIN
         RAISERROR(N'@Mode=4, running rules for priorities 101+.', 0,1) WITH NOWAIT;
 
             RAISERROR(N'check_id 21: More Than 5 Percent NC Indexes Are Unused', 0,1) WITH NOWAIT;
-            DECLARE @percent_NC_indexes_unused NUMERIC(29,1);
-            DECLARE @NC_indexes_unused_reserved_MB NUMERIC(29,1);
-
-            SELECT  @percent_NC_indexes_unused = ( 100.00 * SUM(CASE 
-					                                                WHEN total_reads = 0 
-																	THEN 1
-                                                                    ELSE 0
-                                                                    END) ) / COUNT(*),
-                    @NC_indexes_unused_reserved_MB = SUM(CASE 
-							                                    WHEN total_reads = 0 
-																THEN sz.total_reserved_MB
-                                                                ELSE 0
-                                                            END) 
-            FROM    #IndexSanity i
-            JOIN    #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
-            WHERE    index_id NOT IN ( 0, 1 ) 
-                    AND i.is_unique = 0
-                    /*Skipping tables created in the last week, or modified in past 2 days*/
-                    AND	i.create_date < DATEADD(dd,-7,GETDATE()) 
-                    AND i.modify_date < DATEADD(dd,-2,GETDATE()) 
-            OPTION    ( RECOMPILE );
-            IF @percent_NC_indexes_unused >= 5 
             INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                             secret_columns, index_usage_summary, index_size_summary )
                         SELECT  21 AS check_id, 
@@ -5213,8 +5191,8 @@ BEGIN
                                 N'More Than 5 Percent NC Indexes Are Unused' AS finding,
                                 [database_name] AS [Database Name],
                                 N'https://www.brentozar.com/go/IndexHoarder' AS URL,
-                                CAST (@percent_NC_indexes_unused AS NVARCHAR(30)) + N' percent NC indexes (' + CAST(COUNT(*) AS NVARCHAR(10)) + N') unused. ' +
-                                N'These take up ' + CAST (@NC_indexes_unused_reserved_MB AS NVARCHAR(30)) + N'MB of space.' AS details,
+                                CAST (MAX(perc.percent_NC_indexes_unused) AS NVARCHAR(30)) + N' percent NC indexes (' + CAST(COUNT(*) AS NVARCHAR(10)) + N') unused. ' +
+                                N'These take up ' + CAST (MAX(perc.NC_indexes_unused_reserved_MB) AS NVARCHAR(30)) + N'MB of space.' AS details,
                                 i.database_name + ' (' + CAST (COUNT(*) AS NVARCHAR(30)) + N' indexes)' AS index_definition,
                                 '' AS secret_columns, 
                                 CAST(SUM(total_reads) AS NVARCHAR(256)) + N' reads (ALL); '
@@ -5229,12 +5207,26 @@ BEGIN
                                     END AS index_size_summary
                         FROM    #IndexSanity i
                         JOIN    #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                        JOIN (
+                                SELECT  i.database_name,
+                                        CAST((100.00 * SUM(CASE WHEN total_reads = 0 THEN 1 ELSE 0 END)) / COUNT(*) AS NUMERIC(29,1)) AS percent_NC_indexes_unused,
+                                        CAST(SUM(CASE WHEN total_reads = 0 THEN sz.total_reserved_MB ELSE 0 END) AS NUMERIC(29,1)) AS NC_indexes_unused_reserved_MB
+                                FROM    #IndexSanity i
+                                JOIN    #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
+                                WHERE   index_id NOT IN ( 0, 1 )
+                                        AND i.is_unique = 0
+                                        /*Skipping tables created in the last week, or modified in past 2 days*/
+                                        AND i.create_date < DATEADD(dd,-7,GETDATE())
+                                        AND i.modify_date < DATEADD(dd,-2,GETDATE())
+                                GROUP BY i.database_name
+                             ) AS perc ON i.database_name = perc.database_name
                         WHERE    index_id NOT IN ( 0, 1 )
                                 AND i.is_unique = 0
                                 AND total_reads = 0
                                 /*Skipping tables created in the last week, or modified in past 2 days*/
                                 AND	i.create_date < DATEADD(dd,-7,GETDATE()) 
                                 AND i.modify_date < DATEADD(dd,-2,GETDATE())
+                                AND perc.percent_NC_indexes_unused >= 5
                         GROUP BY i.database_name 
                 OPTION    ( RECOMPILE );
 
