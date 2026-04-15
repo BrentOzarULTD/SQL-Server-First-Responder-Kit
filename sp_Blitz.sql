@@ -5792,12 +5792,14 @@ IF NOT EXISTS ( SELECT  1
 										'TempDB' AS DatabaseName ,
 										170 AS Priority ,
 										'File Configuration' AS FindingsGroup ,
-										'TempDB Has >16 Data Files' AS Finding ,
+										'TempDB Has a Lot of Data Files' AS Finding ,
 										'https://www.brentozar.com/go/tempdb' AS URL ,
-										'Woah, Nelly! TempDB has ' + CAST(COUNT_BIG(*) AS VARCHAR(30)) + '. Did you forget to terminate a loop somewhere?' AS Details
+										'This server has ' + CAST(si.cpu_count AS VARCHAR(30)) + ' cores and ' + CAST(COUNT_BIG(*) AS VARCHAR(30)) + ' TempDB data files.' AS Details
 								  FROM sys.[master_files] AS [mf]
+								  CROSS JOIN sys.dm_os_sys_info AS [si]
 								  WHERE [mf].[database_id] = 2 AND [mf].[type] = 0
-								  HAVING COUNT_BIG(*) > 16;
+								  HAVING COUNT_BIG(*) > 8
+									AND COUNT_BIG(*) * 2 > MAX([si].[cpu_count]);
 					END;	
 
 			IF NOT EXISTS ( SELECT  1
