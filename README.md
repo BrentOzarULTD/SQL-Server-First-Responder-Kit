@@ -93,6 +93,8 @@ Commonly used parameters:
 * @CheckServerInfo = 1 - includes additional rows at priority 250 with server configuration details like service accounts. 
 * @IgnorePrioritiesAbove = 50 - if you want a daily bulletin of the most important warnings, set @IgnorePrioritiesAbove = 50 to only get the urgent stuff.
 
+**Azure SQL DB support:** sp_Blitz runs on Azure SQL Database (`SERVERPROPERTY('EngineEdition') = 5`) and skips ~40 checks that rely on things Azure SQL DB does not expose: backup history in msdb, SQL Agent jobs and alerts, `xp_*` extended procs (drive space, error log, registry reads), `sys.master_files`, `sp_validatelogins`, cross-database DBCC commands, linked servers, and database mirroring / AGs. When sp_Blitz detects Azure SQL DB, a CheckID 223 "Some Checks Skipped" informational row is returned so you know coverage is reduced. Email output via `@EmailRecipients` (Database Mail is unavailable) and remote output via `@OutputServerName` (no linked servers) are also not supported on Azure SQL DB - sp_Blitz prints a not-supported message and continues instead of erroring. Managed Instance (`EngineEdition = 8`) and Amazon RDS are unaffected and continue to use their existing code paths.
+
 Advanced tips:
 
 * [How to install, run, and centralize the data from sp_Blitz using PowerShell](https://garrybargsley.com/2020/07/14/sp_blitz-for-all-servers/)
