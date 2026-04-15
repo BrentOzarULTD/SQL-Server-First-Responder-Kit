@@ -3625,6 +3625,70 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         SELECT CAST((wd2.thread_time_ms - wd1.thread_time_ms) / 1000 AS INT) AS TotalThreadTimeSeconds
     ) AS c;
 
+    /* Potential Upcoming Problems - High Thread Time - CheckID 54 */
+    IF @Seconds > 0
+    BEGIN
+		IF (@Debug = 1)
+		BEGIN
+			RAISERROR('Running CheckID 54',10,1) WITH NOWAIT;
+		END
+
+        ;WITH max_batch AS (
+            SELECT MAX(SampleTime) AS SampleTime
+            FROM #WaitStats
+        ),
+        thread_time AS (
+            SELECT TOP 1
+                wd1.SampleTime AS StartSampleTime,
+                wd2.SampleTime AS EndSampleTime,
+                CAST((wd2.thread_time_ms - wd1.thread_time_ms) / 1000.0 AS DECIMAL(18,1)) AS TotalThreadTimeSeconds
+            FROM max_batch b
+            JOIN #WaitStats wd2 ON wd2.SampleTime = b.SampleTime
+            JOIN #WaitStats wd1 ON wd1.wait_type = wd2.wait_type AND wd2.SampleTime > wd1.SampleTime
+            ORDER BY wd2.SampleTime DESC, wd1.SampleTime ASC
+        ),
+        non_idle_waits AS (
+            SELECT CAST(SUM((wNow.wait_time_ms - COALESCE(wBase.wait_time_ms, 0)) / 1000.0) AS DECIMAL(18,1)) AS NonIdleWaitSeconds
+            FROM #WaitStats wNow
+            LEFT OUTER JOIN #WaitStats wBase ON wNow.wait_type = wBase.wait_type AND wNow.SampleTime > wBase.SampleTime
+            LEFT OUTER JOIN ##WaitCategories wc ON wc.WaitType = wNow.wait_type
+            WHERE wNow.Pass = 2
+                AND (wc.WaitCategory IS NULL OR wc.WaitCategory <> 'Idle')
+        ),
+        cores AS (
+            SELECT SUM(1) AS cpu_count
+            FROM sys.dm_os_schedulers
+            WHERE status = 'VISIBLE ONLINE'
+                AND is_online = 1
+        )
+        INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, DetailsInt)
+        SELECT
+            54 AS CheckID,
+            1 AS Priority,
+            'Potential Upcoming Problems' AS FindingsGroup,
+            'High Thread Time' AS Finding,
+            'https://www.brentozar.com/go/threadtime' AS URL,
+            CAST(CAST(c.CpuTimeUsedSeconds AS DECIMAL(18,1)) AS NVARCHAR(30))
+                + ' CPU time used out of a theoretical max of '
+                + CAST(CAST(t.TheoreticalMaxCpuSeconds AS DECIMAL(18,1)) AS NVARCHAR(30))
+                + ' seconds. As CPU time used starts to approach 80-90%, the server can quickly become unresponsive. Be prepared to troubleshoot with the DAC.' AS Details,
+            CAST(c.CpuTimeUsedSeconds AS INT) AS DetailsInt
+        FROM thread_time tt
+        CROSS JOIN non_idle_waits niw
+        CROSS JOIN cores i
+        CROSS APPLY (
+            SELECT CAST(i.cpu_count * DATEDIFF(ss, tt.StartSampleTime, tt.EndSampleTime) AS DECIMAL(18,1)) AS TheoreticalMaxCpuSeconds
+        ) t
+        CROSS APPLY (
+            SELECT CAST(CASE
+                    WHEN tt.TotalThreadTimeSeconds - COALESCE(niw.NonIdleWaitSeconds, 0) < 0 THEN 0
+                    ELSE tt.TotalThreadTimeSeconds - COALESCE(niw.NonIdleWaitSeconds, 0)
+                END AS DECIMAL(18,1)) AS CpuTimeUsedSeconds
+        ) c
+        WHERE t.TheoreticalMaxCpuSeconds > 0
+            AND c.CpuTimeUsedSeconds >= (t.TheoreticalMaxCpuSeconds * 0.5);
+    END;
+
     /* Server Info - Batch Requests per Sec - CheckID 19 */
 	IF (@Debug = 1)
 	BEGIN
