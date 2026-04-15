@@ -2670,8 +2670,146 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 					'Potential Upcoming Problems' AS FindingGroup,
 					'High Number of Connections' AS Finding,
 					'https://www.brentozar.com/archive/2014/05/connections-slow-sql-server-threadpool/' AS URL,
-					'There are ' + CAST(SUM(1) AS VARCHAR(20)) + ' open connections, which would lead to ' + @LineFeed + 'worker thread exhaustion and THREADPOOL waits' + @LineFeed + 'if they all ran queries at the same time.' AS Details
+					'There are ' + CAST(SUM(1) AS VARCHAR(20)) + ' open connections, which would lead to ' + @LineFeed + 'worker thread exhaustion and THREADPOOL waits' + @LineFeed + 'if they all ran queries at the same time.'
+                    + @LineFeed + @LineFeed + 'Top 5 Servers:' + @LineFeed + TopFiveServers.Details
+                    + @LineFeed + @LineFeed + 'Top 5 Logins:' + @LineFeed + TopFiveLogins.Details
+                    + @LineFeed + @LineFeed + 'Top 5 Apps:' + @LineFeed + TopFiveApps.Details AS Details
 			FROM sys.dm_exec_connections c
+            CROSS APPLY
+            (
+                SELECT COALESCE
+                (
+                    STUFF
+                    (
+                        (
+                            SELECT TOP 5
+                                @LineFeed
+                                + GroupedConnections.ConnectionGroup + ' - ' + CAST(GroupedConnections.ConnectionCount AS VARCHAR(20))
+                                + ' connections, most recent query finished ' + GroupedConnections.MostRecentFinish
+                                + ', oldest query finished ' + GroupedConnections.OldestFinish
+                            FROM
+                            (
+                                SELECT
+                                    COALESCE(NULLIF(s2.host_name, N''), N'(Unknown host)') AS ConnectionGroup,
+                                    COUNT(*) AS ConnectionCount,
+                                    CASE
+                                        WHEN MAX(s2.last_request_end_time) IS NULL THEN 'unknown'
+                                        WHEN DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) < 60 THEN CAST(DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) AS VARCHAR(20)) + ' seconds ago'
+                                        WHEN DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) < 3600 THEN CAST(DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) / 60 AS VARCHAR(20)) + ' minutes ago'
+                                        WHEN DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) < 86400 THEN CAST(DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) / 3600 AS VARCHAR(20)) + ' hours ' + CAST((DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) % 3600) / 60 AS VARCHAR(20)) + ' minutes ago'
+                                        ELSE CAST(DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) / 86400 AS VARCHAR(20)) + ' days ' + CAST((DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) % 86400) / 3600 AS VARCHAR(20)) + ' hours ago'
+                                    END AS MostRecentFinish,
+                                    CASE
+                                        WHEN MIN(s2.last_request_end_time) IS NULL THEN 'unknown'
+                                        WHEN DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) < 60 THEN CAST(DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) AS VARCHAR(20)) + ' seconds ago'
+                                        WHEN DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) < 3600 THEN CAST(DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) / 60 AS VARCHAR(20)) + ' minutes ago'
+                                        WHEN DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) < 86400 THEN CAST(DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) / 3600 AS VARCHAR(20)) + ' hours ' + CAST((DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) % 3600) / 60 AS VARCHAR(20)) + ' minutes ago'
+                                        ELSE CAST(DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) / 86400 AS VARCHAR(20)) + ' days ' + CAST((DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) % 86400) / 3600 AS VARCHAR(20)) + ' hours ago'
+                                    END AS OldestFinish
+                                FROM sys.dm_exec_connections c2
+                                LEFT JOIN sys.dm_exec_sessions s2 ON c2.session_id = s2.session_id
+                                GROUP BY COALESCE(NULLIF(s2.host_name, N''), N'(Unknown host)')
+                            ) AS GroupedConnections
+                            ORDER BY GroupedConnections.ConnectionCount DESC, GroupedConnections.ConnectionGroup
+                            FOR XML PATH(''), TYPE
+                        ).value(N'.[1]', N'nvarchar(max)'),
+                        1,
+                        LEN(@LineFeed),
+                        N''
+                    ),
+                    N'(no connections found)'
+                ) AS Details
+            ) AS TopFiveServers
+            CROSS APPLY
+            (
+                SELECT COALESCE
+                (
+                    STUFF
+                    (
+                        (
+                            SELECT TOP 5
+                                @LineFeed
+                                + GroupedConnections.ConnectionGroup + ' - ' + CAST(GroupedConnections.ConnectionCount AS VARCHAR(20))
+                                + ' connections, most recent query finished ' + GroupedConnections.MostRecentFinish
+                                + ', oldest query finished ' + GroupedConnections.OldestFinish
+                            FROM
+                            (
+                                SELECT
+                                    COALESCE(NULLIF(s2.login_name, N''), N'(Unknown login)') AS ConnectionGroup,
+                                    COUNT(*) AS ConnectionCount,
+                                    CASE
+                                        WHEN MAX(s2.last_request_end_time) IS NULL THEN 'unknown'
+                                        WHEN DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) < 60 THEN CAST(DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) AS VARCHAR(20)) + ' seconds ago'
+                                        WHEN DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) < 3600 THEN CAST(DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) / 60 AS VARCHAR(20)) + ' minutes ago'
+                                        WHEN DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) < 86400 THEN CAST(DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) / 3600 AS VARCHAR(20)) + ' hours ' + CAST((DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) % 3600) / 60 AS VARCHAR(20)) + ' minutes ago'
+                                        ELSE CAST(DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) / 86400 AS VARCHAR(20)) + ' days ' + CAST((DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) % 86400) / 3600 AS VARCHAR(20)) + ' hours ago'
+                                    END AS MostRecentFinish,
+                                    CASE
+                                        WHEN MIN(s2.last_request_end_time) IS NULL THEN 'unknown'
+                                        WHEN DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) < 60 THEN CAST(DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) AS VARCHAR(20)) + ' seconds ago'
+                                        WHEN DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) < 3600 THEN CAST(DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) / 60 AS VARCHAR(20)) + ' minutes ago'
+                                        WHEN DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) < 86400 THEN CAST(DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) / 3600 AS VARCHAR(20)) + ' hours ' + CAST((DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) % 3600) / 60 AS VARCHAR(20)) + ' minutes ago'
+                                        ELSE CAST(DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) / 86400 AS VARCHAR(20)) + ' days ' + CAST((DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) % 86400) / 3600 AS VARCHAR(20)) + ' hours ago'
+                                    END AS OldestFinish
+                                FROM sys.dm_exec_connections c2
+                                LEFT JOIN sys.dm_exec_sessions s2 ON c2.session_id = s2.session_id
+                                GROUP BY COALESCE(NULLIF(s2.login_name, N''), N'(Unknown login)')
+                            ) AS GroupedConnections
+                            ORDER BY GroupedConnections.ConnectionCount DESC, GroupedConnections.ConnectionGroup
+                            FOR XML PATH(''), TYPE
+                        ).value(N'.[1]', N'nvarchar(max)'),
+                        1,
+                        LEN(@LineFeed),
+                        N''
+                    ),
+                    N'(no connections found)'
+                ) AS Details
+            ) AS TopFiveLogins
+            CROSS APPLY
+            (
+                SELECT COALESCE
+                (
+                    STUFF
+                    (
+                        (
+                            SELECT TOP 5
+                                @LineFeed
+                                + GroupedConnections.ConnectionGroup + ' - ' + CAST(GroupedConnections.ConnectionCount AS VARCHAR(20))
+                                + ' connections, most recent query finished ' + GroupedConnections.MostRecentFinish
+                                + ', oldest query finished ' + GroupedConnections.OldestFinish
+                            FROM
+                            (
+                                SELECT
+                                    COALESCE(NULLIF(s2.program_name, N''), N'(Unknown app)') AS ConnectionGroup,
+                                    COUNT(*) AS ConnectionCount,
+                                    CASE
+                                        WHEN MAX(s2.last_request_end_time) IS NULL THEN 'unknown'
+                                        WHEN DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) < 60 THEN CAST(DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) AS VARCHAR(20)) + ' seconds ago'
+                                        WHEN DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) < 3600 THEN CAST(DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) / 60 AS VARCHAR(20)) + ' minutes ago'
+                                        WHEN DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) < 86400 THEN CAST(DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) / 3600 AS VARCHAR(20)) + ' hours ' + CAST((DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) % 3600) / 60 AS VARCHAR(20)) + ' minutes ago'
+                                        ELSE CAST(DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) / 86400 AS VARCHAR(20)) + ' days ' + CAST((DATEDIFF(SECOND, MAX(s2.last_request_end_time), GETDATE()) % 86400) / 3600 AS VARCHAR(20)) + ' hours ago'
+                                    END AS MostRecentFinish,
+                                    CASE
+                                        WHEN MIN(s2.last_request_end_time) IS NULL THEN 'unknown'
+                                        WHEN DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) < 60 THEN CAST(DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) AS VARCHAR(20)) + ' seconds ago'
+                                        WHEN DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) < 3600 THEN CAST(DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) / 60 AS VARCHAR(20)) + ' minutes ago'
+                                        WHEN DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) < 86400 THEN CAST(DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) / 3600 AS VARCHAR(20)) + ' hours ' + CAST((DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) % 3600) / 60 AS VARCHAR(20)) + ' minutes ago'
+                                        ELSE CAST(DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) / 86400 AS VARCHAR(20)) + ' days ' + CAST((DATEDIFF(SECOND, MIN(s2.last_request_end_time), GETDATE()) % 86400) / 3600 AS VARCHAR(20)) + ' hours ago'
+                                    END AS OldestFinish
+                                FROM sys.dm_exec_connections c2
+                                LEFT JOIN sys.dm_exec_sessions s2 ON c2.session_id = s2.session_id
+                                GROUP BY COALESCE(NULLIF(s2.program_name, N''), N'(Unknown app)')
+                            ) AS GroupedConnections
+                            ORDER BY GroupedConnections.ConnectionCount DESC, GroupedConnections.ConnectionGroup
+                            FOR XML PATH(''), TYPE
+                        ).value(N'.[1]', N'nvarchar(max)'),
+                        1,
+                        LEN(@LineFeed),
+                        N''
+                    ),
+                    N'(no connections found)'
+                ) AS Details
+            ) AS TopFiveApps
 			HAVING SUM(1) > @max_worker_threads;
 			END
 		END
