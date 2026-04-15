@@ -50,6 +50,7 @@ ALTER PROCEDURE dbo.sp_BlitzWho
 	@MinTempdbMB INT = 0 ,
 	@MinRequestedMemoryKB INT = 0 ,
 	@MinBlockingSeconds INT = 0 ,
+	@OnlyProblems BIT = 0 ,
 	@CheckDateOverride DATETIMEOFFSET = NULL,
 	@ShowActualParameters BIT = 0,
 	@GetOuterCommand BIT = 0,
@@ -939,6 +940,18 @@ IF (@MinElapsedSeconds + @MinCPUTime + @MinLogicalReads + @MinPhysicalReads + @M
 	IF @MinBlockingSeconds > 0
 		SET @StringToExecute += N' OR (SELECT SUM(waittime / 1000) FROM @blocked) >= ' + CAST(@MinBlockingSeconds AS NVARCHAR(20));
 	SET @StringToExecute += N' ) ';
+	END
+
+IF @OnlyProblems = 1
+	BEGIN
+	/* Only show queries that are blocking, blocked, waiting, sleeping with an open transaction, or running >= 30 seconds. */
+	SET @StringToExecute += N' AND (
+		r.blocking_session_id <> 0
+		OR blocked.session_id IS NOT NULL
+		OR wt.wait_info IS NOT NULL
+		OR (s.status = ''sleeping'' AND COALESCE(r.open_transaction_count, blocked.open_tran, 0) >= 1)
+		OR ABS(COALESCE(r.total_elapsed_time, 0)) / 1000 >= 30
+	) ';
 	END
 
 SET @StringToExecute +=
