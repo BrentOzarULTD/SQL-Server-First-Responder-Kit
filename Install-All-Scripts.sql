@@ -2457,10 +2457,10 @@ BEGIN
 										'Non-Default Server Config' AS FindingsGroup ,
 										cr.name AS Finding ,
 										'https://www.brentozar.com/go/conf' AS URL ,
-										( 'This sp_configure option has been changed.  Its default value is '
+										( 'Default value: '
 										  + COALESCE(CAST(cd.[DefaultValue] AS VARCHAR(100)),
 													 '(unknown)')
-										  + ' and it has been set to '
+										  + '. It has been set to '
 										  + CAST(cr.value_in_use AS VARCHAR(100))
 										  + '.' ) AS Details
 								FROM    sys.configurations cr
