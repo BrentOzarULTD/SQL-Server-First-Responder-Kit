@@ -6017,6 +6017,14 @@ BEGIN
                     (SELECT TOP 1 more_info FROM #IndexSanity i WHERE i.object_id=fk.parent_object_id AND i.database_id = fk.database_id AND i.schema_name = fk.schema_name)
                         AS more_info
             FROM #UnindexedForeignKeys AS fk
+            WHERE EXISTS (
+                SELECT 1/0
+                FROM #IndexSanity i
+                WHERE i.object_id = fk.parent_object_id
+                    AND i.database_id = fk.database_id
+                    AND i.schema_name = fk.schema_name
+                    AND (ISNULL(i.user_seeks, 0) + ISNULL(i.user_scans, 0) + ISNULL(i.user_lookups, 0)) > 0
+            )
 			OPTION    ( RECOMPILE );
 
 
