@@ -345,90 +345,122 @@ It's designed for query tuners, so it includes things like memory grants, degree
 
 ## sp_BlitzPlanCompare: Compare a Query Plan Across Two Servers
 
-When the same query runs differently on two SQL Servers (fast on dev, slow on prod), the cause is almost always a difference in environment: stats, indexes, row counts, sniffed parameters, compat level, hardware, MAXDOP, or live contention. sp_BlitzPlanCompare diffs two servers along the dimensions that matter for a specific cached query plan and returns a prioritized list of differences.
+When the same query runs differently on two SQL Servers (fast on dev, slow on prod), the cause is almost always a difference in environment: stats, indexes, row counts, sniffed parameters, compat level, cardinality estimator version, hardware, MAXDOP, or live contention. sp_BlitzPlanCompare diffs two servers along every dimension that affects a specific query plan and returns a prioritized list of differences, the two plans side by side, and - when applicable - a copy/paste reproducer for parameter sniffing.
 
-Three operating modes:
+### Parameters
 
-1. **Emit XML for copy/paste** - supply `@QueryPlanHash` only. Returns two columns: `CallStack` (a ready-to-run `EXEC` statement with the XML already embedded and escaped) and `PlanMetadataXml` (the snapshot itself). Copy the `CallStack` cell, paste it into a query window on the other server, hit F5.
-2. **Compare an XML snapshot** - supply `@CompareToXML` only. Looks up the same plan in your local cache and diffs against the snapshot.
-3. **Compare via linked server** - supply `@QueryPlanHash` + `@LinkedServer`. Calls sp_BlitzPlanCompare on the remote server in emit mode (RPC OUT must be enabled, and the proc must be installed on both sides).
+| Parameter | Type | Default | Purpose |
+|---|---|---|---|
+| `@QueryPlanHash` | `BINARY(8)` | `NULL` | The `query_plan_hash` from the server where you want to investigate. Required for modes 1 and 3; optional for mode 2 (used to disambiguate when multiple local plans share the same `query_hash`). |
+| `@CompareToXML` | `XML` | `NULL` | Snapshot XML produced by a prior mode-1 run on the other server. Supplying this triggers compare mode (mode 2). |
+| `@LinkedServer` | `SYSNAME` | `NULL` | Name of a configured linked server (with `RPC OUT`). Combine with `@QueryPlanHash` for one-call mode 3. |
+| `@Help` | `BIT` | `0` | Prints usage and parameter docs and returns. |
+| `@Debug` | `BIT` | `0` | Prints the dynamic SQL used for plan lookup and linked-server invocation, plus per-DB iteration notes. |
+
+### Three operating modes
+
+| Mode | You supply | What it does | Output |
+|---|---|---|---|
+| 1. Emit | `@QueryPlanHash` only | Snapshots the local plan + its environment. | A single `CallStack` cell with a ready-to-run `EXEC sp_BlitzPlanCompare @CompareToXML = N'...';` — paste into the other server. |
+| 2. Compare from XML | `@CompareToXML` only | Resolves the local plan by `query_hash` from the snapshot, then diffs. | Full diff result set (below). |
+| 3. Linked server | `@QueryPlanHash` + `@LinkedServer` | Calls sp_BlitzPlanCompare on the remote over RPC, shreds the returned snapshot, diffs locally. Requires the proc installed on both sides. | Full diff result set (below). |
 
 ### Typical copy/paste workflow (most common)
 
 ```tsql
-/* Step 1 — on the SLOW server (where you want to diagnose) */
+/* Step 1 — on the server where you noticed the slowness */
 EXEC dbo.sp_BlitzPlanCompare @QueryPlanHash = 0xABCD1234567890;
 ```
 
-You'll get two result columns back:
+You get back a single `CallStack` column — a complete `EXEC dbo.sp_BlitzPlanCompare @CompareToXML = N'...';` with the snapshot XML already embedded and single quotes escaped. **Click the cell, copy it, paste it into a query window connected to the OTHER server, hit F5.** The comparison runs there and returns the prioritized diff plus both plans as clickable XML.
 
-* `CallStack` — a complete `EXEC dbo.sp_BlitzPlanCompare @CompareToXML = N'...';` statement with the XML already embedded and single quotes escaped. **Click the cell, copy it, paste it into a query window connected to the OTHER server, hit F5.** The comparison runs there and returns the prioritized diff.
-* `PlanMetadataXml` — the snapshot XML by itself. Useful if you want to save it to a file or paste it into `@CompareToXML` manually.
+How cross-server plan resolution works: the snapshot carries the stable `QueryHash` attribute (not just the `QueryPlanHash`). When the other server runs the compare, it looks up its own cached plan by `query_hash` — because the whole point of comparing is that the plan on the other server is probably *different*. That divergence is the mystery you're investigating.
 
-How the other server finds its plan: the snapshot XML carries a `QueryHash` attribute (not just a `QueryPlanHash`). When the other server runs the compare, it looks up its own cached plan by `query_hash` — because the whole point is that the plan on the other server may be *different*. That's the mystery you're investigating. The diff will then surface everything that contributed to the divergence: stats, row counts, compat level, cardinality estimator version, parameter sniffing, indexes, forced plans, and so on.
-
-If you prefer the manual approach:
+### Linked-server one-call workflow
 
 ```tsql
-/* Manual Step 2 — on the FAST (reference) server */
-EXEC dbo.sp_BlitzPlanCompare @CompareToXML = N'<paste the PlanMetadataXml here>';
-```
-
-If the FAST server has multiple plans cached for the same `query_hash`, sp_BlitzPlanCompare returns the candidate `query_plan_hash` values and asks you to disambiguate. Re-run with both parameters to pick a specific local plan to compare against:
-
-```tsql
-EXEC dbo.sp_BlitzPlanCompare
-    @CompareToXML   = N'<paste the PlanMetadataXml here>',
-    @QueryPlanHash  = 0xFEDCBA9876543210;  /* one of the local candidates */
-```
-
-### Other modes
-
-```tsql
-/* Linked-server mode — do it in one call (needs RPC OUT + proc installed on both sides) */
+/* Needs RPC OUT and the proc installed on both sides. */
 EXEC dbo.sp_BlitzPlanCompare @QueryPlanHash = 0xABCD1234567890,
-                             @LinkedServer  = '[OtherSrv]';
-
-/* Help */
-EXEC dbo.sp_BlitzPlanCompare @Help = 1;
+                             @LinkedServer  = 'OtherSrv';
 ```
+
+The local side passes its `query_hash` (not `query_plan_hash`) to the remote — since plan hashes almost always differ, while query hashes are stable. The remote resolves its own matching plan and hands back its snapshot; the local side shreds it and emits the diff. If the two servers compiled different plans (the usual case when one is slow), both plans come back as clickable XML in the second result set.
+
+### Output result sets
+
+**First result set — the diff** (one row per difference, ordered by Priority):
+
+| Column | Description |
+|---|---|
+| `Priority` | 0 = header metadata, 1 = plan-breaking / setup errors, 5 = operator row-count divergence (same-shape plans), 10 = parameter sniffing, 15 = CE drift / operator divergence (different-shape plans), 20 = major perf drivers (DOP, memory grant, hardware, wait stats), 25 = index quality, 30 = plan warnings / UDF time, 35 = live state, 55 = config drift, 100 = cosmetic / informational (PlanShape, versions), 200 = informational metadata echo. |
+| `Category` | `Server`, `Hardware`, `SpConfigure`, `TraceFlag`, `Database`, `DatabaseScopedConfig`, `Object`, `Index`, `Statistics`, `RowCount`, `PlanAttribute`, `PlanWarning`, `PlanRuntime`, `PlanWait`, `Parameter`, `PlanShape`, `OperatorVariance`, `LiveState`, `ForcedPlan`, `Meta`. |
+| `Setting` | Specific knob or metric within the category (e.g. `max degree of parallelism`, `CompiledValue`, `CardinalityEstimationModelVersion`, `Reproducer`). |
+| `Object` | Scoped identifier: `db.schema.table`, `db.schema.table.index`, `NodeId N: OpName on ...`, etc. |
+| `LocalValue`, `RemoteValue` | Side-by-side values. |
+| `Finding` | One-line explanation of the diff. |
+| `URL` | Link to more info. |
+| `Details` | Extra context - plan-source flags, shape-match verdict, operator metadata. |
+| `CallStack` | Typed XML — populated only on the `Parameter.Reproducer` row with a click-to-view reproducer containing two blocks of copy/paste-ready EXECs (one per server) that re-compile the proc/ad-hoc SQL with each side's sniffed parameter values. |
+
+**Second result set — the two plans** (one row per server):
+
+| Column | Description |
+|---|---|
+| `Server` | `Local` or `Remote`. |
+| `ServerName` | `@@SERVERNAME` of the source. |
+| `PlanSource` | `Actual (LAST_QUERY_PLAN_STATS)`, `Cached estimated`, `(unknown)`. |
+| `QueryPlan` | Typed XML ShowPlanXML — click it in SSMS to open the plan diagram. |
+
+### What's compared
+
+* **Server and hardware**: `@@SERVERNAME`, edition, version, CPU count, scheduler count, physical memory, max server memory, committed target.
+* **sp_configure allowlist**: MAXDOP, CTFP, max/min server memory, optimize for ad-hoc workloads, priority boost, lightweight pooling, query governor cost limit, parallel index ops, max worker threads.
+* **Trace flags**: `DBCC TRACESTATUS(-1)` (box SQL + MI only; silently skipped on Azure SQL DB).
+* **Database config** (per plan-referenced database): compat level, collation, RCSI, auto create/update stats, page verify, recovery model, Query Store on/off, parameterization, containment.
+* **Database-scoped configurations**: the full row from `sys.database_scoped_configurations`, including `LEGACY_CARDINALITY_ESTIMATION`, `MAXDOP`, `LAST_QUERY_PLAN_STATS`.
+* **Objects, indexes, statistics**: presence, index definitions (type, unique, filter, key + included columns), stats headers (last update, modification counter, rows sampled), row counts and page counts.
+* **Forced plans**: Query Store forced plans + `sys.plan_guides`.
+* **Parameter sniffing**: compiled values per parameter. When any value differs, a `Parameter.Reproducer` row is emitted whose `CallStack` column is a clickable XML cell with copy/paste-ready `EXEC [db].[schema].[proc] @p = v` blocks for each server. For ad-hoc parameterized SQL, the reproducer uses `sp_executesql` form instead.
+* **Plan-level attributes**: DOP, memory grant, CompileTime/CompileMemory, CachedPlanSize, CardinalityEstimationModelVersion, OptimizerHardwareDependentProperties (estimated memory grant, pages cached, available DOP, max compile memory), StatementOptmLevel, RetrievedFromCache. Numeric deltas ≤ 25% are suppressed as noise; `CardinalityEstimationModelVersion` is exact-match regardless (70 vs 160 vs 170 all change optimizer behavior).
+* **Plan warnings**: spills, memory grant warnings, convert warnings, NoStats, WaitStats.
+* **Runtime totals (PlanRuntime)**: elapsed time, CPU time, granted memory, max used memory, UDF elapsed/CPU, spill count (exact-match — 0 vs 1 matters). Populated when both plans are actual (`LAST_QUERY_PLAN_STATS`). Sub-25% deltas suppressed except for spill count.
+* **Wait stats (PlanWait)**: pulled from `sys.query_store_wait_stats` (not the plan XML — `dm_exec_query_plan_stats` doesn't populate `<WaitStats>`). Bucketed by `wait_category_desc`. Silently skipped when Query Store is off.
+* **Operator-by-operator row variance (OperatorVariance)**: if both plans have the same shape (same operators on the same objects at the same NodeIds), we walk the operators in post-order starting from the top-right leaf, working right-to-left and top-to-bottom toward the root, and report the **first** operator where actual rows (or estimated rows, if runtime data isn't available) differ by 25% or more. If shapes differ, only the root operator is compared - per-operator diffs aren't meaningful when operators don't line up. A `PlanShape` informational row always accompanies this analysis and tells you whether shapes match and which metric was used.
+* **Live state**: point-in-time snapshot of runnable tasks, worker count, blocked sessions, and top 5 wait types for the plan's query hash. Sub-25% deltas suppressed.
+
+Scope is limited to objects actually referenced in the plan — only databases, tables, indexes, and statistics that appear in the plan XML are compared.
 
 ### Input flexibility
 
-If you pass `@QueryPlanHash` and it doesn't match any cached plan on that column, sp_BlitzPlanCompare automatically retries as `query_hash`. If that finds exactly one plan, it uses it and prints a note telling you what it resolved to. If that finds multiple distinct plans, you get an error listing the candidate `query_plan_hash` values so you can pick one and re-run.
+* If `@QueryPlanHash` doesn't match any cached `query_plan_hash` on the local server, sp_BlitzPlanCompare automatically retries as `query_hash`. If exactly one plan matches, it uses that plan and prints a note explaining the fallback. If multiple plans match, you get the candidate `query_plan_hash` values and a RAISERROR asking you to pick one.
+* If `@QueryPlanHash` matches multiple cached plans (same hash, different compile contexts), the proc returns the matches with their `set_options` and a query text snippet so you can disambiguate, then RAISERRORs.
 
-### Output columns (compare modes)
+### Plan source (actual vs estimated)
 
-* Priority - 0 is the server names header row, then 1 = plan-breaking, 10 = parameter sniffing, 15 = cardinality estimator drift, 20 = major perf drivers, 25 = index quality, 30 = plan warnings, 35 = live state, 55 = config drift, 100 = cosmetic, 200 = informational metadata.
-* Category, Setting, Object - what differs and on what object.
-* LocalValue, RemoteValue - the side-by-side values from each server.
-* Finding, URL, Details - explanation and pointer to documentation.
+sp_BlitzPlanCompare resolves plans via `sys.dm_exec_query_plan_stats` first (the *actual* plan with runtime memory grant, real spill warnings, and per-operator runtime counters) and falls back to `sys.dm_exec_query_plan` (the cached estimated plan) when the actual isn't available.
 
-If `@QueryPlanHash` matches multiple cached plans on the local server, sp_BlitzPlanCompare returns the matches with their `set_options` and a query text snippet so you can pick the one you want, then RAISERRORs.
-
-Differences examined include: parameter sniffing (compiled vs runtime values), statistics presence and header data (last update, mod counter, sample), index definitions and columns, row counts, forced plans (Query Store + plan guides), database-scoped configurations (including LEGACY_CARDINALITY_ESTIMATION and MAXDOP), database compatibility level, sp_configure (curated allowlist), trace flags, hardware (CPU count, memory), live state (blocking, waits incurred by this query, active memory grants), and plan-level attributes (DOP, memory grant, OptimizerHardwareDependentProperties).
-
-Scope is limited to objects actually referenced in the plan - only databases, tables, indexes, and statistics that appear in the plan XML are compared.
-
-**Compatibility:** SQL Server 2017+, Azure SQL DB, Managed Instance, Hyperscale, Amazon RDS.
-
-* Linked-server mode requires box SQL or Managed Instance on the local server (Azure SQL DB and Synapse don't support linked servers - use the XML copy/paste workflow instead).
-* On Azure SQL DB, sessions are bound to a single user database, so the comparison is scoped to that database. If a plan references another database (rare, but possible via system views), sp_BlitzPlanCompare emits a Priority-1 row telling you to re-run the proc from inside that database. Trace flags are also unsupported on Azure SQL DB and skipped.
-* Managed Instance and Amazon RDS support all three modes with no additional restrictions beyond the permissions listed below.
-
-**Plan source:** sp_BlitzPlanCompare resolves the plan via `sys.dm_exec_query_plan_stats` first (the *actual* execution plan with runtime memory grant, spill warnings actually fired, and per-operator wait stats) and falls back to `sys.dm_exec_query_plan` (the cached estimated plan) when the actual plan isn't available. To get the actual plan, enable `LAST_QUERY_PLAN_STATS` on the database:
+To get the actual plan:
 
 ```tsql
 ALTER DATABASE SCOPED CONFIGURATION SET LAST_QUERY_PLAN_STATS = ON;
 ```
 
-Note: `LAST_QUERY_PLAN_STATS` requires SQL Server 2019+ or Azure SQL DB and adds a small CPU overhead per execution. The diff surfaces a `PlanAttribute.PlanSource` row when the two servers used different sources (one actual, one estimated).
+Requires SQL Server 2019+ or Azure SQL DB and adds a small per-execution CPU overhead. The diff surfaces a `PlanAttribute.PlanSource` row when the two servers used different sources. When both sides are actual, `OperatorVariance` uses `ActualRows` and `PlanRuntime` rows (elapsed, CPU, memory grant, spill count) are populated. When either side is estimated-only, `OperatorVariance` falls back to `EstimateRows`.
 
-**Known limitations of v0.01:**
+### Compatibility
+
+SQL Server 2017+, Azure SQL DB, Managed Instance, Hyperscale, Amazon RDS.
+
+* Linked-server mode (3) needs box SQL or Managed Instance on the *local* server. Azure SQL DB and Synapse don't support linked servers - use the copy/paste workflow (modes 1 + 2) instead.
+* On Azure SQL DB, sessions are bound to a single user database, so the comparison is scoped to that database. Trace flags are unavailable and silently skipped.
+* Managed Instance and Amazon RDS support all three modes with no additional restrictions beyond the permissions listed below.
+
+### Known limitations of v0.01
 
 * Statistics comparison uses header data only (no histogram comparison).
-* Plan lookup uses the plan cache only (no Query Store fallback when the plan isn't cached).
+* Plan lookup uses the plan cache only (no Query Store fallback when the plan isn't cached). Wait-stat comparison does use Query Store.
 * Resource Governor, triggers, FK/check constraints, collation drift, varchar/nvarchar datatype drift, fragmentation, fill factor, and index compression are not compared yet.
+* Operator variance walks `RelOp/*/RelOp` nesting - subquery RelOps nested inside predicate `ScalarOperator` trees may not get parented correctly, but the overall first-variance call is still accurate for conventional plans.
 
 ### sp_BlitzPlanCompare Permissions Required
 
@@ -474,6 +506,17 @@ SELECT name, is_rpc_out_enabled
 FROM   sys.servers
 WHERE  name = 'OtherSrv';
 ```
+
+If the linked-server call fails with **error 8509** (`Import of Microsoft Distributed Transaction Coordinator (MS DTC) transaction failed: 0x8004d00e(XACT_E_NOTRANSACTION)`), the linked server is trying to promote the remote call to a distributed transaction and MSDTC isn't reachable. Turn off remote proc transaction promotion on the linked server:
+
+```tsql
+EXEC master.dbo.sp_serveroption
+    @server   = N'OtherSrv',
+    @optname  = N'remote proc transaction promotion',
+    @optvalue = N'false';
+```
+
+sp_BlitzPlanCompare detects error 8509 and emits a Priority-1 `Setup.DtcPromotionFailed` row with this fix command inline.
 
 The login mapping (`sp_addlinkedsrvlogin`) decides which remote login your local session executes as. Whoever that login is on the remote server needs the same `VIEW SERVER STATE` / `VIEW DATABASE STATE` / `VIEW ANY DEFINITION` / `EXECUTE` grants listed above.
 
