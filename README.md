@@ -22,6 +22,7 @@ Navigation
  - Performance Tuning:
    - [sp_BlitzLock: Deadlock Analysis](#sp_blitzlock-deadlock-analysis)
    - [sp_BlitzWho: What Queries are Running Now](#sp_blitzwho-what-queries-are-running-now)
+   - [sp_BlitzPlanCompare: Compare a Query Plan Across Two Servers](#sp_blitzplancompare-compare-a-query-plan-across-two-servers)
    - [sp_kill: Emergency Session Killer](#sp_kill-emergency-session-killer)
    - [sp_BlitzAnalysis: Query sp_BlitzFirst output tables](#sp_blitzanalysis-query-sp_BlitzFirst-output-tables)
  - Backups and Restores:
@@ -338,6 +339,143 @@ Known issues:
 This is like sp_who, except it goes into way, way, way more details.
 
 It's designed for query tuners, so it includes things like memory grants, degrees of parallelism, and execution plans.
+
+[*Back to top*](#header1)
+
+
+## sp_BlitzPlanCompare: Compare a Query Plan Across Two Servers
+
+When the same query runs differently on two SQL Servers (fast on dev, slow on prod), the cause is almost always a difference in environment: stats, indexes, row counts, sniffed parameters, compat level, hardware, MAXDOP, or live contention. sp_BlitzPlanCompare diffs two servers along the dimensions that matter for a specific cached query plan and returns a prioritized list of differences.
+
+Three operating modes:
+
+1. **Emit XML for copy/paste** - supply `@QueryPlanHash` only. Returns two columns: `CallStack` (a ready-to-run `EXEC` statement with the XML already embedded and escaped) and `PlanMetadataXml` (the snapshot itself). Copy the `CallStack` cell, paste it into a query window on the other server, hit F5.
+2. **Compare an XML snapshot** - supply `@CompareToXML` only. Looks up the same plan in your local cache and diffs against the snapshot.
+3. **Compare via linked server** - supply `@QueryPlanHash` + `@LinkedServer`. Calls sp_BlitzPlanCompare on the remote server in emit mode (RPC OUT must be enabled, and the proc must be installed on both sides).
+
+### Typical copy/paste workflow (most common)
+
+```tsql
+/* Step 1 — on the SLOW server (where you want to diagnose) */
+EXEC dbo.sp_BlitzPlanCompare @QueryPlanHash = 0xABCD1234567890;
+```
+
+You'll get two result columns back:
+
+* `CallStack` — a complete `EXEC dbo.sp_BlitzPlanCompare @CompareToXML = N'...';` statement with the XML already embedded and single quotes escaped. **Click the cell, copy it, paste it into a query window connected to the OTHER server, hit F5.** The comparison runs there and returns the prioritized diff.
+* `PlanMetadataXml` — the snapshot XML by itself. Useful if you want to save it to a file or paste it into `@CompareToXML` manually.
+
+How the other server finds its plan: the snapshot XML carries a `QueryHash` attribute (not just a `QueryPlanHash`). When the other server runs the compare, it looks up its own cached plan by `query_hash` — because the whole point is that the plan on the other server may be *different*. That's the mystery you're investigating. The diff will then surface everything that contributed to the divergence: stats, row counts, compat level, cardinality estimator version, parameter sniffing, indexes, forced plans, and so on.
+
+If you prefer the manual approach:
+
+```tsql
+/* Manual Step 2 — on the FAST (reference) server */
+EXEC dbo.sp_BlitzPlanCompare @CompareToXML = N'<paste the PlanMetadataXml here>';
+```
+
+If the FAST server has multiple plans cached for the same `query_hash`, sp_BlitzPlanCompare returns the candidate `query_plan_hash` values and asks you to disambiguate. Re-run with both parameters to pick a specific local plan to compare against:
+
+```tsql
+EXEC dbo.sp_BlitzPlanCompare
+    @CompareToXML   = N'<paste the PlanMetadataXml here>',
+    @QueryPlanHash  = 0xFEDCBA9876543210;  /* one of the local candidates */
+```
+
+### Other modes
+
+```tsql
+/* Linked-server mode — do it in one call (needs RPC OUT + proc installed on both sides) */
+EXEC dbo.sp_BlitzPlanCompare @QueryPlanHash = 0xABCD1234567890,
+                             @LinkedServer  = '[OtherSrv]';
+
+/* Help */
+EXEC dbo.sp_BlitzPlanCompare @Help = 1;
+```
+
+### Input flexibility
+
+If you pass `@QueryPlanHash` and it doesn't match any cached plan on that column, sp_BlitzPlanCompare automatically retries as `query_hash`. If that finds exactly one plan, it uses it and prints a note telling you what it resolved to. If that finds multiple distinct plans, you get an error listing the candidate `query_plan_hash` values so you can pick one and re-run.
+
+### Output columns (compare modes)
+
+* Priority - 0 is the server names header row, then 1 = plan-breaking, 10 = parameter sniffing, 15 = cardinality estimator drift, 20 = major perf drivers, 25 = index quality, 30 = plan warnings, 35 = live state, 55 = config drift, 100 = cosmetic, 200 = informational metadata.
+* Category, Setting, Object - what differs and on what object.
+* LocalValue, RemoteValue - the side-by-side values from each server.
+* Finding, URL, Details - explanation and pointer to documentation.
+
+If `@QueryPlanHash` matches multiple cached plans on the local server, sp_BlitzPlanCompare returns the matches with their `set_options` and a query text snippet so you can pick the one you want, then RAISERRORs.
+
+Differences examined include: parameter sniffing (compiled vs runtime values), statistics presence and header data (last update, mod counter, sample), index definitions and columns, row counts, forced plans (Query Store + plan guides), database-scoped configurations (including LEGACY_CARDINALITY_ESTIMATION and MAXDOP), database compatibility level, sp_configure (curated allowlist), trace flags, hardware (CPU count, memory), live state (blocking, waits incurred by this query, active memory grants), and plan-level attributes (DOP, memory grant, OptimizerHardwareDependentProperties).
+
+Scope is limited to objects actually referenced in the plan - only databases, tables, indexes, and statistics that appear in the plan XML are compared.
+
+**Compatibility:** SQL Server 2017+, Azure SQL DB, Managed Instance, Hyperscale, Amazon RDS.
+
+* Linked-server mode requires box SQL or Managed Instance on the local server (Azure SQL DB and Synapse don't support linked servers - use the XML copy/paste workflow instead).
+* On Azure SQL DB, sessions are bound to a single user database, so the comparison is scoped to that database. If a plan references another database (rare, but possible via system views), sp_BlitzPlanCompare emits a Priority-1 row telling you to re-run the proc from inside that database. Trace flags are also unsupported on Azure SQL DB and skipped.
+* Managed Instance and Amazon RDS support all three modes with no additional restrictions beyond the permissions listed below.
+
+**Plan source:** sp_BlitzPlanCompare resolves the plan via `sys.dm_exec_query_plan_stats` first (the *actual* execution plan with runtime memory grant, spill warnings actually fired, and per-operator wait stats) and falls back to `sys.dm_exec_query_plan` (the cached estimated plan) when the actual plan isn't available. To get the actual plan, enable `LAST_QUERY_PLAN_STATS` on the database:
+
+```tsql
+ALTER DATABASE SCOPED CONFIGURATION SET LAST_QUERY_PLAN_STATS = ON;
+```
+
+Note: `LAST_QUERY_PLAN_STATS` requires SQL Server 2019+ or Azure SQL DB and adds a small CPU overhead per execution. The diff surfaces a `PlanAttribute.PlanSource` row when the two servers used different sources (one actual, one estimated).
+
+**Known limitations of v0.01:**
+
+* Statistics comparison uses header data only (no histogram comparison).
+* Plan lookup uses the plan cache only (no Query Store fallback when the plan isn't cached).
+* Resource Governor, triggers, FK/check constraints, collation drift, varchar/nvarchar datatype drift, fragmentation, fill factor, and index compression are not compared yet.
+
+### sp_BlitzPlanCompare Permissions Required
+
+The proc only reads from DMVs and catalog views - no writes, no DDL. On the local server (any mode), the caller needs:
+
+* `VIEW SERVER STATE` - for plan cache and OS DMVs (`sys.dm_exec_query_stats`, `sys.dm_os_sys_info`, `sys.dm_exec_query_memory_grants`, etc.).
+* `VIEW DATABASE STATE` on each plan-referenced database - for `sys.database_scoped_configurations`, `sys.dm_db_partition_stats`, `sys.dm_db_stats_properties`, `sys.query_store_plan`, `sys.plan_guides`.
+* `VIEW ANY DEFINITION` (or `VIEW DEFINITION` on the specific objects) - so `sys.tables`, `sys.indexes`, `sys.index_columns`, `sys.columns`, `sys.stats` return rows.
+* `CONNECT` to each plan-referenced database - the cross-database iteration uses `USE [db]` inside dynamic SQL.
+* `EXECUTE` on `dbo.sp_BlitzPlanCompare`.
+
+The simplest grant for most shops:
+
+```tsql
+USE master;
+GRANT VIEW SERVER STATE   TO [YourLogin];
+GRANT VIEW ANY DEFINITION TO [YourLogin];
+GRANT EXECUTE ON dbo.sp_BlitzPlanCompare TO [YourLogin];
+GO
+
+/* Then in each plan-referenced database: */
+USE [YourDatabase];
+GRANT VIEW DATABASE STATE TO [YourUser];
+GO
+```
+
+**One gotcha:** `DBCC TRACESTATUS(-1)` traditionally requires `sysadmin` (or `ALTER SETTINGS` on newer versions). The script wraps it in `TRY/CATCH`, so without the permission you don't get an error - the TraceFlag category just reports as unsupported and trace-flag differences won't be detected.
+
+**On Azure SQL DB:** there's no `VIEW SERVER STATE`. Use the database-scoped equivalents (`VIEW DATABASE STATE` plus the Azure-specific permissions that go with it). Trace flags are unsupported on Azure SQL DB anyway, so no loss there.
+
+**For linked-server mode (mode 3):** the remote login mapped via the linked server needs the *same* permissions on the *remote* server - because the remote is running the same code path (mode 1, emit XML). It also needs `EXECUTE` on `dbo.sp_BlitzPlanCompare` on the remote (the proc must be installed on both sides).
+
+The linked server itself must be configured with `RPC OUT` enabled. Without it, `EXEC LinkedServer.master.dbo.sp_BlitzPlanCompare` returns "Server '...' is not configured for RPC."
+
+```tsql
+/* Enable RPC and RPC OUT on an existing linked server */
+EXEC sp_serveroption @server = 'OtherSrv', @optname = 'rpc',     @optvalue = 'true';
+EXEC sp_serveroption @server = 'OtherSrv', @optname = 'rpc out', @optvalue = 'true';
+GO
+
+/* Verify */
+SELECT name, is_rpc_out_enabled
+FROM   sys.servers
+WHERE  name = 'OtherSrv';
+```
+
+The login mapping (`sp_addlinkedsrvlogin`) decides which remote login your local session executes as. Whoever that login is on the remote server needs the same `VIEW SERVER STATE` / `VIEW DATABASE STATE` / `VIEW ANY DEFINITION` / `EXECUTE` grants listed above.
 
 [*Back to top*](#header1)
 
