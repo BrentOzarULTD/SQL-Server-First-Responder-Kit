@@ -38,7 +38,6 @@ ALTER PROCEDURE dbo.sp_BlitzPlanCompare
     @LinkedServer     SYSNAME     = NULL,
     @Help             BIT         = 0,
     @Debug            BIT         = 0,
-    @EmitAsText       BIT         = 0,  /* internal: mode-3 sets this =1 on the remote call so XML columns cross the linked server as NVARCHAR(MAX). Users should not set this directly. */
     @Version          VARCHAR(30) = NULL OUTPUT,
     @VersionDate      DATETIME    = NULL OUTPUT,
     @VersionCheckMode BIT         = 0
@@ -1226,27 +1225,12 @@ BEGIN
       + REPLACE(@SnapshotText, N'''', N'''''')
       + N''';';
 
-    /* Three branches:
-         1. @EmitAsText = 1: called from mode 3 over a linked server. Must return
-            three columns with NVARCHAR(MAX) for the two XML ones - SQL Server
-            raises Msg 9514 ("Xml data type is not supported in distributed
-            queries") otherwise. #RemoteEmit on the local side CASTs back to XML.
-         2. Direct mode-1 call by a user: return a single CallStack column. That's
-            the only thing they need - the ready-to-run EXEC they paste into a
-            query window on the other server. The snapshot XML is embedded inside
-            CallStack already, so there is no data loss vs. the old 3-column form.
-         3. (No third branch - removed PlanMetadataXml/QueryPlan clutter for mode-1
-            users; mode-3 on the same server will still get everything it needs.) */
-    IF @EmitAsText = 1
-    BEGIN
-        SELECT @CallStack                               AS [CallStack],
-               CAST(@SnapshotXml    AS NVARCHAR(MAX))   AS [PlanMetadataXml],
-               CAST(@PlanXmlForEmit AS NVARCHAR(MAX))   AS [QueryPlan];
-    END
-    ELSE
-    BEGIN
-        SELECT @CallStack AS [CallStack];
-    END;
+    /* Single CallStack column - NVARCHAR, so it crosses linked-server INSERT EXEC
+       cleanly (XML columns hit Msg 9514 "Xml data type is not supported in
+       distributed queries"). The snapshot XML is embedded inside the EXEC text
+       with single quotes doubled per T-SQL string-literal rules; mode 3 strips
+       the prefix/suffix and undoubles the quotes to recover the XML. */
+    SELECT @CallStack AS [CallStack];
     RETURN;
 END;
 
@@ -1289,19 +1273,21 @@ BEGIN
        columns by position, so the remote's column name (PlanMetadataXml, or CallStack
        if the remote version returns CallStack first) doesn't have to match here - we
        only consume the plan XML. Name it to match the remote proc's output for clarity. */
-    /* Must match the column list of mode-1-@EmitAsText=1 output EXACTLY (count + types).
-       Columns are NVARCHAR(MAX) because XML can't travel across a linked-server
+    /* Must match the column list of mode-1 output EXACTLY (count + types).
+       Mode 1 returns a single NVARCHAR(MAX) CallStack column - the ready-to-run
+       EXEC sp_BlitzPlanCompare @CompareToXML = N'<snapshot>'; statement. We do
+       NOT need the snapshot XML or plan XML as separate columns; both are
+       embedded inside the CallStack text and we extract them below.
+
+       NVARCHAR (not XML) because XML columns can't travel across a linked-server
        INSERT EXEC - SQL Server raises Msg 9514 "Xml data type is not supported
-       in distributed queries. Remote object 'IROWSET' has xml column(s)." when
-       the remote rowset exposes an XML column. We cast to NVARCHAR on the remote
-       end (via @EmitAsText = 1) and CAST back to XML here after the INSERT.
+       in distributed queries. Remote object 'IROWSET' has xml column(s)."
        Column-count mismatches between remote and local surface as the cryptic
        "Msg 0, Level 11, State 0, A severe error occurred on the current command". */
-    CREATE TABLE #RemoteEmit ([CallStack] NVARCHAR(MAX), [PlanMetadataXml] NVARCHAR(MAX), [QueryPlan] NVARCHAR(MAX));
+    CREATE TABLE #RemoteEmit ([CallStack] NVARCHAR(MAX));
 
     /* Isolation note: the remote sp_BlitzPlanCompare runs in its own session on the remote server
        and sets READ UNCOMMITTED itself at the top of the proc, so the remote work does not block.
-       @EmitAsText = 1 tells the remote proc to cast its two XML columns to NVARCHAR(MAX).
 
        Pass @QueryHashBin (the local plan's query_hash) rather than @QueryPlanHash.
        The query_plan_hash is specific to the compiled plan shape and is almost always
@@ -1312,16 +1298,42 @@ BEGIN
        remote QueryHash from the snapshot and the local resolution logic tries it as a
        plan_hash first, falls back to query_hash. The remote proc's plan-resolution
        block does the same thing when we hand it a query_hash disguised as a plan_hash. */
-    SET @sql = N'EXEC ' + @LinkedServer + N'.master.dbo.sp_BlitzPlanCompare @QueryPlanHash = @hash, @EmitAsText = 1;';
+    SET @sql = N'EXEC ' + @LinkedServer + N'.master.dbo.sp_BlitzPlanCompare @QueryPlanHash = @hash;';
 
     IF @Debug = 1
         RAISERROR('Linked-server invocation: %s (passing local QueryHash so remote can resolve its own plan with a matching query_hash)', 0, 1, @sql) WITH NOWAIT;
 
     BEGIN TRY
-        INSERT INTO #RemoteEmit ([CallStack], [PlanMetadataXml], [QueryPlan])
+        INSERT INTO #RemoteEmit ([CallStack])
         EXEC sp_executesql @sql, N'@hash BINARY(8)', @hash = @QueryHashBin;
 
-        SELECT TOP 1 @RemoteXml = CAST([PlanMetadataXml] AS XML) FROM #RemoteEmit;
+        /* The remote returned a single string of the form:
+               EXEC dbo.sp_BlitzPlanCompare @CompareToXML = N'<BlitzPlanCompareSnapshot ...>';
+           Strip the prefix and the trailing ';' suffix, then undouble the
+           single quotes (T-SQL string-literal escaping) to recover the XML. */
+        DECLARE @RemoteCallStack NVARCHAR(MAX),
+                @XmlPrefix       NVARCHAR(100) = N'EXEC dbo.sp_BlitzPlanCompare @CompareToXML = N''',
+                @PrefixPos       INT,
+                @XmlBody         NVARCHAR(MAX);
+
+        SELECT TOP 1 @RemoteCallStack = [CallStack] FROM #RemoteEmit;
+
+        SET @PrefixPos = CHARINDEX(@XmlPrefix, @RemoteCallStack);
+        IF @PrefixPos > 0
+        BEGIN
+            /* Trim prefix, then trim the closing N''';' suffix (3 chars: ' + ; + optional WS). */
+            SET @XmlBody = SUBSTRING(@RemoteCallStack,
+                                     @PrefixPos + LEN(@XmlPrefix),
+                                     LEN(@RemoteCallStack));
+            /* Strip trailing ';' and the closing single quote. The CallStack
+               builder always emits ...''';' at the end. */
+            SET @XmlBody = LEFT(@XmlBody,
+                                LEN(@XmlBody) - 2);  -- drop ;'
+            /* Undouble the single quotes (T-SQL string literal escaping). */
+            SET @XmlBody = REPLACE(@XmlBody, N'''''', N'''');
+
+            SET @RemoteXml = TRY_CAST(@XmlBody AS XML);
+        END;
     END TRY
     BEGIN CATCH
         SET @ErrNumber = ERROR_NUMBER();
