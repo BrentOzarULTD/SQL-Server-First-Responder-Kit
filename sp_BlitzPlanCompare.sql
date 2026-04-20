@@ -2190,7 +2190,14 @@ BEGIN
 END;
 
 /* Final result set. CallStack is typed XML so SSMS renders it as a clickable
-   cell; only the Parameter.Reproducer row populates it today. */
+   cell; only the Parameter.Reproducer row populates it today.
+
+   Sort: Priority, Category, Setting first (as before). For wait-stat rows
+   (LiveWait + PlanWait), the tiebreaker is the larger of LocalValueNumeric /
+   RemoteValueNumeric descending so the heaviest wait floats to the top of its
+   group. For everything else the tiebreaker is [Object] alphabetical. That
+   keeps PAGEIOLATCH_SH (10M ms) above CXPACKET (47 ms) instead of burying it
+   under alphabetically-earlier but numerically-smaller waits. */
 SELECT  Priority,
         Category,
         Setting,
@@ -2202,7 +2209,16 @@ SELECT  Priority,
         Details,
         CallStack
 FROM    #Diff
-ORDER BY Priority, Category, Setting, [Object];
+ORDER BY Priority, Category, Setting,
+         /* Wait categories: sort by the bigger numeric DESC so top waits surface first.
+            Other categories: NULL sort key (falls through to [Object] below). */
+         CASE WHEN Category IN ('LiveWait', 'PlanWait')
+              THEN - (CASE WHEN ISNULL(TRY_CAST(LocalValue  AS DECIMAL(38, 4)), 0)
+                                >= ISNULL(TRY_CAST(RemoteValue AS DECIMAL(38, 4)), 0)
+                           THEN ISNULL(TRY_CAST(LocalValue  AS DECIMAL(38, 4)), 0)
+                           ELSE ISNULL(TRY_CAST(RemoteValue AS DECIMAL(38, 4)), 0) END)
+              ELSE NULL END,
+         [Object];
 
 /* ---------------------------------------------------------------------------
    Second result set: the actual query plans we analyzed, one row per server.
