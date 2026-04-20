@@ -1160,7 +1160,9 @@ VALUES ('LiveState', 'RunnableSchedulers', NULL, CAST(@RunnableTasks AS NVARCHAR
        ('LiveState', 'WorkerCount',        NULL, CAST(@WorkerCount   AS NVARCHAR(20)), @WorkerCount),
        ('LiveState', 'BlockedSessions',    NULL, CAST(@BlockedSessions AS NVARCHAR(20)), @BlockedSessions);
 
-/* Top 5 wait types currently being incurred by sessions running this query hash. */
+/* Top 5 wait types sessions running this query are blocked on RIGHT NOW.
+   Matched by query_hash (stable across servers), not query_plan_hash (which
+   usually differs when the plans diverge - the whole point of comparing). */
 INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText, ValueNumeric)
 SELECT TOP 5 'LiveState', 'WaitType', wt.wait_type,
        CAST(SUM(wt.wait_duration_ms) AS NVARCHAR(40)),
@@ -1168,9 +1170,54 @@ SELECT TOP 5 'LiveState', 'WaitType', wt.wait_type,
 FROM   sys.dm_exec_requests req
 JOIN   sys.dm_os_waiting_tasks wt ON wt.session_id = req.session_id
 WHERE  req.query_hash IS NOT NULL
-  AND  req.query_plan_hash = @QueryPlanHash
+  AND  req.query_hash = @QueryHashBin
 GROUP BY wt.wait_type
 ORDER BY SUM(wt.wait_duration_ms) DESC;
+
+/* LiveWait: cumulative session-level wait totals for sessions CURRENTLY running
+   this query. Sources sys.dm_exec_session_wait_stats (cumulative since session
+   open), filtered to sessions whose active request matches @QueryHashBin.
+
+   Why this matters: when a query is in-flight on one server and racking up
+   waits (IO, locks, memory grant, parallelism), Query Store hasn't flushed
+   those to sys.query_store_wait_stats yet - they only land there after the
+   query finishes. The PlanWait category reads Query Store and therefore
+   misses in-flight waits entirely. LiveWait captures the in-flight picture.
+
+   Caveat: session_wait_stats is per-SESSION, not per-REQUEST. If the same
+   session ran other queries earlier, their waits will also be included.
+   Still the best signal available for a running query. Sum across sessions
+   in case multiple copies of the same query are executing concurrently. */
+;WITH live_sessions AS (
+    SELECT req.session_id
+    FROM   sys.dm_exec_requests req
+    WHERE  req.query_hash = @QueryHashBin
+      AND  req.query_hash IS NOT NULL
+),
+live_waits AS (
+    SELECT sws.wait_type,
+           SUM(sws.wait_time_ms)         AS wait_time_ms,
+           SUM(sws.waiting_tasks_count)  AS waiting_tasks_count
+    FROM   sys.dm_exec_session_wait_stats sws
+    WHERE  sws.session_id IN (SELECT session_id FROM live_sessions)
+    GROUP BY sws.wait_type
+)
+/* 1-second / 1000-count floor keeps the signal (PAGEIOLATCH_SH 10M ms, CXPACKET,
+   LOCK waits, etc.) and drops the inevitable trickle of sub-1s housekeeping
+   waits (SLEEP_TASK 11 ms, LATCH_EX 3 ms, HADR_CLUSAPI_CALL 12 ms) that would
+   otherwise bury the real bottleneck in 30+ noise rows. */
+INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText, ValueNumeric)
+SELECT 'LiveWait', 'WaitTimeMs', lw.wait_type,
+       CAST(lw.wait_time_ms AS NVARCHAR(40)),
+       lw.wait_time_ms
+FROM   live_waits lw
+WHERE  lw.wait_time_ms >= 1000
+UNION ALL
+SELECT 'LiveWait', 'WaitCount', lw.wait_type,
+       CAST(lw.waiting_tasks_count AS NVARCHAR(40)),
+       lw.waiting_tasks_count
+FROM   live_waits lw
+WHERE  lw.waiting_tasks_count >= 1000;
 
 /* Active memory grants for this query hash (if currently executing). */
 INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText, ValueNumeric)
@@ -1534,6 +1581,14 @@ INSERT INTO #Rubric (Category, Setting, Priority, Finding, [URL]) VALUES
     ('PlanWait',             'WaitCount',            35, 'The query incurred a different number of this wait type on each server.', 'http://FirstResponderKit.org'),
     ('PlanWait',             '*',                    35, 'A wait-stat metric differs between servers.', 'http://FirstResponderKit.org'),
 
+    /* LiveWait: cumulative waits on currently-running sessions for this query hash.
+       Only populated when the query is in-flight on at least one server. Higher
+       priority than PlanWait because an in-flight wait is happening right now,
+       not something you're reconstructing from history. */
+    ('LiveWait',             'WaitTimeMs',           15, 'A query matching this plan is running RIGHT NOW on at least one server and has accumulated significantly different wait time on this wait type. In-flight waits beat historical ones - this is what the query is blocked on as you investigate.', 'http://FirstResponderKit.org'),
+    ('LiveWait',             'WaitCount',            30, 'A currently-running session has incurred a different number of this wait type.', 'http://FirstResponderKit.org'),
+    ('LiveWait',             '*',                    30, 'A live-wait metric differs between servers.', 'http://FirstResponderKit.org'),
+
     /* Live state */
     ('LiveState',            'BlockedSessions',      35, 'Different number of blocked sessions right now. The slow server may be losing time to blocking, not the plan.', 'http://FirstResponderKit.org'),
     ('LiveState',            'WaitType',             35, 'Different wait types currently being incurred by this query. The slow server may be IO- or memory-bound.', 'http://FirstResponderKit.org'),
@@ -1614,6 +1669,8 @@ WHERE   p.DiffKind <> 'Same'
        - PlanRuntime:   query runtime totals (elapsed, CPU, memory grant) - but NOT
                         PlanRuntime.SpillCount, where 0 vs 1 is a real signal.
        - PlanWait:      per-wait-type runtime waits from Query Store.
+       - LiveWait:      per-wait-type waits from sys.dm_exec_session_wait_stats
+                        on sessions currently running this query.
        - PlanAttribute: plan-compile-time numerics that jitter with hardware
                         (MaxCompileMemory, EstimatedAvailableMemoryGrant,
                         EstimatedPagesCached, CompileTime, CompileMemory, etc.).
@@ -1624,7 +1681,7 @@ WHERE   p.DiffKind <> 'Same'
                         behavior), even though it happens to be numeric.
      Rows present on only one side bypass this check since LocalValueNumeric or
      RemoteValueNumeric is NULL - a missing wait type / attribute is still signal. */
-  AND   NOT (p.Category IN ('LiveState', 'PlanRuntime', 'PlanWait', 'PlanAttribute')
+  AND   NOT (p.Category IN ('LiveState', 'PlanRuntime', 'PlanWait', 'LiveWait', 'PlanAttribute')
              AND NOT (p.Category = 'PlanRuntime'   AND p.Setting = 'SpillCount')
              AND NOT (p.Category = 'PlanAttribute' AND p.Setting = 'CardinalityEstimationModelVersion')
              AND p.LocalValueNumeric  IS NOT NULL
