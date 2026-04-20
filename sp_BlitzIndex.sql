@@ -5197,50 +5197,51 @@ BEGIN
             RAISERROR(N'check_id 21: More Than 5 Percent NC Indexes Are Unused', 0,1) WITH NOWAIT;
             INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
                                             secret_columns, index_usage_summary, index_size_summary )
-                        SELECT  21 AS check_id, 
-                                MAX(i.index_sanity_id) AS index_sanity_id, 
+                        SELECT  21 AS check_id,
+                                MAX(i.index_sanity_id) AS index_sanity_id,
                                 150 AS Priority,
                                 N'Over-Indexing' AS findings_group,
                                 N'More Than 5 Percent NC Indexes Are Unused' AS finding,
-                                [database_name] AS [Database Name],
+                                i.[database_name] AS [Database Name],
                                 N'https://www.brentozar.com/go/IndexHoarder' AS URL,
                                 CAST (MAX(perc.percent_NC_indexes_unused) AS NVARCHAR(30)) + N' percent NC indexes (' + CAST(COUNT(*) AS NVARCHAR(10)) + N') unused. ' +
                                 N'These take up ' + CAST (MAX(perc.NC_indexes_unused_reserved_MB) AS NVARCHAR(30)) + N'MB of space.' AS details,
                                 i.database_name + ' (' + CAST (COUNT(*) AS NVARCHAR(30)) + N' indexes)' AS index_definition,
-                                '' AS secret_columns, 
-                                CAST(SUM(total_reads) AS NVARCHAR(256)) + N' reads (ALL); '
-                                    + CAST(SUM([user_updates]) AS NVARCHAR(256)) + N' writes (ALL)' AS index_usage_summary,
-                                
-                                REPLACE(CONVERT(NVARCHAR(30),CAST(MAX([total_rows]) AS MONEY), 1), '.00', '') + N' rows (MAX)'
-                                    + CASE WHEN SUM(total_reserved_MB) > 1024 THEN 
-                                        N'; ' + CAST(CAST(SUM(total_reserved_MB)/1024. AS NUMERIC(29,1)) AS NVARCHAR(30)) + 'GB (ALL)'
-                                    WHEN SUM(total_reserved_MB) > 0 THEN
-                                        N'; ' + CAST(CAST(SUM(total_reserved_MB) AS NUMERIC(29,1)) AS NVARCHAR(30)) + 'MB (ALL)'
+                                '' AS secret_columns,
+                                CAST(SUM(i.total_reads) AS NVARCHAR(256)) + N' reads (ALL); '
+                                    + CAST(SUM(i.[user_updates]) AS NVARCHAR(256)) + N' writes (ALL)' AS index_usage_summary,
+
+                                REPLACE(CONVERT(NVARCHAR(30),CAST(MAX(sz.[total_rows]) AS MONEY), 1), '.00', '') + N' rows (MAX)'
+                                    + CASE WHEN SUM(sz.total_reserved_MB) > 1024 THEN
+                                        N'; ' + CAST(CAST(SUM(sz.total_reserved_MB)/1024. AS NUMERIC(29,1)) AS NVARCHAR(30)) + 'GB (ALL)'
+                                    WHEN SUM(sz.total_reserved_MB) > 0 THEN
+                                        N'; ' + CAST(CAST(SUM(sz.total_reserved_MB) AS NUMERIC(29,1)) AS NVARCHAR(30)) + 'MB (ALL)'
                                     ELSE ''
                                     END AS index_size_summary
                         FROM    #IndexSanity i
                         JOIN    #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
                         JOIN (
                                 SELECT  i.database_name,
-                                        CAST((100.00 * SUM(CASE WHEN total_reads = 0 THEN 1 ELSE 0 END)) / COUNT(*) AS NUMERIC(29,1)) AS percent_NC_indexes_unused,
-                                        CAST(SUM(CASE WHEN total_reads = 0 THEN sz.total_reserved_MB ELSE 0 END) AS NUMERIC(29,1)) AS NC_indexes_unused_reserved_MB
+                                        CAST((100.00 * SUM(CASE WHEN i.total_reads = 0 THEN 1 ELSE 0 END)) / COUNT(*) AS NUMERIC(29,1)) AS percent_NC_indexes_unused,
+                                        CAST(SUM(CASE WHEN i.total_reads = 0 THEN sz.total_reserved_MB ELSE 0 END) AS NUMERIC(29,1)) AS NC_indexes_unused_reserved_MB
                                 FROM    #IndexSanity i
                                 JOIN    #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
-                                WHERE   index_id NOT IN ( 0, 1 )
+                                WHERE   i.index_id NOT IN ( 0, 1 )
                                         AND i.is_unique = 0
                                         /*Skipping tables created in the last week, or modified in past 2 days*/
                                         AND i.create_date < DATEADD(dd,-7,GETDATE())
                                         AND i.modify_date < DATEADD(dd,-2,GETDATE())
                                 GROUP BY i.database_name
                              ) AS perc ON i.database_name = perc.database_name
-                        WHERE    index_id NOT IN ( 0, 1 )
+                        WHERE    i.index_id NOT IN ( 0, 1 )
                                 AND i.is_unique = 0
-                                AND total_reads = 0
+                                AND i.total_reads = 0
                                 /*Skipping tables created in the last week, or modified in past 2 days*/
                                 AND	i.create_date < DATEADD(dd,-7,GETDATE())
                                 AND i.modify_date < DATEADD(dd,-2,GETDATE())
                                 AND perc.percent_NC_indexes_unused >= 5
-                        GROUP BY i.database_name 
+                                AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
+                        GROUP BY i.database_name
                 OPTION    ( RECOMPILE );
 
             RAISERROR(N'check_id 23: Indexes with 7 or more columns. (Borderline)', 0,1) WITH NOWAIT;
