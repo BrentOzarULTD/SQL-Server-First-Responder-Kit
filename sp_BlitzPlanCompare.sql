@@ -1880,12 +1880,17 @@ BEGIN
         DECLARE @RemoteServerName NVARCHAR(256) =
             @RemoteXml.value('(/BlitzPlanCompareSnapshot/@SourceServer)[1]', 'NVARCHAR(256)');
         DECLARE @CRLF NCHAR(2) = CHAR(13) + CHAR(10);
+        /* Leading + trailing @CRLF + @CRLF puts blank lines between the XML
+           open/close tags and the T-SQL body so the user can triple-click-drag
+           just the code rows without grabbing the wrapper tags. */
         DECLARE @ReproText NVARCHAR(MAX) =
-              N'/* Local server ' + ISNULL(@LocalServerName, N'(unknown)') + N' */' + @CRLF
+              @CRLF + @CRLF
+            + N'/* Local server ' + ISNULL(@LocalServerName, N'(unknown)') + N' */' + @CRLF
             + @LocalExec + @CRLF
             + @CRLF
             + N'/* Remote server ' + ISNULL(@RemoteServerName, N'(unknown)') + N' */' + @CRLF
-            + @RemoteExec;
+            + @RemoteExec
+            + @CRLF + @CRLF;
 
         DECLARE @Repro XML =
             (SELECT @ReproText AS [*] FOR XML PATH('ParameterSniffingReproducer'), TYPE);
