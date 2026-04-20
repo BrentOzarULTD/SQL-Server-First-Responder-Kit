@@ -1812,28 +1812,33 @@ BEGIN
             + N';';
     END;
 
-    /* Build the clickable XML. Using elements with text content (as opposed to
-       CDATA) because FOR XML will correctly entity-encode the ampersands and
-       angle brackets that can appear in SQL literals. SSMS still shows it as
-       an indented tree that you can copy out. */
+    /* Build the clickable XML. The column type is XML so SSMS renders it as a
+       hyperlink that opens in a new tab, but the CONTENT is plain T-SQL (with
+       comments and blank lines). We use a single root element whose text body
+       is the full reproducer script - no nested XML structure - so the SSMS
+       XML tab shows readable SQL with proper line breaks. FOR XML entity-encodes
+       any '<', '>', '&' that appear in literal parameter values. */
     IF @LocalExec IS NOT NULL AND @RemoteExec IS NOT NULL
     BEGIN
-        DECLARE @Repro XML = (
-            SELECT
-                'Run the Local block on the local server and the Remote block on the remote server to reproduce the parameter-sniffing scenario that produced these plans.' AS Description,
-                (SELECT @LocalServerName AS [@server], @LocalExec AS [*]
-                 FOR XML PATH('Local'), TYPE),
-                (SELECT @RemoteXml.value('(/BlitzPlanCompareSnapshot/@SourceServer)[1]', 'NVARCHAR(256)') AS [@server],
-                        @RemoteExec AS [*]
-                 FOR XML PATH('Remote'), TYPE)
-            FOR XML PATH('ParameterSniffingReproducer'), TYPE);
+        DECLARE @RemoteServerName NVARCHAR(256) =
+            @RemoteXml.value('(/BlitzPlanCompareSnapshot/@SourceServer)[1]', 'NVARCHAR(256)');
+        DECLARE @CRLF NCHAR(2) = CHAR(13) + CHAR(10);
+        DECLARE @ReproText NVARCHAR(MAX) =
+              N'/* Local server ' + ISNULL(@LocalServerName, N'(unknown)') + N' */' + @CRLF
+            + @LocalExec + @CRLF
+            + @CRLF
+            + N'/* Remote server ' + ISNULL(@RemoteServerName, N'(unknown)') + N' */' + @CRLF
+            + @RemoteExec;
+
+        DECLARE @Repro XML =
+            (SELECT @ReproText AS [*] FOR XML PATH('ParameterSniffingReproducer'), TYPE);
 
         INSERT INTO #Diff (Priority, Category, Setting, [Object], LocalValue, RemoteValue, Finding, [URL], Details, CallStack)
         VALUES (
             10, 'Parameter', 'Reproducer', NULL,
-            N'(click CallStack -> Local)',
-            N'(click CallStack -> Remote)',
-            N'Parameters compiled to different values on each server - textbook parameter sniffing. The CallStack column has copy/paste-ready EXECs for both servers.',
+            N'(see CallStack)',
+            N'(see CallStack)',
+            N'Parameters compiled to different values on each server - textbook parameter sniffing. Click the CallStack cell to open copy/paste-ready EXECs for both servers.',
             N'http://FirstResponderKit.org',
             CASE WHEN @ProcName IS NOT NULL
                  THEN N'Proc: ' + @ProcName
