@@ -323,17 +323,20 @@ DECLARE @ResolvedProcObjectId INT = NULL;
 
 IF @StoredProcName IS NOT NULL
 BEGIN
+    /* RAISERROR can't take function calls as args; capture DB_NAME() into a variable. */
+    DECLARE @CurrentDbName SYSNAME = DB_NAME();
+
     /* Azure SQL DB can't do cross-DB OBJECT_ID lookups. Reject mismatches early. */
     IF @EngineEdition IN (5, 8)
        AND @DatabaseName IS NOT NULL
-       AND @DatabaseName <> DB_NAME()
+       AND @DatabaseName <> @CurrentDbName
     BEGIN
         RAISERROR('On Azure SQL DB / Synapse, @DatabaseName (%s) must match the current database (%s) - cross-database OBJECT_ID lookups are not supported. Reconnect to the target database and re-run.',
-                  16, 1, @DatabaseName, DB_NAME());
+                  16, 1, @DatabaseName, @CurrentDbName);
         RETURN;
     END;
 
-    IF @DatabaseName IS NULL OR @DatabaseName = DB_NAME()
+    IF @DatabaseName IS NULL OR @DatabaseName = @CurrentDbName
     BEGIN
         /* Current-DB resolution. OBJECT_ID parses bare / 2-part / 3-part. */
         SET @ResolvedProcObjectId = OBJECT_ID(@StoredProcName);
@@ -360,14 +363,22 @@ BEGIN
 
     IF @ResolvedProcObjectId IS NULL
     BEGIN
-        RAISERROR('Could not resolve @StoredProcName ''%s'' to an object_id in database %s. Check spelling, schema qualification, and that you have VIEW DEFINITION permission on the proc.',
-                  16, 1, @StoredProcName, ISNULL(@DatabaseName, DB_NAME()));
+        DECLARE @ResolvedInDb SYSNAME = ISNULL(@DatabaseName, @CurrentDbName);
+        /* Common case: user called master.dbo.sp_BlitzPlanCompare from a user
+           database, but OBJECT_ID() ran in master's context and didn't find
+           the proc there. Give them two ways out: pass @DatabaseName, or use
+           a 3-part name like [db].[schema].[proc]. */
+        RAISERROR('Could not resolve @StoredProcName ''%s'' to an object_id in database %s. Either (a) add @DatabaseName = ''YourDb'', or (b) pass a 3-part name like [YourDb].[dbo].[%s]. Also verify spelling and VIEW DEFINITION permission.',
+                  16, 1, @StoredProcName, @ResolvedInDb, @StoredProcName);
         RETURN;
     END;
 
     IF @Debug = 1
+    BEGIN
+        DECLARE @DebugDbName SYSNAME = ISNULL(@DatabaseName, @CurrentDbName);
         RAISERROR('@StoredProcName ''%s'' resolved to object_id %d in database %s.',
-                  0, 1, @StoredProcName, @ResolvedProcObjectId, ISNULL(@DatabaseName, DB_NAME())) WITH NOWAIT;
+                  0, 1, @StoredProcName, @ResolvedProcObjectId, @DebugDbName) WITH NOWAIT;
+    END;
 END;
 
 /* =====================================================================
