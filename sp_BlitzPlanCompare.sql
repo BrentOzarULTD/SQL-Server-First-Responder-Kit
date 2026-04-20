@@ -33,14 +33,21 @@ IF OBJECT_ID('dbo.sp_BlitzPlanCompare') IS NULL
 GO
 
 ALTER PROCEDURE dbo.sp_BlitzPlanCompare
-    @QueryPlanHash    BINARY(8)   = NULL,
-    @CompareToXML     XML         = NULL,
-    @LinkedServer     SYSNAME     = NULL,
-    @Help             BIT         = 0,
-    @Debug            BIT         = 0,
-    @Version          VARCHAR(30) = NULL OUTPUT,
-    @VersionDate      DATETIME    = NULL OUTPUT,
-    @VersionCheckMode BIT         = 0
+    /* Plan identifiers - at least one required (except in mode 2 where @CompareToXML carries its own). */
+    @QueryPlanHash    BINARY(8)     = NULL,  /* most specific; one cached plan exactly */
+    @QueryHash        BINARY(8)     = NULL,  /* stable across servers; usually narrows to 1-few plans */
+    @StoredProcName   NVARCHAR(400) = NULL,  /* accepts 'proc', 'schema.proc', 'db.schema.proc'; resolved via OBJECT_ID() */
+    /* Narrowing - optional on its own, must accompany one of the above */
+    @DatabaseName     SYSNAME       = NULL,  /* scopes plan lookup to this database; required with @StoredProcName on Azure SQL DB */
+    /* Comparison source - exactly one (or none for mode 1) */
+    @CompareToXML     XML           = NULL,  /* mode 2: snapshot XML from another server */
+    @LinkedServer     SYSNAME       = NULL,  /* mode 3: call sp_BlitzPlanCompare on the linked server */
+    /* Misc */
+    @Help             BIT           = 0,
+    @Debug            BIT           = 0,
+    @Version          VARCHAR(30)   = NULL OUTPUT,
+    @VersionDate      DATETIME      = NULL OUTPUT,
+    @VersionCheckMode BIT           = 0
 WITH RECOMPILE
 AS
 BEGIN
@@ -69,9 +76,19 @@ BEGIN
     and live state for the objects actually referenced by the plan.
 
     Three operating modes:
-      1. @QueryPlanHash only            -> emit a snapshot XML you copy/paste to the other server
-      2. @CompareToXML only             -> diff this server against the snapshot XML you pasted in
-      3. @QueryPlanHash + @LinkedServer -> diff this server against the linked server in one call
+      1. plan identifier(s) only          -> emit a snapshot XML you copy/paste to the other server
+      2. @CompareToXML only               -> diff this server against the snapshot XML you pasted in
+      3. plan identifier(s) + @LinkedServer -> diff this server against the linked server in one call
+
+    Plan identifiers (at least one required for modes 1 and 3):
+      - @QueryPlanHash   - most specific; one cached plan exactly
+      - @QueryHash       - stable across servers; usually narrows to 1-few plans
+      - @StoredProcName  - human-friendly: "usp_Foo", "dbo.usp_Foo", "[db].[schema].[usp_Foo]"
+      - @DatabaseName    - narrows any of the above (cannot stand alone)
+
+    If the identifier(s) you provide resolve to multiple cached plans, sp_BlitzPlanCompare
+    returns the candidates with set_options + query text snippet so you can re-run with a
+    specific @QueryPlanHash.
 
     Linked-server mode requires:
       - sp_BlitzPlanCompare installed on BOTH servers
@@ -123,7 +140,19 @@ BEGIN
 
     SELECT N'@QueryPlanHash' AS [Parameter Name],
            N'BINARY(8)'      AS [Data Type],
-           N'The query_plan_hash to look up in this server''s plan cache. Required for modes 1 and 3.' AS [Parameter Description]
+           N'The query_plan_hash of a cached plan. Most specific identifier. Modes 1 and 3.' AS [Parameter Description]
+    UNION ALL
+    SELECT N'@QueryHash',
+           N'BINARY(8)',
+           N'The query_hash (logical query fingerprint). Stable across servers. Usually narrows to 1-few plans - if >1, you get a disambiguation result set to pick a @QueryPlanHash.'
+    UNION ALL
+    SELECT N'@StoredProcName',
+           N'NVARCHAR(400)',
+           N'A proc name, either bare ("usp_Foo"), schema-qualified ("dbo.usp_Foo"), or three-part ("[db].[schema].[usp_Foo]"). Resolved via OBJECT_ID() in either the current database or @DatabaseName. Multi-statement procs usually return multiple plans -> disambiguation result set.'
+    UNION ALL
+    SELECT N'@DatabaseName',
+           N'SYSNAME',
+           N'Scopes the plan lookup (and @StoredProcName resolution) to this database. Cannot stand alone - must accompany one of the identifier parameters.'
     UNION ALL
     SELECT N'@CompareToXML',
            N'XML',
@@ -131,7 +160,7 @@ BEGIN
     UNION ALL
     SELECT N'@LinkedServer',
            N'SYSNAME',
-           N'Name of a configured linked server (with RPC OUT) to call sp_BlitzPlanCompare on remotely. Combine with @QueryPlanHash for mode 3.'
+           N'Name of a configured linked server (with RPC OUT) to call sp_BlitzPlanCompare on remotely. Combine with a plan identifier for mode 3.'
     UNION ALL
     SELECT N'@Help',
            N'BIT',
@@ -179,9 +208,32 @@ DECLARE @Mode             TINYINT,
 /* =====================================================================
    Parameter validation and mode dispatch
    ===================================================================== */
-IF @QueryPlanHash IS NULL AND @CompareToXML IS NULL
+
+/* At least one way of identifying the plan. @CompareToXML carries its own hashes
+   inside the XML payload so it counts as an identifier for mode 2. */
+DECLARE @HasIdentifier BIT =
+    CASE WHEN @QueryPlanHash  IS NOT NULL
+           OR @QueryHash      IS NOT NULL
+           OR @StoredProcName IS NOT NULL
+           OR @CompareToXML   IS NOT NULL
+         THEN 1 ELSE 0 END;
+
+IF @HasIdentifier = 0
 BEGIN
-    RAISERROR('You must supply either @QueryPlanHash or @CompareToXML. Run with @Help = 1 for usage.', 16, 1);
+    RAISERROR('You must supply at least one of @QueryPlanHash, @QueryHash, @StoredProcName, or @CompareToXML. Run with @Help = 1 for usage.', 16, 1);
+    RETURN;
+END;
+
+/* @DatabaseName is a narrower, not an identifier. It needs one of the three
+   identifier parameters to scope. In mode 2 it is irrelevant because the plan
+   identity comes from the XML. */
+IF @DatabaseName IS NOT NULL
+   AND @QueryPlanHash  IS NULL
+   AND @QueryHash      IS NULL
+   AND @StoredProcName IS NULL
+   AND @CompareToXML   IS NULL
+BEGIN
+    RAISERROR('@DatabaseName cannot stand alone. Supply one of @QueryPlanHash, @QueryHash, or @StoredProcName alongside it.', 16, 1);
     RETURN;
 END;
 
@@ -191,9 +243,12 @@ BEGIN
     RETURN;
 END;
 
-IF @LinkedServer IS NOT NULL AND @QueryPlanHash IS NULL
+IF @LinkedServer IS NOT NULL
+   AND @QueryPlanHash  IS NULL
+   AND @QueryHash      IS NULL
+   AND @StoredProcName IS NULL
 BEGIN
-    RAISERROR('@LinkedServer requires @QueryPlanHash so we know which plan to look up on both sides.', 16, 1);
+    RAISERROR('@LinkedServer requires one of @QueryPlanHash, @QueryHash, or @StoredProcName so we know which plan to look up on both sides.', 16, 1);
     RETURN;
 END;
 
@@ -250,6 +305,72 @@ BEGIN
 END;
 
 /* =====================================================================
+   Resolve @StoredProcName -> object_id, optionally scoped by @DatabaseName.
+
+   Accepts bare ("usp_Foo"), schema-qualified ("dbo.usp_Foo"), and three-part
+   ("[db].[schema].[usp_Foo]") names. OBJECT_ID() handles all three forms,
+   including bracketed identifiers with reserved names.
+
+   @DatabaseName scoping uses a USE + OBJECT_ID in dynamic SQL so we can
+   resolve a proc in a non-current database on box SQL / MI. On Azure SQL DB
+   sessions are single-DB so we reject mismatches up front.
+
+   If resolution fails we RAISERROR with a clear message; don't silently
+   fall through with @ResolvedProcObjectId = NULL because the plan lookup
+   would then return every plan in cache. A missing proc is an error.
+   ===================================================================== */
+DECLARE @ResolvedProcObjectId INT = NULL;
+
+IF @StoredProcName IS NOT NULL
+BEGIN
+    /* Azure SQL DB can't do cross-DB OBJECT_ID lookups. Reject mismatches early. */
+    IF @EngineEdition IN (5, 8)
+       AND @DatabaseName IS NOT NULL
+       AND @DatabaseName <> DB_NAME()
+    BEGIN
+        RAISERROR('On Azure SQL DB / Synapse, @DatabaseName (%s) must match the current database (%s) - cross-database OBJECT_ID lookups are not supported. Reconnect to the target database and re-run.',
+                  16, 1, @DatabaseName, DB_NAME());
+        RETURN;
+    END;
+
+    IF @DatabaseName IS NULL OR @DatabaseName = DB_NAME()
+    BEGIN
+        /* Current-DB resolution. OBJECT_ID parses bare / 2-part / 3-part. */
+        SET @ResolvedProcObjectId = OBJECT_ID(@StoredProcName);
+    END
+    ELSE
+    BEGIN
+        /* Cross-DB resolution (box SQL, MI). USE [db]; SELECT OBJECT_ID(name);
+           using sp_executesql so we can get the int back cleanly. */
+        DECLARE @objidSql NVARCHAR(MAX) = N'USE ' + QUOTENAME(@DatabaseName) + N';
+            SET @id = OBJECT_ID(@name);';
+        BEGIN TRY
+            EXEC sp_executesql @objidSql,
+                N'@name NVARCHAR(400), @id INT OUTPUT',
+                @name = @StoredProcName,
+                @id   = @ResolvedProcObjectId OUTPUT;
+        END TRY
+        BEGIN CATCH
+            SET @ErrMessage = ERROR_MESSAGE();
+            RAISERROR('Failed to USE database %s for @StoredProcName resolution: %s',
+                      16, 1, @DatabaseName, @ErrMessage);
+            RETURN;
+        END CATCH;
+    END;
+
+    IF @ResolvedProcObjectId IS NULL
+    BEGIN
+        RAISERROR('Could not resolve @StoredProcName ''%s'' to an object_id in database %s. Check spelling, schema qualification, and that you have VIEW DEFINITION permission on the proc.',
+                  16, 1, @StoredProcName, ISNULL(@DatabaseName, DB_NAME()));
+        RETURN;
+    END;
+
+    IF @Debug = 1
+        RAISERROR('@StoredProcName ''%s'' resolved to object_id %d in database %s.',
+                  0, 1, @StoredProcName, @ResolvedProcObjectId, ISNULL(@DatabaseName, DB_NAME())) WITH NOWAIT;
+END;
+
+/* =====================================================================
    Resolve the plan from the local plan cache.
 
    We prefer the actual execution plan from sys.dm_exec_query_plan_stats when it's available
@@ -287,6 +408,20 @@ DECLARE @HasPlanStatsDmv BIT =
                        WHERE [name] = 'dm_exec_query_plan_stats'
                          AND [schema_id] = SCHEMA_ID('sys'))
          THEN 1 ELSE 0 END;
+
+/* Build the WHERE clause from whichever identifiers the user supplied. AND-combined.
+   Collation applied to @DatabaseName match because DB_NAME() returns the catalog
+   collation which may not match the caller's default. */
+DECLARE @Predicate NVARCHAR(MAX) = N'qp.query_plan IS NOT NULL';
+
+IF @QueryPlanHash IS NOT NULL
+    SET @Predicate = @Predicate + N' AND qs.query_plan_hash = @qph';
+IF @QueryHash IS NOT NULL
+    SET @Predicate = @Predicate + N' AND qs.query_hash = @qh';
+IF @ResolvedProcObjectId IS NOT NULL
+    SET @Predicate = @Predicate + N' AND st.objectid = @objid';
+IF @DatabaseName IS NOT NULL
+    SET @Predicate = @Predicate + N' AND DB_NAME(CONVERT(INT, pa_db.value)) COLLATE DATABASE_DEFAULT = @dbname COLLATE DATABASE_DEFAULT';
 
 DECLARE @PlanLookupSql NVARCHAR(MAX) = N'
 INSERT INTO #PlanMatches (plan_handle, sql_handle, statement_start_offset, statement_end_offset,
@@ -333,8 +468,7 @@ OUTER APPLY sys.dm_exec_query_plan(qs.plan_handle) AS qp
       + N'
 OUTER APPLY (SELECT TOP 1 value FROM sys.dm_exec_plan_attributes(qs.plan_handle) WHERE attribute = ''dbid'')        AS pa_db
 OUTER APPLY (SELECT TOP 1 value FROM sys.dm_exec_plan_attributes(qs.plan_handle) WHERE attribute = ''set_options'') AS pa_set
-WHERE   qs.query_plan_hash = @hash
-  AND   qp.query_plan IS NOT NULL
+WHERE   ' + @Predicate + N'
 OPTION (RECOMPILE);';
 
 IF @Debug = 1
@@ -346,7 +480,12 @@ END;
 IF @Debug = 1
     PRINT @PlanLookupSql;
 
-EXEC sp_executesql @PlanLookupSql, N'@hash BINARY(8)', @hash = @QueryPlanHash;
+EXEC sp_executesql @PlanLookupSql,
+    N'@qph BINARY(8), @qh BINARY(8), @objid INT, @dbname SYSNAME',
+    @qph    = @QueryPlanHash,
+    @qh     = @QueryHash,
+    @objid  = @ResolvedProcObjectId,
+    @dbname = @DatabaseName;
 
 SELECT @MatchCount = COUNT(*) FROM #PlanMatches;
 
@@ -356,67 +495,93 @@ DECLARE @QueryPlanHashText NVARCHAR(50) = CONVERT(NVARCHAR(50), @QueryPlanHash, 
 DECLARE @InputHashText      NVARCHAR(50) = @QueryPlanHashText;  /* preserve original input for messages */
 DECLARE @MatchedByQueryHash BIT          = 0;
 
+/* Fallback: if the ONLY identifier supplied was @QueryPlanHash and it matched
+   nothing, retry as if the user had passed @QueryHash. This preserves the
+   historical forgiving behavior for people who copy/paste hashes without
+   knowing which one they grabbed. We skip the fallback if any other identifier
+   was supplied because AND-ing the rest would still narrow correctly. */
 IF @MatchCount = 0
+   AND @QueryPlanHash      IS NOT NULL
+   AND @QueryHash          IS NULL
+   AND @ResolvedProcObjectId IS NULL
 BEGIN
-    /* Fallback: maybe the value they passed is a query_hash (not a query_plan_hash).
-       Re-run the same lookup with the WHERE column swapped. REPLACE is safe because
-       the exact phrase 'WHERE   qs.query_plan_hash = @hash' only appears in the
-       outer filter; the query_plan_hash SELECT-list reference has different whitespace. */
     DECLARE @PlanLookupSqlByQueryHash NVARCHAR(MAX) =
         REPLACE(@PlanLookupSql,
-                N'WHERE   qs.query_plan_hash = @hash',
-                N'WHERE   qs.query_hash = @hash');
+                N'qs.query_plan_hash = @qph',
+                N'qs.query_hash = @qph');
 
     IF @Debug = 1
-        RAISERROR('No match on query_plan_hash. Retrying as query_hash...', 0, 1) WITH NOWAIT;
+        RAISERROR('No match on query_plan_hash. Retrying the passed hash as query_hash...', 0, 1) WITH NOWAIT;
 
-    EXEC sp_executesql @PlanLookupSqlByQueryHash, N'@hash BINARY(8)', @hash = @QueryPlanHash;
+    EXEC sp_executesql @PlanLookupSqlByQueryHash,
+        N'@qph BINARY(8), @qh BINARY(8), @objid INT, @dbname SYSNAME',
+        @qph    = @QueryPlanHash,
+        @qh     = @QueryHash,
+        @objid  = @ResolvedProcObjectId,
+        @dbname = @DatabaseName;
     SELECT @MatchCount = COUNT(*) FROM #PlanMatches;
 
-    IF @MatchCount = 0
+    IF @MatchCount > 0
     BEGIN
-        RAISERROR('No cached plan was found on this server with %s as either a QueryPlanHash or a QueryHash. The plan may have aged out, or the hash may be wrong.',
-                  16, 1, @InputHashText);
-        RETURN;
+        DECLARE @DistinctPlanHashes INT;
+        SELECT @DistinctPlanHashes = COUNT(DISTINCT query_plan_hash) FROM #PlanMatches;
+
+        IF @DistinctPlanHashes > 1
+        BEGIN
+            RAISERROR('We didn''t find %s in cache as a QueryPlanHash, but we did find it as a QueryHash. However, it has multiple plans in cache. Pass in the QueryPlanHash you want to investigate. The distinct QueryPlanHash values are returned below.',
+                      16, 1, @InputHashText);
+
+            SELECT DISTINCT
+                   query_plan_hash                                     AS QueryPlanHash,
+                   CONVERT(NVARCHAR(50), query_plan_hash, 1)           AS QueryPlanHashText,
+                   COUNT(*) OVER (PARTITION BY query_plan_hash)        AS CachedCopies,
+                   MIN(query_text_snippet) OVER (PARTITION BY query_plan_hash) AS QueryTextSnippet
+            FROM   #PlanMatches
+            ORDER BY query_plan_hash;
+            RETURN;
+        END;
+
+        /* Exactly 1 distinct plan under that query_hash. Adopt its query_plan_hash and
+           let the normal single-plan / multi-copy handling take over below. */
+        SELECT TOP 1 @QueryPlanHash = query_plan_hash FROM #PlanMatches;
+        SET @QueryPlanHashText  = CONVERT(NVARCHAR(50), @QueryPlanHash, 1);
+        SET @MatchedByQueryHash = 1;
+
+        RAISERROR('Note: %s was not found as a QueryPlanHash, but matched as a QueryHash. Using its single cached plan (QueryPlanHash = %s).',
+                  0, 1, @InputHashText, @QueryPlanHashText) WITH NOWAIT;
     END;
+END;
 
-    /* Matched as query_hash. Count distinct plans under that query_hash. */
-    DECLARE @DistinctPlanHashes INT;
-    SELECT @DistinctPlanHashes = COUNT(DISTINCT query_plan_hash) FROM #PlanMatches;
+/* Final "nothing found" check. Build a descriptive message that lists every
+   identifier the user passed so they can see what was tried. */
+IF @MatchCount = 0
+BEGIN
+    DECLARE @TriedList NVARCHAR(MAX) = N'';
+    IF @QueryPlanHash IS NOT NULL
+        SET @TriedList = @TriedList + N' @QueryPlanHash=' + CONVERT(NVARCHAR(50), @QueryPlanHash, 1);
+    IF @QueryHash IS NOT NULL
+        SET @TriedList = @TriedList + N' @QueryHash=' + CONVERT(NVARCHAR(50), @QueryHash, 1);
+    IF @StoredProcName IS NOT NULL
+        SET @TriedList = @TriedList + N' @StoredProcName=' + @StoredProcName;
+    IF @DatabaseName IS NOT NULL
+        SET @TriedList = @TriedList + N' @DatabaseName=' + @DatabaseName;
 
-    IF @DistinctPlanHashes > 1
-    BEGIN
-        RAISERROR('We didn''t find %s in cache as a QueryPlanHash, but we did find it as a QueryHash. However, it has multiple plans in cache. Pass in the QueryPlanHash you want to investigate. The distinct QueryPlanHash values are returned below.',
-                  16, 1, @InputHashText);
-
-        SELECT DISTINCT
-               query_plan_hash                                     AS QueryPlanHash,
-               CONVERT(NVARCHAR(50), query_plan_hash, 1)           AS QueryPlanHashText,
-               COUNT(*) OVER (PARTITION BY query_plan_hash)        AS CachedCopies,
-               MIN(query_text_snippet) OVER (PARTITION BY query_plan_hash) AS QueryTextSnippet
-        FROM   #PlanMatches
-        ORDER BY query_plan_hash;
-        RETURN;
-    END;
-
-    /* Exactly 1 distinct plan under that query_hash. Adopt its query_plan_hash and
-       let the normal single-plan / multi-copy handling take over below. */
-    SELECT TOP 1 @QueryPlanHash = query_plan_hash FROM #PlanMatches;
-    SET @QueryPlanHashText  = CONVERT(NVARCHAR(50), @QueryPlanHash, 1);
-    SET @MatchedByQueryHash = 1;
-
-    RAISERROR('Note: %s was not found as a QueryPlanHash, but matched as a QueryHash. Using its single cached plan (QueryPlanHash = %s).',
-              0, 1, @InputHashText, @QueryPlanHashText) WITH NOWAIT;
+    RAISERROR('No cached plan matched the identifiers you passed:%s. The plan may have aged out of cache, or one of these may be wrong. If you supplied @QueryPlanHash and the values might actually be a query_hash, try @QueryHash instead.',
+              16, 1, @TriedList);
+    RETURN;
 END;
 
 IF @MatchCount > 1
 BEGIN
-    RAISERROR('Multiple cached plans match QueryPlanHash %s. The matches are returned below; pick a specific (plan_handle, statement_start_offset) by inspecting set_options and query_text_snippet, then re-run filtered (e.g. via DBCC FREEPROCCACHE on extras, or in a future version with @StatementStartOffset).',
-              11, 1, @QueryPlanHashText);
+    RAISERROR('Multiple cached plans match the identifiers you passed. The matches are returned below; inspect set_options + query_text_snippet, then re-run with a more specific @QueryPlanHash (or supply additional narrowers like @DatabaseName).',
+              11, 1);
 
     SELECT  plan_handle, sql_handle, statement_start_offset, statement_end_offset,
             creation_time, last_execution_time, execution_count,
-            database_name, set_options, query_text_snippet, plan_source, query_plan_full AS query_plan
+            database_name, set_options, query_text_snippet, plan_source,
+            CONVERT(NVARCHAR(50), query_plan_hash, 1) AS query_plan_hash_text,
+            CONVERT(NVARCHAR(50), query_hash, 1)      AS query_hash_text,
+            query_plan_full AS query_plan
     FROM    #PlanMatches
     ORDER BY execution_count DESC;
     RETURN;
@@ -432,6 +597,7 @@ SELECT  @PlanHandle      = plan_handle,
         @PlanXml         = query_plan_full,               /* FULL plan - used for #PlanObjects extraction */
         @PlanXmlForEmit  = COALESCE(query_plan_actual, query_plan_full),
         @PlanSource      = plan_source,
+        @QueryPlanHash   = query_plan_hash, /* may have been NULL if user passed @QueryHash / @StoredProcName only */
         @QueryHashBin    = query_hash    /* overwrite any mode-2 XML-extracted value with the real resolved plan's query_hash */
 FROM    #PlanMatches;
 

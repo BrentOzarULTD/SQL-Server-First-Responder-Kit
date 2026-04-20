@@ -349,11 +349,31 @@ When the same query runs differently on two SQL Servers (fast on dev, slow on pr
 
 ### Parameters
 
+**Plan identifiers — at least one required for modes 1 and 3** (mode 2 reads identity from the XML):
+
 | Parameter | Type | Default | Purpose |
 |---|---|---|---|
-| `@QueryPlanHash` | `BINARY(8)` | `NULL` | The `query_plan_hash` from the server where you want to investigate. Required for modes 1 and 3; optional for mode 2 (used to disambiguate when multiple local plans share the same `query_hash`). |
-| `@CompareToXML` | `XML` | `NULL` | Snapshot XML produced by a prior mode-1 run on the other server. Supplying this triggers compare mode (mode 2). |
-| `@LinkedServer` | `SYSNAME` | `NULL` | Name of a configured linked server (with `RPC OUT`). Combine with `@QueryPlanHash` for one-call mode 3. |
+| `@QueryPlanHash` | `BINARY(8)` | `NULL` | The `query_plan_hash` of a cached plan. Most specific identifier. |
+| `@QueryHash` | `BINARY(8)` | `NULL` | The `query_hash` (logical query fingerprint). Stable across servers; usually narrows to 1–few plans. When >1 you get a disambiguation result set to pick a `@QueryPlanHash`. |
+| `@StoredProcName` | `NVARCHAR(400)` | `NULL` | Proc name — bare (`usp_Foo`), schema-qualified (`dbo.usp_Foo`), or three-part (`[db].[schema].[usp_Foo]`). Resolved via `OBJECT_ID()`. Multi-statement procs typically return multiple plans; use the disambiguation result set to pick one. |
+
+**Narrower — must accompany an identifier** (cannot stand alone):
+
+| Parameter | Type | Default | Purpose |
+|---|---|---|---|
+| `@DatabaseName` | `SYSNAME` | `NULL` | Scopes plan lookup (and `@StoredProcName` resolution) to this database. On Azure SQL DB you must be connected to this database — cross-DB `OBJECT_ID()` isn't supported. |
+
+**Comparison source** (exactly one, or none for mode 1):
+
+| Parameter | Type | Default | Purpose |
+|---|---|---|---|
+| `@CompareToXML` | `XML` | `NULL` | Snapshot XML produced by a prior mode-1 run on the other server. Triggers mode 2. |
+| `@LinkedServer` | `SYSNAME` | `NULL` | Name of a configured linked server (with `RPC OUT`). Combine with a plan identifier for mode 3. |
+
+**Misc**:
+
+| Parameter | Type | Default | Purpose |
+|---|---|---|---|
 | `@Help` | `BIT` | `0` | Prints usage and parameter docs and returns. |
 | `@Debug` | `BIT` | `0` | Prints the dynamic SQL used for plan lookup and linked-server invocation, plus per-DB iteration notes. |
 
@@ -361,9 +381,29 @@ When the same query runs differently on two SQL Servers (fast on dev, slow on pr
 
 | Mode | You supply | What it does | Output |
 |---|---|---|---|
-| 1. Emit | `@QueryPlanHash` only | Snapshots the local plan + its environment. | A single `CallStack` cell with a ready-to-run `EXEC sp_BlitzPlanCompare @CompareToXML = N'...';` — paste into the other server. |
+| 1. Emit | Any plan identifier(s) | Snapshots the local plan + its environment. | A single `CallStack` cell with a ready-to-run `EXEC sp_BlitzPlanCompare @CompareToXML = N'...';` — paste into the other server. |
 | 2. Compare from XML | `@CompareToXML` only | Resolves the local plan by `query_hash` from the snapshot, then diffs. | Full diff result set (below). |
-| 3. Linked server | `@QueryPlanHash` + `@LinkedServer` | Calls sp_BlitzPlanCompare on the remote over RPC, shreds the returned snapshot, diffs locally. Requires the proc installed on both sides. | Full diff result set (below). |
+| 3. Linked server | Plan identifier(s) + `@LinkedServer` | Calls sp_BlitzPlanCompare on the remote over RPC, shreds the returned snapshot, diffs locally. Requires the proc installed on both sides. | Full diff result set (below). |
+
+### Plan identifier examples
+
+```tsql
+/* 1. You know the plan hash exactly */
+EXEC dbo.sp_BlitzPlanCompare @QueryPlanHash = 0xABCD1234567890;
+
+/* 2. You only know the query hash (usually enough) */
+EXEC dbo.sp_BlitzPlanCompare @QueryHash = 0x1234567890ABCDEF;
+
+/* 3. You know the proc name */
+EXEC dbo.sp_BlitzPlanCompare
+    @StoredProcName = 'dbo.usp_GetTopPosts',
+    @DatabaseName   = 'StackOverflow';
+
+/* Multi-statement proc: use the disambiguation result set to pick one statement */
+EXEC dbo.sp_BlitzPlanCompare @StoredProcName = 'dbo.big_proc';
+/* -> returns one row per cached plan with set_options + query_text_snippet.
+   Copy a query_plan_hash_text value and re-run with @QueryPlanHash. */
+```
 
 ### Typical copy/paste workflow (most common)
 
