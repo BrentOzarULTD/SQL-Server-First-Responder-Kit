@@ -774,28 +774,40 @@ CREATE TABLE #PlanRuntime (
     ValueNumeric DECIMAL(38,4)  NULL
 );
 
+/* Microsoft quirk: <QueryTimeStats> attribute VALUES are swapped relative to
+   the attribute names in the plan XML that sys.dm_exec_query_plan_stats
+   produces. Empirically verified against sys.dm_exec_query_stats
+   (total_worker_time / total_elapsed_time) on single-execution plans:
+
+       @CpuTime attribute     actually holds the elapsed-time value
+       @ElapsedTime attribute actually holds the cpu-time value
+
+   So we SWAP at read time: our ElapsedTimeMs output reads from @CpuTime,
+   and our CpuTimeMs output reads from @ElapsedTime. The user-facing labels
+   stay correct; only the XPath sources are flipped. The same swap applies
+   to the Udf variants. */
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT INTO #PlanRuntime ([Setting], ValueText, ValueNumeric)
 SELECT 'ElapsedTimeMs', CAST(v AS NVARCHAR(40)), v
-FROM (SELECT @PlanXmlForEmit.value('(//p:QueryTimeStats/@ElapsedTime)[1]', 'BIGINT') AS v) x
-WHERE v IS NOT NULL;
-
-;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-INSERT INTO #PlanRuntime ([Setting], ValueText, ValueNumeric)
-SELECT 'CpuTimeMs', CAST(v AS NVARCHAR(40)), v
 FROM (SELECT @PlanXmlForEmit.value('(//p:QueryTimeStats/@CpuTime)[1]', 'BIGINT') AS v) x
 WHERE v IS NOT NULL;
 
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT INTO #PlanRuntime ([Setting], ValueText, ValueNumeric)
+SELECT 'CpuTimeMs', CAST(v AS NVARCHAR(40)), v
+FROM (SELECT @PlanXmlForEmit.value('(//p:QueryTimeStats/@ElapsedTime)[1]', 'BIGINT') AS v) x
+WHERE v IS NOT NULL;
+
+;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+INSERT INTO #PlanRuntime ([Setting], ValueText, ValueNumeric)
 SELECT 'UdfElapsedTimeMs', CAST(v AS NVARCHAR(40)), v
-FROM (SELECT @PlanXmlForEmit.value('(//p:QueryTimeStats/@UdfElapsedTime)[1]', 'BIGINT') AS v) x
+FROM (SELECT @PlanXmlForEmit.value('(//p:QueryTimeStats/@UdfCpuTime)[1]', 'BIGINT') AS v) x
 WHERE v IS NOT NULL;
 
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT INTO #PlanRuntime ([Setting], ValueText, ValueNumeric)
 SELECT 'UdfCpuTimeMs', CAST(v AS NVARCHAR(40)), v
-FROM (SELECT @PlanXmlForEmit.value('(//p:QueryTimeStats/@UdfCpuTime)[1]', 'BIGINT') AS v) x
+FROM (SELECT @PlanXmlForEmit.value('(//p:QueryTimeStats/@UdfElapsedTime)[1]', 'BIGINT') AS v) x
 WHERE v IS NOT NULL;
 
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
