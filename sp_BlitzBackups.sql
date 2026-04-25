@@ -1117,7 +1117,7 @@ IF @ProductVersionMajor >= 12
 	AND (bs.is_copy_only = 1 OR bs.recovery_model = N''SIMPLE'')
 	AND bs.backup_finish_date >= DATEADD(DAY, -30, SYSDATETIME())
 	GROUP BY bs.database_name' + @crlf;
-	SET @StringToExecute += N'UNION' + @crlf + N'SELECT 
+	SET @StringToExecute += N'UNION ALL' + @crlf + N'SELECT 
 		14 AS CheckId,
 		100 AS [Priority],
 		bs.database_name AS [Database Name],
