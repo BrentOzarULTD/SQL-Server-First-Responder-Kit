@@ -493,7 +493,7 @@ END
 /* Blitz cache data */
 RAISERROR('Sortorder for BlitzCache data: %s',0,0,@BlitzCacheSortorder) WITH NOWAIT;
 
-/* Set intial CTE */
+/* Set initial CTE */
 SET @Sql = N'WITH CheckDates AS (
 SELECT DISTINCT CheckDate 
 FROM '
@@ -6349,7 +6349,7 @@ Thank you.'
                     SET @AIAdviceText = N'No response received from AI service.';
                 END;
 
-                /* Store the response in the the ai_advice column */
+                /* Store the response in the ai_advice column */
                 UPDATE ##BlitzCacheProcs
                 SET ai_advice = @AIAdviceText, ai_raw_response = @AIResponseJSON, ai_payload = @AIPayload
                 WHERE SPID = @@SPID
@@ -16817,7 +16817,7 @@ BEGIN
 
         @OutputSchemaName: Specify a schema name to output information to a specific Schema
 
-        @OutputTableName: Specify table name to to output information to a specific table
+        @OutputTableName: Specify table name to output information to a specific table
 
         /*Point at a table containing deadlock XML*/
         @TargetDatabaseName: The database that contains the table with deadlock report XML

@@ -11041,7 +11041,7 @@ END
 /* Blitz cache data */
 RAISERROR('Sortorder for BlitzCache data: %s',0,0,@BlitzCacheSortorder) WITH NOWAIT;
 
-/* Set intial CTE */
+/* Set initial CTE */
 SET @Sql = N'WITH CheckDates AS (
 SELECT DISTINCT CheckDate 
 FROM '
@@ -18423,7 +18423,7 @@ Thank you.'
                     SET @AIAdviceText = N'No response received from AI service.';
                 END;
 
-                /* Store the response in the the ai_advice column */
+                /* Store the response in the ai_advice column */
                 UPDATE ##BlitzCacheProcs
                 SET ai_advice = @AIAdviceText, ai_raw_response = @AIResponseJSON, ai_payload = @AIPayload
                 WHERE SPID = @@SPID
@@ -28891,7 +28891,7 @@ BEGIN
 
         @OutputSchemaName: Specify a schema name to output information to a specific Schema
 
-        @OutputTableName: Specify table name to to output information to a specific table
+        @OutputTableName: Specify table name to output information to a specific table
 
         /*Point at a table containing deadlock XML*/
         @TargetDatabaseName: The database that contains the table with deadlock report XML
@@ -34989,7 +34989,7 @@ BEGIN
 END;
 IF (SELECT RIGHT(@MoveLogDrive, 1)) <> '/' AND CHARINDEX('/', @MoveLogDrive) > 0 --Has to end in a '/'
 BEGIN
-	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing@MoveLogDrive to add a "/"', 0, 1) WITH NOWAIT;
+	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveLogDrive to add a "/"', 0, 1) WITH NOWAIT;
 	SET @MoveLogDrive += N'/';
 END;
 ELSE IF (SELECT RIGHT(@MoveLogDrive, 1)) <> '\' --Has to end in a '\'
@@ -36141,12 +36141,12 @@ IF @DatabaseOwner IS NOT NULL
 				END
 				ELSE
 				BEGIN
-					PRINT 'Current user''s login is NOT a member of the sysadmin role. Database TRUSTWORHY bit has not been enabled.';
+					PRINT 'Current user''s login is NOT a member of the sysadmin role. Database TRUSTWORTHY bit has not been enabled.';
 				END
 			END
 			ELSE
 			BEGIN
-				PRINT @RestoreDatabaseName + ' is still in Recovery, so we are unable to enable the TRUSTWORHY bit.';
+				PRINT @RestoreDatabaseName + ' is still in Recovery, so we are unable to enable the TRUSTWORTHY bit.';
 			END
 		END;
 
