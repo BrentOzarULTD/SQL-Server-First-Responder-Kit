@@ -1109,33 +1109,33 @@ IF @ProductVersionMajor >= 12
 		100 AS [Priority],
 		bs.database_name AS [Database Name],
 		''Backup to NUL device'' AS [Finding],
-		''The database '' + QUOTENAME(bs.database_name) + '' has had '' + CONVERT(VARCHAR(10), COUNT(*)) + '' backups to the NUL device in the last 30 days, the latest one being on ''+
+		''The database '' + QUOTENAME(bs.database_name) + '' has had '' + CONVERT(VARCHAR(10), COUNT(*)) + '' backups to the NUL device, the latest one being on ''+
 		CONVERT(NVARCHAR(25),MAX(bs.backup_finish_date),120)+''. These backups do not exist.'' AS [Warning]
 	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS bs
 	INNER JOIN ' + QUOTENAME(@MSDBName) + '.dbo.backupmediafamily bmf ON bs.media_set_id = bmf.media_set_id
 	WHERE UPPER(bmf.physical_device_name)= N''NUL''
 	AND (bs.is_copy_only = 1 OR bs.recovery_model = N''SIMPLE'')
-	AND bs.backup_finish_date >= DATEADD(DAY, -30, SYSDATETIME())
+	AND bs.backup_finish_date >= @StartTime
 	GROUP BY bs.database_name' + @crlf;
-	SET @StringToExecute += N'UNION ALL' + @crlf + N'SELECT 
+	SET @StringToExecute += N'UNION ALL' + @crlf + N'SELECT
 		14 AS CheckId,
 		100 AS [Priority],
 		bs.database_name AS [Database Name],
 		''Backup to NUL device without COPY_ONLY'' AS [Finding],
-		''The database '' + QUOTENAME(bs.database_name) + '' is not in SIMPLE recovery model and has had '' + CONVERT(VARCHAR(10), COUNT(*)) + '' backups to the NUL device in the last 30 days, the latest one being on ''+
+		''The database '' + QUOTENAME(bs.database_name) + '' is not in SIMPLE recovery model and has had '' + CONVERT(VARCHAR(10), COUNT(*)) + '' backups to the NUL device, the latest one being on ''+
 		CONVERT(NVARCHAR(25),MAX(bs.backup_finish_date),120)+''. These backups do not exist and they might mess up your current backup chain.'' AS [Warning]
 	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS bs
 	INNER JOIN ' + QUOTENAME(@MSDBName) + '.dbo.backupmediafamily bmf ON bs.media_set_id = bmf.media_set_id
 	WHERE UPPER(bmf.physical_device_name)= N''NUL''
 	AND bs.is_copy_only = 0 AND bs.recovery_model <> N''SIMPLE''
-	AND bs.backup_finish_date >= DATEADD(DAY, -30, SYSDATETIME())
+	AND bs.backup_finish_date >= @StartTime
 	GROUP BY bs.database_name' + @crlf;
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
 		INSERT #Warnings ( CheckId, Priority, DatabaseName, Finding, Warning )
-		EXEC sys.sp_executesql @StringToExecute;
+		EXEC sys.sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
 
 RAISERROR('Rules analysis starting on temp tables', 0, 1) WITH NOWAIT;
 
