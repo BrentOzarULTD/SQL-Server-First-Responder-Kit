@@ -2968,7 +2968,8 @@ OPTION (RECOMPILE);';
         ON c.[object_id] = ic.[object_id]
        AND c.column_id = ic.column_id
     JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.types AS t
-        ON c.user_type_id = t.user_type_id
+        ON c.system_type_id = t.system_type_id
+       AND t.user_type_id = t.system_type_id
     WHERE i.type IN (5, 6)
       AND seg.row_count > 0
       AND seg.min_deep_data IS NULL
@@ -3002,7 +3003,7 @@ OPTION (RECOMPILE);';
                 EXEC sp_executesql @dsql;
             END TRY
             BEGIN CATCH
-                RAISERROR (N'Skipping #ColumnstoreIndexesNeedingRebuild population due to error, typically low permissions or pre-2022 server', 0, 1) WITH NOWAIT;
+                RAISERROR (N'Skipping #ColumnstoreIndexesNeedingRebuild population due to error, typically low permissions, an inaccessible database, or another metadata/query issue', 0, 1) WITH NOWAIT;
             END CATCH;
         END;
 
