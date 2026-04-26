@@ -365,6 +365,7 @@ DROP TABLE IF EXISTS #CheckConstraints;
 DROP TABLE IF EXISTS #FilteredIndexes;
 DROP TABLE IF EXISTS #Ignore_Databases;
 DROP TABLE IF EXISTS #IndexResumableOperations;
+DROP TABLE IF EXISTS #ColumnstoreIndexesNeedingRebuild;
 DROP TABLE IF EXISTS #dm_db_partition_stats_etc;
 DROP TABLE IF EXISTS #dm_db_index_operational_stats;
 
@@ -963,6 +964,19 @@ DROP TABLE IF EXISTS #dm_db_index_operational_stats;
               N'EXEC dbo.sp_BlitzIndex @DatabaseName=' + QUOTENAME([database_name],N'''') + 
 			  N', @SchemaName=' + QUOTENAME([schema_name],N'''') +
               N', @TableName=' + QUOTENAME([table_name],N'''') + N';'
+        );
+
+        /* Holds columnstore indexes on SQL Server 2022+ / Azure SQL DB whose
+           sys.column_store_segments rows are missing min_deep_data / max_deep_data
+           for eligible string, binary, uniqueidentifier, or datetimeoffset(>2)
+           columns - meaning the index needs to be rebuilt to enable predicate
+           pushdown. See check_id 130. */
+        CREATE TABLE #ColumnstoreIndexesNeedingRebuild
+        (
+            database_id SMALLINT NOT NULL,
+            [object_id] INT NOT NULL,
+            index_id INT NOT NULL,
+            eligible_columns NVARCHAR(MAX) NULL
         );
 
         CREATE TABLE #Ignore_Databases
@@ -2917,6 +2931,80 @@ OPTION (RECOMPILE);';
                 BEGIN CATCH
                     RAISERROR (N'Skipping #IndexResumableOperations population due to error, typically low permissions', 0,1) WITH NOWAIT;
                 END CATCH
+        END;
+
+        /*
+        SQL Server 2022 added min_deep_data / max_deep_data to sys.column_store_segments
+        to enable predicate pushdown / segment elimination for string, binary,
+        uniqueidentifier, and datetimeoffset(>2) columns. Columnstore indexes that
+        existed before the upgrade keep NULLs in those columns until the index is
+        rebuilt. The min_deep_data column only exists on SQL Server 2022 (16.x) and
+        Azure SQL DB / MI, so guard the dynamic SQL on its presence rather than
+        version-gating ourselves.
+        */
+        IF EXISTS (SELECT 1 FROM sys.all_columns
+                   WHERE object_id = OBJECT_ID('sys.column_store_segments')
+                     AND name = 'min_deep_data')
+        BEGIN
+            SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+;WITH eligible AS
+(
+    SELECT DISTINCT
+        p.[object_id],
+        p.index_id,
+        c.column_id,
+        c.name AS column_name
+    FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_segments AS seg
+    JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.partitions AS p
+        ON seg.partition_id = p.partition_id
+    JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS i
+        ON p.[object_id] = i.[object_id]
+       AND p.index_id = i.index_id
+    JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns AS ic
+        ON ic.[object_id] = p.[object_id]
+       AND ic.index_id = p.index_id
+       AND ic.index_column_id = seg.column_id
+    JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.columns AS c
+        ON c.[object_id] = ic.[object_id]
+       AND c.column_id = ic.column_id
+    JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.types AS t
+        ON c.system_type_id = t.system_type_id
+       AND t.user_type_id = t.system_type_id
+    WHERE i.type IN (5, 6)
+      AND seg.row_count > 0
+      AND seg.min_deep_data IS NULL
+      AND seg.max_deep_data IS NULL
+      AND (
+              (t.name IN (N''char'', N''varchar'', N''nchar'', N''nvarchar'', N''binary'', N''varbinary'') AND c.max_length <> -1)
+           OR  t.name = N''uniqueidentifier''
+           OR (t.name = N''datetimeoffset'' AND c.scale > 2)
+          )' + CASE WHEN @ObjectID IS NOT NULL
+                    THEN N'
+      AND p.[object_id] = ' + CAST(@ObjectID AS NVARCHAR(30))
+                    ELSE N'' END + N'
+)
+SELECT
+    ' + CAST(@DatabaseID AS NVARCHAR(16)) + N',
+    e.[object_id],
+    e.index_id,
+    STUFF((SELECT N'', '' + e2.column_name
+             FROM eligible AS e2
+            WHERE e2.[object_id] = e.[object_id]
+              AND e2.index_id    = e.index_id
+            ORDER BY e2.column_id
+            FOR XML PATH(N''''), TYPE).value(N''.'', N''NVARCHAR(MAX)''), 1, 2, N'''') AS eligible_columns
+FROM eligible AS e
+GROUP BY e.[object_id], e.index_id
+OPTION (RECOMPILE);';
+
+            BEGIN TRY
+                RAISERROR (N'Inserting data into #ColumnstoreIndexesNeedingRebuild', 0, 1) WITH NOWAIT;
+                INSERT #ColumnstoreIndexesNeedingRebuild (database_id, [object_id], index_id, eligible_columns)
+                EXEC sp_executesql @dsql;
+            END TRY
+            BEGIN CATCH
+                RAISERROR (N'Skipping #ColumnstoreIndexesNeedingRebuild population due to error, typically low permissions, an inaccessible database, or another metadata/query issue', 0, 1) WITH NOWAIT;
+            END CATCH;
         END;
 
 
@@ -5036,6 +5124,38 @@ BEGIN
                 AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                 OPTION    ( RECOMPILE );
 			END;
+
+		RAISERROR(N'check_id 130: Columnstore Index Needs to Be Rebuilt for predicate pushdown', 0,1) WITH NOWAIT;
+            IF EXISTS (SELECT 1 FROM #ColumnstoreIndexesNeedingRebuild)
+            BEGIN
+                INSERT    #BlitzIndexResults ( check_id, index_sanity_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
+                                                secret_columns, index_usage_summary, index_size_summary )
+                SELECT  130 AS check_id,
+                        i.index_sanity_id,
+                        100 AS Priority,
+                        N'Indexes Worth Reviewing' AS findings_group,
+                        N'Columnstore Index Needs to Be Rebuilt' AS finding,
+                        i.[database_name] AS [Database Name],
+                        N'https://learn.microsoft.com/en-us/sql/relational-databases/indexes/columnstore-indexes-what-s-new?view=sql-server-ver17' AS URL,
+                        i.db_schema_object_indexid
+                            + N'. SQL Server 2022 added segment elimination for string, binary, uniqueidentifier, and datetimeoffset(scale > 2) columns, but the columnstore segments for this index do not have min_deep_data / max_deep_data populated for: '
+                            + cs.eligible_columns
+                            + N'. Rebuild with ALTER INDEX REBUILD or CREATE INDEX WITH (DROP_EXISTING = ON) so queries on those columns can take advantage of predicate pushdown.' AS details,
+                        i.index_definition,
+                        i.secret_columns,
+                        i.index_usage_summary,
+                        ISNULL(sz.index_size_summary, '') AS index_size_summary
+                FROM    #IndexSanity AS i
+                JOIN    #IndexSanitySize AS sz
+                    ON  i.index_sanity_id = sz.index_sanity_id
+                JOIN    #ColumnstoreIndexesNeedingRebuild AS cs
+                    ON  cs.database_id = i.database_id
+                    AND cs.[object_id] = i.[object_id]
+                    AND cs.index_id    = i.index_id
+                WHERE   i.index_type IN (5, 6)
+                AND     sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
+                OPTION (RECOMPILE);
+            END;
 
         ----------------------------------------
         --Statistics Info: Check_id 90-99, as well as 125
