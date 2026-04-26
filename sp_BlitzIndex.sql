@@ -3992,6 +3992,22 @@ BEGIN
     BEGIN
         RAISERROR(N'Visualizing columnstore index contents.', 0,1) WITH NOWAIT;
 
+        /*
+        SQL Server 2022+ / Azure SQL DB / MI added min_deep_data and max_deep_data
+        to sys.column_store_segments. When populated, they hold the actual bytes
+        of the segment min/max for strings, uniqueidentifiers, and datetimeoffset(>2).
+        Use them to render readable approximations of strings and GUIDs in the
+        visualizer instead of the dictionary IDs in min_data_id/max_data_id.
+        DATE is decoded directly from min_data_id (days since 0001-01-01) and
+        works on every supported version.
+        See https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/3966
+        */
+        DECLARE @HasDeepData BIT = 0;
+        IF EXISTS (SELECT 1 FROM sys.all_columns
+                   WHERE object_id = OBJECT_ID('sys.column_store_segments')
+                     AND name = 'min_deep_data')
+            SET @HasDeepData = 1;
+
 		SET @dsql = N'USE ' + QUOTENAME(@DatabaseName) + N'; 
 			IF EXISTS(SELECT * FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_row_groups WHERE object_id = @ObjectID)
 				BEGIN
@@ -4062,7 +4078,34 @@ BEGIN
 					FROM (
 						SELECT c.name AS column_name, p.partition_number, rg.row_group_id, rg.total_rows, rg.deleted_rows,
                             phys.state_desc, phys.trim_reason_desc, phys.transition_to_compressed_state_desc, phys.has_vertipaq_optimization,
-							details = CAST(seg.min_data_id AS VARCHAR(20)) + '' to '' + CAST(seg.max_data_id AS VARCHAR(20)) + '', '' + CAST(CAST(((COALESCE(d.on_disk_size,0) + COALESCE(seg.on_disk_size,0)) / 1024.0 / 1024) AS DECIMAL(18,0)) AS VARCHAR(20)) + '' MB''' 
+							details = COALESCE(CASE
+								/* DATE: min_data_id encodes days since 0001-01-01 on every supported version. */
+								WHEN c.system_type_id = 40 THEN
+									CONVERT(VARCHAR(10), DATEADD(DAY, CAST(seg.min_data_id AS INT), CONVERT(DATE, ''0001-01-01'')), 23)
+									+ '' to ''
+									+ CONVERT(VARCHAR(10), DATEADD(DAY, CAST(seg.max_data_id AS INT), CONVERT(DATE, ''0001-01-01'')), 23)' +
+							CASE WHEN @HasDeepData = 1 THEN N'
+								/* UNIQUEIDENTIFIER: deep_data carries the raw 16-byte GUID on SQL 2022+ / Azure SQL DB. */
+								WHEN c.system_type_id = 36 AND seg.min_deep_data IS NOT NULL THEN
+									CONVERT(VARCHAR(36), TRY_CAST(seg.min_deep_data AS UNIQUEIDENTIFIER))
+									+ '' to ''
+									+ CONVERT(VARCHAR(36), TRY_CAST(seg.max_deep_data AS UNIQUEIDENTIFIER))
+								/* CHAR / VARCHAR: deep_data is the actual sort-key bytes; truncate for display. */
+								WHEN c.system_type_id IN (167, 175) AND seg.min_deep_data IS NOT NULL THEN
+									LEFT(TRY_CAST(seg.min_deep_data AS VARCHAR(900)), 30)
+									+ '' to ''
+									+ LEFT(TRY_CAST(seg.max_deep_data AS VARCHAR(900)), 30)
+								/* NCHAR / NVARCHAR. */
+								WHEN c.system_type_id IN (231, 239) AND seg.min_deep_data IS NOT NULL THEN
+									LEFT(TRY_CAST(seg.min_deep_data AS NVARCHAR(450)), 30)
+									+ '' to ''
+									+ LEFT(TRY_CAST(seg.max_deep_data AS NVARCHAR(450)), 30)' ELSE N'' END +
+							N'
+								ELSE NULL
+							END,
+							/* Fall back to raw min/max_data_id for numeric types and anything we could not decode. */
+							CAST(seg.min_data_id AS VARCHAR(20)) + '' to '' + CAST(seg.max_data_id AS VARCHAR(20)))
+							+ '', '' + CAST(CAST(((COALESCE(d.on_disk_size,0) + COALESCE(seg.on_disk_size,0)) / 1024.0 / 1024) AS DECIMAL(18,0)) AS VARCHAR(20)) + '' MB'''
 							+ CASE WHEN @ShowPartitionRanges = 1 THEN N',
 							CASE
 								WHEN pp.system_type_id IN (40, 41, 42, 43, 58, 61) THEN 126
