@@ -215,10 +215,12 @@ BEGIN
 	--Parameter @FileExtensionBak indicates the file extension, in case backups have a different extension than default (.bak)
 	EXEC dbo.sp_DatabaseRestore
 		@Database = ''DBA'', 
-		@BackupPathFull = ''\\StorageServer\LogShipMe\FULL\'',
-		@FileExtensionBak = '.DUMP',
-		@Debug = 0,
+		@BackupPathFull = ''D:\Backup1\DBA\FULL\'',
+		@FileExtensionBak = ''.DUMP'',
+		@Debug = 1,
 		@Execute = ''N'';
+	
+	*/
 	';
 	
     RETURN; 
