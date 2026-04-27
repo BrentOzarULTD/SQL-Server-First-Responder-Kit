@@ -1068,11 +1068,11 @@ IF @ProductVersionMajor >= 12
 		10 AS [Priority],
 		b.database_name AS [Database Name],
 		''Recovery model switched'' AS [Finding],
-		''The database '' + QUOTENAME(b.database_name) + '' has changed recovery models between FULL and SIMPLE '' + CONVERT(VARCHAR(10), COUNT(DISTINCT b.recovery_model)) + '' times. This breaks the log chain and is generally a bad idea.'' AS [Warning]
+		''The database '' + QUOTENAME(b.database_name) + '' has changed recovery models between FULL and SIMPLE '' + CONVERT(VARCHAR(10), COUNT(b.recovery_model)) + '' times. This breaks the log chain and is generally a bad idea.'' AS [Warning]
 	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
 	WHERE b.recovery_model <> ''BULK-LOGGED''
 	GROUP BY b.database_name
-	HAVING COUNT(DISTINCT b.recovery_model) > 4;' + @crlf;
+	HAVING COUNT(DISTINCT b.recovery_model) = 2;' + @crlf;
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
