@@ -1145,7 +1145,7 @@ RAISERROR('Rules analysis starting on temp tables', 0, 1) WITH NOWAIT;
 			100 AS Priority,
 			r.DatabaseName as [DatabaseName],
 			'Big Diffs' AS [Finding],
-			'On average, Differential backups for this database are >=40% of the size of the average Full backup.' AS [Warning]
+			'On average, Differential backups for this database are >=40% of the size of the average Full backup. You might want to consider taking Differential backups more often.' AS [Warning]
 			FROM #Recoverability AS r
 			WHERE r.IsBigDiff = 1
 
@@ -1155,7 +1155,7 @@ RAISERROR('Rules analysis starting on temp tables', 0, 1) WITH NOWAIT;
 			100 AS Priority,
 			r.DatabaseName as [DatabaseName],
 			'Big Logs' AS [Finding],
-			'On average, Log backups for this database are >=20% of the size of the average Full backup.' AS [Warning]
+			'On average, Log backups for this database are >=20% of the size of the average Full backup. You might want to consider taking Log backups more often.' AS [Warning]
 			FROM #Recoverability AS r
 			WHERE r.IsBigLog = 1
 
