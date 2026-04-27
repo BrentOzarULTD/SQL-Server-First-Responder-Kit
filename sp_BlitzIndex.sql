@@ -4097,11 +4097,20 @@ BEGIN
 									CONVERT(VARCHAR(10), DATEADD(DAY, CAST(seg.min_data_id / 65536 AS INT), CONVERT(DATE, ''1900-01-01'')), 23)
 									+ '' to ''
 									+ CONVERT(VARCHAR(10), DATEADD(DAY, CAST(seg.max_data_id / 65536 AS INT), CONVERT(DATE, ''1900-01-01'')), 23)
-								/* DATETIME: BIGINT = days * 2^32 + ticks (1/300 sec); days are since 1900-01-01. */
+								/* DATETIME: BIGINT = days * 2^32 + ticks (1/300 sec); days are since 1900-01-01.
+								   T-SQL integer division truncates toward zero, so for negative
+								   values (pre-1900 dates) with non-zero ticks we have to nudge
+								   toward negative infinity to get the right calendar day. */
 								WHEN c.system_type_id = 61 THEN
-									CONVERT(VARCHAR(10), DATEADD(DAY, CAST(seg.min_data_id / 4294967296 AS INT), CONVERT(DATE, ''1900-01-01'')), 23)
+									CONVERT(VARCHAR(10), DATEADD(DAY, CAST(CASE
+										WHEN seg.min_data_id < 0 AND seg.min_data_id % 4294967296 <> 0 THEN (seg.min_data_id / 4294967296) - 1
+										ELSE seg.min_data_id / 4294967296
+									END AS INT), CONVERT(DATE, ''1900-01-01'')), 23)
 									+ '' to ''
-									+ CONVERT(VARCHAR(10), DATEADD(DAY, CAST(seg.max_data_id / 4294967296 AS INT), CONVERT(DATE, ''1900-01-01'')), 23)
+									+ CONVERT(VARCHAR(10), DATEADD(DAY, CAST(CASE
+										WHEN seg.max_data_id < 0 AND seg.max_data_id % 4294967296 <> 0 THEN (seg.max_data_id / 4294967296) - 1
+										ELSE seg.max_data_id / 4294967296
+									END AS INT), CONVERT(DATE, ''1900-01-01'')), 23)
 								/* DATETIME2: BIGINT = days * 2^40 + ticks_100ns; days are since 0001-01-01. */
 								WHEN c.system_type_id = 42 THEN
 									CONVERT(VARCHAR(10), DATEADD(DAY, CAST(seg.min_data_id / 1099511627776 AS INT), CONVERT(DATE, ''0001-01-01'')), 23)
