@@ -233,7 +233,7 @@ BEGIN
 	EXEC dbo.sp_DatabaseRestore
 		@Database = ''DBA'', 
 		@BackupPathFull = ''D:\Backup1\DBA\FULL\'',
-		@FileExtensionBak = ''.DUMP'',
+		@FileExtensionBak = ''DUMP'',
 		@Debug = 1,
 		@Execute = ''N'';
 	
