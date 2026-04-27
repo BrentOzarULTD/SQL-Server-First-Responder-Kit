@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 53
-If you want to add a new check, start at 54.
+CURRENT HIGH CHECKID: 54
+If you want to add a new check, start at 55.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|---------------------------------|---------------------------------------|-------------------------------------------------|----------|
@@ -17,6 +17,7 @@ If you want to add a new check, start at 54.
 | 1 | Maintenance Tasks Running | Backup Running | https://www.brentozar.com/askbrent/backups | 1 |
 | 1 | Maintenance Tasks Running | DBCC CHECK* Running | https://www.brentozar.com/askbrent/dbcc | 2 |
 | 1 | Maintenance Tasks Running | Restore Running | https://www.brentozar.com/askbrent/backups | 3 |
+| 1 | Potential Upcoming Problems | High Thread Time | https://www.brentozar.com/go/threadtime | 54 |
 | 1 | Query Problems | Long-Running Query Blocking Others | https://www.brentozar.com/go/blocking | 5 |
 | 1 | Query Problems | Query Rolling Back | https://www.brentozar.com/go/rollback | 9 |
 | 1 | Query Problems | Sleeping Query with Open Transactions | https://www.brentozar.com/go/sleeping | 8 |

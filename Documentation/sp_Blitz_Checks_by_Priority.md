@@ -135,7 +135,7 @@ If you want to add a new one, start at 276.
 | 170 | File Configuration | Multiple Log Files on One Drive | https://www.BrentOzar.com/go/manylogs | 41 |
 | 170 | File Configuration | System Database on C Drive | https://www.BrentOzar.com/go/drivec | 24 |
 | 170 | File Configuration | TempDB Governor Config Problem | https://www.BrentOzar.com/go/tempdbrg | 271 |
-| 170 | File Configuration | TempDB Has >16 Data Files | https://www.BrentOzar.com/go/tempdb | 175 |
+| 170 | File Configuration | TempDB Has a Lot of Data Files | https://www.BrentOzar.com/go/tempdb | 175 |
 | 170 | File Configuration | TempDB Only Has 1 Data File | https://www.BrentOzar.com/go/tempdb | 40 |
 | 170 | File Configuration | TempDB Unevenly Sized Data Files | https://www.BrentOzar.com/go/tempdb | 183 |
 | 170 | File Configuration | Uneven File Growth Settings in One Filegroup | https://www.BrentOzar.com/go/grow | 42 |

@@ -2129,7 +2129,10 @@ IF @SlowlySearchPlansFor IS NOT NULL
     BEGIN
     RAISERROR(N'Setting string search for @SlowlySearchPlansFor, so remember, this is gonna be slow', 0, 1) WITH NOWAIT;
     SET @SlowlySearchPlansFor = REPLACE((REPLACE((REPLACE((REPLACE(@SlowlySearchPlansFor, N'[', N'_')), N']', N'_')), N'^', N'_')), N'''', N'''''');
-    SET @body_where += N'       AND CAST(qp.query_plan AS NVARCHAR(MAX)) LIKE N''%' + @SlowlySearchPlansFor + N'%'' ' + @nl;
+    /* Search against sys.dm_exec_text_query_plan, which returns NVARCHAR(MAX) directly
+       and skips the per-row XML-to-string cast that CAST(qp.query_plan AS NVARCHAR(MAX)) pays.
+       Issue #3936. */
+    SET @body_where += N'       AND tqp.query_plan LIKE N''%' + @SlowlySearchPlansFor + N'%'' ' + @nl;
     END
 
 
@@ -2182,6 +2185,13 @@ SET @body += N') AS qs
        CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) AS pa
        CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS st
        CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) AS qp ' + @nl ;
+
+IF @SlowlySearchPlansFor IS NOT NULL
+    BEGIN
+    /* Only pay for the text plan when the user is actually searching strings.
+       Issue #3936. */
+    SET @body += N'     CROSS APPLY sys.dm_exec_text_query_plan(qs.plan_handle, 0, -1) AS tqp ' + @nl ;
+    END
 
 IF @VersionShowsAirQuoteActualPlans = 1
     BEGIN
@@ -3145,30 +3155,33 @@ OPTION (RECOMPILE) ;
 
 -- high level plan stuff
 RAISERROR(N'Gathering high level plan information', 0, 1) WITH NOWAIT;
+/* Aggregate out of #plan_cache_by_db instead of rescanning sys.dm_exec_query_stats
+   + sys.dm_exec_plan_attributes. That temp table was already populated from those
+   DMVs above and has everything we need (database_id, query_hash, query_plan_hash),
+   so we save a second full pass over the plan cache. */
 UPDATE  ##BlitzCacheProcs
 SET     NumberOfDistinctPlans = distinct_plan_count,
         NumberOfPlans = number_of_plans ,
         plan_multiple_plans = CASE WHEN distinct_plan_count < number_of_plans THEN number_of_plans END
 FROM
     (
-    SELECT    
-        DatabaseName = 
-            DB_NAME(CONVERT(int, pa.value)),
-        QueryHash = 
-            qs.query_hash,
+    SELECT
+        DatabaseName =
+            DB_NAME(pc.database_id),
+        QueryHash =
+            pc.query_hash,
         number_of_plans =
-           COUNT_BIG(qs.query_plan_hash),
-        distinct_plan_count = 
-            COUNT_BIG(DISTINCT qs.query_plan_hash)
-    FROM sys.dm_exec_query_stats AS qs
-    CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) pa
-    WHERE pa.attribute = 'dbid'
-    GROUP BY 
-        DB_NAME(CONVERT(int, pa.value)), 
-        qs.query_hash
+           COUNT_BIG(pc.query_plan_hash),
+        distinct_plan_count =
+            COUNT_BIG(DISTINCT pc.query_plan_hash)
+    FROM #plan_cache_by_db AS pc
+    GROUP BY
+        DB_NAME(pc.database_id),
+        pc.query_hash
 ) AS x
 WHERE ##BlitzCacheProcs.QueryHash = x.QueryHash
 AND   ##BlitzCacheProcs.DatabaseName = x.DatabaseName
+AND   ##BlitzCacheProcs.SPID = @@SPID
 OPTION (RECOMPILE) ;
 
 -- query level checks
