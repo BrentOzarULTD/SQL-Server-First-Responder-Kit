@@ -5468,7 +5468,7 @@ Thank you.'
                     SET @AIAdviceText = N'No response received from AI service.';
                 END;
 
-                /* Store the response in the the ai_advice column */
+                /* Store the response in the ai_advice column */
                 UPDATE ##BlitzCacheProcs
                 SET ai_advice = @AIAdviceText, ai_raw_response = @AIResponseJSON, ai_payload = @AIPayload
                 WHERE SPID = @@SPID
