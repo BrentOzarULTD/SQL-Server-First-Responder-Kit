@@ -3993,13 +3993,21 @@ BEGIN
         RAISERROR(N'Visualizing columnstore index contents.', 0,1) WITH NOWAIT;
 
         /*
-        SQL Server 2022+ / Azure SQL DB / MI added min_deep_data and max_deep_data
-        to sys.column_store_segments. When populated, they hold the actual bytes
-        of the segment min/max for strings, uniqueidentifiers, and datetimeoffset(>2).
-        Use them to render readable approximations of strings and GUIDs in the
-        visualizer instead of the dictionary IDs in min_data_id/max_data_id.
-        DATE is decoded directly from min_data_id (days since 0001-01-01) and
-        works on every supported version.
+        Decode the segment min/max into something readable for the visualizer
+        instead of the raw dictionary IDs in min_data_id / max_data_id.
+
+        DATE / DATETIME / DATETIME2 / SMALLDATETIME pack the value into the
+        BIGINT min_data_id and decode on every supported version:
+            DATE          : days since 0001-01-01
+            SMALLDATETIME : days * 65536 + minutes-since-midnight
+            DATETIME      : days * 2^32 + ticks (1/300 sec since midnight)
+            DATETIME2     : days * 2^40 + 100ns-ticks-since-midnight
+
+        SQL Server 2022+ / Azure SQL DB / MI added min_deep_data and
+        max_deep_data, which hold the actual bytes of the segment min/max
+        for strings, uniqueidentifiers, and datetimeoffset(scale>2). When
+        they are populated, decode them into GUIDs / strings / dates here.
+
         See https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/3966
         */
         DECLARE @HasDeepData BIT = 0;
@@ -4079,17 +4087,47 @@ BEGIN
 						SELECT c.name AS column_name, p.partition_number, rg.row_group_id, rg.total_rows, rg.deleted_rows,
                             phys.state_desc, phys.trim_reason_desc, phys.transition_to_compressed_state_desc, phys.has_vertipaq_optimization,
 							details = COALESCE(CASE
-								/* DATE: min_data_id encodes days since 0001-01-01 on every supported version. */
+								/* DATE: min_data_id is days since 0001-01-01 on every supported version. */
 								WHEN c.system_type_id = 40 THEN
 									CONVERT(VARCHAR(10), DATEADD(DAY, CAST(seg.min_data_id AS INT), CONVERT(DATE, ''0001-01-01'')), 23)
 									+ '' to ''
-									+ CONVERT(VARCHAR(10), DATEADD(DAY, CAST(seg.max_data_id AS INT), CONVERT(DATE, ''0001-01-01'')), 23)' +
+									+ CONVERT(VARCHAR(10), DATEADD(DAY, CAST(seg.max_data_id AS INT), CONVERT(DATE, ''0001-01-01'')), 23)
+								/* SMALLDATETIME: BIGINT = days * 65536 + minutes; days are since 1900-01-01. */
+								WHEN c.system_type_id = 58 THEN
+									CONVERT(VARCHAR(10), DATEADD(DAY, CAST(seg.min_data_id / 65536 AS INT), CONVERT(DATE, ''1900-01-01'')), 23)
+									+ '' to ''
+									+ CONVERT(VARCHAR(10), DATEADD(DAY, CAST(seg.max_data_id / 65536 AS INT), CONVERT(DATE, ''1900-01-01'')), 23)
+								/* DATETIME: BIGINT = days * 2^32 + ticks (1/300 sec); days are since 1900-01-01. */
+								WHEN c.system_type_id = 61 THEN
+									CONVERT(VARCHAR(10), DATEADD(DAY, CAST(seg.min_data_id / 4294967296 AS INT), CONVERT(DATE, ''1900-01-01'')), 23)
+									+ '' to ''
+									+ CONVERT(VARCHAR(10), DATEADD(DAY, CAST(seg.max_data_id / 4294967296 AS INT), CONVERT(DATE, ''1900-01-01'')), 23)
+								/* DATETIME2: BIGINT = days * 2^40 + ticks_100ns; days are since 0001-01-01. */
+								WHEN c.system_type_id = 42 THEN
+									CONVERT(VARCHAR(10), DATEADD(DAY, CAST(seg.min_data_id / 1099511627776 AS INT), CONVERT(DATE, ''0001-01-01'')), 23)
+									+ '' to ''
+									+ CONVERT(VARCHAR(10), DATEADD(DAY, CAST(seg.max_data_id / 1099511627776 AS INT), CONVERT(DATE, ''0001-01-01'')), 23)' +
 							CASE WHEN @HasDeepData = 1 THEN N'
 								/* UNIQUEIDENTIFIER: deep_data is a 2-byte length prefix (0x10 0x00) followed by the 16-byte GUID. */
 								WHEN c.system_type_id = 36 AND seg.min_deep_data IS NOT NULL THEN
 									CONVERT(VARCHAR(36), TRY_CAST(SUBSTRING(seg.min_deep_data, 3, 16) AS UNIQUEIDENTIFIER))
 									+ '' to ''
 									+ CONVERT(VARCHAR(36), TRY_CAST(SUBSTRING(seg.max_deep_data, 3, 16) AS UNIQUEIDENTIFIER))
+								/* DATETIMEOFFSET: deep_data is [2-byte length][time bytes][3-byte date][2-byte offset].
+								   Time width depends on scale: 3 bytes for scale 0-2, 4 bytes for 3-4, 5 bytes for 5-7.
+								   Date is 3 little-endian bytes of days since 0001-01-01. */
+								WHEN c.system_type_id = 43 AND seg.min_deep_data IS NOT NULL THEN
+									CONVERT(VARCHAR(10), DATEADD(DAY,
+										CAST(SUBSTRING(seg.min_deep_data, 3 + (CASE WHEN c.scale <= 2 THEN 3 WHEN c.scale <= 4 THEN 4 ELSE 5 END), 1) AS INT)
+										+ 256 * CAST(SUBSTRING(seg.min_deep_data, 4 + (CASE WHEN c.scale <= 2 THEN 3 WHEN c.scale <= 4 THEN 4 ELSE 5 END), 1) AS INT)
+										+ 65536 * CAST(SUBSTRING(seg.min_deep_data, 5 + (CASE WHEN c.scale <= 2 THEN 3 WHEN c.scale <= 4 THEN 4 ELSE 5 END), 1) AS INT),
+										CONVERT(DATE, ''0001-01-01'')), 23)
+									+ '' to ''
+									+ CONVERT(VARCHAR(10), DATEADD(DAY,
+										CAST(SUBSTRING(seg.max_deep_data, 3 + (CASE WHEN c.scale <= 2 THEN 3 WHEN c.scale <= 4 THEN 4 ELSE 5 END), 1) AS INT)
+										+ 256 * CAST(SUBSTRING(seg.max_deep_data, 4 + (CASE WHEN c.scale <= 2 THEN 3 WHEN c.scale <= 4 THEN 4 ELSE 5 END), 1) AS INT)
+										+ 65536 * CAST(SUBSTRING(seg.max_deep_data, 5 + (CASE WHEN c.scale <= 2 THEN 3 WHEN c.scale <= 4 THEN 4 ELSE 5 END), 1) AS INT),
+										CONVERT(DATE, ''0001-01-01'')), 23)
 								/* CHAR / VARCHAR: 2-byte little-endian length prefix, then the (possibly sort-key encoded) bytes; truncate for display. */
 								WHEN c.system_type_id IN (167, 175) AND seg.min_deep_data IS NOT NULL THEN
 									LEFT(TRY_CAST(SUBSTRING(seg.min_deep_data, 3, 898) AS VARCHAR(900)), 30)
