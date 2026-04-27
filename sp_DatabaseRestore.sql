@@ -720,9 +720,9 @@ BEGIN
 
 			DELETE
 			FROM @FileList
-			WHERE BackupFile LIKE N'%.bak' /*delete backups that aren't striped and new "enough"*/
-			AND BackupFile NOT LIKE N'%[_][0-9].bak' /*skip remaining striped backups since those were deleted above*/
-			AND BackupFile NOT LIKE N'%[_][0-9][0-9].bak'
+			WHERE BackupFile LIKE N'%.' + @FileExtensionBak /*delete backups that aren't striped and new "enough"*/
+			AND BackupFile NOT LIKE N'%[_][0-9].' + @FileExtensionBak /*skip remaining striped backups since those were deleted above*/
+			AND BackupFile NOT LIKE N'%[_][0-9][0-9].' + @FileExtensionBak
 			AND	BackupFile LIKE N'%' + @Database + N'%'
 			AND (REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) > @StopAt);
 		END;
