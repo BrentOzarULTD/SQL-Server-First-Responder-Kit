@@ -4085,21 +4085,21 @@ BEGIN
 									+ '' to ''
 									+ CONVERT(VARCHAR(10), DATEADD(DAY, CAST(seg.max_data_id AS INT), CONVERT(DATE, ''0001-01-01'')), 23)' +
 							CASE WHEN @HasDeepData = 1 THEN N'
-								/* UNIQUEIDENTIFIER: deep_data carries the raw 16-byte GUID on SQL 2022+ / Azure SQL DB. */
+								/* UNIQUEIDENTIFIER: deep_data is a 2-byte length prefix (0x10 0x00) followed by the 16-byte GUID. */
 								WHEN c.system_type_id = 36 AND seg.min_deep_data IS NOT NULL THEN
-									CONVERT(VARCHAR(36), TRY_CAST(seg.min_deep_data AS UNIQUEIDENTIFIER))
+									CONVERT(VARCHAR(36), TRY_CAST(SUBSTRING(seg.min_deep_data, 3, 16) AS UNIQUEIDENTIFIER))
 									+ '' to ''
-									+ CONVERT(VARCHAR(36), TRY_CAST(seg.max_deep_data AS UNIQUEIDENTIFIER))
-								/* CHAR / VARCHAR: deep_data is the actual sort-key bytes; truncate for display. */
+									+ CONVERT(VARCHAR(36), TRY_CAST(SUBSTRING(seg.max_deep_data, 3, 16) AS UNIQUEIDENTIFIER))
+								/* CHAR / VARCHAR: 2-byte little-endian length prefix, then the (possibly sort-key encoded) bytes; truncate for display. */
 								WHEN c.system_type_id IN (167, 175) AND seg.min_deep_data IS NOT NULL THEN
-									LEFT(TRY_CAST(seg.min_deep_data AS VARCHAR(900)), 30)
+									LEFT(TRY_CAST(SUBSTRING(seg.min_deep_data, 3, 898) AS VARCHAR(900)), 30)
 									+ '' to ''
-									+ LEFT(TRY_CAST(seg.max_deep_data AS VARCHAR(900)), 30)
-								/* NCHAR / NVARCHAR. */
+									+ LEFT(TRY_CAST(SUBSTRING(seg.max_deep_data, 3, 898) AS VARCHAR(900)), 30)
+								/* NCHAR / NVARCHAR: 2-byte length prefix, then UTF-16LE bytes. */
 								WHEN c.system_type_id IN (231, 239) AND seg.min_deep_data IS NOT NULL THEN
-									LEFT(TRY_CAST(seg.min_deep_data AS NVARCHAR(450)), 30)
+									LEFT(TRY_CAST(SUBSTRING(seg.min_deep_data, 3, 898) AS NVARCHAR(450)), 30)
 									+ '' to ''
-									+ LEFT(TRY_CAST(seg.max_deep_data AS NVARCHAR(450)), 30)' ELSE N'' END +
+									+ LEFT(TRY_CAST(SUBSTRING(seg.max_deep_data, 3, 898) AS NVARCHAR(450)), 30)' ELSE N'' END +
 							N'
 								ELSE NULL
 							END,
