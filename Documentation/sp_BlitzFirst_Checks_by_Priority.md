@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 47
-If you want to add a new check, start at 48
+CURRENT HIGH CHECKID: 53
+If you want to add a new check, start at 54.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|---------------------------------|---------------------------------------|-------------------------------------------------|----------|
@@ -23,6 +23,7 @@ If you want to add a new check, start at 48
 | 1 | SQL Server Internal Maintenance | Data File Growing | https://www.brentozar.com/go/instant | 4 |
 | 1 | SQL Server Internal Maintenance | Log File Growing | https://www.brentozar.com/go/logsize | 13 |
 | 1 | SQL Server Internal Maintenance | Log File Shrinking | https://www.brentozar.com/go/logsize | 14 |
+| 10 | Server Performance | Memory Dangerously Low Recently | https://www.brentozar.com/go/memhist | 52 |
 | 10 | Server Performance | Poison Wait Detected | https://www.brentozar.com/go/poison | 30 |
 | 10 | Server Performance | Target Memory Lower Than Max | https://www.brentozar.com/go/target | 35 |
 | 10 | Azure Performance | Database is Maxed Out | https://www.brentozar.com/go/maxedout | 41 |
@@ -35,6 +36,7 @@ If you want to add a new check, start at 48
 | 50 | Query Problems | Re-Compilations/Sec High | https://www.brentozar.com/go/recompile | 16 |
 | 50 | Query Problems | Statistics Updated Recently | https://www.brentozar.com/go/stats | 44 |
 | 50 | Query Problems | High Percentage Of Runnable Queries | https://erikdarlingdata.com/go/RunnableQueue/ | 47 |
+| 50 | Server Performance | Azure Operation Ongoing | https://learn.microsoft.com/en-us/sql/relational-databases/system-dynamic-management-views/sys-dm-operation-status-azure-sql-database | 53 |
 | 50 | Server Performance | High CPU Utilization | https://www.brentozar.com/go/cpu | 24 |
 | 50 | Server Performance | High CPU Utilization - Non SQL Processes | https://www.brentozar.com/go/cpu | 28 |
 | 50 | Server Performance | Slow Data File Reads | https://www.brentozar.com/go/slow | 11 |
@@ -42,11 +44,13 @@ If you want to add a new check, start at 48
 | 50 | Server Performance | Too Much Free Memory | https://www.brentozar.com/go/freememory | 34 |
 | 50 | Server Performance | Memory Grants pending | https://www.brentozar.com/blitz/memory-grants | 39 |
 | 100 | In-Memory OLTP | Transactions aborted | https://www.brentozar.com/go/aborted | 32 |
-| 100 | Query Problems | Suboptimal Plans/Sec High | https://www.brentozar.com/go/suboptimal | 33 |
 | 100 | Query Problems | Bad Estimates | https://www.brentozar.com/go/skewedup | 42 |
-| 100 | Query Problems | Skewed Parallelism | https://www.brentozar.com/go/skewedup | 43 |
+| 100 | Query Problems | Deadlocks | https://www.brentozar.com/go/deadlocks | 51 |
 | 100 | Query Problems | Query with a memory grant exceeding @MemoryGrantThresholdPct | https://www.brentozar.com/memory-grants-sql-servers-public-toilet/ | 46 |
+| 100 | Query Problems | Skewed Parallelism | https://www.brentozar.com/go/skewedup | 43 |
+| 100 | Query Problems | Suboptimal Plans/Sec High | https://www.brentozar.com/go/suboptimal | 33 |
 | 200 | Wait Stats | (One per wait type) | https://www.brentozar.com/sql/wait-stats/#(waittype) | 6 |
+| 210 | Potential Upcoming Problems | High Number of Connections |https://www.brentozar.com/archive/2014/05/connections-slow-sql-server-threadpool/ | 49 |
 | 210 | Query Stats | Plan Cache Analysis Skipped | https://www.brentozar.com/go/topqueries | 18 |
 | 210 | Query Stats | Top Resource-Intensive Queries | https://www.brentozar.com/go/topqueries | 17 |
 | 250 | Server Info | Batch Requests per Second | https://www.brentozar.com/go/measure | 19 |
@@ -57,3 +61,5 @@ If you want to add a new check, start at 48
 | 251 | Server Info | Database Count |  | 22 |
 | 251 | Server Info | Database Size, Total GB |  | 21 |
 | 251 | Server Info | Memory Grant/Workspace info |  | 40 |
+| 251 | Server Info | Thread Time | https://www.brentozar.com/go/threadtime | 50 |
+| 254 | Informational | Thread Time Inaccurate |  | 48 |
