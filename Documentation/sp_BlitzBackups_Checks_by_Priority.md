@@ -4,7 +4,7 @@ This table lists all checks ordered by priority.
 
 Before adding a new check, make sure to add a Github issue for it first, and have a group discussion about its priority, and description.
 
-If you want to change anything about a check - the priority, finding,, or ID - open a Github issue first. The relevant scripts have to be updated too.
+If you want to change anything about a check - the priority, finding, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
 CURRENT HIGH CHECKID: 14.
 If you want to add a new one, start at 15.
