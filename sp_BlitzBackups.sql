@@ -1063,16 +1063,21 @@ IF @ProductVersionMajor >= 12
 
 	SET @StringToExecute =N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
-	SET @StringToExecute += N'SELECT 
+	SET @StringToExecute += N';WITH RecoveryHistory AS (
+		SELECT b.database_name, b.recovery_model,
+			LAG(b.recovery_model) OVER (PARTITION BY b.database_name ORDER BY b.backup_finish_date, b.backup_set_id) AS prev_recovery_model
+		FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
+		WHERE b.recovery_model <> ''BULK-LOGGED''
+	)
+	SELECT
 		11 AS CheckId,
 		10 AS [Priority],
-		b.database_name AS [Database Name],
+		database_name AS [Database Name],
 		''Recovery model switched'' AS [Finding],
-		''The database '' + QUOTENAME(b.database_name) + '' has changed recovery models between FULL and SIMPLE '' + CONVERT(VARCHAR(10), COUNT(b.recovery_model)) + '' times. This breaks the log chain and is generally a bad idea.'' AS [Warning]
-	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS b
-	WHERE b.recovery_model <> ''BULK-LOGGED''
-	GROUP BY b.database_name
-	HAVING COUNT(DISTINCT b.recovery_model) = 2;' + @crlf;
+		''The database '' + QUOTENAME(database_name) + '' has switched between the FULL and SIMPLE recovery models '' + CONVERT(VARCHAR(10), SUM(CASE WHEN prev_recovery_model IS NOT NULL AND recovery_model <> prev_recovery_model THEN 1 ELSE 0 END)) + '' times. This breaks the log chain and is generally a bad idea.'' AS [Warning]
+	FROM RecoveryHistory
+	GROUP BY database_name
+	HAVING SUM(CASE WHEN prev_recovery_model IS NOT NULL AND recovery_model <> prev_recovery_model THEN 1 ELSE 0 END) > 0;' + @crlf;
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
