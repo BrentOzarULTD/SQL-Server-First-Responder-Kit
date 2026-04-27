@@ -138,9 +138,17 @@ $InstallAllPath   = Join-Path $RepoRoot "Install-All-Scripts.sql"
 $InstallAzurePath = Join-Path $RepoRoot "Install-Azure.sql"
 
 # ── Install-Azure.sql ────────────────────────────────────────────────────────
-# All sp_Blitz*.sql except sp_Blitz.sql, sp_BlitzBackups.sql, sp_DatabaseRestore.sql, sp_BlitzFirst.sql
-$azureContent = Get-ChildItem -Path $RepoRoot -Filter "sp_Blitz*.sql" |
-    Where-Object { $_.Name -ne "sp_Blitz.sql" -and $_.Name -notlike "*BlitzBackups*" -and $_.Name -notlike "*DatabaseRestore*" -and $_.Name -notlike "*BlitzFirst*" } |
+# sp_ineachdb.sql must come first because sp_Blitz calls it at runtime.
+# All sp_Blitz*.sql except sp_BlitzBackups.sql, sp_DatabaseRestore.sql, sp_BlitzFirst.sql.
+# sp_BlitzBackups and sp_DatabaseRestore depend on xp_cmdshell / msdb backup history.
+# sp_BlitzFirst is appended last (same as Install-All-Scripts.sql).
+$IneachdbPath = Join-Path $RepoRoot "sp_ineachdb.sql"
+$azureContent = @()
+if (Test-Path $IneachdbPath) {
+    $azureContent += Get-Content -Path $IneachdbPath -Raw -Encoding UTF8
+}
+$azureContent += Get-ChildItem -Path $RepoRoot -Filter "sp_Blitz*.sql" |
+    Where-Object { $_.Name -notlike "*BlitzBackups*" -and $_.Name -notlike "*DatabaseRestore*" -and $_.Name -notlike "*BlitzFirst*" } |
     ForEach-Object { Get-Content $_.FullName -Raw -Encoding UTF8 }
 
 if (Test-Path $BlitzFirstPath) {
@@ -151,9 +159,17 @@ if (Test-Path $BlitzFirstPath) {
 Write-Host "  Built: Install-Azure.sql"
 
 # ── Install-All-Scripts.sql ──────────────────────────────────────────────────
-# All sp_*.sql except sp_BlitzInMemoryOLTP.sql and sp_BlitzFirst.sql
-$allContent = Get-ChildItem -Path $RepoRoot -Filter "sp_*.sql" |
-    Where-Object { $_.Name -notlike "*BlitzInMemoryOLTP*" -and $_.Name -notlike "*BlitzFirst*" } |
+# All sp_*.sql except sp_BlitzInMemoryOLTP.sql and sp_BlitzFirst.sql.
+# sp_ineachdb.sql must come first because sp_Blitz (and others) call it at
+# runtime — putting it ahead of sp_Blitz means the dependency exists by the
+# time later procs execute per-database checks.
+$IneachdbPath = Join-Path $RepoRoot "sp_ineachdb.sql"
+$allContent = @()
+if (Test-Path $IneachdbPath) {
+    $allContent += Get-Content -Path $IneachdbPath -Raw -Encoding UTF8
+}
+$allContent += Get-ChildItem -Path $RepoRoot -Filter "sp_*.sql" |
+    Where-Object { $_.Name -notlike "*BlitzInMemoryOLTP*" -and $_.Name -notlike "*BlitzFirst*" -and $_.Name -ne "sp_ineachdb.sql" } |
     ForEach-Object { Get-Content $_.FullName -Raw -Encoding UTF8 }
 
 # Append SqlServerVersions.sql

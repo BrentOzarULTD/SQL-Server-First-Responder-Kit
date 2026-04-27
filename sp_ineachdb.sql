@@ -105,7 +105,27 @@ BEGIN
           @cr     char(2) = CHAR(13) + CHAR(10),
 		  @SQLVersion	AS tinyint = (@@microsoftversion / 0x1000000) & 0xff,	     -- Stores the SQL Server Version Number(8(2000),9(2005),10(2008 & 2008R2),11(2012),12(2014),13(2016),14(2017),15(2019)
 		  @ServerName	AS sysname = CONVERT(sysname, SERVERPROPERTY('ServerName')), -- Stores the SQL Server Instance name.
-		  @NoSpaces nvarchar(20) = N'%[^' + CHAR(9) + CHAR(32) + CHAR(10) + CHAR(13) + N']%'; --Pattern for PATINDEX
+		  @NoSpaces nvarchar(20) = N'%[^' + CHAR(9) + CHAR(32) + CHAR(10) + CHAR(13) + N']%', --Pattern for PATINDEX
+		  @IsAzureSqlDb bit = CASE WHEN CONVERT(int, SERVERPROPERTY('EngineEdition')) = 5 THEN 1 ELSE 0 END;
+
+  /* Azure SQL DB forbids cross-database calls and 3-part names. Rewrite the
+     incoming @command so sp_MSforeachdb-style inputs work unchanged:
+       - strip USE [?]; / USE ?; variants (can't change database context)
+       - collapse [?].schema.object / ?.schema.object to schema.object
+     Force CI collation so USE/Use/use all match regardless of server collation. */
+  IF @IsAzureSqlDb = 1 AND @command IS NOT NULL
+  BEGIN
+    DECLARE @rc nvarchar(10) = @replace_character;
+
+    SET @command = REPLACE(@command COLLATE SQL_Latin1_General_CP1_CI_AS, N'USE [' + @rc + N'];', N'');
+    SET @command = REPLACE(@command COLLATE SQL_Latin1_General_CP1_CI_AS, N'USE [' + @rc + N']',  N'');
+    SET @command = REPLACE(@command COLLATE SQL_Latin1_General_CP1_CI_AS, N'USE '  + @rc + N';',  N'');
+    SET @command = REPLACE(@command COLLATE SQL_Latin1_General_CP1_CI_AS, N'USE '  + @rc,         N'');
+
+    /* Bracketed form first — otherwise '?.' would turn '[?].' into '[]'. */
+    SET @command = REPLACE(@command COLLATE SQL_Latin1_General_CP1_CI_AS, N'[' + @rc + N'].', N'');
+    SET @command = REPLACE(@command COLLATE SQL_Latin1_General_CP1_CI_AS, @rc + N'.',         N'');
+  END
 
 
   CREATE TABLE #ineachdb(id int, name nvarchar(512), is_distributor bit);
@@ -162,7 +182,16 @@ BEGIN
 3)If we find a [, we begin to accumulate the result until we reach closing ], (jumping over escaped ]]).
 4)Finally, tabs, line breaks and spaces are removed from unquoted names
 */
-WITH C
+IF @IsAzureSqlDb = 1
+BEGIN
+  /* Azure SQL DB: the session is bound to one user database. Seed with it and
+     let the downstream filter DELETEs decide whether it survives. */
+  INSERT #ineachdb(id, name, is_distributor)
+  SELECT DB_ID(), DB_NAME(), 0;
+END
+ELSE
+BEGIN
+;WITH C
 AS (SELECT V.SrcList
          , CAST('' AS nvarchar(MAX)) AS Name
          , V.DBList
@@ -213,6 +242,7 @@ WHERE (   EXISTS (SELECT NULL FROM F WHERE F.name = d.name AND F.SrcList = 'In')
           OR @database_list IS NULL)
       AND NOT EXISTS (SELECT NULL FROM F WHERE F.name = d.name AND F.SrcList = 'Out')
 OPTION (MAXRECURSION 0);
+END
 ;
   -- next, let's delete any that *don't* match various criteria passed in
   DELETE dbs FROM #ineachdb AS dbs
@@ -356,8 +386,16 @@ OPTION (MAXRECURSION 0);
 
       IF COALESCE(@print_command_only,0) = 0
       BEGIN
-        SET @exec = @dbq + @sx;
-        EXEC @exec @cmd;
+        IF @IsAzureSqlDb = 1
+        BEGIN
+          /* Azure SQL DB: no 3-part names allowed; just run in current DB. */
+          EXEC sys.sp_executesql @cmd;
+        END
+        ELSE
+        BEGIN
+          SET @exec = @dbq + @sx;
+          EXEC @exec @cmd;
+        END
       END
     END TRY
 
