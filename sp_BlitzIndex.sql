@@ -273,6 +273,7 @@ SET @SQLServerVersionDescription =
                 WHEN @SQLServerProductVersion LIKE N'16.%' THEN N'2022 '
                 WHEN @SQLServerProductVersion LIKE N'15.%' THEN N'2019 '
                 WHEN @SQLServerProductVersion LIKE N'14.%' THEN N'2017 '
+                WHEN @SQLServerProductVersion LIKE N'13.%' THEN N'2016 '
                 ELSE N''
               END
             + ISNULL(@SQLServerEditionName, N'')
@@ -3695,7 +3696,7 @@ BEGIN
         SET @CurrentAIPrompt = @CurrentAIPrompt + N'SERVER VERSION AND EDITION:' + CHAR(13) + CHAR(10)
             + N'This database is running on ' + @SQLServerVersionDescription
             + N' (build ' + ISNULL(@SQLServerProductVersion, N'unknown')
-            + N', EngineEdition ' + CAST(@SQLServerEdition AS NVARCHAR(10)) + N').' + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10)
+            + N', EngineEdition ' + ISNULL(CAST(@SQLServerEdition AS NVARCHAR(10)), N'unknown') + N').' + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10)
             + N'When generating CREATE INDEX, ALTER INDEX, and DROP INDEX scripts, prefer the lowest-impact options this version and edition supports:' + CHAR(13) + CHAR(10)
             + N'- ONLINE = ON: requires Enterprise or Developer Edition (any supported version) or Azure SQL Database / Managed Instance. Not available on Standard, Web, or Express.' + CHAR(13) + CHAR(10)
             + N'- WAIT_AT_LOW_PRIORITY (MAX_DURATION, ABORT_AFTER_WAIT): SQL Server 2014+ Enterprise/Developer or Azure SQL, only with ONLINE = ON.' + CHAR(13) + CHAR(10)
