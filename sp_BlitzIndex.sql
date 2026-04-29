@@ -149,6 +149,8 @@ DECLARE @ErrorState INT;
 DECLARE @Rowcount BIGINT;
 DECLARE @SQLServerProductVersion NVARCHAR(128);
 DECLARE @SQLServerEdition INT;
+DECLARE @SQLServerEditionName NVARCHAR(128);
+DECLARE @SQLServerVersionDescription NVARCHAR(256);
 DECLARE @FilterMB INT;
 DECLARE @collation NVARCHAR(256);
 DECLARE @NumDatabases INT;
@@ -256,6 +258,25 @@ SET @SortDirection = LOWER(@SortDirection);
 SET @LineFeed = CHAR(13) + CHAR(10);
 SELECT @SQLServerProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 SELECT @SQLServerEdition =CAST(SERVERPROPERTY('EngineEdition') AS INT); /* We default to online index creates where EngineEdition=3*/
+SELECT @SQLServerEditionName = CAST(SERVERPROPERTY('Edition') AS NVARCHAR(128));
+SET @SQLServerVersionDescription =
+    CASE @SQLServerEdition
+        WHEN 5  THEN N'Azure SQL Database'
+        WHEN 6  THEN N'Azure Synapse Analytics dedicated SQL pool'
+        WHEN 8  THEN N'Azure SQL Managed Instance'
+        WHEN 9  THEN N'Azure SQL Edge'
+        WHEN 11 THEN N'Azure Synapse Analytics serverless SQL pool'
+        ELSE
+            N'SQL Server '
+            + CASE
+                WHEN @SQLServerProductVersion LIKE N'17.%' THEN N'2025 '
+                WHEN @SQLServerProductVersion LIKE N'16.%' THEN N'2022 '
+                WHEN @SQLServerProductVersion LIKE N'15.%' THEN N'2019 '
+                WHEN @SQLServerProductVersion LIKE N'14.%' THEN N'2017 '
+                ELSE N''
+              END
+            + ISNULL(@SQLServerEditionName, N'')
+    END;
 SET @FilterMB=250;
 SELECT @ScriptVersionName = 'sp_BlitzIndex(TM) v' + @Version + ' - ' + DATENAME(MM, @VersionDate) + ' ' + RIGHT('0'+DATENAME(DD, @VersionDate),2) + ', ' + DATENAME(YY, @VersionDate);
 SET @IgnoreDatabases = REPLACE(REPLACE(LTRIM(RTRIM(@IgnoreDatabases)), CHAR(10), ''), CHAR(13), '');
@@ -3667,6 +3688,20 @@ BEGIN
         SET @CurrentAIPrompt = N'I need help analyzing the indexes on the table '
             + QUOTENAME(@DatabaseName) + N'.' + QUOTENAME(@SchemaName) + N'.' + QUOTENAME(@TableName)
             + N'.' + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10);
+
+        /* Tell the AI which version and edition we're on, so it can pick
+           appropriate options (ONLINE, WAIT_AT_LOW_PRIORITY, RESUMABLE, etc.)
+           when generating CREATE INDEX / ALTER INDEX scripts. */
+        SET @CurrentAIPrompt = @CurrentAIPrompt + N'SERVER VERSION AND EDITION:' + CHAR(13) + CHAR(10)
+            + N'This database is running on ' + @SQLServerVersionDescription
+            + N' (build ' + ISNULL(@SQLServerProductVersion, N'unknown')
+            + N', EngineEdition ' + CAST(@SQLServerEdition AS NVARCHAR(10)) + N').' + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10)
+            + N'When generating CREATE INDEX, ALTER INDEX, and DROP INDEX scripts, prefer the lowest-impact options this version and edition supports:' + CHAR(13) + CHAR(10)
+            + N'- ONLINE = ON: requires Enterprise or Developer Edition (any supported version) or Azure SQL Database / Managed Instance. Not available on Standard, Web, or Express.' + CHAR(13) + CHAR(10)
+            + N'- WAIT_AT_LOW_PRIORITY (MAX_DURATION, ABORT_AFTER_WAIT): SQL Server 2014+ Enterprise/Developer or Azure SQL, only with ONLINE = ON.' + CHAR(13) + CHAR(10)
+            + N'- RESUMABLE = ON: SQL Server 2017+ for ALTER INDEX REBUILD online; SQL Server 2019+ for CREATE INDEX online; Azure SQL supports both. Requires ONLINE = ON.' + CHAR(13) + CHAR(10)
+            + N'- OPTIMIZE_FOR_SEQUENTIAL_KEY = ON: SQL Server 2019+ or Azure SQL.' + CHAR(13) + CHAR(10)
+            + N'If this server is on Standard Edition (and not Azure SQL), do not include ONLINE = ON or WAIT_AT_LOW_PRIORITY in your scripts.' + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10);
 
         /* Prepend constitution if found */
         IF @ai_constitution IS NOT NULL AND LEN(@ai_constitution) > 0
