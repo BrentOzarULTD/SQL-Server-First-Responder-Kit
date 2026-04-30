@@ -42,7 +42,8 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @SetTrustworthyON BIT = 0,
     @FixOrphanUsers BIT = 0,
     @KeepCdc BIT = 0,
-    @Execute CHAR(1) = Y,
+    @Execute CHAR(1) = 'Y',
+    @FileExtensionBak NVARCHAR(128) = NULL,
     @FileExtensionDiff NVARCHAR(128) = NULL,
     @Debug INT = 0,
     @Help BIT = 0,
@@ -220,6 +221,16 @@ BEGIN
 		@RunCheckDB = 1,
 		@Debug = 0,
 		@Execute = ''N'';
+
+	--Parameter @FileExtensionBak indicates the file extension, in case backups have a different extension than default (.bak)
+	EXEC dbo.sp_DatabaseRestore
+		@Database = ''DBA'', 
+		@BackupPathFull = ''D:\Backup1\DBA\FULL\'',
+		@FileExtensionBak = ''DUMP'',
+		@Debug = 1,
+		@Execute = ''N'';
+
+	*/
 	';
 
     RETURN;
@@ -534,6 +545,18 @@ BEGIN
 	SET @FileExtensionDiff = REPLACE(@FileExtensionDiff,'.','');
 END
 
+SET @FileExtensionBak = NULLIF(LTRIM(RTRIM(@FileExtensionBak)), '');
+IF @FileExtensionBak IS NULL
+BEGIN
+	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('No @FileExtensionBak given, assuming "bak".', 0, 1) WITH NOWAIT;
+	SET @FileExtensionBak = 'bak';
+END
+IF @FileExtensionBak LIKE '%.%'
+BEGIN
+	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Removing "." from @FileExtensionBak', 0, 1) WITH NOWAIT;
+	SET @FileExtensionBak = REPLACE(@FileExtensionBak,'.','');
+END
+
 SET @RestoreDatabaseID = DB_ID(@RestoreDatabaseName);
 SET @RestoreDatabaseName = QUOTENAME(@RestoreDatabaseName);
 SET @UnquotedRestoreDatabaseName = PARSENAME(@RestoreDatabaseName,1);
@@ -679,13 +702,13 @@ BEGIN
 		BEGIN
 			DELETE
 			FROM @FileList
-			WHERE BackupFile LIKE N'%[_][0-9].bak'
+			WHERE BackupFile LIKE N'%[_][0-9].' + @FileExtensionBak
 			AND	BackupFile LIKE N'%' + @Database + N'%'
 			AND	(REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 16 ), '_', '' ) > @StopAt);
 
 			DELETE
 			FROM @FileList
-			WHERE BackupFile LIKE N'%[_][0-9][0-9].bak'
+			WHERE BackupFile LIKE N'%[_][0-9][0-9].' + @FileExtensionBak
 			AND	BackupFile LIKE N'%' + @Database + N'%'
 			AND	(REPLACE( RIGHT( REPLACE( BackupFile, RIGHT( BackupFile, PATINDEX( '%_[0-9][0-9]%', REVERSE( BackupFile ) ) ), '' ), 18 ), '_', '' ) > @StopAt);
 		END;
@@ -694,7 +717,7 @@ BEGIN
     -- Get the TOP record to use in "Restore HeaderOnly/FileListOnly" statement as well as Non-Split Backups Restore Command
     SELECT TOP 1 @LastFullBackup = BackupFile, @CurrentBackupPathFull = BackupPath
     FROM @FileList
-    WHERE BackupFile LIKE N'%.bak'
+    WHERE BackupFile LIKE N'%.' + @FileExtensionBak
         AND
         BackupFile LIKE N'%' + @Database + N'%'
 	    AND
