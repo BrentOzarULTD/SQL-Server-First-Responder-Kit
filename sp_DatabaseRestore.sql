@@ -539,20 +539,21 @@ BEGIN
 END
 
 /* Reject path-shaped parameters that contain shell metacharacters or control chars.
-   Single quotes are deliberately allowed (legal in Windows paths) and are escaped at concat sites instead. */
-DECLARE @ForbiddenPathChars NVARCHAR(20) = N'"&|;^<>' + NCHAR(0) + NCHAR(10) + NCHAR(13);
-DECLARE @ForbiddenPathPattern NVARCHAR(40) = N'%[' + @ForbiddenPathChars + N']%';
+   Single quotes are deliberately allowed (legal in Windows paths) and are escaped at concat sites instead.
+   COLLATE Latin1_General_BIN2 is required so the LIKE '[...]' class catches NCHAR(0) — under default
+   collations the NUL byte is silently dropped from the pattern and compared values. */
+DECLARE @ForbiddenPathPattern NVARCHAR(40) = N'%["&|;^<>' + NCHAR(0) + NCHAR(10) + NCHAR(13) + N']%';
 DECLARE @InvalidPathParam sysname = NULL;
-IF @BackupPathFull            LIKE @ForbiddenPathPattern SET @InvalidPathParam = N'@BackupPathFull';
-IF @InvalidPathParam IS NULL AND @BackupPathDiff           LIKE @ForbiddenPathPattern SET @InvalidPathParam = N'@BackupPathDiff';
-IF @InvalidPathParam IS NULL AND @BackupPathLog            LIKE @ForbiddenPathPattern SET @InvalidPathParam = N'@BackupPathLog';
-IF @InvalidPathParam IS NULL AND @MoveDataDrive            LIKE @ForbiddenPathPattern SET @InvalidPathParam = N'@MoveDataDrive';
-IF @InvalidPathParam IS NULL AND @MoveLogDrive             LIKE @ForbiddenPathPattern SET @InvalidPathParam = N'@MoveLogDrive';
-IF @InvalidPathParam IS NULL AND @MoveFilestreamDrive      LIKE @ForbiddenPathPattern SET @InvalidPathParam = N'@MoveFilestreamDrive';
-IF @InvalidPathParam IS NULL AND @MoveFullTextCatalogDrive LIKE @ForbiddenPathPattern SET @InvalidPathParam = N'@MoveFullTextCatalogDrive';
-IF @InvalidPathParam IS NULL AND @StandbyUndoPath          LIKE @ForbiddenPathPattern SET @InvalidPathParam = N'@StandbyUndoPath';
-IF @InvalidPathParam IS NULL AND @FileNamePrefix           LIKE @ForbiddenPathPattern SET @InvalidPathParam = N'@FileNamePrefix';
-IF @InvalidPathParam IS NULL AND @Database                 LIKE @ForbiddenPathPattern SET @InvalidPathParam = N'@Database';
+IF @BackupPathFull            LIKE @ForbiddenPathPattern COLLATE Latin1_General_BIN2 SET @InvalidPathParam = N'@BackupPathFull';
+IF @InvalidPathParam IS NULL AND @BackupPathDiff           LIKE @ForbiddenPathPattern COLLATE Latin1_General_BIN2 SET @InvalidPathParam = N'@BackupPathDiff';
+IF @InvalidPathParam IS NULL AND @BackupPathLog            LIKE @ForbiddenPathPattern COLLATE Latin1_General_BIN2 SET @InvalidPathParam = N'@BackupPathLog';
+IF @InvalidPathParam IS NULL AND @MoveDataDrive            LIKE @ForbiddenPathPattern COLLATE Latin1_General_BIN2 SET @InvalidPathParam = N'@MoveDataDrive';
+IF @InvalidPathParam IS NULL AND @MoveLogDrive             LIKE @ForbiddenPathPattern COLLATE Latin1_General_BIN2 SET @InvalidPathParam = N'@MoveLogDrive';
+IF @InvalidPathParam IS NULL AND @MoveFilestreamDrive      LIKE @ForbiddenPathPattern COLLATE Latin1_General_BIN2 SET @InvalidPathParam = N'@MoveFilestreamDrive';
+IF @InvalidPathParam IS NULL AND @MoveFullTextCatalogDrive LIKE @ForbiddenPathPattern COLLATE Latin1_General_BIN2 SET @InvalidPathParam = N'@MoveFullTextCatalogDrive';
+IF @InvalidPathParam IS NULL AND @StandbyUndoPath          LIKE @ForbiddenPathPattern COLLATE Latin1_General_BIN2 SET @InvalidPathParam = N'@StandbyUndoPath';
+IF @InvalidPathParam IS NULL AND @FileNamePrefix           LIKE @ForbiddenPathPattern COLLATE Latin1_General_BIN2 SET @InvalidPathParam = N'@FileNamePrefix';
+IF @InvalidPathParam IS NULL AND @Database                 LIKE @ForbiddenPathPattern COLLATE Latin1_General_BIN2 SET @InvalidPathParam = N'@Database';
 IF @InvalidPathParam IS NOT NULL
 BEGIN
 	RAISERROR('Parameter %s contains a character that is not allowed in a file path. Forbidden: " & | ; ^ < > or control characters.', 16, 1, @InvalidPathParam) WITH NOWAIT;
