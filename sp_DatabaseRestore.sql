@@ -43,7 +43,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @FixOrphanUsers BIT = 0,
     @KeepCdc BIT = 0,
     @Execute CHAR(1) = Y,
-	@FileExtensionBak NVARCHAR(128) = NULL,
+    @FileExtensionBak NVARCHAR(128) = NULL,
     @FileExtensionDiff NVARCHAR(128) = NULL,
     @Debug INT = 0,
     @Help BIT = 0,
