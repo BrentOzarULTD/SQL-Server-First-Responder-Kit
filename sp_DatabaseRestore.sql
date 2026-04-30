@@ -545,6 +545,7 @@ BEGIN
 	SET @FileExtensionDiff = REPLACE(@FileExtensionDiff,'.','');
 END
 
+SET @FileExtensionBak = NULLIF(LTRIM(RTRIM(@FileExtensionBak)), '');
 IF @FileExtensionBak IS NULL
 BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('No @FileExtensionBak given, assuming "bak".', 0, 1) WITH NOWAIT;
