@@ -541,7 +541,10 @@ END
 /* Reject path-shaped parameters that contain shell metacharacters or control chars.
    Single quotes are deliberately allowed (legal in Windows paths) and are escaped at concat sites instead.
    COLLATE Latin1_General_BIN2 is required so the LIKE '[...]' class catches NCHAR(0) — under default
-   collations the NUL byte is silently dropped from the pattern and compared values. */
+   collations the NUL byte is silently dropped from the pattern and compared values.
+   @Database is intentionally NOT in this list: it is primarily an identifier (database names can
+   legally contain '&', ';', etc.) and downstream usage either parameter-binds it (LIKE filters
+   against @FileList) or single-quote-escapes it before concatenating into a quoted SQL literal. */
 DECLARE @ForbiddenPathPattern NVARCHAR(40) = N'%["&|;^<>' + NCHAR(0) + NCHAR(10) + NCHAR(13) + N']%';
 DECLARE @InvalidPathParam sysname = NULL;
 IF @BackupPathFull            LIKE @ForbiddenPathPattern COLLATE Latin1_General_BIN2 SET @InvalidPathParam = N'@BackupPathFull';
@@ -553,10 +556,9 @@ IF @InvalidPathParam IS NULL AND @MoveFilestreamDrive      LIKE @ForbiddenPathPa
 IF @InvalidPathParam IS NULL AND @MoveFullTextCatalogDrive LIKE @ForbiddenPathPattern COLLATE Latin1_General_BIN2 SET @InvalidPathParam = N'@MoveFullTextCatalogDrive';
 IF @InvalidPathParam IS NULL AND @StandbyUndoPath          LIKE @ForbiddenPathPattern COLLATE Latin1_General_BIN2 SET @InvalidPathParam = N'@StandbyUndoPath';
 IF @InvalidPathParam IS NULL AND @FileNamePrefix           LIKE @ForbiddenPathPattern COLLATE Latin1_General_BIN2 SET @InvalidPathParam = N'@FileNamePrefix';
-IF @InvalidPathParam IS NULL AND @Database                 LIKE @ForbiddenPathPattern COLLATE Latin1_General_BIN2 SET @InvalidPathParam = N'@Database';
 IF @InvalidPathParam IS NOT NULL
 BEGIN
-	RAISERROR('Parameter %s contains a character that is not allowed in a file path. Forbidden: " & | ; ^ < > or control characters.', 16, 1, @InvalidPathParam) WITH NOWAIT;
+	RAISERROR('Parameter %s contains a forbidden character. Not allowed: " & | ; ^ < > or control characters.', 16, 1, @InvalidPathParam) WITH NOWAIT;
 	RETURN;
 END;
 
@@ -964,7 +966,7 @@ BEGIN
                              (SELECT CHAR( 10 ) + ',DISK=''' + REPLACE(BackupPath, '''', '''''') + REPLACE(BackupFile, '''', '''''') + ''''
 							  FROM #SplitFullBackups
 							  ORDER BY BackupFile
-							  FOR XML PATH ('')),
+							  FOR XML PATH (''), TYPE).value('.', 'nvarchar(max)'),
                              1,
                              2,
                              '') + N' WITH NORECOVERY, REPLACE' + @BackupParameters + @MoveOption + NCHAR(13) + NCHAR(10);
@@ -1156,7 +1158,7 @@ BEGIN
 											 (SELECT CHAR( 10 ) + ',DISK=''' + REPLACE(BackupPath, '''', '''''') + REPLACE(BackupFile, '''', '''''') + ''''
 											 FROM #SplitDiffBackups
 											 ORDER BY BackupFile
-											 FOR XML PATH ('')),
+											 FOR XML PATH (''), TYPE).value('.', 'nvarchar(max)'),
 									   1,
 									   2,
 									   '' ) + N' WITH NORECOVERY, REPLACE' +  @BackupParameters + @MoveOption + NCHAR(13) + NCHAR(10);
@@ -1516,7 +1518,7 @@ WHERE BackupFile IS NOT NULL;
 									 FROM #SplitLogBackups
 									 WHERE DenseRank = @LogRestoreRanking
 									 ORDER BY BackupFile
-									 FOR XML PATH ('')),
+									 FOR XML PATH (''), TYPE).value('.', 'nvarchar(max)'),
 								1,
 								2,
 								'' ) + N' WITH ' + @LogRecoveryOption + NCHAR(13) + NCHAR(10);
@@ -1704,8 +1706,12 @@ BEGIN
 		RETURN;
 	END;
 	PRINT 'Attempting to run ' + @RunStoredProcAfterRestore
+	/* Always emit a 3-part name (db.schema.proc). For 1-part input the schema slot is left empty
+	   so the name resolves as db..proc — i.e., the default schema in the restored DB. Without the
+	   second dot, [db].[proc] is parsed as schema.object in the *current* DB. */
 	SET @sql = N'EXEC ' + @RestoreDatabaseName + N'.'
-	         + COALESCE(QUOTENAME(@RunStoredProcSchema) + N'.', N'')
+	         + ISNULL(QUOTENAME(@RunStoredProcSchema), N'')
+	         + N'.'
 	         + QUOTENAME(@RunStoredProcName);
 
 	IF @Debug = 1 OR @Execute = 'N'
