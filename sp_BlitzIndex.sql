@@ -148,6 +148,7 @@ DECLARE @ErrorSeverity INT;
 DECLARE @ErrorState INT;
 DECLARE @Rowcount BIGINT;
 DECLARE @SQLServerProductVersion NVARCHAR(128);
+DECLARE @SQLServerProductVersionMajor INT;
 DECLARE @SQLServerEdition INT;
 DECLARE @SQLServerEditionName NVARCHAR(128);
 DECLARE @SQLServerVersionDescription NVARCHAR(256);
@@ -259,6 +260,15 @@ SET @LineFeed = CHAR(13) + CHAR(10);
 SELECT @SQLServerProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
 SELECT @SQLServerEdition =CAST(SERVERPROPERTY('EngineEdition') AS INT); /* We default to online index creates where EngineEdition=3*/
 SELECT @SQLServerEditionName = CAST(SERVERPROPERTY('Edition') AS NVARCHAR(128));
+SET @SQLServerProductVersionMajor =
+    CASE
+        WHEN @SQLServerProductVersion LIKE N'17.%' THEN 17
+        WHEN @SQLServerProductVersion LIKE N'16.%' THEN 16
+        WHEN @SQLServerProductVersion LIKE N'15.%' THEN 15
+        WHEN @SQLServerProductVersion LIKE N'14.%' THEN 14
+        WHEN @SQLServerProductVersion LIKE N'13.%' THEN 13
+        ELSE 0
+    END;
 SET @SQLServerVersionDescription =
     CASE @SQLServerEdition
         WHEN 5  THEN N'Azure SQL Database'
@@ -268,12 +278,12 @@ SET @SQLServerVersionDescription =
         WHEN 11 THEN N'Azure Synapse Analytics serverless SQL pool'
         ELSE
             N'SQL Server '
-            + CASE
-                WHEN @SQLServerProductVersion LIKE N'17.%' THEN N'2025 '
-                WHEN @SQLServerProductVersion LIKE N'16.%' THEN N'2022 '
-                WHEN @SQLServerProductVersion LIKE N'15.%' THEN N'2019 '
-                WHEN @SQLServerProductVersion LIKE N'14.%' THEN N'2017 '
-                WHEN @SQLServerProductVersion LIKE N'13.%' THEN N'2016 '
+            + CASE @SQLServerProductVersionMajor
+                WHEN 17 THEN N'2025 '
+                WHEN 16 THEN N'2022 '
+                WHEN 15 THEN N'2019 '
+                WHEN 14 THEN N'2017 '
+                WHEN 13 THEN N'2016 '
                 ELSE N''
               END
             + ISNULL(@SQLServerEditionName, N'')
@@ -3690,19 +3700,38 @@ BEGIN
             + QUOTENAME(@DatabaseName) + N'.' + QUOTENAME(@SchemaName) + N'.' + QUOTENAME(@TableName)
             + N'.' + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10);
 
-        /* Tell the AI which version and edition we're on, so it can pick
-           appropriate options (ONLINE, WAIT_AT_LOW_PRIORITY, RESUMABLE, etc.)
-           when generating CREATE INDEX / ALTER INDEX scripts. */
+        /* Tell the AI which version and edition we're on, then list only the
+           low-impact index options that ARE available on this server, so it
+           can use them in CREATE INDEX / ALTER INDEX scripts without having
+           to apply availability rules itself. */
         SET @CurrentAIPrompt = @CurrentAIPrompt + N'SERVER VERSION AND EDITION:' + CHAR(13) + CHAR(10)
             + N'This database is running on ' + @SQLServerVersionDescription
             + N' (build ' + ISNULL(@SQLServerProductVersion, N'unknown')
-            + N', EngineEdition ' + ISNULL(CAST(@SQLServerEdition AS NVARCHAR(10)), N'unknown') + N').' + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10)
-            + N'When generating CREATE INDEX, ALTER INDEX, and DROP INDEX scripts, prefer the lowest-impact options this version and edition supports:' + CHAR(13) + CHAR(10)
-            + N'- ONLINE = ON: requires Enterprise or Developer Edition (any supported version) or Azure SQL Database / Managed Instance. Not available on Standard, Web, or Express.' + CHAR(13) + CHAR(10)
-            + N'- WAIT_AT_LOW_PRIORITY (MAX_DURATION, ABORT_AFTER_WAIT): SQL Server 2014+ Enterprise/Developer or Azure SQL, only with ONLINE = ON.' + CHAR(13) + CHAR(10)
-            + N'- RESUMABLE = ON: SQL Server 2017+ for ALTER INDEX REBUILD online; SQL Server 2019+ for CREATE INDEX online; Azure SQL supports both. Requires ONLINE = ON.' + CHAR(13) + CHAR(10)
-            + N'- OPTIMIZE_FOR_SEQUENTIAL_KEY = ON: SQL Server 2019+ or Azure SQL.' + CHAR(13) + CHAR(10)
-            + N'If this server is on Standard Edition (and not Azure SQL), do not include ONLINE = ON or WAIT_AT_LOW_PRIORITY in your scripts.' + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10);
+            + N', EngineEdition ' + ISNULL(CAST(@SQLServerEdition AS NVARCHAR(10)), N'unknown') + N').' + CHAR(13) + CHAR(10) + CHAR(13) + CHAR(10);
+
+        SET @CurrentAIPrompt = @CurrentAIPrompt + N'INDEX OPTIONS AVAILABLE ON THIS SERVER (use these where appropriate in CREATE INDEX and ALTER INDEX scripts):' + CHAR(13) + CHAR(10);
+
+        /* ONLINE + WAIT_AT_LOW_PRIORITY: Enterprise/Developer (engine edition 3) and the Azure variants. */
+        IF @SQLServerEdition IN (3, 5, 8, 9)
+            SET @CurrentAIPrompt = @CurrentAIPrompt
+                + N'- ONLINE = ON to avoid blocking writers during index changes.' + CHAR(13) + CHAR(10)
+                + N'- WAIT_AT_LOW_PRIORITY (MAX_DURATION = N MINUTES, ABORT_AFTER_WAIT = SELF) combined with ONLINE = ON to reduce blocking impact on busy systems.' + CHAR(13) + CHAR(10);
+        ELSE
+            SET @CurrentAIPrompt = @CurrentAIPrompt
+                + N'- This edition does not support ONLINE index operations or WAIT_AT_LOW_PRIORITY. Schedule index changes for a maintenance window.' + CHAR(13) + CHAR(10);
+
+        /* RESUMABLE: Azure variants always; Enterprise/Developer 2019+ for both CREATE and REBUILD; 2017 only for REBUILD. */
+        IF @SQLServerEdition IN (5, 8, 9)
+            OR (@SQLServerEdition = 3 AND @SQLServerProductVersionMajor >= 15)
+            SET @CurrentAIPrompt = @CurrentAIPrompt + N'- RESUMABLE = ON on online CREATE INDEX and online ALTER INDEX REBUILD so operations can be paused and resumed.' + CHAR(13) + CHAR(10);
+        ELSE IF @SQLServerEdition = 3 AND @SQLServerProductVersionMajor = 14
+            SET @CurrentAIPrompt = @CurrentAIPrompt + N'- RESUMABLE = ON on online ALTER INDEX REBUILD so the operation can be paused and resumed.' + CHAR(13) + CHAR(10);
+
+        /* OPTIMIZE_FOR_SEQUENTIAL_KEY: SQL 2019+ all editions, plus Azure variants. */
+        IF @SQLServerEdition IN (5, 8, 9) OR @SQLServerProductVersionMajor >= 15
+            SET @CurrentAIPrompt = @CurrentAIPrompt + N'- OPTIMIZE_FOR_SEQUENTIAL_KEY = ON for indexes whose leading key column is a hot ascending value (identity, sequence, current datetime) to relieve last-page insert contention.' + CHAR(13) + CHAR(10);
+
+        SET @CurrentAIPrompt = @CurrentAIPrompt + CHAR(13) + CHAR(10);
 
         /* Prepend constitution if found */
         IF @ai_constitution IS NOT NULL AND LEN(@ai_constitution) > 0
