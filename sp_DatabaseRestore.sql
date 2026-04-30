@@ -42,7 +42,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @SetTrustworthyON BIT = 0,
     @FixOrphanUsers BIT = 0,
     @KeepCdc BIT = 0,
-    @Execute CHAR(1) = Y,
+    @Execute CHAR(1) = 'Y',
     @FileExtensionBak NVARCHAR(128) = NULL,
     @FileExtensionDiff NVARCHAR(128) = NULL,
     @Debug INT = 0,
