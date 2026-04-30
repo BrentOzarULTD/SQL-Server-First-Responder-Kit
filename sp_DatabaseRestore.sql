@@ -649,7 +649,7 @@ BEGIN
 		END
 		ELSE
 		BEGIN
-			SET @cmd = N'DIR /b "' + REPLACE(@CurrentBackupPathFull, N'''', N'''''') + N'"';
+			SET @cmd = N'DIR /b "' + @CurrentBackupPathFull + N'"';
 			IF @Debug = 1
 			BEGIN
 				IF @cmd IS NULL PRINT '@cmd is NULL for @CurrentBackupPathFull';
@@ -1074,7 +1074,7 @@ BEGIN
 		END
 		ELSE
 		BEGIN
-			SET @cmd = N'DIR /b "' + REPLACE(@CurrentBackupPathDiff, N'''', N'''''') + N'"';
+			SET @cmd = N'DIR /b "' + @CurrentBackupPathDiff + N'"';
 			IF @Debug = 1
 			BEGIN
 				IF @cmd IS NULL PRINT '@cmd is NULL for @CurrentBackupPathDiff';
@@ -1259,7 +1259,7 @@ BEGIN
 		END
 		ELSE
 		BEGIN
-			SET @cmd = N'DIR /b "' + REPLACE(@CurrentBackupPathLog, N'''', N'''''') + N'"';
+			SET @cmd = N'DIR /b "' + @CurrentBackupPathLog + N'"';
 			IF @Debug = 1
 			BEGIN
 				IF @cmd IS NULL PRINT '@cmd is NULL for @CurrentBackupPathLog';
@@ -1707,8 +1707,8 @@ BEGIN
 	END;
 	PRINT 'Attempting to run ' + @RunStoredProcAfterRestore
 	/* Always emit a 3-part name (db.schema.proc). For 1-part input the schema slot is left empty
-	   so the name resolves as db..proc — i.e., the default schema in the restored DB. Without the
-	   second dot, [db].[proc] is parsed as schema.object in the *current* DB. */
+	   ([db]..[proc]) so SQL Server applies its own schema-resolution rules in the target DB.
+	   Without the second dot, [db].[proc] is parsed as schema.object in the *current* DB. */
 	SET @sql = N'EXEC ' + @RestoreDatabaseName + N'.'
 	         + ISNULL(QUOTENAME(@RunStoredProcSchema), N'')
 	         + N'.'
