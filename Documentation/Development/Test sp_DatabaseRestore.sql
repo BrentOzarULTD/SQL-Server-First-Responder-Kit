@@ -230,6 +230,35 @@ BEGIN TRY
 END TRY BEGIN CATCH PRINT 'EXPECTED LATE FAILURE: ' + ERROR_MESSAGE(); END CATCH;
 GO
 
+PRINT '--- 3.6 PASSES: @RunStoredProcAfterRestore with leading/trailing whitespace ---';
+PRINT '   (the proc trims and collapses whitespace around dots before PARSENAME so';
+PRINT '    pre-hardening callers using ''  MyProc  '' or ''dbo. MyProc'' still work)';
+BEGIN TRY
+    EXEC dbo.sp_DatabaseRestore @Database = 'AnyDB',
+                                @BackupPathFull = 'C:\Backups\',
+                                @RunStoredProcAfterRestore = '  MyProc  ',
+                                @Execute = 'N', @Debug = 1;
+END TRY BEGIN CATCH PRINT 'EXPECTED LATE FAILURE: ' + ERROR_MESSAGE(); END CATCH;
+GO
+
+PRINT '--- 3.7 PASSES: @RunStoredProcAfterRestore with whitespace around the dot ---';
+BEGIN TRY
+    EXEC dbo.sp_DatabaseRestore @Database = 'AnyDB',
+                                @BackupPathFull = 'C:\Backups\',
+                                @RunStoredProcAfterRestore = 'dbo. MyProc',
+                                @Execute = 'N', @Debug = 1;
+END TRY BEGIN CATCH PRINT 'EXPECTED LATE FAILURE: ' + ERROR_MESSAGE(); END CATCH;
+GO
+
+PRINT '--- 3.8 PASSES: bracketed identifiers with whitespace around the dot ---';
+BEGIN TRY
+    EXEC dbo.sp_DatabaseRestore @Database = 'AnyDB',
+                                @BackupPathFull = 'C:\Backups\',
+                                @RunStoredProcAfterRestore = '[dbo]. [My Proc]',
+                                @Execute = 'N', @Debug = 1;
+END TRY BEGIN CATCH PRINT 'EXPECTED LATE FAILURE: ' + ERROR_MESSAGE(); END CATCH;
+GO
+
 
 PRINT '====================================================';
 PRINT 'PART 4 - Logic-only verification (mimics what the proc does)';

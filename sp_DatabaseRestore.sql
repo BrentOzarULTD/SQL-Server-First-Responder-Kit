@@ -562,6 +562,25 @@ BEGIN
 	RETURN;
 END;
 
+/* Validate @RunStoredProcAfterRestore shape up-front so an invalid input fails fast instead
+   of after a successful restore. The actual EXEC build happens later (after the restore);
+   here we only check that the value is a 1- or 2-part name and stash the whitespace-normalized
+   form for later reuse. See the EXEC build site for the QUOTENAME logic. */
+DECLARE @RunStoredProcNormalized nvarchar(260) = NULL;
+IF @RunStoredProcAfterRestore IS NOT NULL AND LEN(LTRIM(@RunStoredProcAfterRestore)) > 0
+BEGIN
+	SET @RunStoredProcNormalized = LTRIM(RTRIM(@RunStoredProcAfterRestore));
+	WHILE CHARINDEX(N' .', @RunStoredProcNormalized) > 0 SET @RunStoredProcNormalized = REPLACE(@RunStoredProcNormalized, N' .', N'.');
+	WHILE CHARINDEX(N'. ', @RunStoredProcNormalized) > 0 SET @RunStoredProcNormalized = REPLACE(@RunStoredProcNormalized, N'. ', N'.');
+	IF PARSENAME(@RunStoredProcNormalized, 1) IS NULL
+	   OR PARSENAME(@RunStoredProcNormalized, 3) IS NOT NULL
+	   OR PARSENAME(@RunStoredProcNormalized, 4) IS NOT NULL
+	BEGIN
+		RAISERROR('@RunStoredProcAfterRestore must be a procedure name or schema.procedure (1- or 2-part name).', 16, 1) WITH NOWAIT;
+		RETURN;
+	END;
+END;
+
 --File Extension cleanup
 IF @FileExtensionDiff LIKE '%.%'
 BEGIN
@@ -1696,22 +1715,10 @@ END;'
 
 IF @RunStoredProcAfterRestore IS NOT NULL AND LEN(LTRIM(@RunStoredProcAfterRestore)) > 0
 BEGIN
-	/* Normalize whitespace before PARSENAME: trim outer space and collapse any whitespace
-	   that surrounds the dots, so 'dbo. MyProc' or '  MyProc ' parse the same as 'dbo.MyProc'.
-	   The original raw-concat behavior accepted these because T-SQL's parser ignores
-	   whitespace around dots in EXEC statements; preserving that for backward compat. */
-	DECLARE @NormalizedRunStoredProc nvarchar(260) = LTRIM(RTRIM(@RunStoredProcAfterRestore));
-	WHILE CHARINDEX(N' .', @NormalizedRunStoredProc) > 0 SET @NormalizedRunStoredProc = REPLACE(@NormalizedRunStoredProc, N' .', N'.');
-	WHILE CHARINDEX(N'. ', @NormalizedRunStoredProc) > 0 SET @NormalizedRunStoredProc = REPLACE(@NormalizedRunStoredProc, N'. ', N'.');
-	DECLARE @RunStoredProcSchema sysname = NULLIF(PARSENAME(@NormalizedRunStoredProc, 2), N'');
-	DECLARE @RunStoredProcName   sysname = PARSENAME(@NormalizedRunStoredProc, 1);
-	IF @RunStoredProcName IS NULL
-	   OR PARSENAME(@NormalizedRunStoredProc, 3) IS NOT NULL
-	   OR PARSENAME(@NormalizedRunStoredProc, 4) IS NOT NULL
-	BEGIN
-		RAISERROR('@RunStoredProcAfterRestore must be a procedure name or schema.procedure (1- or 2-part name).', 16, 1) WITH NOWAIT;
-		RETURN;
-	END;
+	/* Shape and whitespace already validated near the top of the proc; @RunStoredProcNormalized
+	   holds the trimmed/dot-normalized form. Re-PARSENAME here just to extract the parts. */
+	DECLARE @RunStoredProcSchema sysname = NULLIF(PARSENAME(@RunStoredProcNormalized, 2), N'');
+	DECLARE @RunStoredProcName   sysname = PARSENAME(@RunStoredProcNormalized, 1);
 	PRINT 'Attempting to run ' + @RunStoredProcAfterRestore
 	/* Always emit a 3-part name (db.schema.proc). For 1-part input the schema slot is left empty
 	   ([db]..[proc]) so SQL Server applies its own schema-resolution rules in the target DB.
