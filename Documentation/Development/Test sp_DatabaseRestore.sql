@@ -313,7 +313,20 @@ PRINT 'Input @StandbyUndoPath: ' + @StandbyPath;
 PRINT 'Generated STANDBY clause: STANDBY = ''' + REPLACE(@StandbyPath, N'''', N'''''') + REPLACE(@TestDb, N'''', N'''''') + 'Undo.ldf''';
 GO
 
-PRINT '--- 4.5 NEUTRAL: nested-EXEC RESTORE HEADERONLY needs four-quote escape ---';
+PRINT '--- 4.5 NEUTRAL: MOVE clause with apostrophe in @MoveDataDrive ---';
+PRINT '   The path-validation gate allows apostrophes (legal in Windows paths) so';
+PRINT '   they reach the @MoveOption builder, which embeds them in MOVE ''logical''';
+PRINT '   TO ''physical'' literals. The inline REPLACE doubles the apostrophe so';
+PRINT '   the literal still terminates correctly.';
+DECLARE @FilesTbl TABLE (LogicalName nvarchar(128), TargetPhysicalName nvarchar(260), PhysicalName nvarchar(260));
+INSERT @FilesTbl VALUES (N'TestData', N'C:\It''s\Data\Test.mdf', N'D:\old\Test.mdf');
+DECLARE @MoveOptOut nvarchar(max) = N'';
+SELECT @MoveOptOut = @MoveOptOut + N', MOVE ''' + REPLACE(LogicalName, N'''', N'''''') + N''' TO ''' + REPLACE(TargetPhysicalName, N'''', N'''''') + ''''
+FROM @FilesTbl;
+PRINT '@MoveOption fragment: ' + @MoveOptOut;
+GO
+
+PRINT '--- 4.6 NEUTRAL: nested-EXEC RESTORE HEADERONLY needs four-quote escape ---';
 PRINT '   The HEADERONLY/FILELISTONLY templates are EXEC(''RESTORE ... DISK=''''<path>'''''')';
 PRINT '   so the path crosses two SQL-parser layers. A single apostrophe in the';
 PRINT '   path needs to become four single quotes (REPLICATE(N'''''''', 4)) to';

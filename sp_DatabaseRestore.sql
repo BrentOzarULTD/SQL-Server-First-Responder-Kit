@@ -875,7 +875,14 @@ BEGIN
                     PhysicalName,
                     LogicalName
 		    FROM #FileListParameters)
-	    SELECT @MoveOption = @MoveOption + N', MOVE ''' + Files.LogicalName + N''' TO ''' + Files.TargetPhysicalName + ''''
+	    /* Both LogicalName and TargetPhysicalName get embedded inside SQL string literals
+	       below. TargetPhysicalName is built from caller parameters (@MoveDataDrive,
+	       @MoveLogDrive, @MoveFilestreamDrive, @MoveFullTextCatalogDrive, @FileNamePrefix)
+	       which the path-validation gate allows to contain apostrophes — so an apostrophe
+	       in any of those params would otherwise close the literal. Double the quotes
+	       inline. (LogicalName is filesystem-sourced and out of scope per threat model;
+	       escaping it too is defense-in-depth at zero cost.) */
+	    SELECT @MoveOption = @MoveOption + N', MOVE ''' + REPLACE(Files.LogicalName, N'''', N'''''') + N''' TO ''' + REPLACE(Files.TargetPhysicalName, N'''', N'''''') + ''''
 	    FROM Files
         WHERE Files.TargetPhysicalName <> Files.PhysicalName;
 
