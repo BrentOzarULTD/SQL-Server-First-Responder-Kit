@@ -1175,7 +1175,7 @@ BEGIN
 		    ELSE IF (SELECT COUNT(*) FROM #SplitDiffBackups) > 0
 				SET @sql = @sql + ', STANDBY = ''' + REPLACE(@StandbyUndoPath, N'''', N'''''') + REPLACE(@Database, N'''', N'''''') + 'Undo.ldf''' + NCHAR(13) + NCHAR(10);
 			ELSE
-			    SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + REPLACE(@BackupPathDiff, N'''', N'''''') + REPLACE(@LastDiffBackup, N'''', N'''''') + N''' WITH STANDBY = ''' + REPLACE(@StandbyUndoPath, N'''', N'''''') + REPLACE(@Database, N'''', N'''''') + 'Undo.ldf''' + @BackupParameters + @MoveOption + NCHAR(13) + NCHAR(10);
+			    SET @sql = N'RESTORE DATABASE ' + @RestoreDatabaseName + N' FROM DISK = ''' + REPLACE(@CurrentBackupPathDiff, N'''', N'''''') + REPLACE(@LastDiffBackup, N'''', N'''''') + N''' WITH STANDBY = ''' + REPLACE(@StandbyUndoPath, N'''', N'''''') + REPLACE(@Database, N'''', N'''''') + 'Undo.ldf''' + @BackupParameters + @MoveOption + NCHAR(13) + NCHAR(10);
 	    END;
 		IF @Debug = 1 OR @Execute = 'N'
 		BEGIN
@@ -1696,11 +1696,18 @@ END;'
 
 IF @RunStoredProcAfterRestore IS NOT NULL AND LEN(LTRIM(@RunStoredProcAfterRestore)) > 0
 BEGIN
-	DECLARE @RunStoredProcSchema sysname = NULLIF(PARSENAME(@RunStoredProcAfterRestore, 2), N'');
-	DECLARE @RunStoredProcName   sysname = PARSENAME(@RunStoredProcAfterRestore, 1);
+	/* Normalize whitespace before PARSENAME: trim outer space and collapse any whitespace
+	   that surrounds the dots, so 'dbo. MyProc' or '  MyProc ' parse the same as 'dbo.MyProc'.
+	   The original raw-concat behavior accepted these because T-SQL's parser ignores
+	   whitespace around dots in EXEC statements; preserving that for backward compat. */
+	DECLARE @NormalizedRunStoredProc nvarchar(260) = LTRIM(RTRIM(@RunStoredProcAfterRestore));
+	WHILE CHARINDEX(N' .', @NormalizedRunStoredProc) > 0 SET @NormalizedRunStoredProc = REPLACE(@NormalizedRunStoredProc, N' .', N'.');
+	WHILE CHARINDEX(N'. ', @NormalizedRunStoredProc) > 0 SET @NormalizedRunStoredProc = REPLACE(@NormalizedRunStoredProc, N'. ', N'.');
+	DECLARE @RunStoredProcSchema sysname = NULLIF(PARSENAME(@NormalizedRunStoredProc, 2), N'');
+	DECLARE @RunStoredProcName   sysname = PARSENAME(@NormalizedRunStoredProc, 1);
 	IF @RunStoredProcName IS NULL
-	   OR PARSENAME(@RunStoredProcAfterRestore, 3) IS NOT NULL
-	   OR PARSENAME(@RunStoredProcAfterRestore, 4) IS NOT NULL
+	   OR PARSENAME(@NormalizedRunStoredProc, 3) IS NOT NULL
+	   OR PARSENAME(@NormalizedRunStoredProc, 4) IS NOT NULL
 	BEGIN
 		RAISERROR('@RunStoredProcAfterRestore must be a procedure name or schema.procedure (1- or 2-part name).', 16, 1) WITH NOWAIT;
 		RETURN;
