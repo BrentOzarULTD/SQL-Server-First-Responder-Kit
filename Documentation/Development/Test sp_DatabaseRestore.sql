@@ -37,10 +37,13 @@ Paths use C:\ so this works on any test rig without special storage.
 
 PRINT '====================================================';
 PRINT 'PART 1 - Path-shape validation gate';
-PRINT 'Each path-shaped parameter that contains a character with no';
-PRINT 'legitimate use in a Windows path (and high command-injection';
-PRINT 'risk) must be rejected before the proc reaches xp_cmdshell';
-PRINT 'or dynamic-SQL construction.';
+PRINT 'Each path-shaped parameter that contains a character we treat';
+PRINT 'as too risky to forward to cmd.exe / dynamic SQL must be';
+PRINT 'rejected before the proc reaches xp_cmdshell or dynamic-SQL';
+PRINT 'construction. (Note: characters like &, ;, ^ are technically';
+PRINT 'valid in Windows filenames; the restriction is a deliberate';
+PRINT 'security policy on top of OS path validity, not a claim that';
+PRINT 'they cannot legally appear in a Windows path.)';
 PRINT '====================================================';
 GO
 
@@ -179,9 +182,16 @@ GO
 PRINT '====================================================';
 PRINT 'PART 3 - Regression: legitimate inputs must still pass';
 PRINT 'These should pass the validation gate. They will fail later';
-PRINT 'with "(FULL) No rows were returned for that database in path"';
-PRINT 'because no real backups exist at C:\Backups\ — that is the';
-PRINT 'expected outcome and means the validation gate did not block.';
+PRINT 'with the proc''s "no rows / bad path" error because no real';
+PRINT 'backups exist at C:\Backups\ — that is the expected outcome';
+PRINT 'and means the validation gate did not block.';
+PRINT '';
+PRINT 'Each EXEC sets @SimpleFolderEnumeration = 1 to force the';
+PRINT 'xp_dirtree code path; otherwise the late-failure message';
+PRINT 'differs depending on whether xp_cmdshell is enabled on the';
+PRINT 'instance ("(FULL) No rows were returned..." vs "(FULL) No';
+PRINT 'rows or bad value for path..."), and we want a stable';
+PRINT 'expected outcome across test rigs.';
 PRINT '====================================================';
 GO
 
@@ -189,6 +199,7 @@ PRINT '--- 3.1 PASSES: ordinary path ---';
 BEGIN TRY
     EXEC dbo.sp_DatabaseRestore @Database = 'AnyDB',
                                 @BackupPathFull = 'C:\Backups\',
+                                @SimpleFolderEnumeration = 1,
                                 @Execute = 'N', @Debug = 1;
 END TRY BEGIN CATCH PRINT 'EXPECTED LATE FAILURE: ' + ERROR_MESSAGE(); END CATCH;
 GO
@@ -198,6 +209,7 @@ PRINT '   (validation gate must allow it; downstream sites must escape it)';
 BEGIN TRY
     EXEC dbo.sp_DatabaseRestore @Database = 'AnyDB',
                                 @BackupPathFull = 'C:\Backups\It''s Friday\',
+                                @SimpleFolderEnumeration = 1,
                                 @Execute = 'N', @Debug = 1;
 END TRY BEGIN CATCH PRINT 'EXPECTED LATE FAILURE: ' + ERROR_MESSAGE(); END CATCH;
 GO
@@ -208,6 +220,7 @@ PRINT '    in the path-shape gate — it gets single-quote-escaped at concat sit
 BEGIN TRY
     EXEC dbo.sp_DatabaseRestore @Database = 'My&DB',
                                 @BackupPathFull = 'C:\Backups\',
+                                @SimpleFolderEnumeration = 1,
                                 @Execute = 'N', @Debug = 1;
 END TRY BEGIN CATCH PRINT 'EXPECTED LATE FAILURE: ' + ERROR_MESSAGE(); END CATCH;
 GO
@@ -217,6 +230,7 @@ BEGIN TRY
     EXEC dbo.sp_DatabaseRestore @Database = 'AnyDB',
                                 @BackupPathFull = 'C:\Backups\',
                                 @RunStoredProcAfterRestore = 'MyProc',
+                                @SimpleFolderEnumeration = 1,
                                 @Execute = 'N', @Debug = 1;
 END TRY BEGIN CATCH PRINT 'EXPECTED LATE FAILURE: ' + ERROR_MESSAGE(); END CATCH;
 GO
@@ -226,6 +240,7 @@ BEGIN TRY
     EXEC dbo.sp_DatabaseRestore @Database = 'AnyDB',
                                 @BackupPathFull = 'C:\Backups\',
                                 @RunStoredProcAfterRestore = 'dbo.MyProc',
+                                @SimpleFolderEnumeration = 1,
                                 @Execute = 'N', @Debug = 1;
 END TRY BEGIN CATCH PRINT 'EXPECTED LATE FAILURE: ' + ERROR_MESSAGE(); END CATCH;
 GO
@@ -237,6 +252,7 @@ BEGIN TRY
     EXEC dbo.sp_DatabaseRestore @Database = 'AnyDB',
                                 @BackupPathFull = 'C:\Backups\',
                                 @RunStoredProcAfterRestore = '  MyProc  ',
+                                @SimpleFolderEnumeration = 1,
                                 @Execute = 'N', @Debug = 1;
 END TRY BEGIN CATCH PRINT 'EXPECTED LATE FAILURE: ' + ERROR_MESSAGE(); END CATCH;
 GO
@@ -246,6 +262,7 @@ BEGIN TRY
     EXEC dbo.sp_DatabaseRestore @Database = 'AnyDB',
                                 @BackupPathFull = 'C:\Backups\',
                                 @RunStoredProcAfterRestore = 'dbo. MyProc',
+                                @SimpleFolderEnumeration = 1,
                                 @Execute = 'N', @Debug = 1;
 END TRY BEGIN CATCH PRINT 'EXPECTED LATE FAILURE: ' + ERROR_MESSAGE(); END CATCH;
 GO
@@ -255,6 +272,7 @@ BEGIN TRY
     EXEC dbo.sp_DatabaseRestore @Database = 'AnyDB',
                                 @BackupPathFull = 'C:\Backups\',
                                 @RunStoredProcAfterRestore = '[dbo]. [My Proc]',
+                                @SimpleFolderEnumeration = 1,
                                 @Execute = 'N', @Debug = 1;
 END TRY BEGIN CATCH PRINT 'EXPECTED LATE FAILURE: ' + ERROR_MESSAGE(); END CATCH;
 GO
