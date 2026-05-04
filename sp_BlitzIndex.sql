@@ -1216,6 +1216,13 @@ IF @AI > 0
 
 IF @GetAllDatabases = 1
     BEGIN
+        /* HAS_DBACCESS gates databases the current principal can actually query.
+           Without this filter, three-part-name queries against sys.dm_db_partition_stats
+           hang indefinitely under a SQL Server permission/recompile bug instead of
+           erroring with Msg 916. The TRY/CATCH preflight below catches the same case
+           for legacy non-sysadmin paths, but HAS_DBACCESS also covers Azure principals
+           (##MS_DatabaseConnector##, CONNECT ANY DATABASE) that report as
+           sysadmin-equivalent yet can still be denied CONNECT per database. */
         INSERT INTO #DatabaseList (DatabaseName)
         SELECT  DB_NAME(database_id)
         FROM    sys.databases
@@ -1226,6 +1233,7 @@ IF @GetAllDatabases = 1
         AND DB_NAME(database_id) NOT LIKE 'rdsadmin%'
 		AND LOWER(name) NOT IN('dbatools', 'dbadmin', 'dbmaintenance', 'gcloud_cloudsqladmin')
         AND is_distributor = 0
+        AND HAS_DBACCESS(DB_NAME(database_id)) = 1
 		OPTION    ( RECOMPILE );
 
         /*Check if sysadmin 
@@ -1325,10 +1333,24 @@ IF @GetAllDatabases = 1
     END;
 ELSE
     BEGIN
+        /* Preflight: if an explicit @DatabaseName was supplied but the current principal
+           has no access to it, fail loud rather than letting downstream queries hang.
+           sp_BlitzIndex queries sys.dm_db_partition_stats via three-part name, which
+           under a SQL Server permission/recompile bug spins at 100% CPU forever instead
+           of erroring with Msg 916. */
+        IF @DatabaseName IS NOT NULL AND @DatabaseName <> N''
+        AND DB_ID(@DatabaseName) IS NOT NULL
+        AND ISNULL(HAS_DBACCESS(@DatabaseName), 0) = 0
+            BEGIN
+                DECLARE @CurrentLoginQuoted NVARCHAR(258) = QUOTENAME(SUSER_SNAME());
+                RAISERROR(N'The current login has no access to database %s. Run, against that database: CREATE USER %s FOR LOGIN %s; GRANT VIEW DATABASE STATE TO %s; GRANT VIEW DEFINITION TO %s;', 16, 1, @DatabaseName, @CurrentLoginQuoted, @CurrentLoginQuoted, @CurrentLoginQuoted, @CurrentLoginQuoted);
+                RETURN;
+            END;
+
         INSERT INTO #DatabaseList
                 ( DatabaseName )
-        SELECT CASE 
-		            WHEN @DatabaseName IS NULL OR @DatabaseName = N'' 
+        SELECT CASE
+		            WHEN @DatabaseName IS NULL OR @DatabaseName = N''
 		            THEN DB_NAME()
                     ELSE @DatabaseName END;
                END;
