@@ -1342,7 +1342,8 @@ ELSE
         AND DB_ID(@DatabaseName) IS NOT NULL
         AND ISNULL(HAS_DBACCESS(@DatabaseName), 0) = 0
             BEGIN
-                RAISERROR(N'The current login has no access to database %s. Run, against that database: CREATE USER [<login>] FOR LOGIN [<login>]; GRANT VIEW DATABASE STATE; GRANT VIEW DEFINITION;', 16, 1, @DatabaseName);
+                DECLARE @CurrentLoginQuoted NVARCHAR(258) = QUOTENAME(SUSER_SNAME());
+                RAISERROR(N'The current login has no access to database %s. Run, against that database: CREATE USER %s FOR LOGIN %s; GRANT VIEW DATABASE STATE TO %s; GRANT VIEW DEFINITION TO %s;', 16, 1, @DatabaseName, @CurrentLoginQuoted, @CurrentLoginQuoted, @CurrentLoginQuoted, @CurrentLoginQuoted);
                 RETURN;
             END;
 
