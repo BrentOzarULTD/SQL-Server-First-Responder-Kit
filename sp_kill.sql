@@ -876,7 +876,7 @@ For more info, visit http://FirstResponderKit.org
 			RAISERROR(@msg, 0, 1) WITH NOWAIT;
 
 			/* Update persistent output table with kill results if it exists */
-			IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL
+			IF @EmergencyMode IS NULL AND @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL
 				AND EXISTS (SELECT * FROM sys.databases WHERE QUOTENAME([name]) = @OutputDatabaseName)
 			BEGIN
 				IF @AzureSQLDB = 1
