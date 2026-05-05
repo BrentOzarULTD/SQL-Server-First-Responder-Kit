@@ -5171,11 +5171,11 @@ BEGIN
 
     CREATE TABLE #ai_constitution
     (
-        DatabaseName SYSNAME NOT NULL PRIMARY KEY,
+        DatabaseName sysname NOT NULL PRIMARY KEY,
         Constitution NVARCHAR(MAX) NULL
     );
 
-    DECLARE @ai_db SYSNAME,
+    DECLARE @ai_db sysname,
             @ai_sql NVARCHAR(MAX),
             @ai_constitution NVARCHAR(MAX),
             @ai_engine_edition INT;
