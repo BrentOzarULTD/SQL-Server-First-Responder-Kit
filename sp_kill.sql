@@ -23,7 +23,8 @@ ALTER PROCEDURE dbo.sp_kill
 	@Debug BIT = 0,
 	@Version VARCHAR(30) = NULL OUTPUT,
 	@VersionDate DATETIME = NULL OUTPUT,
-	@VersionCheckMode BIT = 0
+	@VersionCheckMode BIT = 0,
+	@EmergencyMode TINYINT = NULL
 WITH RECOMPILE
 AS
 BEGIN
@@ -131,7 +132,7 @@ Parameters:
     Only target sessions whose last request started at least this many seconds ago.
 
   @OutputDatabaseName, @OutputSchemaName, @OutputTableName
-    Optional 3-part name for persistent logging table.
+    Optional 3-part name for persistent logging table. Will be ignored when @EmergencyMode > 0
 
   @Help BIT = 0
     Show this help text.
@@ -139,9 +140,16 @@ Parameters:
   @Debug BIT = 0
     Show diagnostic messages during execution.
 
+  @EmergencyMode TINYINT = NULL
+    1 = Skip nearly all optional parts of the processing to minimize work performed by the procedure, but show the sql_text column
+	2 = Skip all optional parts of processing including the sql_text column
+
 Example usage:
   -- Just show recommendations, no killing:
   EXEC sp_kill;
+
+  -- Show recommendations as quickly as possible by limiting data returned, designed to run on extremely busy servers
+  EXEC sp_kill @EmergencyMode = 1;	
 
   -- Kill everything (except system sessions, rollbacks, and your own session):
   EXEC sp_kill @ExecuteKills = ''Y'';
@@ -262,6 +270,12 @@ For more info, visit http://FirstResponderKit.org
 		RETURN;
 	END;
 
+	IF @EmergencyMode IS NOT NULL AND @EmergencyMode NOT IN (1, 2)
+	BEGIN
+		RAISERROR('@EmergencyMode must be NULL, 1, or 2.', 11, 1) WITH NOWAIT;
+		RETURN;
+	END;
+
 	/*-------------------------------------------------------
 	  Section 4: Output Table Name Sanitization
 	-------------------------------------------------------*/
@@ -337,19 +351,26 @@ For more info, visit http://FirstResponderKit.org
 	IF @Debug = 1
 		RAISERROR('Collecting session data from DMVs...', 0, 1) WITH NOWAIT;
 
+	-- NOTE: when adding a new column to #hitlist please consider if the @EmergencyMode input parameter should prevent its population
 	SET @StringToExecute = CAST(N'' AS NVARCHAR(MAX)) + N'
 	INSERT INTO #hitlist (
 		ServerName, CheckDate, CallerLoginName, CallerHostName, ParametersUsed,
 		KillCommand, session_id, [status], blocking_session_id,
 		wait_type, wait_time_ms, wait_resource,
 		open_transaction_count, is_implicit_transaction,
-		cpu_time_ms, reads, writes, logical_reads,
-		memory_grant_mb, tempdb_allocations_mb,
+		cpu_time_ms, reads, writes, logical_reads,		
 		login_name, host_name, program_name, database_name,
 		start_time, last_request_start_time, last_request_end_time,
-		command, sql_text, sql_handle, plan_handle,
-		query_plan, live_query_plan,
-		transaction_isolation_level, is_read_only, FreeProcCacheCommand
+		command, sql_handle, plan_handle,		
+		transaction_isolation_level, is_read_only, FreeProcCacheCommand'
+		-- when @EmergencyMode = 2 skip all expensive columns, both in terms of this query and time needed to render the result in SSMS
+		-- when @EmergencyMode = 1 skip some expensive columns but populate the sql_text column
+		-- when @EmergencyMode IS NULL populate all columns
+		+ CASE WHEN @EmergencyMode = 1 THEN N',
+		sql_text'
+		WHEN @EmergencyMode IS NULL THEN N',
+		sql_text, memory_grant_mb, tempdb_allocations_mb, query_plan, live_query_plan'
+		ELSE N'' END + N'
 	)
 	SELECT
 		@@SERVERNAME AS ServerName,
@@ -375,9 +396,7 @@ For more info, visit http://FirstResponderKit.org
 		COALESCE(r.cpu_time, s.cpu_time) AS cpu_time_ms,
 		COALESCE(r.reads, s.reads) AS reads,
 		COALESCE(r.writes, s.writes) AS writes,
-		COALESCE(r.logical_reads, s.logical_reads) AS logical_reads,
-		CAST(qmg.granted_memory_kb / 1024.0 AS DECIMAL(38,2)) AS memory_grant_mb,
-		tempdb_allocations.tempdb_allocations_mb,
+		COALESCE(r.logical_reads, s.logical_reads) AS logical_reads,		
 		s.login_name,
 		s.host_name,
 		s.program_name,
@@ -386,20 +405,10 @@ For more info, visit http://FirstResponderKit.org
 		s.last_request_start_time,
 		s.last_request_end_time,
 		r.command,
-		ISNULL(SUBSTRING(dest.text,
-			(r.statement_start_offset / 2) + 1,
-			((CASE r.statement_end_offset
-				WHEN -1 THEN DATALENGTH(dest.text)
-				ELSE r.statement_end_offset
-			END - r.statement_start_offset) / 2) + 1), dest.text) AS sql_text,
 		COALESCE(r.sql_handle, c.most_recent_sql_handle) AS sql_handle,
-		r.plan_handle,
-		derp.query_plan,';
+		r.plan_handle,';		
 
 	SET @StringToExecute = @StringToExecute
-		+ CASE WHEN @HasLiveQueryPlan = 1 THEN N'
-		lqp.query_plan AS live_query_plan,' ELSE N'
-		NULL AS live_query_plan,' END
 		+ N'
 		CASE
 			WHEN s.transaction_isolation_level = 0 THEN ''Unspecified''
@@ -419,16 +428,29 @@ For more info, visit http://FirstResponderKit.org
 		CASE WHEN r.plan_handle IS NOT NULL
 			THEN N''DBCC FREEPROCCACHE ('' + CONVERT(NVARCHAR(128), r.plan_handle, 1) + N'');''
 			ELSE NULL
-		END AS FreeProcCacheCommand
+		END AS FreeProcCacheCommand'
+		+ CASE WHEN @EmergencyMode IS NULL OR @EmergencyMode = 1 THEN N',
+		ISNULL(SUBSTRING(dest.text,
+			(r.statement_start_offset / 2) + 1,
+			((CASE r.statement_end_offset
+				WHEN -1 THEN DATALENGTH(dest.text)
+				ELSE r.statement_end_offset
+			END - r.statement_start_offset) / 2) + 1), dest.text) AS sql_text'
+		ELSE N'' END + 
+		CASE WHEN @EmergencyMode IS NULL THEN N',
+		CAST(qmg.granted_memory_kb / 1024.0 AS DECIMAL(38,2)) AS memory_grant_mb,
+		tempdb_allocations.tempdb_allocations_mb,
+		derp.query_plan,'
+		+ CASE WHEN @HasLiveQueryPlan = 1 THEN N'
+		lqp.query_plan AS live_query_plan' ELSE N'
+		NULL AS live_query_plan' END
+		ELSE N'' END + N'
 	FROM sys.dm_exec_sessions AS s
 	LEFT JOIN sys.dm_exec_requests AS r ON r.session_id = s.session_id
-	LEFT JOIN sys.dm_exec_connections AS c ON s.session_id = c.session_id
+	LEFT JOIN sys.dm_exec_connections AS c ON s.session_id = c.session_id'
+	+ CASE WHEN @EmergencyMode IS NULL THEN N'
 	LEFT JOIN sys.dm_exec_query_memory_grants AS qmg ON r.session_id = qmg.session_id AND r.request_id = qmg.request_id
-	OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle, c.most_recent_sql_handle)) AS dest
-	OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS derp'
-	+ CASE WHEN @HasLiveQueryPlan = 1 THEN N'
-	OUTER APPLY sys.dm_exec_query_statistics_xml(s.session_id) AS lqp' ELSE N'' END
-	+ N'
+	OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS derp
 	OUTER APPLY (
 		SELECT CONVERT(DECIMAL(38,2), SUM(((((tsu.user_objects_alloc_page_count - tsu.user_objects_dealloc_page_count)
 			+ (tsu.internal_objects_alloc_page_count - tsu.internal_objects_dealloc_page_count)) * 8) / 1024.))) AS tempdb_allocations_mb
@@ -436,7 +458,12 @@ For more info, visit http://FirstResponderKit.org
 		WHERE tsu.request_id = r.request_id
 		AND tsu.session_id = r.session_id
 		AND tsu.session_id = s.session_id
-	) AS tempdb_allocations
+	) AS tempdb_allocations' ELSE N'' END
+	+ CASE WHEN @EmergencyMode IS NULL OR @EmergencyMode = 1 THEN N'
+	OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle, c.most_recent_sql_handle)) AS dest' ELSE N'' END
+	+ CASE WHEN @HasLiveQueryPlan = 1 AND @EmergencyMode IS NULL THEN N'
+	OUTER APPLY sys.dm_exec_query_statistics_xml(s.session_id) AS lqp' ELSE N'' END
+	+ N'
 	WHERE s.session_id <> @OurSessionID
 		AND s.session_id > 50
 		AND s.is_user_process = 1
@@ -644,7 +671,7 @@ For more info, visit http://FirstResponderKit.org
 	/*-------------------------------------------------------
 	  Section 10: Persistent Output Table
 	-------------------------------------------------------*/
-	IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL
+	IF @EmergencyMode IS NULL AND @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL
 		AND EXISTS (SELECT * FROM sys.databases WHERE QUOTENAME([name]) = @OutputDatabaseName)
 	BEGIN
 		IF @Debug = 1
@@ -849,7 +876,7 @@ For more info, visit http://FirstResponderKit.org
 			RAISERROR(@msg, 0, 1) WITH NOWAIT;
 
 			/* Update persistent output table with kill results if it exists */
-			IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL
+			IF @EmergencyMode IS NULL AND @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL
 				AND EXISTS (SELECT * FROM sys.databases WHERE QUOTENAME([name]) = @OutputDatabaseName)
 			BEGIN
 				IF @AzureSQLDB = 1
