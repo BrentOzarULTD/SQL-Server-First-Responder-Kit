@@ -77,4 +77,4 @@ If you want to add a new check, start at 131.
 | 250      | Omitted Index Features  | No Filtered Indexes or Indexed Views                            | https://www.brentozar.com/go/IndexFeatures                                                     | 32      |
 | 250      | Omitted Index Features  | No Indexes Use Includes                                         | https://www.brentozar.com/go/IndexFeatures                                                     | 30      |
 | 250      | Omitted Index Features  | Potential Filtered Index (Based on Column Name)                 | https://www.brentozar.com/go/IndexFeatures                                                     | 33      |
-| 250      | Specialized Indexes     | Optimized For Sequential Keys                                   |                                                                                                | 121     |
+| 250      | Specialized Indexes     | Optimized For Sequential Keys                                   | https://erikdarling.com/enabling-optimize-for-sequential-key/                                  | 121     |
