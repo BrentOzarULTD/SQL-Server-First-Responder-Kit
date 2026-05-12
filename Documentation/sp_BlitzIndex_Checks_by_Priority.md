@@ -73,8 +73,8 @@ If you want to add a new check, start at 131.
 | 200      | Indexes Worth Reviewing | Heaps with Deletes                                              | https://www.brentozar.com/go/SelfLoathing                                                      | 49      |
 | 200      | High Workloads          | Scan-a-lots (index-usage-stats)                                 | https://www.brentozar.com/go/Workaholics                                                       | 80      |
 | 200      | High Workloads          | Top Recent Accesses (index-op-stats)                            | https://www.brentozar.com/go/Workaholics                                                       | 81      |
+| 200      | Specialized Indexes     | Optimized For Sequential Keys                                   | https://erikdarling.com/enabling-optimize-for-sequential-key/                                  | 121     |
 | 250      | Omitted Index Features  | Few Indexes Use Includes                                        | https://www.brentozar.com/go/IndexFeatures                                                     | 31      |
 | 250      | Omitted Index Features  | No Filtered Indexes or Indexed Views                            | https://www.brentozar.com/go/IndexFeatures                                                     | 32      |
 | 250      | Omitted Index Features  | No Indexes Use Includes                                         | https://www.brentozar.com/go/IndexFeatures                                                     | 30      |
 | 250      | Omitted Index Features  | Potential Filtered Index (Based on Column Name)                 | https://www.brentozar.com/go/IndexFeatures                                                     | 33      |
-| 250      | Specialized Indexes     | Optimized For Sequential Keys                                   | https://erikdarling.com/enabling-optimize-for-sequential-key/                                  | 121     |
