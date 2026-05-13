@@ -6547,21 +6547,24 @@ BEGIN
 
 		RAISERROR(N'check_id 121: Optimized For Sequential Keys.', 0,1) WITH NOWAIT;
         INSERT    #BlitzIndexResults ( check_id, Priority, findings_group, finding, [database_name], URL, details, index_definition,
-                                               secret_columns, index_usage_summary, index_size_summary )
+                                               secret_columns, index_usage_summary, index_size_summary, more_info )
 
 				SELECT  121 AS check_id, 
 				200 AS Priority,
 				'Specialized Indexes' AS findings_group,
 				'Optimized For Sequential Keys',
 				i.database_name,
-				'' AS URL,
-				'The table ' + QUOTENAME(i.schema_name) + '.' + QUOTENAME(i.object_name) + ' is optimized for sequential keys.' AS details,
-				'' AS index_definition,
-				'N/A' AS secret_columns,
-				'N/A' AS index_usage_summary,
-				'N/A' AS index_size_summary
+				'https://erikdarling.com/enabling-optimize-for-sequential-key/' AS URL,
+				N'The index ' + i.db_schema_object_indexid + N' is optimized for sequential keys.' AS details,
+                ISNULL(i.key_column_names_with_sort_order,'N/A') AS index_definition,
+                ISNULL(i.secret_columns,'') AS secret_columns,
+                i.index_usage_summary AS index_usage_summary,
+                iss.index_size_summary AS index_size_summary,
+                i.more_info
 		FROM #IndexSanity AS i
+        JOIN #IndexSanitySize iss ON i.index_sanity_id=iss.index_sanity_id
 		WHERE i.optimize_for_sequential_key = 1
+        AND iss.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE iss.total_reserved_MB END
 		OPTION    ( RECOMPILE );
 
 
