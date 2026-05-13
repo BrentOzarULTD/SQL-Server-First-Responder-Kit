@@ -4760,6 +4760,51 @@ IF EXISTS ( SELECT 1/0
 		AND SPID = @@SPID
 		OPTION (RECOMPILE);
 
+		/* Roll up missing indexes from statement rows (QueryHash IS NOT NULL)
+		   to the parent proc/function/trigger row (QueryHash IS NULL).
+		   Key by PlanHandle so each cached plan's parent row gets only its
+		   own statements' recommendations (a proc with multiple cached plans
+		   produces one parent row per PlanHandle, and each plan's statements
+		   share that PlanHandle). The rollup is wrapped in a single
+		   <MissingIndexes><![CDATA[ ... ]]></MissingIndexes> envelope so it
+		   stays well-formed for the XML column. See issue #3993. */
+		RAISERROR(N'Rolling up missing indexes to parent proc/function/trigger row', 0, 1) WITH NOWAIT;
+		WITH proc_missing AS (
+		SELECT DISTINCT
+		       stmt.PlanHandle,
+			   N'<MissingIndexes><![CDATA['
+			   + CHAR(10) + CHAR(13)
+			   + STUFF((   SELECT CHAR(10) + CHAR(13) + ISNULL(mip2.details, '') AS details
+						   FROM   #missing_index_pretty AS mip2
+						   JOIN   ##BlitzCacheProcs AS s2
+								  ON  s2.SqlHandle = mip2.SqlHandle
+								  AND s2.QueryHash = mip2.QueryHash
+								  AND s2.ExecutionCount = mip2.executions
+								  AND s2.SPID = @@SPID
+						   WHERE  s2.PlanHandle = stmt.PlanHandle
+						   GROUP BY mip2.details
+						   ORDER BY MAX(mip2.impact) DESC
+						   FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'')
+			   + CHAR(10) + CHAR(13)
+			   + N']]></MissingIndexes>'
+			   AS full_details
+		FROM ##BlitzCacheProcs AS stmt
+		JOIN #missing_index_pretty AS mip
+		  ON  mip.SqlHandle = stmt.SqlHandle
+		  AND mip.QueryHash = stmt.QueryHash
+		  AND mip.executions = stmt.ExecutionCount
+		WHERE stmt.SPID = @@SPID
+		  AND stmt.QueryHash IS NOT NULL
+						)
+		UPDATE bbcp
+			SET bbcp.missing_indexes = pm.full_details
+		FROM ##BlitzCacheProcs AS bbcp
+		JOIN proc_missing AS pm
+		ON pm.PlanHandle = bbcp.PlanHandle
+		WHERE bbcp.QueryHash IS NULL
+		AND bbcp.SPID = @@SPID
+		OPTION (RECOMPILE);
+
 	END;
 
 	RAISERROR(N'Filling in missing index blanks', 0, 1) WITH NOWAIT;
