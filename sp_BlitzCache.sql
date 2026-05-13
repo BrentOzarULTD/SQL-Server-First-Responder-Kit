@@ -5325,7 +5325,38 @@ XML Execution Plan:
 Thank you.'
     FROM ##BlitzCacheProcs p
     WHERE p.SPID = @@SPID
-    AND NOT (p.QueryType LIKE 'Procedure or Function:%'     /* This and the below exists query makes sure that we don't get advice for parent procs, only their statements, if the statements are in our result set. */
+    /* Generate a prompt for every row, including parent procedures whose
+       statements are also in the result set. When @AI = 1 we still avoid
+       calling the API on those parents (see the cursor below), but @AI = 2
+       users get a full prompt on every row so they can paste it elsewhere. */
+    OPTION (RECOMPILE);
+
+    /* If both query text and query plan are null, override with a simple message - no metrics or system prompt needed */
+    UPDATE ##BlitzCacheProcs
+    SET ai_prompt = N'Prompt not generated because we can''t find the query text or query plan.'
+    WHERE SPID = @@SPID
+    AND QueryText IS NULL
+    AND QueryPlan IS NULL
+    OPTION (RECOMPILE);
+
+    IF @Debug = 2
+        SELECT 'After setting up ai_prompt, before calling AI' AS ai_stage, SqlHandle, QueryHash, PlanHandle, QueryPlan, ai_prompt, ai_advice, ai_raw_response
+            FROM ##BlitzCacheProcs
+            WHERE SPID = @@SPID;
+        
+    IF @AI = 1
+    BEGIN
+        RAISERROR('Calling AI endpoint for query plan analysis - starting loop', 0, 1) WITH NOWAIT;
+
+        /* Parent procedures whose statements are also in the result set are
+           skipped by the AI cursor below (each statement is analyzed
+           individually). Stamp a clear ai_advice on those parent rows so the
+           column shows an explanation instead of being blank in the output. */
+        UPDATE p
+        SET p.ai_advice = N'AI advice not generated for this parent procedure because its individual statements are being analyzed separately. See the AI Advice on each Statement (parent ...) row.'
+        FROM ##BlitzCacheProcs p
+        WHERE p.SPID = @@SPID
+        AND p.QueryType LIKE 'Procedure or Function:%'
         AND EXISTS
         (
             SELECT 1
@@ -5350,25 +5381,7 @@ Thank you.'
                           - (LEN('Statement (parent ') + 1)
                     )))
         )
-    )
-    OPTION (RECOMPILE);
-
-    /* If both query text and query plan are null, override with a simple message - no metrics or system prompt needed */
-    UPDATE ##BlitzCacheProcs
-    SET ai_prompt = N'Prompt not generated because we can''t find the query text or query plan.'
-    WHERE SPID = @@SPID
-    AND QueryText IS NULL
-    AND QueryPlan IS NULL
-    OPTION (RECOMPILE);
-
-    IF @Debug = 2
-        SELECT 'After setting up ai_prompt, before calling AI' AS ai_stage, SqlHandle, QueryHash, PlanHandle, QueryPlan, ai_prompt, ai_advice, ai_raw_response
-            FROM ##BlitzCacheProcs
-            WHERE SPID = @@SPID;
-        
-    IF @AI = 1
-    BEGIN
-        RAISERROR('Calling AI endpoint for query plan analysis - starting loop', 0, 1) WITH NOWAIT;
+        OPTION (RECOMPILE);
 
         DECLARE @CurrentSqlHandle VARBINARY(64);
         DECLARE @CurrentQueryHash BINARY(8);
@@ -5378,13 +5391,40 @@ Thank you.'
         DECLARE @AIResponseJSON NVARCHAR(MAX);
         DECLARE @AIReturnValue INT;
         DECLARE @AIErrorMessage NVARCHAR(4000);
-        
+
         DECLARE ai_cursor CURSOR LOCAL FAST_FORWARD FOR
-        SELECT DISTINCT SqlHandle, QueryHash, PlanHandle, ai_prompt, COALESCE(QueryType, N'') + N' - ' + LEFT(COALESCE(QueryText, N'(no text)'), 100)
-        FROM ##BlitzCacheProcs
-        WHERE SPID = @@SPID
-        AND ai_prompt IS NOT NULL
-        AND (QueryPlan IS NOT NULL OR QueryText IS NOT NULL);
+        SELECT DISTINCT p.SqlHandle, p.QueryHash, p.PlanHandle, p.ai_prompt, COALESCE(p.QueryType, N'') + N' - ' + LEFT(COALESCE(p.QueryText, N'(no text)'), 100)
+        FROM ##BlitzCacheProcs AS p
+        WHERE p.SPID = @@SPID
+        AND p.ai_prompt IS NOT NULL
+        AND (p.QueryPlan IS NOT NULL OR p.QueryText IS NOT NULL)
+        /* Skip parent procs whose statements are in the result set — those
+           statements are analyzed individually, so the parent would be a
+           redundant API call. */
+        AND NOT (p.QueryType LIKE 'Procedure or Function:%'
+            AND EXISTS
+            (
+                SELECT 1
+                FROM ##BlitzCacheProcs AS S
+                WHERE
+                    S.SPID         = p.SPID
+                    AND S.DatabaseName = p.DatabaseName
+                    AND S.PlanHandle   = p.PlanHandle
+                    AND S.QueryType LIKE 'Statement (parent %'
+                    AND
+                        LTRIM(RTRIM(SUBSTRING(
+                            p.QueryType,
+                            CHARINDEX(':', p.QueryType) + 1,
+                            8000
+                        ))) =
+                        LTRIM(RTRIM(SUBSTRING(
+                            S.QueryType,
+                            LEN('Statement (parent ') + 1,
+                            CHARINDEX(')', S.QueryType, LEN('Statement (parent ') + 1)
+                              - (LEN('Statement (parent ') + 1)
+                        )))
+            )
+        );
         
         OPEN ai_cursor;
         
