@@ -13,5 +13,5 @@ A clear and concise description of what you want to happen.
 **Describe alternatives you've considered**
 A clear and concise description of any alternative solutions or features you've considered.
 
-**Are you ready to build the code for the feature?**
-As much as we'd love to build everything that everyone wants for free, we need your help. Open source is built with your help and code. Are you ready to commit time to this project? Have you got existing code you can help contribute to solve the problem?
+**Do you want to build this feature yourself?**
+If you want to build it, we'll leave this issue open and discuss it, giving our feedback about ideas on how to build it. If you DON'T want to build it, no problem, we can give it a shot with AI-assisted coding to see if we can knock it out quickly.
