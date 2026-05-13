@@ -141,15 +141,17 @@ Parameters:
     Show diagnostic messages during execution.
 
   @EmergencyMode TINYINT = NULL
-    1 = Skip nearly all optional parts of the processing to minimize work performed by the procedure, but show the sql_text column
-	2 = Skip all optional parts of processing including the sql_text column
+    NULL = normal operation (default). Pass 1 or 2 to enable emergency mode; 0 is not accepted.
+    1 = Skip nearly all optional parts of the processing to minimize work performed by the procedure, but show the sql_text column.
+    2 = Skip all optional parts of processing including the sql_text column.
+    Note: in emergency mode, @OrderBy = 'tempdb' is not meaningful because tempdb_allocations_mb is not collected.
 
 Example usage:
   -- Just show recommendations, no killing:
   EXEC sp_kill;
 
   -- Show recommendations as quickly as possible by limiting data returned, designed to run on extremely busy servers
-  EXEC sp_kill @EmergencyMode = 1;	
+  EXEC sp_kill @EmergencyMode = 1;
 
   -- Kill everything (except system sessions, rollbacks, and your own session):
   EXEC sp_kill @ExecuteKills = ''Y'';
@@ -223,6 +225,7 @@ For more info, visit http://FirstResponderKit.org
 	IF @OmitLogin IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @OmitLogin = N''' + REPLACE(@OmitLogin, N'''', N'''''') + N'''';
 	IF @HasOpenTran IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @HasOpenTran = ''' + REPLACE(@HasOpenTran, N'''', N'''''') + N'''';
 	IF @RequestsOlderThanSeconds IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @RequestsOlderThanSeconds = ' + CAST(@RequestsOlderThanSeconds AS NVARCHAR(10));
+	IF @EmergencyMode IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @EmergencyMode = ' + CAST(@EmergencyMode AS NVARCHAR(10));
 
 	/*-------------------------------------------------------
 	  Section 3: Parameter Validation
@@ -275,6 +278,9 @@ For more info, visit http://FirstResponderKit.org
 		RAISERROR('@EmergencyMode must be NULL, 1, or 2.', 11, 1) WITH NOWAIT;
 		RETURN;
 	END;
+
+	IF @EmergencyMode IS NOT NULL AND @OutputTableName IS NOT NULL
+		RAISERROR('Output table parameters are ignored when @EmergencyMode is set.', 0, 1) WITH NOWAIT;
 
 	/*-------------------------------------------------------
 	  Section 4: Output Table Name Sanitization
@@ -358,10 +364,10 @@ For more info, visit http://FirstResponderKit.org
 		KillCommand, session_id, [status], blocking_session_id,
 		wait_type, wait_time_ms, wait_resource,
 		open_transaction_count, is_implicit_transaction,
-		cpu_time_ms, reads, writes, logical_reads,		
+		cpu_time_ms, reads, writes, logical_reads,
 		login_name, host_name, program_name, database_name,
 		start_time, last_request_start_time, last_request_end_time,
-		command, sql_handle, plan_handle,		
+		command, sql_handle, plan_handle,
 		transaction_isolation_level, is_read_only, FreeProcCacheCommand'
 		-- when @EmergencyMode = 2 skip all expensive columns, both in terms of this query and time needed to render the result in SSMS
 		-- when @EmergencyMode = 1 skip some expensive columns but populate the sql_text column
@@ -396,7 +402,7 @@ For more info, visit http://FirstResponderKit.org
 		COALESCE(r.cpu_time, s.cpu_time) AS cpu_time_ms,
 		COALESCE(r.reads, s.reads) AS reads,
 		COALESCE(r.writes, s.writes) AS writes,
-		COALESCE(r.logical_reads, s.logical_reads) AS logical_reads,		
+		COALESCE(r.logical_reads, s.logical_reads) AS logical_reads,
 		s.login_name,
 		s.host_name,
 		s.program_name,
@@ -406,7 +412,7 @@ For more info, visit http://FirstResponderKit.org
 		s.last_request_end_time,
 		r.command,
 		COALESCE(r.sql_handle, c.most_recent_sql_handle) AS sql_handle,
-		r.plan_handle,';		
+		r.plan_handle,';
 
 	SET @StringToExecute = @StringToExecute
 		+ N'
