@@ -7206,7 +7206,7 @@ BEGIN
 											[data_compression_desc] NVARCHAR(4000), 
 						                    [page_latch_wait_count] BIGINT,
 								            [page_latch_wait_in_ms] BIGINT,
-								            [optimize_for_sequential_key] BIT,
+								            [optimize_for_sequential_key] BIT NULL,
 								            [page_io_latch_wait_count] BIGINT,								
 								            [page_io_latch_wait_in_ms] BIGINT,
 											[create_date] DATETIME, 
