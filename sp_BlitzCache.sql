@@ -5348,13 +5348,22 @@ Thank you.'
     BEGIN
         RAISERROR('Calling AI endpoint for query plan analysis - starting loop', 0, 1) WITH NOWAIT;
 
-        /* Parent procedures whose statements are also in the result set are
-           skipped by the AI cursor below (each statement is analyzed
-           individually). Stamp a clear ai_advice on those parent rows so the
-           column shows an explanation instead of being blank in the output. */
-        UPDATE p
-        SET p.ai_advice = N'AI advice not generated for this parent procedure because its individual statements are being analyzed separately. See the AI Advice on each Statement (parent ...) row.'
-        FROM ##BlitzCacheProcs p
+        /* Identify parent procedure rows whose statements are also in the
+           result set. The same set is consumed twice below — once to stamp a
+           clear ai_advice on those parent rows so the column isn't blank in
+           the output, and again to filter the AI cursor so we don't pay for a
+           redundant API call (each statement is analyzed individually).
+           Materializing it once keeps the (PlanHandle, QueryType-name) match
+           logic in one place. */
+        CREATE TABLE #parents_with_kids
+        (
+            PlanHandle VARBINARY(64) NOT NULL,
+            QueryType  NVARCHAR(258) NOT NULL
+        );
+
+        INSERT INTO #parents_with_kids (PlanHandle, QueryType)
+        SELECT DISTINCT p.PlanHandle, p.QueryType
+        FROM ##BlitzCacheProcs AS p
         WHERE p.SPID = @@SPID
         AND p.QueryType LIKE 'Procedure or Function:%'
         AND EXISTS
@@ -5383,6 +5392,18 @@ Thank you.'
         )
         OPTION (RECOMPILE);
 
+        CREATE NONCLUSTERED INDEX IX_parents_with_kids
+            ON #parents_with_kids (PlanHandle, QueryType);
+
+        UPDATE p
+        SET p.ai_advice = N'AI advice not generated for this parent procedure because its individual statements are being analyzed separately. See the AI Advice on each Statement (parent ...) row.'
+        FROM ##BlitzCacheProcs AS p
+        INNER JOIN #parents_with_kids AS pwk
+            ON pwk.PlanHandle = p.PlanHandle
+           AND pwk.QueryType  = p.QueryType
+        WHERE p.SPID = @@SPID
+        OPTION (RECOMPILE);
+
         DECLARE @CurrentSqlHandle VARBINARY(64);
         DECLARE @CurrentQueryHash BINARY(8);
         DECLARE @CurrentPlanHandle VARBINARY(64);
@@ -5401,29 +5422,12 @@ Thank you.'
         /* Skip parent procs whose statements are in the result set — those
            statements are analyzed individually, so the parent would be a
            redundant API call. */
-        AND NOT (p.QueryType LIKE 'Procedure or Function:%'
-            AND EXISTS
-            (
-                SELECT 1
-                FROM ##BlitzCacheProcs AS S
-                WHERE
-                    S.SPID         = p.SPID
-                    AND S.DatabaseName = p.DatabaseName
-                    AND S.PlanHandle   = p.PlanHandle
-                    AND S.QueryType LIKE 'Statement (parent %'
-                    AND
-                        LTRIM(RTRIM(SUBSTRING(
-                            p.QueryType,
-                            CHARINDEX(':', p.QueryType) + 1,
-                            8000
-                        ))) =
-                        LTRIM(RTRIM(SUBSTRING(
-                            S.QueryType,
-                            LEN('Statement (parent ') + 1,
-                            CHARINDEX(')', S.QueryType, LEN('Statement (parent ') + 1)
-                              - (LEN('Statement (parent ') + 1)
-                        )))
-            )
+        AND NOT EXISTS
+        (
+            SELECT 1
+            FROM #parents_with_kids AS pwk
+            WHERE pwk.PlanHandle = p.PlanHandle
+              AND pwk.QueryType  = p.QueryType
         );
         
         OPEN ai_cursor;
