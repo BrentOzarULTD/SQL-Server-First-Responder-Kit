@@ -4760,6 +4760,37 @@ IF EXISTS ( SELECT 1/0
 		AND SPID = @@SPID
 		OPTION (RECOMPILE);
 
+		/* Roll up missing indexes from statement rows (QueryHash IS NOT NULL)
+		   to the parent proc/function/trigger row (QueryHash IS NULL).
+		   Aggregate from #missing_index_pretty by SqlHandle so the rollup
+		   ends up in a single <MissingIndexes><![CDATA[ ... ]]></MissingIndexes>
+		   wrapper (well-formed XML for the XML column). See issue #3993. */
+		RAISERROR(N'Rolling up missing indexes to parent proc/function/trigger row', 0, 1) WITH NOWAIT;
+		WITH proc_missing AS (
+		SELECT mip.SqlHandle,
+			   N'<MissingIndexes><![CDATA['
+			   + CHAR(10) + CHAR(13)
+			   + STUFF((   SELECT CHAR(10) + CHAR(13) + ISNULL(mip2.details, '') AS details
+						   FROM   #missing_index_pretty AS mip2
+						   WHERE  mip2.SqlHandle = mip.SqlHandle
+						   GROUP BY mip2.details
+						   ORDER BY MAX(mip2.impact) DESC
+						   FOR XML PATH(N''), TYPE ).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 2, N'')
+			   + CHAR(10) + CHAR(13)
+			   + N']]></MissingIndexes>'
+			   AS full_details
+		FROM #missing_index_pretty AS mip
+		GROUP BY mip.SqlHandle
+						)
+		UPDATE bbcp
+			SET bbcp.missing_indexes = pm.full_details
+		FROM ##BlitzCacheProcs AS bbcp
+		JOIN proc_missing AS pm
+		ON pm.SqlHandle = bbcp.SqlHandle
+		WHERE bbcp.QueryHash IS NULL
+		AND bbcp.SPID = @@SPID
+		OPTION (RECOMPILE);
+
 	END;
 
 	RAISERROR(N'Filling in missing index blanks', 0, 1) WITH NOWAIT;
