@@ -22,9 +22,13 @@ IF OBJECT_ID('dbo.sp_BlitzUpdate') IS NULL
 GO
 
 ALTER PROCEDURE [dbo].[sp_BlitzUpdate]
-	@Branch             sysname        = N'main',
-	@Repository         sysname        = N'BrentOzarULTD/SQL-Server-First-Responder-Kit',
-	@FileName           sysname        = N'Install-All-Scripts.sql',
+	/* Explicit nvarchar lengths -- sysname (nvarchar(128)) silently truncates
+	   long inputs before validation can fire, which would silently shorten
+	   a user-supplied @FileName like "OptionalScripts/sp_BlitzUpdate.sql"
+	   below the 256-char ceiling the validation advertises. */
+	@Branch             nvarchar(128)  = N'main',
+	@Repository         nvarchar(128)  = N'BrentOzarULTD/SQL-Server-First-Responder-Kit',
+	@FileName           nvarchar(256)  = N'Install-All-Scripts.sql',
 	@WhatIf             BIT            = 0,
 	@Help               TINYINT        = 0,
 	@Debug              TINYINT        = 0,
@@ -43,6 +47,17 @@ BEGIN
 		RETURN;
 	END;
 
+	/* Runtime guard in addition to the deploy-time gate above. The deploy
+	   gate RETURNs out of its own batch, so if a user ignores the warning
+	   and keeps executing the rest of the install script, the CREATE/ALTER
+	   batches still install this proc on a pre-2025 server. Fail loudly
+	   here so the broken install can't masquerade as working. */
+	IF OBJECT_ID('sys.sp_invoke_external_rest_endpoint') IS NULL
+	BEGIN
+		RAISERROR('sp_BlitzUpdate requires sys.sp_invoke_external_rest_endpoint (SQL Server 2025+ or Azure SQL DB).', 16, 1);
+		RETURN;
+	END;
+
 	IF @Help = 1
 	BEGIN
 		PRINT '
@@ -52,7 +67,7 @@ BEGIN
 	Fetches a First Responder Kit file (default Install-All-Scripts.sql) from
 	GitHub and installs it in the current database using SQL Server 2025''s
 	sp_invoke_external_rest_endpoint. Intended for lab and dev machines that
-	you want to keep current without sqlcmd / Powershell / RDP.
+	you want to keep current without sqlcmd / PowerShell / RDP.
 
 	This procedure lives in the OptionalScripts folder and is NOT part of the
 	standard FRK install bundle. Copy it to a lab server, run it once, then
@@ -61,9 +76,20 @@ BEGIN
 	Requirements:
 	 - SQL Server 2025 (or Azure SQL DB) -- needs sp_invoke_external_rest_endpoint.
 	 - sp_configure ''external rest endpoint enabled'', 1; RECONFIGURE; on boxed SQL.
-	 - Outbound HTTPS to api.github.com on TCP 443.
-	 - sysadmin (to install procs into master) and the privileges to call
-	   sp_invoke_external_rest_endpoint.
+	 - Outbound HTTPS to api.github.com on TCP 443. On Azure SQL DB, the
+	   server must have api.github.com on its outbound REST allowlist (set
+	   via the Azure portal or ARM at the server level); otherwise calls
+	   fail with "Msg 31612: Connections to the domain api.github.com are
+	   not allowed."
+	 - The current database must be at compatibility level 130 or higher
+	   (SQL 2016+); OPENJSON is required to read the GitHub API payload.
+	   SQL Server 2025 defaults to 170, so this is only relevant if you''ve
+	   manually downgraded a database.
+	 - CREATE/ALTER PROCEDURE rights in the database you are installing
+	   into. On boxed SQL Server that typically means sysadmin or db_owner
+	   on master; on Azure SQL DB it means db_owner (or equivalent) in the
+	   target database. EXECUTE on sys.sp_invoke_external_rest_endpoint is
+	   also required.
 
 	Trust model:
 	 - Every call EXEC''s whatever GitHub serves at the requested ref. For
@@ -150,11 +176,16 @@ BEGIN
 		RETURN;
 	END;
 
+	/* @Repository must be exactly "owner/repo" -- a single internal slash
+	   with non-empty segments on both sides. A "contains a slash" check
+	   would let "owner/repo/extra" through and turn a typo into a later
+	   GitHub 404 rather than a clear validation error. */
 	IF @Repository IS NULL OR LEN(@Repository) = 0 OR LEN(@Repository) > 128
 	   OR @Repository LIKE N'%[^-A-Za-z0-9._/]%' COLLATE Latin1_General_BIN2
-	   OR @Repository NOT LIKE N'%/%' COLLATE Latin1_General_BIN2
+	   OR LEFT(@Repository, 1) = N'/' OR RIGHT(@Repository, 1) = N'/'
+	   OR LEN(@Repository) - LEN(REPLACE(@Repository, N'/', N'')) <> 1
 	BEGIN
-		RAISERROR('@Repository must be ''owner/repo'' (1-128 chars; letters, digits, dot, underscore, slash, hyphen).', 16, 1);
+		RAISERROR('@Repository must be exactly ''owner/repo'' (1-128 chars; letters, digits, dot, underscore, hyphen; one internal slash).', 16, 1);
 		RETURN;
 	END;
 
@@ -196,8 +227,11 @@ BEGIN
 	     @timeout  = 230,
 	     @response = @resp OUTPUT;
 
+	/* IF (@httpCode <> 200) evaluates to UNKNOWN when @httpCode is NULL,
+	   which silently skips the error branch. Test NULL explicitly so a
+	   malformed REST envelope can't slip through. */
 	SET @httpCode = TRY_CAST(JSON_VALUE(@resp, '$.response.status.http.code') AS int);
-	IF @httpCode <> 200
+	IF @httpCode IS NULL OR @httpCode <> 200
 	BEGIN
 		DECLARE @msg1 nvarchar(2048) = N'Contents API returned HTTP '
 		     + ISNULL(CAST(@httpCode AS nvarchar(10)), N'(null)')
@@ -246,7 +280,7 @@ BEGIN
 		     @response = @resp OUTPUT;
 
 		SET @httpCode = TRY_CAST(JSON_VALUE(@resp, '$.response.status.http.code') AS int);
-		IF @httpCode <> 200
+		IF @httpCode IS NULL OR @httpCode <> 200
 		BEGIN
 			DECLARE @msg2 nvarchar(2048) = N'Blobs API returned HTTP '
 			     + ISNULL(CAST(@httpCode AS nvarchar(10)), N'(null)')
