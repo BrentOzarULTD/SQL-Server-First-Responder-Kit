@@ -220,12 +220,33 @@ BEGIN
 	IF @Debug = 1 PRINT 'sp_BlitzUpdate: GET ' + @contentsUrl;
 
 	/* Step 1: Contents API. Returns sha for any file size; for files <= 1MB
-	   the response also includes the full base64 content. */
-	EXEC sys.sp_invoke_external_rest_endpoint
-	     @url      = @contentsUrl,
-	     @method   = N'GET',
-	     @timeout  = 230,
-	     @response = @resp OUTPUT;
+	   the response also includes the full base64 content.
+
+	   Wrap the first REST call in TRY/CATCH so we can detect the Azure SQL
+	   DB outbound-domain allowlist error (Msg 31612) and translate it into
+	   an action-oriented message. The native error is correct but doesn't
+	   tell users they need to fix it in the Azure portal, not in T-SQL.
+	   Any other error rethrows unchanged. */
+	BEGIN TRY
+		EXEC sys.sp_invoke_external_rest_endpoint
+		     @url      = @contentsUrl,
+		     @method   = N'GET',
+		     @timeout  = 230,
+		     @response = @resp OUTPUT;
+	END TRY
+	BEGIN CATCH
+		IF ERROR_NUMBER() = 31612
+		BEGIN
+			DECLARE @azMsg nvarchar(2048) = N'Outbound call to api.github.com was blocked by Azure SQL DB (Msg 31612). '
+			     + N'On Azure SQL DB the server has an outbound REST allowlist that you set in the Azure portal '
+			     + N'(Database -> Networking -> Outbound networking) or via ARM/PowerShell -- it is not a T-SQL setting. '
+			     + N'Add api.github.com to the allowed FQDNs, then retry. On boxed SQL Server this error usually means '
+			     + N'a firewall or proxy is intercepting the call.';
+			RAISERROR(@azMsg, 16, 1);
+			RETURN;
+		END;
+		THROW;
+	END CATCH;
 
 	/* IF (@httpCode <> 200) evaluates to UNKNOWN when @httpCode is NULL,
 	   which silently skips the error branch. Test NULL explicitly so a
