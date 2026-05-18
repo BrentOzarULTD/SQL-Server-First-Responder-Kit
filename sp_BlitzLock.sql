@@ -619,7 +619,7 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
         ) /*If database is invalid raiserror and set bitcheck*/
         BEGIN
             RAISERROR('Database Name (%s) for output of table is invalid please, Output to Table will not be performed', 0, 1, @OutputDatabaseName) WITH NOWAIT;
-            SET @OutputDatabaseCheck = -1; /* -1 invalid/false, 0 = good/true */
+            SET @OutputDatabaseCheck = NULL; /* bit can't hold -1; NULL = invalid, 0 = valid, default 1 = no output db requested. See issue #4000. */
         END;
         ELSE
         BEGIN
