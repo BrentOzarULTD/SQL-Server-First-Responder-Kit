@@ -5324,10 +5324,16 @@ BEGIN
         CPUms    BIGINT,
         Elapms   BIGINT
     );
-    /* Showplan wraps child RelOps in a single intermediary element (Hash, NestedLoops,
-       Filter, Sort, etc.), so `RelOp/ * /RelOp` returns the immediate children. We
-       build this map explicitly because SQL Server XQuery does not support the
-       ancestor:: axis. */
+    /* SQL Server XQuery does not support the ancestor:: axis, so we build the
+       parent-child RelOp map in two steps: first capture every ancestor-descendant
+       pair via descendant:: (handles arbitrarily-deep nesting like scalar subquery
+       RelOps under ComputeScalar/DefinedValues/ScalarOperator), then derive the
+       immediate parents by eliminating pairs that have an intermediate RelOp. */
+    DECLARE @plan_anc_desc TABLE (
+        AncestorId   INT,
+        DescendantId INT,
+        PRIMARY KEY (AncestorId, DescendantId)
+    );
     DECLARE @plan_parent_child TABLE (
         ParentNodeId INT,
         ChildNodeId  INT
@@ -5361,6 +5367,7 @@ BEGIN
     BEGIN
         BEGIN TRY
             DELETE FROM @plan_op_thread;
+            DELETE FROM @plan_anc_desc;
             DELETE FROM @plan_parent_child;
             DELETE FROM @plan_op_recalc;
 
@@ -5435,12 +5442,24 @@ BEGIN
                 CROSS APPLY ro.nodes('p:RunTimeInformation/p:RunTimeCountersPerThread') AS c(ctr);
 
                 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-                INSERT INTO @plan_parent_child (ParentNodeId, ChildNodeId)
+                INSERT INTO @plan_anc_desc (AncestorId, DescendantId)
                 SELECT
-                    parent_ro.value('@NodeId', 'int'),
-                    child_ro.value('@NodeId', 'int')
-                FROM @cur_plan.nodes('//p:RelOp') AS p_(parent_ro)
-                CROSS APPLY parent_ro.nodes('*/p:RelOp') AS c(child_ro);
+                    a_ro.value('@NodeId', 'int'),
+                    d_ro.value('@NodeId', 'int')
+                FROM @cur_plan.nodes('//p:RelOp') AS p_(a_ro)
+                CROSS APPLY a_ro.nodes('.//p:RelOp') AS c(d_ro);
+
+                /* Immediate parent = ancestor pair with no intermediate RelOp. */
+                INSERT INTO @plan_parent_child (ParentNodeId, ChildNodeId)
+                SELECT ad.AncestorId, ad.DescendantId
+                FROM @plan_anc_desc ad
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM @plan_anc_desc ad2
+                    JOIN @plan_anc_desc ad3 ON ad3.AncestorId = ad2.DescendantId
+                    WHERE ad2.AncestorId = ad.AncestorId
+                      AND ad3.DescendantId = ad.DescendantId
+                );
 
                 ;WITH child_sum AS (
                     SELECT pc.ParentNodeId, t.ThreadId,
