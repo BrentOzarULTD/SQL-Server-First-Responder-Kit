@@ -78,7 +78,7 @@ If you want to add a new check, start at 70
 | 200 | Execution Plans | Nearly Parallel | https://www.brentozar.com/blitzcache/query-cost-near-cost-threshold-parallelism/ | 7 | No |
 | 200 | Execution Plans | Parallel | https://www.brentozar.com/blitzcache/parallel-plans-detected/ | 6 | No |
 | 200 | Indexes | Backwards Scans | https://www.brentozar.com/blitzcache/backwards-scans/ | 38 | Yes |
-| 200 | Is Paul White Electric? | This query has a Switch operator in it! | https://www.sql.kiwi/2013/06/hello-operator-my-switch-is-bored.html | 57 | Yes |
+| 200 | Switch Operator | This query has a Switch operator in it! | https://www.sql.kiwi/2013/06/hello-operator-my-switch-is-bored.html | 57 | Yes |
 | 200 | Trace Flags | Session Level Trace Flags Enabled | https://www.brentozar.com/blitz/trace-flags-enabled-globally/ | 29 | No |
 | 254 | Plan Cache Information | Breaks cache down by creation date (24/4/1 hrs) | None | 999 | No |
 | 255 | Global Trace Flags Enabled | You have Global Trace Flags enabled on your server | https://www.brentozar.com/blitz/trace-flags-enabled-globally/ | 1000 | No |
@@ -88,7 +88,6 @@ If you want to add a new check, start at 70
 
 ## Blank row for the future
 |  |  |  |  |  |  |
-
 
 
 

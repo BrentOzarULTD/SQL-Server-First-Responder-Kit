@@ -4148,7 +4148,7 @@ END ;
 
 IF @ExpertMode > 0
 BEGIN
-RAISERROR(N'Is Paul White Electric?', 0, 1) WITH NOWAIT;
+RAISERROR(N'Checking for Switch operators', 0, 1) WITH NOWAIT;
 WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p),
 is_paul_white_electric AS (
 SELECT 1 AS [is_paul_white_electric], 
@@ -6825,7 +6825,7 @@ BEGIN
              VALUES (@@SPID,
                      57,
                      200,
-                     'Is Paul White Electric?',
+                     'Switch Operator',
                      'This query has a Switch operator in it!',
                      'https://www.sql.kiwi/2013/06/hello-operator-my-switch-is-bored.html',
                      'You should email this query plan to Paul: SQLkiwi at gmail dot com') ;	
