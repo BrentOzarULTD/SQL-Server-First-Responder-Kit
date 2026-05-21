@@ -5384,6 +5384,15 @@ Thank you.'
     AND QueryPlan IS NULL
     OPTION (RECOMPILE);
 
+    /* Captured query text can contain a NUL (0x0000), which is illegal in XML and breaks
+       the FOR XML serialization that renders the AI columns (Msg 6841), and is also invalid
+       in the JSON payload we POST to AI providers. Strip it here, after the prompt is built. */
+    UPDATE ##BlitzCacheProcs
+    SET ai_prompt = REPLACE(ai_prompt, NCHAR(0), N'')
+    WHERE SPID = @@SPID
+    AND ai_prompt IS NOT NULL
+    OPTION (RECOMPILE);
+
     IF @Debug = 2
         SELECT 'After setting up ai_prompt, before calling AI' AS ai_stage, SqlHandle, QueryHash, PlanHandle, QueryPlan, ai_prompt, ai_advice, ai_raw_response
             FROM ##BlitzCacheProcs
@@ -5557,9 +5566,10 @@ Thank you.'
                     SET @AIAdviceText = N'No response received from AI service.';
                 END;
 
-                /* Store the response in the ai_advice column */
+                /* Store the response in the ai_advice column. Strip any NUL (0x0000) the API may
+                   return - it's illegal in XML and would break the FOR XML rendering of these columns. */
                 UPDATE ##BlitzCacheProcs
-                SET ai_advice = @AIAdviceText, ai_raw_response = @AIResponseJSON, ai_payload = @AIPayload
+                SET ai_advice = REPLACE(@AIAdviceText, NCHAR(0), N''), ai_raw_response = REPLACE(@AIResponseJSON, NCHAR(0), N''), ai_payload = @AIPayload
                 WHERE SPID = @@SPID
                 AND ((@CurrentSqlHandle IS NOT NULL AND SqlHandle = @CurrentSqlHandle)
                      OR (@CurrentSqlHandle IS NULL AND SqlHandle IS NULL))
@@ -5580,7 +5590,7 @@ Thank you.'
 
                 -- Store the error message in ai_advice so the user knows what happened
                 UPDATE ##BlitzCacheProcs
-                SET ai_advice = @AIErrorMessage, ai_raw_response = @AIResponseJSON, ai_payload = @AIPayload
+                SET ai_advice = @AIErrorMessage, ai_raw_response = REPLACE(@AIResponseJSON, NCHAR(0), N''), ai_payload = @AIPayload
                 WHERE SPID = @@SPID
                 AND ((@CurrentSqlHandle IS NOT NULL AND SqlHandle = @CurrentSqlHandle)
                      OR (@CurrentSqlHandle IS NULL AND SqlHandle IS NULL))
