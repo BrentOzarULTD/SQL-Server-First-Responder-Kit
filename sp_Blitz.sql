@@ -5883,7 +5883,7 @@ IF NOT EXISTS ( SELECT  1
 										'File Configuration' AS FindingsGroup ,
 										'TempDB Has a Lot of Data Files' AS Finding ,
 										'https://www.brentozar.com/go/tempdb' AS URL ,
-										'This server has ' + CAST(si.cpu_count AS VARCHAR(30)) + ' cores and ' + CAST(COUNT_BIG(*) AS VARCHAR(30)) + ' TempDB data files.' AS Details
+										'This server has ' + CAST(MAX(si.cpu_count) AS VARCHAR(30)) + ' cores and ' + CAST(COUNT_BIG(*) AS VARCHAR(30)) + ' TempDB data files.' AS Details
 								  FROM sys.[master_files] AS [mf]
 								  CROSS JOIN sys.dm_os_sys_info AS [si]
 								  WHERE [mf].[database_id] = 2 AND [mf].[type] = 0
