@@ -24,6 +24,7 @@ ALTER PROCEDURE [dbo].[sp_BlitzFirst]
     @OutputXMLasNVARCHAR TINYINT = 0 ,
     @FilterPlansByDatabase VARCHAR(MAX) = NULL ,
     @CheckProcedureCache TINYINT = 0 ,
+    @EmergencyMode TINYINT = 1 ,
     @CheckServerInfo TINYINT = 1 ,
     @FileLatencyThresholdMS INT = 100 ,
     @SinceStartup TINYINT = 0 ,
@@ -2525,8 +2526,15 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		RAISERROR('Running CheckID 44',10,1) WITH NOWAIT;
 	END
 
+    /* This has a history of surprising bad performance,
+       see GitHub issues 2439, 2548, and 4011.
+       Waiting a long time for this during an emergency is not a worthwhile risk,
+       so we run this only if Emergency Mode is turned off and we are not in a state
+       where we know that this will be very slow.
+       Having over 20 databases is one such known slow state. */
 	IF 20 >= (SELECT COUNT(*) FROM sys.databases WHERE name NOT IN ('master', 'model', 'msdb', 'tempdb'))
 		AND @Seconds > 0
+        AND @EmergencyMode = 0 
 	BEGIN
 		CREATE TABLE #UpdatedStats (HowToStopIt NVARCHAR(4000), RowsForSorting BIGINT);
 		IF EXISTS(SELECT * FROM sys.all_objects WHERE name = 'dm_db_stats_properties')

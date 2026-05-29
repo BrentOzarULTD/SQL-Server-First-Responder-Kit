@@ -230,6 +230,7 @@ Common sp_BlitzFirst parameters include:
 * @Seconds = 5 by default. You can specify longer samples if you want to track stats during a load test or demo, for example.
 * @ShowSleepingSPIDs = 0 by default. When set to 1, shows long-running sleeping queries that might be blocking others.
 * @ExpertMode = 0 by default. When set to 1, it calls sp_BlitzWho when it starts (to show you what queries are running right now), plus outputs additional result sets for wait stats, Perfmon counters, and file stats during the sample, then finishes with one final execution of sp_BlitzWho to show you what was running at the end of the sample. When set to 2, it does the same as 1, but skips the calls to sp_BlitzWho.
+* @EmergencyMode = 1 by default. When set to 0, it runs potentially slow checks that are skipped otherwise.
 
 ### Logging sp_BlitzFirst to Tables
 
