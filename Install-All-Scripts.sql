@@ -2388,8 +2388,6 @@ BEGIN
 					( 'tempdb metadata memory-optimized', 0, 269),
 					( 'ADR cleaner retry timeout (min)', 15, 269),
 					( 'ADR Preallocation Factor', 4, 269),
-					( 'version high part of SQL Server', 1114112, 269),
-					( 'version low part of SQL Server', 52428803, 269),
 					( 'Data processed daily limit in TB', 2147483647, 269),
 					( 'Data processed weekly limit in TB', 2147483647, 269),
 					( 'Data processed monthly limit in TB', 2147483647, 269),
