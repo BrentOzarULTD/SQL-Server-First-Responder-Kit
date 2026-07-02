@@ -1,0 +1,52 @@
+name: SQL Server smoke tests
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: sql-server-smoke-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-tests:
+    name: Install and smoke test First Responder Kit
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+
+    env:
+      SQLCMDSERVER: tcp:127.0.0.1,1433
+      SQLCMDUSER: sa
+      SQLCMDPASSWORD: Testing-Only-Passw0rd!
+      GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_PID: Developer
+          MSSQL_SA_PASSWORD: Testing-Only-Passw0rd!
+        ports:
+          - 1433:1433
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install sqlcmd
+        run: |
+          curl -sSL -O https://packages.microsoft.com/config/ubuntu/22.04/packages-microsoft-prod.deb
+          sudo dpkg -i packages-microsoft-prod.deb
+          sudo apt-get update
+          sudo env ACCEPT_EULA=Y apt-get install -y mssql-tools18 unixodbc-dev
+          echo "/opt/mssql-tools18/bin" >> "$GITHUB_PATH"
+
+      - name: Run SQL Server smoke tests
+        run: bash .github/scripts/run-sql-server-smoke-tests.sh
