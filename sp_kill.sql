@@ -32,7 +32,7 @@ BEGIN
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
 	/*
-	sp_kill from http://FirstResponderKit.org
+	sp_kill  from http://FirstResponderKit.org
 
 	This script helps you kill queries during a performance emergency.
 
