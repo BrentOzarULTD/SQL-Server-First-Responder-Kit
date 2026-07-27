@@ -20,7 +20,7 @@ ALTER PROCEDURE [dbo].[sp_ineachdb]
   @recovery_model_desc  nvarchar(120)  = NULL,
   @compatibility_level  tinyint        = NULL,
   @state_desc           nvarchar(120)  = N'ONLINE',
-  @is_read_only         bit = 0,
+  @is_read_only         bit = NULL,
   @is_auto_close_on     bit = NULL,
   @is_auto_shrink_on    bit = NULL,
   @is_broker_enabled    bit = NULL,
