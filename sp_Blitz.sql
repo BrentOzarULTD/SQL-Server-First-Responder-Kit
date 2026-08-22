@@ -1785,7 +1785,9 @@ BEGIN
 										FROM    sys.master_files AS mf
 									    WHERE mf.database_id <> 2 )
 										AND rh.destination_database_name IS NULL
-								GROUP BY UPPER(LEFT(bmf.physical_device_name, 3));';
+								GROUP BY UPPER(LEFT(bmf.physical_device_name, 3));',
+							N'@IsWindowsOperatingSystem BIT',
+							@IsWindowsOperatingSystem = @IsWindowsOperatingSystem;
 						END;
 					END;
 
@@ -10073,11 +10075,11 @@ IF NOT EXISTS ( SELECT  1
 						        INSERT INTO #Instances (Instance_Number, Instance_Name, Data_Field)
 								EXEC master.sys.xp_regread @rootkey = ''HKEY_LOCAL_MACHINE'',
 								                           @key = ''SOFTWARE\Microsoft\Microsoft SQL Server'',
-								                           @value_name = ''InstalledInstances''
-								
+								                           @value_name = ''InstalledInstances'';';
+						        END;
+
                                 IF (SELECT COUNT(*) FROM #Instances) > 1
-                                ';
-						        END;BEGIN
+                                BEGIN
 
                                     DECLARE @InstanceCount NVARCHAR(MAX)
                                     SELECT @InstanceCount = COUNT(*) FROM #Instances
