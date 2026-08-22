@@ -111,6 +111,37 @@ if [[ "$edition" != "5" ]]; then
   exit 1
 fi
 
+# ---------------------------------------------------------------------------
+# Clear anything an earlier run left behind, before installing.
+#
+# Unlike the boxed jobs, which get a fresh container every time, this target is
+# one long-lived database. A previous run's sp_Blitz would satisfy every
+# assertion below -- it exists, its body is well over 10,000 characters, it runs,
+# it returns findings -- even if this checkout installed nothing at all. The job
+# would go green having measured yesterday's code.
+#
+# That is the same shape as the bug this job exists to catch: #4040 was invisible
+# precisely because something called sp_Blitz was present and answered. So drop
+# first and confirm the drop, which makes the definition check downstream prove
+# that *this* checkout created what it is measuring.
+# ---------------------------------------------------------------------------
+echo
+echo "=== Clearing procedures left by earlier runs ==="
+run_query "DROP PROCEDURE IF EXISTS dbo.sp_Blitz;
+           DROP PROCEDURE IF EXISTS dbo.sp_ineachdb;" > /dev/null
+
+remaining="$(run_scalar_int "SET NOCOUNT ON;
+SELECT COUNT(*) FROM sys.procedures WHERE name IN ('sp_Blitz', 'sp_ineachdb');")"
+
+# Anything but a definite zero -- including an empty result -- means we cannot
+# prove the database is clean, and a stale procedure could carry the run.
+if [[ "$remaining" != "0" ]]; then
+  echo "::error::Could not confirm the existing procedures were dropped (got '$remaining')." >&2
+  echo "::error::A leftover sp_Blitz would let this run pass without testing this checkout." >&2
+  exit 1
+fi
+echo "  database is clean"
+
 echo
 echo "=== Installing ==="
 # sp_ineachdb first: sp_Blitz calls it to iterate databases.
