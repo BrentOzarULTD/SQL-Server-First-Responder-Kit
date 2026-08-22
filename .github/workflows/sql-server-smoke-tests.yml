@@ -13,23 +13,38 @@ permissions:
 
 jobs:
   smoke-tests:
-    name: Install and smoke test First Responder Kit
+    # Oldest supported and newest available. SQL Server 2016 left extended
+    # support on 2026-07-14, which makes 2017 the oldest version worth testing;
+    # 2025 is the current release. Both run to completion even if one fails, so
+    # a version-specific break is obvious.
+    name: ${{ matrix.label }}
     runs-on: ubuntu-22.04
-    timeout-minutes: 20
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: mcr.microsoft.com/mssql/server:2017-latest
+            label: SQL Server 2017 (oldest supported)
+          - image: mcr.microsoft.com/mssql/server:2025-latest
+            label: SQL Server 2025 (newest)
 
     env:
       SQLCMDSERVER: tcp:127.0.0.1,1433
       SQLCMDUSER: sa
       SQLCMDPASSWORD: Testing-Only-Passw0rd!
-      GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-      GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      MSSQL_IMAGE: ${{ matrix.image }}
 
     services:
       sqlserver:
-        image: mcr.microsoft.com/mssql/server:2022-latest
+        image: ${{ matrix.image }}
         env:
           ACCEPT_EULA: Y
           MSSQL_PID: Developer
+          # 2017 images read SA_PASSWORD; later images read MSSQL_SA_PASSWORD.
+          # Setting both keeps one service definition working across the matrix.
+          SA_PASSWORD: Testing-Only-Passw0rd!
           MSSQL_SA_PASSWORD: Testing-Only-Passw0rd!
         ports:
           - 1433:1433
@@ -37,8 +52,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - name: Install sqlcmd
         run: |
@@ -48,5 +61,15 @@ jobs:
           sudo env ACCEPT_EULA=Y apt-get install -y mssql-tools18 unixodbc-dev
           echo "/opt/mssql-tools18/bin" >> "$GITHUB_PATH"
 
+      # sp_DatabaseRestore's dependencies (Ola Hallengren's CommandLog and
+      # CommandExecute) are not fetched here. The only invocation left in the
+      # matrix is @Help = 1, which returns before the procedure's CommandExecute
+      # check, so downloading them would add two network dependencies and two
+      # checksums that can redden every PR without exercising anything. Restore
+      # this step together with the execute-path test when #4049 lands:
+      #
+      #   OLA_BASE_URL: https://raw.githubusercontent.com/olahallengren/sql-server-maintenance-solution/master
+      #   CommandExecute.sql sha256 80e65a63e0dd81a8073c69b538ba222381354bd3435ba6141e6fb8eb6acbb070
+      #   CommandLog.sql     sha256 7a508fa7ed562ec5ee09d4f587f7f2a87f7a4eb3c57450602ee99cdeb4e18b31
       - name: Run SQL Server smoke tests
         run: bash .github/scripts/run-sql-server-smoke-tests.sh
