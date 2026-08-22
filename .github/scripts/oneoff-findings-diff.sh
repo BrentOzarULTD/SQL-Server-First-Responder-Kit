@@ -61,10 +61,17 @@ wait_for_uptime() {
 capture() {
   local revision="$1" destination="$2"
 
-  echo "  installing sp_Blitz from $revision"
-  git -C "$REPO_ROOT" show "$revision:sp_Blitz.sql" > "$WORK_DIR/sp_Blitz.sql"
-  "$SQLCMD" "${SQLCMD_ARGS[@]}" -d master -i "$WORK_DIR/sp_Blitz.sql" > "$WORK_DIR/install.log" 2>&1 || {
-    echo "::error::sp_Blitz from $revision failed to install"; cat "$WORK_DIR/install.log"; return 1; }
+  # sp_ineachdb too, not just sp_Blitz: sp_Blitz calls it to iterate databases,
+  # and without it every @CheckUserDatabaseObjects check dies with Msg 2812
+  # ("Could not find stored procedure 'dbo.sp_ineachdb'"). Both come from the
+  # same revision so each side is internally consistent.
+  local dependency
+  for dependency in sp_ineachdb sp_Blitz; do
+    echo "  installing $dependency from $revision"
+    git -C "$REPO_ROOT" show "$revision:$dependency.sql" > "$WORK_DIR/$dependency.sql"
+    "$SQLCMD" "${SQLCMD_ARGS[@]}" -d master -i "$WORK_DIR/$dependency.sql" > "$WORK_DIR/install.log" 2>&1 || {
+      echo "::error::$dependency from $revision failed to install"; cat "$WORK_DIR/install.log"; return 1; }
+  done
 
   run_query "SET NOCOUNT ON;
 IF OBJECT_ID('FRKSmokeTest.dbo.OneOffFindings') IS NOT NULL DROP TABLE FRKSmokeTest.dbo.OneOffFindings;" >/dev/null
