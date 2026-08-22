@@ -160,6 +160,27 @@ if ! [[ "$findings" =~ ^[0-9]+$ ]] || (( findings < 1 )); then
   exit 1
 fi
 
+# Diagnostic, never fatal. The count alone cannot explain itself: when it moves
+# between two commits there is no way to tell from the log whether a check was
+# turned on, turned off, or simply reported differently because the database is
+# shared and serverless (it auto-pauses, which resets wait stats and makes the
+# wait-stats checks come and go). Listing the CheckIDs makes that answerable.
+#
+# CSV mode emits "Priority,CheckID,FindingsGroup,Finding,...", so CheckID is the
+# second field -- ahead of any free text, so a comma inside a finding cannot
+# shift it. Version-check chatter has no commas and is dropped by the same test.
+echo
+echo "=== Which checks fired ==="
+if check_ids="$("$SQLCMD" "${SQLCMD_ARGS[@]}" -h -1 -y 8000 -w 8000 -Q \
+      "SET NOCOUNT ON; EXEC dbo.sp_Blitz @OutputType = 'CSV';" 2>/dev/null \
+      | awk -F, '$2 ~ /^[0-9]+$/ { print $2 }' | sort -n -u | tr '\n' ' ')" \
+   && [[ -n "$check_ids" ]]; then
+  echo "CheckIDs: $check_ids"
+else
+  echo "(could not list CheckIDs; the count above is still authoritative)"
+  check_ids=""
+fi
+
 {
   echo "### Azure SQL Database"
   echo
@@ -167,6 +188,7 @@ fi
   echo "- \`sp_Blitz\` installed, definition $body_length characters (not the stub)"
   echo "- ran with no errors"
   echo "- returned **$findings findings**"
+  if [[ -n "$check_ids" ]]; then echo "- CheckIDs: \`$check_ids\`"; fi
 } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
 echo
