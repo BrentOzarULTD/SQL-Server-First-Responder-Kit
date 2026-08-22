@@ -7109,20 +7109,20 @@ IF NOT EXISTS ( SELECT  1
 									HAVING SUM(1) > 0;';
 							END;
 							/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
-							SET @CrossDBDate = NULL;
+							SET @CrossDBCount = NULL;
 							IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
 							BEGIN
 							EXEC sys.sp_executesql N'SELECT @r = (SELECT SUM(1)
 										FROM master.sys.master_files
 										WHERE database_id = DB_ID(''tempdb'')
 										  AND type = 0 /* data */);',
-							    N'@r DATETIME OUTPUT', @r = @CrossDBDate OUTPUT;
+							    N'@r INT OUTPUT', @r = @CrossDBCount OUTPUT;
 							END;
 
 
 							IF 1 <> (SELECT COUNT(*) FROM #TempDBfiles)
 								OR (SELECT SUM(data_files) FROM #TempDBfiles) <> 
-									@CrossDBDate
+									@CrossDBCount
 								BEGIN
 									INSERT INTO #BlitzResults
 										( CheckID ,
