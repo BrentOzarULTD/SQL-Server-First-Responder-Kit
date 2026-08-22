@@ -1,0 +1,69 @@
+# TEMPORARY -- delete this file and .github/scripts/oneoff-findings-diff.sh once
+# PR #4045 is verified. It exists to answer one question about that change:
+# does the rewritten sp_Blitz still report the same findings as the released one?
+name: One-off findings diff (PR 4045)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: oneoff-findings-diff-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  findings-diff:
+    # Only on the Azure branch; this is not a check other PRs should carry.
+    if: github.head_ref == 'claude/issue-4040-azure-sp_blitz'
+    name: ${{ matrix.label }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: mcr.microsoft.com/mssql/server:2017-latest
+            label: Findings diff on SQL Server 2017
+          - image: mcr.microsoft.com/mssql/server:2025-latest
+            label: Findings diff on SQL Server 2025
+
+    env:
+      SQLCMDSERVER: tcp:127.0.0.1,1433
+      SQLCMDUSER: sa
+      SQLCMDPASSWORD: Testing-Only-Passw0rd!
+      MSSQL_IMAGE: ${{ matrix.image }}
+      GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+
+    services:
+      sqlserver:
+        image: ${{ matrix.image }}
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_PID: Developer
+          SA_PASSWORD: Testing-Only-Passw0rd!
+          MSSQL_SA_PASSWORD: Testing-Only-Passw0rd!
+        ports:
+          - 1433:1433
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          # Full history: the baseline capture installs the base branch's
+          # sp_Blitz, which needs that commit present.
+          fetch-depth: 0
+
+      - name: Install sqlcmd
+        run: |
+          curl -sSL -O https://packages.microsoft.com/config/ubuntu/22.04/packages-microsoft-prod.deb
+          sudo dpkg -i packages-microsoft-prod.deb
+          sudo apt-get update
+          sudo env ACCEPT_EULA=Y apt-get install -y mssql-tools18 unixodbc-dev
+          echo "/opt/mssql-tools18/bin" >> "$GITHUB_PATH"
+
+      - name: Compare findings before and after the rewrite
+        run: bash .github/scripts/oneoff-findings-diff.sh
