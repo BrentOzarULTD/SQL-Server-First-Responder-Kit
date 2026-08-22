@@ -1819,6 +1819,9 @@ BEGIN
                      /* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
                      SET @CrossDBExists = 0;
                      IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+                     	AND NOT EXISTS ( SELECT  1
+                     	                 FROM    #SkipChecks
+                     	                 WHERE   DatabaseName IS NULL AND CheckID = 202 )
                      BEGIN
                      EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS ( SELECT *
 									 FROM   msdb.INFORMATION_SCHEMA.COLUMNS c
@@ -1951,6 +1954,9 @@ BEGIN
 				/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
 				SET @CrossDBExists = 0;
 				IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+					AND NOT EXISTS ( SELECT  1
+					                 FROM    #SkipChecks
+					                 WHERE   DatabaseName IS NULL AND CheckID = 178 )
 				BEGIN
 				EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS (SELECT *
 									FROM msdb.dbo.backupset bs
@@ -4222,6 +4228,9 @@ END; /* Exclude SSRS category */
 				/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
 				SET @CrossDBExists = 0;
 				IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+					AND NOT EXISTS ( SELECT  1
+					                 FROM    #SkipChecks
+					                 WHERE   DatabaseName IS NULL AND CheckID = 105 )
 				BEGIN
 				EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS ( SELECT  *
 							FROM    master.sys.extended_procedures );',
@@ -4423,6 +4432,9 @@ END; /* Exclude SSRS category */
 						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
 						SET @CrossDBExists = 0;
 						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+							AND NOT EXISTS ( SELECT  1
+							                 FROM    #SkipChecks
+							                 WHERE   DatabaseName IS NULL AND CheckID = 116 )
 						BEGIN
 						EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS (SELECT * FROM msdb.sys.all_columns WHERE name = ''compressed_backup_size'');',
 						    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
@@ -6439,6 +6451,9 @@ IF NOT EXISTS ( SELECT  1
 		/* Reliability - TempDB File Error */
 		SET @CrossDBCount = 0;
 		IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+			AND NOT EXISTS ( SELECT  1
+			                 FROM    #SkipChecks
+			                 WHERE   DatabaseName IS NULL AND CheckID = 191 )
 		BEGIN
 			EXEC sys.sp_executesql
 			    N'SELECT @r = (SELECT COUNT(*) FROM sys.master_files WHERE database_id = 2);',
@@ -7083,14 +7098,14 @@ IF NOT EXISTS ( SELECT  1
 						EXEC @ExecRet = sp_executesql @tsql, N'@ExecRet_Out INT OUTPUT', @ExecRet_Out = @ExecRet OUTPUT;
 						IF @ExecRet > 0
 							BEGIN
-							IF OBJECT_ID('tempdb..#TempDBfiles') IS NOT NULL DROP TABLE #TempDBfiles;
-							CREATE TABLE #TempDBfiles (config VARCHAR(50), data_files INT);
+							IF OBJECT_ID('tempdb..#BlitzTempDBfiles') IS NOT NULL DROP TABLE #BlitzTempDBfiles;
+							CREATE TABLE #BlitzTempDBfiles (config VARCHAR(50), data_files INT);
 							/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
 							IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
 							BEGIN
 							EXEC sys.sp_executesql N'
 							/* Valid configs */
-							INSERT INTO #TempDBfiles
+							INSERT INTO #BlitzTempDBfiles
 								SELECT ''Fixed predictable growth'' AS config, SUM(1) AS data_files
 									FROM master.sys.master_files
 									WHERE database_id = DB_ID(''tempdb'')
@@ -7119,8 +7134,8 @@ IF NOT EXISTS ( SELECT  1
 							END;
 
 
-							IF 1 <> (SELECT COUNT(*) FROM #TempDBfiles)
-								OR (SELECT SUM(data_files) FROM #TempDBfiles) <> 
+							IF 1 <> (SELECT COUNT(*) FROM #BlitzTempDBfiles)
+								OR (SELECT SUM(data_files) FROM #BlitzTempDBfiles) <> 
 									@CrossDBCount
 								BEGIN
 									INSERT INTO #BlitzResults

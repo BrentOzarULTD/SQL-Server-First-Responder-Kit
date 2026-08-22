@@ -27,7 +27,7 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 
 # -I for QUOTED_IDENTIFIER ON, matching every real client. No -C: Azure presents
 # a valid certificate, so the connection is verified rather than trusted blindly.
-SQLCMD_ARGS=(
+SQLCMD_BASE=(
   -S "tcp:$AZURE_SQL_SERVER,1433"
   -d "$AZURE_SQL_DATABASE"
   -U "$AZURE_SQL_USER"
@@ -35,9 +35,22 @@ SQLCMD_ARGS=(
   -N
   -b
   -I
-  -l 60
   -t 600
 )
+
+SQLCMD_ARGS=("${SQLCMD_BASE[@]}" -l 60)
+
+# Wake-up attempts get their own, much shorter login timeout, and the retry
+# budget is sized to fit inside the job's timeout-minutes with room to spare.
+# With the 60-second -l used for real work, a run where every attempt times out
+# would spend 30 x (60s + 20s) = 40 minutes -- longer than the 30-minute job
+# timeout, so the runner would kill the job before the loop could report why it
+# gave up. At 15s + 15s the whole loop is 15 minutes at worst, leaving the rest
+# of the budget for the install and the run.
+WAKE_LOGIN_TIMEOUT=15
+WAKE_SLEEP_SECONDS=15
+WAKE_ATTEMPTS=30
+WAKE_ARGS=("${SQLCMD_BASE[@]}" -l "$WAKE_LOGIN_TIMEOUT")
 
 run_query() { "$SQLCMD" "${SQLCMD_ARGS[@]}" -Q "$1"; }
 
@@ -66,17 +79,20 @@ run_scalar_int() {
 # sustained one does.
 # ---------------------------------------------------------------------------
 wake_database() {
+  local worst_case_minutes=$(( WAKE_ATTEMPTS * (WAKE_LOGIN_TIMEOUT + WAKE_SLEEP_SECONDS) / 60 ))
+
   echo "Connecting to Azure SQL Database (it auto-pauses; early failures are expected)..."
-  for attempt in {1..30}; do
-    if run_query "SET NOCOUNT ON; SELECT 1;" >/dev/null 2>&1; then
+  echo "Up to $WAKE_ATTEMPTS attempts, at most ~${worst_case_minutes} minutes."
+  for attempt in $(seq 1 "$WAKE_ATTEMPTS"); do
+    if "$SQLCMD" "${WAKE_ARGS[@]}" -Q "SET NOCOUNT ON; SELECT 1;" >/dev/null 2>&1; then
       echo "Connected on attempt $attempt."
       return 0
     fi
     echo "  attempt $attempt: not up yet, waiting..."
-    sleep 20
+    sleep "$WAKE_SLEEP_SECONDS"
   done
 
-  echo "::error::Could not connect to Azure SQL Database after 30 attempts (10 minutes)." >&2
+  echo "::error::Could not connect to Azure SQL Database after $WAKE_ATTEMPTS attempts (~${worst_case_minutes} minutes)." >&2
   echo "::error::Check that the server is reachable and that its firewall admits GitHub runner IPs." >&2
   return 1
 }
