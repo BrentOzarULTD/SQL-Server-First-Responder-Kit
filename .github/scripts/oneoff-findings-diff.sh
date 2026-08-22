@@ -31,9 +31,14 @@ run_query() { "$SQLCMD" "${SQLCMD_ARGS[@]}" -d master -Q "$1"; }
 
 # CheckIDs whose text embeds a timestamp or a live counter, so they differ
 # between two runs minutes apart no matter what the code says:
+#   152 -- top waits, filtered by wait_time_ms > .1 * @CpuMsSinceWaitsCleared.
+#          That denominator grows with uptime, so a wait that clears the bar in
+#          the first capture drops below it in the second, seconds later.
+#   153 -- "No Significant Waits Detected", which fires precisely when 152 finds
+#          nothing. 152 and 153 flip together and have to be excluded together.
 #   156 -- puts GETDATE() straight into Finding
 #   185 -- "Wait Stats Have Been Cleared", compares uptime against live counters
-VOLATILE="156, 185"
+VOLATILE="152, 153, 156, 185"
 
 wait_for_sql_server() {
   echo "Waiting for SQL Server..."
