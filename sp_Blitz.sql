@@ -1025,7 +1025,6 @@ BEGIN
 						INSERT INTO #SkipChecks (CheckID) VALUES (187); /* uses sys.database_mirroring_endpoints, sys.dm_server_services which Azure SQL DB does not have */
 						INSERT INTO #SkipChecks (CheckID) VALUES (191); /* uses sys.master_files which Azure SQL DB does not have */
 						INSERT INTO #SkipChecks (CheckID) VALUES (213); /* SUSER_SNAME cannot be invoked with parameters on Azure SQL DB */
-						INSERT INTO #SkipChecks (CheckID) VALUES (232); /* uses sys.master_files which Azure SQL DB does not have */
 						INSERT INTO #SkipChecks (CheckID) VALUES (235); /* per-database command joins master.sys.databases, which Azure SQL DB forbids */
 						INSERT INTO #SkipChecks (CheckID) VALUES (256); /* reads master.sys.databases, which Azure SQL DB forbids */
 						INSERT INTO #SkipChecks (CheckID) VALUES (266); /* uses sys.servers which Azure SQL DB does not have */
