@@ -101,7 +101,16 @@ ORDER BY CheckID, DatabaseName, Finding;" \
     | sed -e 's/[[:space:]]*$//' -e '/^$/d' -e '/rows affected/d' \
     | sort -u > "$destination"
 
-  echo "  $(wc -l < "$destination" | tr -d ' ') findings recorded"
+  local recorded
+  recorded="$(wc -l < "$destination" | tr -d ' ')"
+  echo "  $recorded findings recorded"
+
+  # Without this, two empty captures compare equal and the diff reports
+  # IDENTICAL -- a pass that proves only that sp_Blitz said nothing twice.
+  if (( recorded == 0 )); then
+    echo "::error::sp_Blitz from $revision recorded no findings at all. A comparison of two empty lists proves nothing." >&2
+    return 1
+  fi
 }
 
 wait_for_sql_server
