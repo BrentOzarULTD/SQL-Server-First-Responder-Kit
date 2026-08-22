@@ -42,6 +42,25 @@ SQLCMD_ARGS=(
 run_query() { "$SQLCMD" "${SQLCMD_ARGS[@]}" -Q "$1"; }
 
 # ---------------------------------------------------------------------------
+# Read a single integer out of a batch.
+#
+# Not "the first line of output": sqlcmd prints every result set the batch
+# produced, and sp_Blitz emits a version-check result set ("Component ... is
+# outdated") ahead of its real output. Taking the first line picked up that
+# warning text and reported it as the finding count. So take the last line that
+# is nothing but digits, which the warning text can never be.
+#
+# `|| true` because grep exits 1 when it matches nothing, and pipefail would
+# turn that into an abort instead of letting the caller report a clear error.
+# ---------------------------------------------------------------------------
+run_scalar_int() {
+  "$SQLCMD" "${SQLCMD_ARGS[@]}" -h -1 -W -Q "$1" \
+    | sed 's/[[:space:]]//g' \
+    | grep -E '^[0-9]+$' \
+    | tail -1 || true
+}
+
+# ---------------------------------------------------------------------------
 # Serverless Azure SQL DB auto-pauses when idle, and the connection that wakes it
 # is itself rejected while it resumes. A first failure means nothing; only a
 # sustained one does.
@@ -68,9 +87,7 @@ echo
 echo "=== Engine confirms this really is Azure SQL Database ==="
 # EngineEdition 5 is Azure SQL Database. If this is anything else, the test is
 # passing for the wrong reasons and should say so rather than look green.
-edition="$("$SQLCMD" "${SQLCMD_ARGS[@]}" -h -1 -W -Q \
-  "SET NOCOUNT ON; SELECT CONVERT(INT, SERVERPROPERTY('EngineEdition'));" \
-  | sed '/^$/d;/rows affected/d' | head -1 | tr -d '[:space:]')"
+edition="$(run_scalar_int "SET NOCOUNT ON; SELECT CONVERT(INT, SERVERPROPERTY('EngineEdition'));")"
 
 echo "EngineEdition: $edition"
 if [[ "$edition" != "5" ]]; then
@@ -95,14 +112,12 @@ done
 # fails. So confirm the procedure has a body, not merely a name.
 echo
 echo "=== Confirming sp_Blitz is more than the stub ==="
-body_lines="$("$SQLCMD" "${SQLCMD_ARGS[@]}" -h -1 -W -Q \
-  "SET NOCOUNT ON;
-   SELECT LEN(OBJECT_DEFINITION(OBJECT_ID('dbo.sp_Blitz')));" \
-  | sed '/^$/d;/rows affected/d' | head -1 | tr -d '[:space:]')"
+body_length="$(run_scalar_int "SET NOCOUNT ON;
+SELECT LEN(OBJECT_DEFINITION(OBJECT_ID('dbo.sp_Blitz')));")"
 
-echo "sp_Blitz definition length: $body_lines characters"
-if ! [[ "$body_lines" =~ ^[0-9]+$ ]] || (( body_lines < 10000 )); then
-  echo "::error::sp_Blitz exists but its body is $body_lines characters -- that is the RETURN 0 stub, not the real procedure." >&2
+echo "sp_Blitz definition length: $body_length characters"
+if ! [[ "$body_length" =~ ^[0-9]+$ ]] || (( body_length < 10000 )); then
+  echo "::error::sp_Blitz exists but its body is '$body_length' characters -- that is the RETURN 0 stub, not the real procedure." >&2
   echo "::error::This is the #4040 failure: the CREATE stub succeeded and the ALTER carrying the body did not." >&2
   exit 1
 fi
@@ -121,13 +136,11 @@ echo "  ran without error"
 # something to say, so zero findings means the checks are not running.
 echo
 echo "=== Counting findings ==="
-findings="$("$SQLCMD" "${SQLCMD_ARGS[@]}" -h -1 -W -Q \
-  "SET NOCOUNT ON; EXEC dbo.sp_Blitz @OutputType = 'COUNT';" \
-  | sed '/^$/d;/rows affected/d' | head -1 | tr -d '[:space:]')"
+findings="$(run_scalar_int "SET NOCOUNT ON; EXEC dbo.sp_Blitz @OutputType = 'COUNT';")"
 
 echo "sp_Blitz returned $findings finding(s)"
 if ! [[ "$findings" =~ ^[0-9]+$ ]] || (( findings < 1 )); then
-  echo "::error::sp_Blitz returned no findings. Running clean with nothing to say is the #4040 symptom, not a pass." >&2
+  echo "::error::sp_Blitz returned no findings ('$findings'). Running clean with nothing to say is the #4040 symptom, not a pass." >&2
   exit 1
 fi
 
@@ -135,7 +148,7 @@ fi
   echo "### Azure SQL Database"
   echo
   echo "- EngineEdition \`5\` confirmed"
-  echo "- \`sp_Blitz\` installed, definition $body_lines characters (not the stub)"
+  echo "- \`sp_Blitz\` installed, definition $body_length characters (not the stub)"
   echo "- ran with no errors"
   echo "- returned **$findings findings**"
 } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
