@@ -179,47 +179,69 @@ fi
 
 echo "  ran without error"
 
-# A silent clean bill of health is the bug, not the goal. Any real server has
-# something to say, so zero findings means the checks are not running.
-echo
-echo "=== Counting findings ==="
-findings="$(run_scalar_int "SET NOCOUNT ON; EXEC dbo.sp_Blitz @OutputType = 'COUNT';")"
+# ---------------------------------------------------------------------------
+# What the run actually found.
+#
+# Deliberately not a raw row count. Every successful run of sp_Blitz inserts rows
+# that say nothing about whether a single check did any work:
+#
+#   -1   two credit / version rows, unconditionally
+#   156  the rundate row, unconditionally
+#   223  "Some Checks Skipped", whenever the login is not sysadmin -- so always,
+#        here
+#
+# @OutputType = 'COUNT' counts those too, which made the previous "returned at
+# least one finding" assertion unfailable: it stayed green even if every
+# substantive check were skipped or silently returned nothing. That is the same
+# shape as #4040 itself -- output that looks like proof of life but is not. So
+# assert on CheckIDs that are not sentinels.
+#
+# CSV mode emits "Priority,CheckID,FindingsGroup,Finding,...", so CheckID is the
+# second field, ahead of any free text; a comma inside a finding cannot shift it,
+# and the -1 rows drop out because the field test admits digits only.
+# ---------------------------------------------------------------------------
+SENTINEL_CHECK_IDS="156 223"
 
-echo "sp_Blitz returned $findings finding(s)"
-if ! [[ "$findings" =~ ^[0-9]+$ ]] || (( findings < 1 )); then
-  echo "::error::sp_Blitz returned no findings ('$findings'). Running clean with nothing to say is the #4040 symptom, not a pass." >&2
+echo
+echo "=== What sp_Blitz found ==="
+if ! "$SQLCMD" "${SQLCMD_ARGS[@]}" -h -1 -y 8000 -w 8000 -Q \
+      "SET NOCOUNT ON; EXEC dbo.sp_Blitz @OutputType = 'CSV';" \
+      > "$WORK_DIR/findings.csv" 2>&1; then
+  echo "::error::Could not read sp_Blitz's findings on Azure SQL Database." >&2
+  tail -20 "$WORK_DIR/findings.csv" >&2
   exit 1
 fi
 
-# Diagnostic, never fatal. The count alone cannot explain itself: when it moves
-# between two commits there is no way to tell from the log whether a check was
-# turned on, turned off, or simply reported differently because the database is
-# shared and serverless (it auto-pauses, which resets wait stats and makes the
-# wait-stats checks come and go). Listing the CheckIDs makes that answerable.
-#
-# CSV mode emits "Priority,CheckID,FindingsGroup,Finding,...", so CheckID is the
-# second field -- ahead of any free text, so a comma inside a finding cannot
-# shift it. Version-check chatter has no commas and is dropped by the same test.
-echo
-echo "=== Which checks fired ==="
-if check_ids="$("$SQLCMD" "${SQLCMD_ARGS[@]}" -h -1 -y 8000 -w 8000 -Q \
-      "SET NOCOUNT ON; EXEC dbo.sp_Blitz @OutputType = 'CSV';" 2>/dev/null \
-      | awk -F, '$2 ~ /^[0-9]+$/ { print $2 }' | sort -n -u | tr '\n' ' ')" \
-   && [[ -n "$check_ids" ]]; then
-  echo "CheckIDs: $check_ids"
-else
-  echo "(could not list CheckIDs; the count above is still authoritative)"
-  check_ids=""
+all_ids="$(awk -F, '$2 ~ /^[0-9]+$/ { print $2 }' "$WORK_DIR/findings.csv" \
+           | sort -n -u | tr '\n' ' ')"
+
+substantive_ids=""
+for id in $all_ids; do
+  case " $SENTINEL_CHECK_IDS " in
+    *" $id "*) ;;
+    *)         substantive_ids+="$id " ;;
+  esac
+done
+substantive_count="$(wc -w <<< "$substantive_ids" | tr -d ' ')"
+
+echo "CheckIDs returned:  ${all_ids:-(none)}"
+echo "Sentinels ignored:  $SENTINEL_CHECK_IDS"
+echo "Substantive checks: $substantive_count"
+
+if (( substantive_count < 1 )); then
+  echo "::error::sp_Blitz produced only sentinel rows -- no actual check returned a finding." >&2
+  echo "::error::That is the #4040 symptom: the procedure answers, but none of its checks ran." >&2
+  exit 1
 fi
 
 {
   echo "### Azure SQL Database"
   echo
   echo "- EngineEdition \`5\` confirmed"
-  echo "- \`sp_Blitz\` installed, definition $body_length characters (not the stub)"
+  echo "- installed from a cleared database, definition $body_length characters (not the stub)"
   echo "- ran with no errors"
-  echo "- returned **$findings findings**"
-  if [[ -n "$check_ids" ]]; then echo "- CheckIDs: \`$check_ids\`"; fi
+  echo "- **$substantive_count substantive checks** returned findings"
+  echo "- CheckIDs: \`${all_ids:-none}\` (sentinels $SENTINEL_CHECK_IDS not counted)"
 } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
 echo
