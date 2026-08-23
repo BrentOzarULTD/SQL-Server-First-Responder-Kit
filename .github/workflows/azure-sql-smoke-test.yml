@@ -3,6 +3,14 @@ name: Azure SQL Database smoke test
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  # Also after the merge. A pull request from a fork never gets these secrets --
+  # GitHub withholds them, which is what stops a fork's code from reading the
+  # password -- so this job is skipped there and a fork's change would otherwise
+  # reach dev with no Azure coverage at all. Running on dev catches that within
+  # minutes of it landing. After the fact, but it is the only option that does
+  # not involve handing credentials to unreviewed code.
+  push:
+    branches: [dev]
 
 # One at a time. The target is a single shared Azure SQL Database, and this
 # installs procedures into it; concurrent runs would overwrite each other
@@ -25,7 +33,13 @@ jobs:
 
     # Skipped rather than failed on forks, where secrets are not available.
     # A missing secret would otherwise look like a broken Azure database.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    #
+    # The push half matters: on a push there is no pull_request in the event, so
+    # the fork test alone would be comparing against nothing and would skip every
+    # dev run -- making the trigger above a no-op.
+    if: >-
+      github.event_name == 'push'
+      || github.event.pull_request.head.repo.full_name == github.repository
 
     env:
       AZURE_SQL_SERVER: ${{ secrets.AZURE_SQL_SERVER }}
