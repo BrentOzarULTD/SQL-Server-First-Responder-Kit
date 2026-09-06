@@ -197,7 +197,7 @@ RECONFIGURE WITH OVERRIDE;
 
 ### Configuration Tables (Optional)
 
-You can create configuration tables to store AI provider settings and prompt templates. This avoids passing parameters every time and lets you switch between providers easily. If you don't create these tables, the procs use built-in defaults (OpenAI gpt-5-nano).
+You can create configuration tables to store AI provider settings and prompt templates. This avoids passing parameters every time and lets you switch between providers easily. If you don't create these tables, the procs use built-in defaults (OpenAI gpt-5.6-luna).
 
 #### AI Providers Table
 
@@ -216,22 +216,22 @@ CREATE TABLE dbo.Blitz_AI_Providers
 
 /* OpenAI - fast, cheap model, default: */
 INSERT INTO dbo.Blitz_AI_Providers (Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, Default_Model)
-VALUES (N'ChatGPT Fast', N'gpt-5-nano', N'https://api.openai.com/v1/chat/completions',
+VALUES (N'ChatGPT Fast', N'gpt-5.6-luna', N'https://api.openai.com/v1/chat/completions',
     N'https://api.openai.com/', 30, 1);
 
 /* OpenAI - highest quality, slowest, most expensive model: */
 INSERT INTO dbo.Blitz_AI_Providers (Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, Default_Model)
-VALUES (N'ChatGPT Slow', N'gpt-5.4', N'https://api.openai.com/v1/chat/completions',
+VALUES (N'ChatGPT Slow', N'gpt-6-astra', N'https://api.openai.com/v1/chat/completions',
     N'https://api.openai.com/', 230, 0);
 
 /* Gemini - fast, cheap model: */
 INSERT INTO dbo.Blitz_AI_Providers (Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, Default_Model)
-VALUES (N'Gemini Fast', N'gemini-3-flash-preview', N'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+VALUES (N'Gemini Fast', N'gemini-3.8-flash', N'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent',
     N'https://generativelanguage.googleapis.com/', 30, 0);
 
 /* Gemini - highest quality, slowest, most expensive model: */
 INSERT INTO dbo.Blitz_AI_Providers (Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, Default_Model)
-VALUES (N'Gemini Slow', N'gemini-3-1-pro-preview', N'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+VALUES (N'Gemini Slow', N'gemini-3.1-pro-preview', N'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent',
     N'https://generativelanguage.googleapis.com/', 230, 0);
 ```
 
@@ -246,7 +246,7 @@ Once credentials are set up, sp_BlitzCache can call the AI API directly and retu
 EXEC sp_BlitzCache @Top = 1, @AI = 1;
 ```
 
-That's it - the defaults use OpenAI's `gpt-5-nano` model. The result set includes the AI's query tuning recommendations.
+That's it - the defaults use OpenAI's `gpt-5.6-luna` model. The result set includes the AI's query tuning recommendations.
 
 ### Using Google Gemini
 
@@ -254,8 +254,8 @@ Gemini requires specifying the model and URL:
 
 ```sql
 EXEC sp_BlitzCache @Top = 1, @AI = 1,
-    @AIModel = N'gemini-2.5-flash',
-    @AIURL = N'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+    @AIModel = N'gemini-3.8-flash',
+    @AIURL = N'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent';
 ```
 
 ### Using Configuration Tables
@@ -283,7 +283,7 @@ EXEC sp_BlitzCache @Top = 1, @AI = 1,
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `@AI` | 0 | 0 = off, 1 = call AI API, 2 = generate prompt only |
-| `@AIModel` | `gpt-5-nano` | Model name or nickname. Matches against both `AI_Model` and `Model_Nickname` in the providers table. If it starts with `gemini`, the Gemini URL and payload template are used automatically. |
+| `@AIModel` | `gpt-5.6-luna` | Model name or nickname. Matches against both `AI_Model` and `Model_Nickname` in the providers table. If it starts with `gemini`, the Gemini URL and payload template are used automatically. |
 | `@AIURL` | `https://api.openai.com/v1/chat/completions` | API endpoint URL. Auto-detected for Gemini models. |
 | `@AICredential` | Auto-detected from URL | Database-scoped credential name. Defaults to the root of your `@AIURL` with trailing slash. |
 | `@AIConfigTable` | NULL | Three-part name of your providers config table (e.g., `master.dbo.Blitz_AI_Providers`). |
@@ -334,7 +334,7 @@ EXEC sp_BlitzIndex
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `@AI` | 0 | 0 = off, 1 = call AI API, 2 = generate prompt only |
-| `@AIModel` | `gpt-5-nano` | Model name or nickname. Matches against both `AI_Model` and `Model_Nickname` in the providers table. Gemini models auto-detect URL and payload template. |
+| `@AIModel` | `gpt-5.6-luna` | Model name or nickname. Matches against both `AI_Model` and `Model_Nickname` in the providers table. Gemini models auto-detect URL and payload template. |
 | `@AIURL` | `https://api.openai.com/v1/chat/completions` | API endpoint URL. |
 | `@AICredential` | Auto-detected from URL | Database-scoped credential name. |
 | `@AIConfigTable` | NULL | Three-part name of your providers config table. |
@@ -360,8 +360,8 @@ With `@AI = 2`:
 
 - **Start with `@AI = 2`** to review the prompt before spending API credits. You can paste it into any AI tool to verify the output quality.
 - **Database context matters** for `@AI = 1`: you must run the query in the database where your credentials are stored, or the API call will fail.
-- **Timeout**: The default timeout is 230 seconds. Larger models may need the full timeout; smaller models like `gpt-5-nano` respond in seconds.
+- **Timeout**: The default timeout is 230 seconds. Larger models may need the full timeout; smaller models like `gpt-5.6-luna` respond in seconds.
 - **Cost**: Each call sends your query/index data to the AI provider and costs API credits. Use `@Top = 1` with sp_BlitzCache to limit costs during testing.
 - **Context size**: If the `Context` column in your AI Providers table has a value greater than 0, the payload will be trimmed to that length to avoid exceeding the model's context window. Set `Context` to 0 or NULL for unlimited payload size.
-- **Model nicknames**: The `@AIModel` parameter matches against both the `AI_Model` and `Model_Nickname` columns in your providers table. This lets you use friendly names like `'ChatGPT Slow'` instead of model identifiers like `'gpt-5.4'`.
+- **Model nicknames**: The `@AIModel` parameter matches against both the `AI_Model` and `Model_Nickname` columns in your providers table. This lets you use friendly names like `'ChatGPT Slow'` instead of model identifiers like `'gpt-6-astra'`.
 - **Security**: Your query text, index definitions, and table structures are sent to the AI provider's API. Do not use this feature if your data or schema is subject to restrictions on external sharing.

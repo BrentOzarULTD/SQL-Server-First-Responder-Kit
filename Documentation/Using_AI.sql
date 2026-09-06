@@ -24,22 +24,22 @@ CREATE TABLE dbo.Blitz_AI_Providers
 
 /* OpenAI - fast, cheap model, default: */
 INSERT INTO dbo.Blitz_AI_Providers (Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, Default_Model)
-VALUES (N'ChatGPT Fast', N'gpt-5-nano', N'https://api.openai.com/v1/chat/completions',
+VALUES (N'ChatGPT Fast', N'gpt-5.6-luna', N'https://api.openai.com/v1/chat/completions',
     N'https://api.openai.com/', 60, 1);
 
 /* OpenAI - highest quality, slowest, most expensive model: */
 INSERT INTO dbo.Blitz_AI_Providers (Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, Default_Model)
-VALUES (N'ChatGPT Slow', N'gpt-5.4', N'https://api.openai.com/v1/chat/completions',
+VALUES (N'ChatGPT Slow', N'gpt-6-astra', N'https://api.openai.com/v1/chat/completions',
     N'https://api.openai.com/', 230, 0);
 
 /* Gemini - fast, cheap model: */
 INSERT INTO dbo.Blitz_AI_Providers (Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, Default_Model)
-VALUES (N'Gemini Fast', N'gemini-3-flash-preview', N'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+VALUES (N'Gemini Fast', N'gemini-3.8-flash', N'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent',
     N'https://generativelanguage.googleapis.com/', 60, 0);
 
 /* Gemini - highest quality, slowest, most expensive model: */
 INSERT INTO dbo.Blitz_AI_Providers (Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, Default_Model)
-VALUES (N'Gemini Slow', N'gemini-3-1-pro-preview', N'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+VALUES (N'Gemini Slow', N'gemini-3.1-pro-preview', N'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent',
     N'https://generativelanguage.googleapis.com/', 230, 0);
 
 
@@ -141,7 +141,7 @@ GO
 /* Or if you used Gemini, use this, pointed at your config table: */
 sp_BlitzCache @AI = 1, @Top = 1,
 	@AIConfigTable = 'DBAtools.dbo.Blitz_AI_Providers',
-	@AIModel = 'gemini-3-flash-preview';
+	@AIModel = 'gemini-3.8-flash';
 GO
 
 /* Scroll across to the AI Advice column, and make sure you got advice.
