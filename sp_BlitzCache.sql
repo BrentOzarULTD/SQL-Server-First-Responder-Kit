@@ -1034,11 +1034,9 @@ IF @AI > 0
         SET @AITimeoutSeconds = 230;
 
     IF @AISystemPrompt IS NULL OR @AISystemPrompt = N''
-        SET @AISystemPrompt = N'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
+        SET @AISystemPrompt = N'Review a poorly performing query for Microsoft SQL Server or Azure SQL Database. Focus on the query and index changes most likely to improve end-user performance; keep server configuration and routine statistics maintenance outside the plan.
 
-    You have a query that isn''t performing to end user expectations. You have been tasked with making serious improvements to it, quickly. You are not allowed to change server-level settings or make frivolous suggestions like updating statistics. Instead, you need to focus on query changes or index changes. 
-    
-    Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.';
+Return one self-contained Markdown response with prioritized findings, recommended changes, complete scripts, and validation or rollback steps. Keep the response focused.';
 
     IF @AIModel LIKE 'gemini%' AND @AIPayloadTemplate IS NULL
         SET @AIPayloadTemplate = N'{

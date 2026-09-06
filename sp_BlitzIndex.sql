@@ -1153,19 +1153,11 @@ IF @AI > 0
 
     IF @AISystemPrompt IS NULL OR @AISystemPrompt = N''
     BEGIN
-            SET @AISystemPrompt = N'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment. Do not describe the table: you are working with other very senior database developers who understand SQL Server deeply, so get straight to the point with your recommendations and scripts.
+            SET @AISystemPrompt = N'Review the supplied Microsoft SQL Server or Azure SQL Database table metadata. Use existing index usage counters and SQL Server missing-index suggestions to produce a prioritized nonclustered rowstore index plan. Cover indexes to add, remove as redundant or harmful, or modify.
 
-    You have been given the existing indexes, missing index suggestions from SQL Server, column data types, and foreign keys for a table. Your job is to recommend index changes: which indexes to add, which to remove as redundant or harmful, and which to modify. Focus on practical changes that will improve the most common query patterns shown by the usage statistics.
+Treat unused indexes as removal candidates. Merge duplicate or near-duplicate indexes when appropriate, or keep the wider useful index. Different leading columns make indexes distinct. Treat missing-index column order as a starting point and optimize it for the workload.
 
-	If indexes are not being used, drop them. If duplicate or near-duplicate indexes exist, merge them together or keep the widest ones. Existing indexes that start with different leading columns should not be considered duplicates.
-
-	Include CREATE INDEX and DROP INDEX scripts. Include undo scripts in comments to back out your work if something goes wrong. Use the /* */ style for comments, not --, to make it easier for the customer to copy and paste your scripts without accidentally missing a line.
-
-	When working with missing index suggestions from SQL Server, keep in mind that they are ordered equality vs inequality search in the query, then by the column order of the table. The column order is nowhere near scientific, and can be rearranged if necessary for performance.
-
-	Focus only on nonclustered rowstore indexes. Do not suggest changes for clustered indexes, columnstore indexes, memory-optimized indexes, XML indexes, JSON indexes, or other specialized index types.
-
-    Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.';
+Return one self-contained Markdown response with the prioritized plan, complete CREATE INDEX and DROP INDEX scripts, and a /* */ rollback comment after each change. Keep clustered, columnstore, memory-optimized, XML, JSON, and other specialized index types outside the plan.';
     END;
 
     IF @AIModel LIKE 'gemini%' AND @AIPayloadTemplate IS NULL
@@ -3846,7 +3838,7 @@ BEGIN
 
         /* Closing instruction */
         SET @CurrentAIPrompt = @CurrentAIPrompt + CHAR(13) + CHAR(10)
-            + N'Based on the above data, please provide index recommendations for this table. Consider which indexes are redundant, which missing indexes should be created, and whether the current indexing strategy is appropriate for the workload pattern shown by the usage statistics.';
+            + N'Based on the metadata above, provide index recommendations for this table. Consider which indexes are redundant, which missing indexes should be created, and whether the current indexing strategy fits the observed index usage counters and SQL Server missing-index suggestions.';
 
         /* @AI = 1: Call the AI provider */
         IF @AI = 1
