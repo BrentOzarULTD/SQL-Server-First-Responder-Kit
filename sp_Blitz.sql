@@ -10129,6 +10129,7 @@ IF NOT EXISTS ( SELECT  1
 
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 106) WITH NOWAIT;
 								
+								BEGIN TRY
 								INSERT  INTO #BlitzResults
 										( CheckID ,
 										  Priority ,
@@ -10149,6 +10150,15 @@ IF NOT EXISTS ( SELECT  1
 												) as Details
 										FROM    ::fn_trace_gettable( @base_tracefilename, default )
 										WHERE EventClass BETWEEN 65500 and 65600;
+                                END TRY
+                                BEGIN CATCH
+                                    /* The live trace can roll over or be mid-write after the earlier read succeeded. */
+                                    SET @TraceFileIssue = 1;
+                                    INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+                                    VALUES (106, 250, 'Server Info', 'Default Trace Could Not Be Read',
+                                        'https://www.brentozar.com/go/trace',
+                                        'Unable to read the default trace. Other checks will continue. Error: ' + ERROR_MESSAGE());
+                                END CATCH;
 							END; /* CheckID 106 */
 
 							IF NOT EXISTS ( SELECT  1
