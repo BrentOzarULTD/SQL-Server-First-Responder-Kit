@@ -5344,7 +5344,7 @@ IF NOT EXISTS ( SELECT  1
 						  FROM
 							[sys].[dm_server_services]
 						  WHERE [status_desc] <> 'Running'
-						  AND [servicename] LIKE 'SQL Server Agent%'
+						  AND [servicename] LIKE 'SQL Server_Agent%'
 						  AND CAST(SERVERPROPERTY('Edition') AS VARCHAR(1000)) NOT LIKE '%xpress%';
 
 					END;
@@ -5382,7 +5382,7 @@ IF @IsWindowsOperatingSystem = 1
 						  WHERE ([service_account] = 'LocalSystem'
 						    OR LOWER([service_account]) = 'nt authority\system')
 						  AND [servicename] LIKE 'SQL Server%'
-						  AND [servicename] NOT LIKE 'SQL Server Agent%';
+						  AND [servicename] NOT LIKE 'SQL Server_Agent%';
 					END;
 				END;
 
@@ -5418,7 +5418,7 @@ IF @IsWindowsOperatingSystem = 1
 							[sys].[dm_server_services]
 						  WHERE ([service_account] = 'LocalSystem'
 						    OR LOWER([service_account]) = 'nt authority\system')
-						  AND [servicename] LIKE 'SQL Server Agent%';
+						  AND [servicename] LIKE 'SQL Server_Agent%';
 					END;
 				END;
 
@@ -5492,7 +5492,7 @@ IF @IsWindowsOperatingSystem = 1
 							[sys].[dm_server_services]
 						  WHERE [service_account] LIKE 'NT Service%'
 						  AND [servicename] LIKE 'SQL Server%'
-						  AND [servicename] NOT LIKE 'SQL Server Agent%'
+						  AND [servicename] NOT LIKE 'SQL Server_Agent%'
 						  AND [servicename] NOT LIKE 'SQL Server Launchpad%';
 
 					END;
@@ -5531,7 +5531,7 @@ IF @IsWindowsOperatingSystem = 1
 						  FROM
 							[sys].[dm_server_services]
 						  WHERE [service_account] LIKE 'NT Service%'
-						  AND [servicename] LIKE 'SQL Server Agent%';
+						  AND [servicename] LIKE 'SQL Server_Agent%';
 
 					END;
 					END;
