@@ -196,6 +196,15 @@ VALUES (1),(2),(3),(8),(90),(92),(93),(111),(119),(186),(232),(234),(236),(256);
 GRANT SELECT ON dbo.LimitedLoginChecksToSkip TO FRKSmokeLimited;
 GO
 USE master;
+/* Per-run session identity for the dedicated sp_kill victim. */
+IF OBJECT_ID('FRKSmokeTest.dbo.KillVictim') IS NOT NULL
+    DROP TABLE FRKSmokeTest.dbo.KillVictim;
+CREATE TABLE FRKSmokeTest.dbo.KillVictim
+(
+    Token uniqueidentifier NOT NULL PRIMARY KEY,
+    SessionId smallint NOT NULL,
+    LoginTime datetime NOT NULL
+);
 GO
 
 PRINT 'Seed complete.';

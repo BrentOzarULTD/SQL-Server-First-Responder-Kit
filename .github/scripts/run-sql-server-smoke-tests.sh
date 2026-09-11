@@ -187,6 +187,47 @@ PYTHON
 # the rest still run. One CI round should surface every problem, not just the
 # first one to blow up.
 # ---------------------------------------------------------------------------
+run_kill_step() (
+  # A subshell scopes cleanup to this step, including failures and interruption.
+  local step_file="$1" victim_pid="" token status
+  token="$(python3 -c 'import uuid; print(uuid.uuid4())')" || return 1
+  cleanup_victim() {
+    if [[ -n "$victim_pid" ]]; then
+      kill "$victim_pid" 2>/dev/null || true
+      wait "$victim_pid" 2>/dev/null || true
+    fi
+    run_query "DELETE FROM FRKSmokeTest.dbo.KillVictim WHERE Token = '$token';" >/dev/null 2>&1 || true
+  }
+  trap cleanup_victim EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
+  "$SQLCMD" "${SQLCMD_ARGS[@]}" -d FRKSmokeTest -Q "
+SET NOCOUNT ON;
+DECLARE @Token uniqueidentifier = '$token';
+INSERT dbo.KillVictim (Token, SessionId, LoginTime)
+SELECT @Token, @@SPID, login_time FROM sys.dm_exec_sessions WHERE session_id = @@SPID;
+WAITFOR DELAY '00:05:00';
+THROW 51000, 'The dedicated victim timed out without being killed.', 1;" \
+    > "$WORK_DIR/victim.log" 2>&1 &
+  victim_pid=$!
+
+  "$SQLCMD" "${SQLCMD_ARGS[@]}" -d master -v KillVictimToken="$token" -i "$step_file"
+  status=$?
+  if [[ "$status" -ne 0 ]]; then
+    cat "$WORK_DIR/victim.log"
+  fi
+  return "$status"
+)
+
+run_step() {
+  if [[ "$2" == 'sp_kill kills a dedicated session' ]]; then
+    run_kill_step "$1"
+  else
+    "$SQLCMD" "${SQLCMD_ARGS[@]}" -d master -i "$1"
+  fi
+}
+
 run_matrix() {
   local steps_dir="$WORK_DIR/steps"
   local step_file current_label failures=0 total=0
@@ -195,7 +236,7 @@ run_matrix() {
     current_label="$(cat "${step_file%.sql}.label")"
     total=$((total + 1))
 
-    if "$SQLCMD" "${SQLCMD_ARGS[@]}" -d master -i "$step_file" \
+    if run_step "$step_file" "$current_label" \
          > "$WORK_DIR/step.log" 2>&1; then
       echo "  PASS  $current_label"
     else
