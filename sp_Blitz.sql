@@ -1331,7 +1331,6 @@ BEGIN
 				IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 185) WITH NOWAIT;
 
 				SET @MsSinceWaitsCleared = (SELECT MAX(wait_time_ms) FROM sys.dm_os_wait_stats WHERE wait_type IN ('SP_SERVER_DIAGNOSTICS_SLEEP', 'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP', 'REQUEST_FOR_DEADLOCK_SEARCH', 'HADR_FILESTREAM_IOMGR_IOCOMPLETION', 'LAZYWRITER_SLEEP', 'SQLTRACE_INCREMENTAL_FLUSH_SLEEP', 'DIRTY_PAGE_POLL', 'LOGMGR_QUEUE'));
-				IF @MsSinceWaitsCleared = 0 SET @MsSinceWaitsCleared = 1;
 				INSERT  INTO #BlitzResults
 						(   CheckID ,
 							Priority ,
@@ -1349,6 +1348,9 @@ BEGIN
 									+ CONVERT(NVARCHAR(100), 
 										DATEADD(MINUTE, (-1. * (@MsSinceWaitsCleared) / 1000. / 60.), GETDATE()), 120));
 			END;
+
+		/* Uptime can round down to zero during the first minute after startup. */
+		IF @MsSinceWaitsCleared = 0 SET @MsSinceWaitsCleared = 1;
 
 		/* @CpuMsSinceWaitsCleared is used for waits stats calculations */
 		

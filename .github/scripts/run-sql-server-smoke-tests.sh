@@ -102,40 +102,6 @@ wait_for_sql_server() {
   done
 }
 
-# ---------------------------------------------------------------------------
-# Hold off until the instance has been up longer than a minute.
-#
-# sp_Blitz CheckID 152 divides by @MsSinceWaitsCleared, which is
-# DATEDIFF(MINUTE, create_date, CURRENT_TIMESTAMP) * 60000.0 and is therefore 0
-# for the instance's first minute. Its zero-guard sits inside a branch that
-# cannot be taken while the value is 0, so sp_Blitz aborts with a divide-by-zero.
-# Tracked in issue #4048; remove this once that is fixed.
-#
-# The value must parse as a number greater than zero. Anything else -- an empty
-# result, a header, an error -- means we have not confirmed the window has passed,
-# so keep waiting rather than assuming the best. `|| true` matters: under set -e a
-# failed command substitution would abort instead of retrying.
-# ---------------------------------------------------------------------------
-wait_for_wait_stats() {
-  local uptime_minutes
-
-  echo "Waiting for the instance to pass one minute of uptime (issue #4048)..."
-  for attempt in {1..40}; do
-    uptime_minutes="$(run_scalar "SET NOCOUNT ON;
-SELECT DATEDIFF(MINUTE, create_date, CURRENT_TIMESTAMP)
-FROM sys.databases WHERE name = 'tempdb';" || true)"
-
-    if [[ "$uptime_minutes" =~ ^[0-9]+$ ]] && (( uptime_minutes > 0 )); then
-      echo "Uptime window cleared after ${attempt} check(s) (${uptime_minutes} minute(s) up)."
-      return 0
-    fi
-
-    sleep 5
-  done
-
-  echo "::warning::Instance still reports under a minute of uptime; continuing anyway."
-}
-
 kit_proc_name() {
   basename "$1" .sql
 }
@@ -266,7 +232,6 @@ run_matrix() {
 # Main
 # ---------------------------------------------------------------------------
 wait_for_sql_server
-wait_for_wait_stats
 
 echo
 echo "=== Seeding test data ==="
