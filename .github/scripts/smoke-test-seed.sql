@@ -154,5 +154,16 @@ CREATE TABLE FRKSmokeTest.dbo.BlitzChecksToSkip
 GO
 
 
+/* Per-run session identity for the dedicated sp_kill victim. */
+IF OBJECT_ID('FRKSmokeTest.dbo.KillVictim') IS NOT NULL
+    DROP TABLE FRKSmokeTest.dbo.KillVictim;
+CREATE TABLE FRKSmokeTest.dbo.KillVictim
+(
+    Token uniqueidentifier NOT NULL PRIMARY KEY,
+    SessionId smallint NOT NULL,
+    LoginTime datetime NOT NULL
+);
+GO
+
 PRINT 'Seed complete.';
 GO
