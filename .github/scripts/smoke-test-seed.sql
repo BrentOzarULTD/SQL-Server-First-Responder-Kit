@@ -154,5 +154,49 @@ CREATE TABLE FRKSmokeTest.dbo.BlitzChecksToSkip
 GO
 
 
+/* A disabled login can be impersonated by the runner, but cannot log in over the network. */
+USE master;
+IF SUSER_ID(N'FRKSmokeLimited') IS NULL
+BEGIN
+    DECLARE @CreateLimitedLogin nvarchar(max) =
+        N'CREATE LOGIN FRKSmokeLimited WITH PASSWORD = ''' + CONVERT(nvarchar(36), NEWID()) + N'aA1!'';';
+    EXEC sys.sp_executesql @CreateLimitedLogin;
+END;
+ALTER LOGIN FRKSmokeLimited DISABLE;
+GRANT VIEW SERVER STATE TO FRKSmokeLimited;
+IF CONVERT(int, SERVERPROPERTY('ProductMajorVersion')) >= 16
+    EXEC(N'GRANT VIEW SERVER PERFORMANCE STATE TO FRKSmokeLimited;');
+IF USER_ID(N'FRKSmokeLimited') IS NULL
+    CREATE USER FRKSmokeLimited FOR LOGIN FRKSmokeLimited;
+DENY SELECT ON sys.extended_procedures TO FRKSmokeLimited;
+DENY SELECT ON sys.master_files TO FRKSmokeLimited;
+GO
+USE msdb;
+IF USER_ID(N'FRKSmokeLimited') IS NULL
+    CREATE USER FRKSmokeLimited FOR LOGIN FRKSmokeLimited;
+/* An absent user alone is insufficient: msdb normally allows guest access. */
+DENY CONNECT TO FRKSmokeLimited;
+GO
+USE FRKSmokeTest;
+IF USER_ID(N'FRKSmokeLimited') IS NULL
+    CREATE USER FRKSmokeLimited FOR LOGIN FRKSmokeLimited;
+IF OBJECT_ID(N'dbo.LimitedLoginChecksToSkip') IS NOT NULL
+    DROP TABLE dbo.LimitedLoginChecksToSkip;
+CREATE TABLE dbo.LimitedLoginChecksToSkip
+(
+    DatabaseName nvarchar(128) NULL,
+    CheckID int NOT NULL PRIMARY KEY,
+    ServerName nvarchar(128) NULL
+);
+/* The five hoisted probes whose skip guards this test protects. */
+INSERT dbo.LimitedLoginChecksToSkip(CheckID) VALUES (202),(178),(105),(116),(191);
+/* Other checks requiring the deliberately denied msdb/master metadata. */
+INSERT dbo.LimitedLoginChecksToSkip(CheckID)
+VALUES (1),(2),(3),(8),(90),(92),(93),(111),(119),(186),(232),(234),(236),(256);
+GRANT SELECT ON dbo.LimitedLoginChecksToSkip TO FRKSmokeLimited;
+GO
+USE master;
+GO
+
 PRINT 'Seed complete.';
 GO
