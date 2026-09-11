@@ -5934,6 +5934,45 @@ IF NOT EXISTS ( SELECT  1
 								END;	
 								END;
 			
+/*Check for availability groups existing while AlwaysOn_health is either disabled or missing*/
+			IF NOT EXISTS ( SELECT  1
+											FROM    #SkipChecks
+											WHERE   DatabaseName IS NULL AND CheckID = 276 )
+								BEGIN
+			
+			IF EXISTS ( SELECT  1
+														FROM    sys.all_objects
+														WHERE   name = 'dm_xe_sessions' )
+            AND EXISTS ( SELECT  1
+														FROM    sys.all_objects
+														WHERE   name = 'availability_groups' )
+								
+								BEGIN
+									
+									IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 276) WITH NOWAIT;
+
+                                    IF NOT EXISTS (SELECT 1 FROM sys.dm_xe_sessions WHERE [name] = 'AlwaysOn_health')
+                                    AND EXISTS (SELECT 1 FROM sys.availability_groups) 
+									INSERT  INTO #BlitzResults
+											( CheckID ,
+											  DatabaseName ,
+											  Priority ,
+											  FindingsGroup ,
+											  Finding ,
+											  URL ,
+											  Details
+											)
+													SELECT
+													276 AS CheckID ,
+													'' AS DatabaseName ,
+													200 AS Priority ,
+													'Monitoring' AS FindingsGroup ,
+													'Availability Group Without AlwaysOn_health' AS Finding ,
+													'https://straightpathsql.com/check/alwayson-health-extended-event/' AS URL ,
+													'This server has availability groups, but the AlwaysOn_health Extended Event is either missing or disabled. Do you have what you need to debug an outage?' AS Details
+								END;	
+								END;
+			
 			/*Harmful startup parameter*/
 			IF NOT EXISTS ( SELECT  1
 											FROM    #SkipChecks
