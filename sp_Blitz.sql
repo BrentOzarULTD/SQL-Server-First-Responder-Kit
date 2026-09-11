@@ -192,6 +192,11 @@ BEGIN
 			,@IsWindowsOperatingSystem BIT
 			-- Flag for Azure SQL Database (EngineEdition 5) - used to skip incompatible checks and guard email / linked-server output paths
 			,@IsAzureSQLDB BIT
+			/* Helpers for cross-database checks that have to be executed dynamically
+			   so that Azure SQL DB can compile this module at all. Issue #4040. */
+			,@CrossDBExists BIT
+			,@CrossDBCount INT
+			,@CrossDBDate DATETIME
 			,@DaysUptime NUMERIC(23,2)
             /* For First Responder Kit consistency check:*/
             ,@spBlitzFullName                VARCHAR(1024)
@@ -386,11 +391,18 @@ BEGIN
             	)
             	BEGIN
             	    BEGIN TRY
-            	        IF EXISTS
-            	        (
+            	        /* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+            	        SET @CrossDBExists = 0;
+            	        IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+            	        BEGIN
+            	        EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS (
             	            SELECT 1/0
             	            FROM model.sys.objects
-            	        )
+            	        );',
+            	            N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+            	        END;
+
+            	        IF (@CrossDBExists = 1)
             	        BEGIN
                             SET @SkipModel = 0; /*We have read permissions in the model database, and can view the objects*/
             	        END;
@@ -415,11 +427,18 @@ BEGIN
 				)
 				BEGIN
 					BEGIN TRY
-						IF EXISTS
-						(
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						SET @CrossDBExists = 0;
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS (
             	            SELECT	1/0
             	            FROM	msdb.sys.objects
-						)
+						);',
+						    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+						END;
+
+						IF (@CrossDBExists = 1)
 						BEGIN
 							SET @SkipMSDB_objs = 0; /*We have read permissions in the msdb database, and can view the objects*/
 						END;
@@ -444,11 +463,18 @@ BEGIN
 				)
 				BEGIN
 					BEGIN TRY
-						IF EXISTS
-						(
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						SET @CrossDBExists = 0;
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS (
             	            SELECT	1/0
             	            FROM	msdb.dbo.sysjobs
-						)
+						);',
+						    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+						END;
+
+						IF (@CrossDBExists = 1)
 						BEGIN
 							SET @SkipMSDB_jobs = 0; /*We have read permissions in the msdb database, and can view the objects*/
 						END;
@@ -800,13 +826,21 @@ BEGIN
 					'https://www.BrentOzar.com/blitz/' AS URL ,
 					'Since you have databases with compatibility_level < 90, we can''t run @CheckUserDatabaseObjects = 1. To find them: SELECT * FROM sys.databases WHERE compatibility_level < 90' AS Details;
 		END;
+		/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+		SET @CrossDBExists = 0;
+		IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+		BEGIN
+		EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS (SELECT * FROM master.sys.all_objects WHERE name IN (''rds_startup_tasks'', ''rds_help_revlogin'', ''rds_hexadecimal'', ''rds_failover_tracking'', ''rds_database_tracking'', ''rds_track_change''));',
+		    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+		END;
+
 
 		/* --TOURSTOP08-- */
 		/* If the server is Amazon RDS, skip checks that it doesn't allow */
 		IF LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
 		   AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
 		   AND db_id('rdsadmin') IS NOT NULL
-		   AND EXISTS(SELECT * FROM master.sys.all_objects WHERE name IN ('rds_startup_tasks', 'rds_help_revlogin', 'rds_hexadecimal', 'rds_failover_tracking', 'rds_database_tracking', 'rds_track_change'))
+		   AND (@CrossDBExists = 1)
 			BEGIN
 						INSERT INTO #SkipChecks (CheckID) VALUES (6); /* Security - Jobs Owned By Users per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
 						INSERT INTO #SkipChecks (CheckID) VALUES (29); /* tables in model database created by users - not allowed */
@@ -967,6 +1001,34 @@ BEGIN
 						INSERT INTO #SkipChecks (CheckID) VALUES (74);   /* Trace flags - DBCC TRACESTATUS */
 						INSERT INTO #SkipChecks (CheckID) VALUES (97);   /* Unusual SQL Server Edition */
 						INSERT INTO #SkipChecks (CheckID) VALUES (2301); /* sp_validatelogins */
+						INSERT INTO #SkipChecks (CheckID) VALUES (8);   /* sys.dm_server_audit_status is not available on Azure SQL DB */
+						INSERT INTO #SkipChecks (CheckID) VALUES (11);  /* uses sys.server_triggers which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (34);  /* uses sys.dm_db_mirroring_auto_page_repair which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (37);  /* uses sys.master_files which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (49);  /* uses sys.linked_logins, sys.servers which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (51);  /* uses sys.dm_os_sys_memory which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (75);  /* uses sys.master_files which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (83);  /* uses sys.dm_server_services which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (89);  /* uses sys.dm_hadr_auto_page_repair which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (104); /* uses sys.server_permissions which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (106); /* uses sys.master_files, sys.traces which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (111); /* uses sys.database_mirroring which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (119); /* reads master.sys.certificates */
+						INSERT INTO #SkipChecks (CheckID) VALUES (148); /* uses sys.master_files which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (149); /* uses sys.fn_trace_gettable, sys.master_files which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (166); /* uses sys.dm_server_services, sys.xp_readerrorlog which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (174); /* uses sys.dm_os_buffer_pool_extension_configuration which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (175); /* sys.master_files is not available on Azure SQL DB */
+						INSERT INTO #SkipChecks (CheckID) VALUES (176); /* uses sys.dm_xe_sessions which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (179); /* uses sys.dm_os_loaded_modules which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (184); /* uses sys.dm_os_cluster_nodes which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (187); /* uses sys.database_mirroring_endpoints, sys.dm_server_services which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (191); /* uses sys.master_files which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (213); /* SUSER_SNAME cannot be invoked with parameters on Azure SQL DB */
+						INSERT INTO #SkipChecks (CheckID) VALUES (235); /* per-database command joins master.sys.databases, which Azure SQL DB forbids */
+						INSERT INTO #SkipChecks (CheckID) VALUES (256); /* reads master.sys.databases, which Azure SQL DB forbids */
+						INSERT INTO #SkipChecks (CheckID) VALUES (266); /* uses sys.servers which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (271); /* uses sys.master_files which Azure SQL DB does not have */
 
 						/* File layout / tempdb - cannot read tempdb or system DBs cross-DB from a user DB, and sys.master_files is unavailable */
 						INSERT INTO #SkipChecks (CheckID) VALUES (21);  /* Database encrypted - always true on Azure SQL DB */
@@ -1411,6 +1473,10 @@ BEGIN
 
                         IF SERVERPROPERTY('EngineEdition') <> 8 /* Azure Managed Instances need a special query */
                             BEGIN
+						    /* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						    IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						    BEGIN
+						    EXEC sys.sp_executesql N'
 						    INSERT  INTO #BlitzResults
 								    ( CheckID ,
 								      DatabaseName ,
@@ -1423,15 +1489,15 @@ BEGIN
 								    SELECT  1 AS CheckID ,
 										    d.[name] AS DatabaseName ,
 										    1 AS Priority ,
-										    'Backup' AS FindingsGroup ,
-										    'Backups Not Performed Recently' AS Finding ,
-										    'https://www.brentozar.com/go/nobak' AS URL ,
-										    'Last backed up: '
-										    + COALESCE(CAST(MAX(b.backup_finish_date) AS VARCHAR(25)),'never') AS Details
+										    ''Backup'' AS FindingsGroup ,
+										    ''Backups Not Performed Recently'' AS Finding ,
+										    ''https://www.brentozar.com/go/nobak'' AS URL ,
+										    ''Last backed up: ''
+										    + COALESCE(CAST(MAX(b.backup_finish_date) AS VARCHAR(25)),''never'') AS Details
 								    FROM    master.sys.databases d
 										    LEFT OUTER JOIN msdb.dbo.backupset b ON d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
-																      AND b.type = 'D'
-																      AND b.server_name = SERVERPROPERTY('ServerName') /*Backupset ran on current server  */
+																      AND b.type = ''D''
+																      AND b.server_name = SERVERPROPERTY(''ServerName'') /*Backupset ran on current server  */
 								    WHERE   d.database_id <> 2  /* Bonus points if you know what that means */
 										    AND d.state NOT IN(1, 6, 10) /* Not currently offline or restoring, like log shipping databases */
 										    AND d.is_in_standby = 0 /* Not a log shipping target database */
@@ -1441,16 +1507,21 @@ BEGIN
 															    FROM  #SkipChecks
 															    WHERE CheckID IS NULL OR CheckID = 1)
 										    /*
-										    The above NOT IN filters out the databases we're not supposed to check.
+										    The above NOT IN filters out the databases we''re not supposed to check.
 										    */
 								    GROUP BY d.name
 								    HAVING  MAX(b.backup_finish_date) <= DATEADD(dd,
 																      -7, GETDATE())
-                                            OR MAX(b.backup_finish_date) IS NULL;
+                                            OR MAX(b.backup_finish_date) IS NULL;';
+						    END;
                                 END;
 
                         ELSE /* SERVERPROPERTY('EngineName') must be 8, Azure Managed Instances */
                             BEGIN
+						    /* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						    IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						    BEGIN
+						    EXEC sys.sp_executesql N'
 						    INSERT  INTO #BlitzResults
 								    ( CheckID ,
 								      DatabaseName ,
@@ -1463,14 +1534,14 @@ BEGIN
 								    SELECT  1 AS CheckID ,
 										    d.[name] AS DatabaseName ,
 										    1 AS Priority ,
-										    'Backup' AS FindingsGroup ,
-										    'Backups Not Performed Recently' AS Finding ,
-										    'https://www.brentozar.com/go/nobak' AS URL ,
-										    'Last backed up: '
-										    + COALESCE(CAST(MAX(b.backup_finish_date) AS VARCHAR(25)),'never') AS Details
+										    ''Backup'' AS FindingsGroup ,
+										    ''Backups Not Performed Recently'' AS Finding ,
+										    ''https://www.brentozar.com/go/nobak'' AS URL ,
+										    ''Last backed up: ''
+										    + COALESCE(CAST(MAX(b.backup_finish_date) AS VARCHAR(25)),''never'') AS Details
 								    FROM    master.sys.databases d
 										    LEFT OUTER JOIN msdb.dbo.backupset b ON d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
-																      AND b.type = 'D'
+																      AND b.type = ''D''
 								    WHERE   d.database_id <> 2  /* Bonus points if you know what that means */
 										    AND d.state NOT IN(1, 6, 10) /* Not currently offline or restoring, like log shipping databases */
 										    AND d.is_in_standby = 0 /* Not a log shipping target database */
@@ -1480,12 +1551,13 @@ BEGIN
 															    FROM  #SkipChecks
 															    WHERE CheckID IS NULL OR CheckID = 1)
 										    /*
-										    The above NOT IN filters out the databases we're not supposed to check.
+										    The above NOT IN filters out the databases we''re not supposed to check.
 										    */
 								    GROUP BY d.name
 								    HAVING  MAX(b.backup_finish_date) <= DATEADD(dd,
 																      -7, GETDATE())
-                                            OR MAX(b.backup_finish_date) IS NULL;
+                                            OR MAX(b.backup_finish_date) IS NULL;';
+						    END;
                                 END;
 
 
@@ -1514,6 +1586,10 @@ BEGIN
 					BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 2) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1528,12 +1604,12 @@ BEGIN
 										2 AS CheckID ,
 										d.name AS DatabaseName ,
 										1 AS Priority ,
-										'Backup' AS FindingsGroup ,
-										'Full Recovery Model w/o Log Backups' AS Finding ,
-										'https://www.brentozar.com/go/biglogs' AS URL ,
-										( 'The ' + CAST(CAST((SELECT ((SUM([mf].[size]) * 8.) / 1024.) FROM sys.[master_files] AS [mf] WHERE [mf].[database_id] = d.[database_id] AND [mf].[type_desc] = 'LOG') AS DECIMAL(18,2)) AS VARCHAR(30)) + 'MB log file has not been backed up in the last week.' ) AS Details
+										''Backup'' AS FindingsGroup ,
+										''Full Recovery Model w/o Log Backups'' AS Finding ,
+										''https://www.brentozar.com/go/biglogs'' AS URL ,
+										( ''The '' + CAST(CAST((SELECT ((SUM([mf].[size]) * 8.) / 1024.) FROM sys.[master_files] AS [mf] WHERE [mf].[database_id] = d.[database_id] AND [mf].[type_desc] = ''LOG'') AS DECIMAL(18,2)) AS VARCHAR(30)) + ''MB log file has not been backed up in the last week.'' ) AS Details
 								FROM    master.sys.databases d
-								LEFT JOIN #DBCCs ll On ll.DbName = d.name And ll.Field = 'dbi_LastLogBackupTime'
+								LEFT JOIN #DBCCs ll On ll.DbName = d.name And ll.Field = ''dbi_LastLogBackupTime''
 								WHERE   d.recovery_model IN ( 1, 2 )
 										AND d.database_id NOT IN ( 2, 3 )
 										AND d.source_database_id IS NULL
@@ -1546,12 +1622,12 @@ BEGIN
 															WHERE CheckID IS NULL OR CheckID = 2)
 										AND	(
 												(
-													/* We couldn't get a value from the DBCC DBINFO data so let's check the msdb backup history information */
+													/* We couldn''t get a value from the DBCC DBINFO data so let''s check the msdb backup history information */
 														[ll].[Value] Is Null
 													AND NOT EXISTS ( SELECT *
 																	 FROM   msdb.dbo.backupset b
 																	 WHERE  d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
-																				AND b.type = 'L'
+																				AND b.type = ''L''
 																				AND b.backup_finish_date >= DATEADD(dd,-7, GETDATE())
 																	)
 												)
@@ -1560,7 +1636,8 @@ BEGIN
 													Convert(datetime,ll.Value,21) < DATEADD(dd,-7, GETDATE())
 												)
 
-											);
+											);';
+						END;
 					END;
 
 				/*
@@ -1573,6 +1650,10 @@ BEGIN
 					BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 256) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1587,18 +1668,18 @@ BEGIN
 										256 AS CheckID ,
 										d.name AS DatabaseName,
 										1 AS Priority ,
-										'Backup' AS FindingsGroup ,
-										'Log Backups to NUL' AS Finding ,
-										'https://www.brentozar.com/go/nul' AS URL ,
-										N'The transaction log file has been backed up ' +  CAST((SELECT count(*)
+										''Backup'' AS FindingsGroup ,
+										''Log Backups to NUL'' AS Finding ,
+										''https://www.brentozar.com/go/nul'' AS URL ,
+										N''The transaction log file has been backed up '' +  CAST((SELECT count(*)
 														 FROM   msdb.dbo.backupset AS b INNER JOIN
 																msdb.dbo.backupmediafamily AS bmf
 																	ON	b.media_set_id = bmf.media_set_id
 														 WHERE  b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS = d.name COLLATE SQL_Latin1_General_CP1_CI_AS
-																AND bmf.physical_device_name = 'NUL'
-																AND b.type = 'L'
+																AND bmf.physical_device_name = ''NUL''
+																AND b.type = ''L''
 																AND b.backup_finish_date >= DATEADD(dd,
-																  -7, GETDATE())) AS NVARCHAR(8)) + ' time(s) to ''NUL'' in the last week, which means the backup does not exist. This breaks point-in-time recovery.' AS Details
+																  -7, GETDATE())) AS NVARCHAR(8)) + '' time(s) to ''''NUL'''' in the last week, which means the backup does not exist. This breaks point-in-time recovery.'' AS Details
 								FROM    master.sys.databases AS d
 								WHERE   d.recovery_model IN ( 1, 2 )
 										AND d.database_id NOT IN ( 2, 3 )
@@ -1615,10 +1696,11 @@ BEGIN
 																msdb.dbo.backupmediafamily AS bmf
 																	ON	b.media_set_id = bmf.media_set_id
 														 WHERE  d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
-																AND bmf.physical_device_name = 'NUL'
-																AND b.type = 'L'
+																AND bmf.physical_device_name = ''NUL''
+																AND b.type = ''L''
 																AND b.backup_finish_date >= DATEADD(dd,
-																  -7, GETDATE()) );
+																  -7, GETDATE()) );';
+						END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -1665,6 +1747,10 @@ BEGIN
 					BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 93) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1677,20 +1763,20 @@ BEGIN
 								SELECT
 										93 AS CheckID ,
 										1 AS Priority ,
-										'Backup' AS FindingsGroup ,
-										'Backing Up to Same Drive Where Databases Reside' AS Finding ,
-										'https://www.brentozar.com/go/backup' AS URL ,
-										CAST(COUNT(1) AS VARCHAR(50)) + ' backups done on drive '
+										''Backup'' AS FindingsGroup ,
+										''Backing Up to Same Drive Where Databases Reside'' AS Finding ,
+										''https://www.brentozar.com/go/backup'' AS URL ,
+										CAST(COUNT(1) AS VARCHAR(50)) + '' backups done on drive ''
 										+ UPPER(LEFT(bmf.physical_device_name, 3))
-										+ ' in the last two weeks, where database files also live. This represents a serious risk if that array fails.' Details
+										+ '' in the last two weeks, where database files also live. This represents a serious risk if that array fails.'' Details
 								FROM    msdb.dbo.backupmediafamily AS bmf
 										INNER JOIN msdb.dbo.backupset AS bs ON bmf.media_set_id = bs.media_set_id
 																  AND bs.backup_start_date >= ( DATEADD(dd,
 																  -14, GETDATE()) )
 										/* Filter out databases that were recently restored: */
 										LEFT OUTER JOIN msdb.dbo.restorehistory rh ON bs.database_name = rh.destination_database_name AND rh.restore_date > DATEADD(dd, -14, GETDATE())
-								WHERE   UPPER(LEFT(bmf.physical_device_name, 3)) <> 'HTT' AND
-                                        bmf.physical_device_name NOT LIKE '\\%' AND -- GitHub Issue #2141
+								WHERE   UPPER(LEFT(bmf.physical_device_name, 3)) <> ''HTT'' AND
+                                        bmf.physical_device_name NOT LIKE ''\\%'' AND -- GitHub Issue #2141
                                         @IsWindowsOperatingSystem = 1 AND -- GitHub Issue #1995
                                         UPPER(LEFT(bmf.physical_device_name COLLATE SQL_Latin1_General_CP1_CI_AS, 3)) IN (
 										SELECT DISTINCT
@@ -1698,7 +1784,10 @@ BEGIN
 										FROM    sys.master_files AS mf
 									    WHERE mf.database_id <> 2 )
 										AND rh.destination_database_name IS NULL
-								GROUP BY UPPER(LEFT(bmf.physical_device_name, 3));
+								GROUP BY UPPER(LEFT(bmf.physical_device_name, 3));',
+							N'@IsWindowsOperatingSystem BIT',
+							@IsWindowsOperatingSystem = @IsWindowsOperatingSystem;
+						END;
 					END;
 
 					IF NOT EXISTS ( SELECT  1
@@ -1727,6 +1816,19 @@ BEGIN
 							
 							EXECUTE(@StringToExecute);
 						END;
+                     /* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+                     SET @CrossDBExists = 0;
+                     IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+                     	AND NOT EXISTS ( SELECT  1
+                     	                 FROM    #SkipChecks
+                     	                 WHERE   DatabaseName IS NULL AND CheckID = 202 )
+                     BEGIN
+                     EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS ( SELECT *
+									 FROM   msdb.INFORMATION_SCHEMA.COLUMNS c
+									 WHERE  c.TABLE_NAME = ''backupset'' AND c.COLUMN_NAME = ''encryptor_thumbprint'' );',
+                         N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+                     END;
+
 
                      IF NOT EXISTS ( SELECT  1
 									FROM    #SkipChecks
@@ -1734,9 +1836,7 @@ BEGIN
 						AND EXISTS ( SELECT *
 									 FROM   sys.all_columns c
 									 WHERE  c.name = 'pvt_key_last_backup_date' )
-						AND EXISTS ( SELECT *
-									 FROM   msdb.INFORMATION_SCHEMA.COLUMNS c
-									 WHERE  c.TABLE_NAME = 'backupset' AND c.COLUMN_NAME = 'encryptor_thumbprint' )
+						AND (@CrossDBExists = 1)
 						BEGIN
 
 							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 202) WITH NOWAIT;
@@ -1762,11 +1862,23 @@ BEGIN
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 3 )
 					BEGIN
-						IF DATEADD(dd, -60, GETDATE()) > (SELECT TOP 1 backup_start_date FROM msdb.dbo.backupset ORDER BY backup_start_date)
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						SET @CrossDBDate = NULL;
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'SELECT @r = (SELECT TOP 1 backup_start_date FROM msdb.dbo.backupset ORDER BY backup_start_date);',
+						    N'@r DATETIME OUTPUT', @r = @CrossDBDate OUTPUT;
+						END;
+
+						IF DATEADD(dd, -60, GETDATE()) > @CrossDBDate
 
 						BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 3) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1779,17 +1891,18 @@ BEGIN
 								)
 								SELECT TOP 1
 										3 AS CheckID ,
-										'msdb' ,
+										''msdb'' ,
 										200 AS Priority ,
-										'Backup' AS FindingsGroup ,
-										'MSDB Backup History Not Purged' AS Finding ,
-										'https://www.brentozar.com/go/history' AS URL ,
-										( 'Database backup history retained back to '
+										''Backup'' AS FindingsGroup ,
+										''MSDB Backup History Not Purged'' AS Finding ,
+										''https://www.brentozar.com/go/history'' AS URL ,
+										( ''Database backup history retained back to ''
 										  + CAST(bs.backup_start_date AS VARCHAR(20)) ) AS Details
 								FROM    msdb.dbo.backupset bs
                                 LEFT OUTER JOIN msdb.dbo.restorehistory rh ON bs.database_name = rh.destination_database_name
                                 WHERE rh.destination_database_name IS NULL
-								ORDER BY bs.backup_start_date ASC;
+								ORDER BY bs.backup_start_date ASC;';
+						END;
 						END;
 					END;
 
@@ -1797,11 +1910,23 @@ BEGIN
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 186 )
 					BEGIN
-						IF DATEADD(dd, -2, GETDATE()) < (SELECT TOP 1 backup_start_date FROM msdb.dbo.backupset ORDER BY backup_start_date)
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						SET @CrossDBDate = NULL;
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'SELECT @r = (SELECT TOP 1 backup_start_date FROM msdb.dbo.backupset ORDER BY backup_start_date);',
+						    N'@r DATETIME OUTPUT', @r = @CrossDBDate OUTPUT;
+						END;
+
+						IF DATEADD(dd, -2, GETDATE()) < @CrossDBDate
 
 						BEGIN
 							
 							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 186) WITH NOWAIT;
+							/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+							IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+							BEGIN
+							EXEC sys.sp_executesql N'
 							
 							INSERT  INTO #BlitzResults
 									( CheckID ,
@@ -1814,30 +1939,46 @@ BEGIN
 									)
 									SELECT TOP 1
 											186 AS CheckID ,
-											'msdb' ,
+											''msdb'' ,
 											200 AS Priority ,
-											'Backup' AS FindingsGroup ,
-											'MSDB Backup History Purged Too Frequently' AS Finding ,
-											'https://www.brentozar.com/go/history' AS URL ,
-											( 'Database backup history only retained back to '
+											''Backup'' AS FindingsGroup ,
+											''MSDB Backup History Purged Too Frequently'' AS Finding ,
+											''https://www.brentozar.com/go/history'' AS URL ,
+											( ''Database backup history only retained back to ''
 											  + CAST(bs.backup_start_date AS VARCHAR(20)) ) AS Details
 									FROM    msdb.dbo.backupset bs
-									ORDER BY backup_start_date ASC;
+									ORDER BY backup_start_date ASC;';
+							END;
 						END;
 					END;
+				/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+				SET @CrossDBExists = 0;
+				IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+					AND NOT EXISTS ( SELECT  1
+					                 FROM    #SkipChecks
+					                 WHERE   DatabaseName IS NULL AND CheckID = 178 )
+				BEGIN
+				EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS (SELECT *
+									FROM msdb.dbo.backupset bs
+									WHERE bs.type = ''D''
+									AND bs.backup_size >= 50000000000 /* At least 50GB */
+									AND DATEDIFF(SECOND, bs.backup_start_date, bs.backup_finish_date) <= 60 /* Backup took less than 60 seconds */
+									AND bs.backup_finish_date >= DATEADD(DAY, -14, GETDATE()) /* In the last 2 weeks */);',
+				    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+				END;
+
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 178 )
-					AND EXISTS (SELECT *
-									FROM msdb.dbo.backupset bs
-									WHERE bs.type = 'D'
-									AND bs.backup_size >= 50000000000 /* At least 50GB */
-									AND DATEDIFF(SECOND, bs.backup_start_date, bs.backup_finish_date) <= 60 /* Backup took less than 60 seconds */
-									AND bs.backup_finish_date >= DATEADD(DAY, -14, GETDATE()) /* In the last 2 weeks */)
+					AND (@CrossDBExists = 1)
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 178) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 						
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1849,15 +1990,16 @@ BEGIN
 								)
 								SELECT 178 AS CheckID ,
 										200 AS Priority ,
-										'Performance' AS FindingsGroup ,
-										'Snapshot Backups Occurring' AS Finding ,
-										'https://www.brentozar.com/go/snaps' AS URL ,
-										( CAST(COUNT(*) AS VARCHAR(20)) + ' snapshot-looking backups have occurred in the last two weeks, indicating that IO may be freezing up.') AS Details
+										''Performance'' AS FindingsGroup ,
+										''Snapshot Backups Occurring'' AS Finding ,
+										''https://www.brentozar.com/go/snaps'' AS URL ,
+										( CAST(COUNT(*) AS VARCHAR(20)) + '' snapshot-looking backups have occurred in the last two weeks, indicating that IO may be freezing up.'') AS Details
 								FROM msdb.dbo.backupset bs
-								WHERE bs.type = 'D'
+								WHERE bs.type = ''D''
 								AND bs.backup_size >= 50000000000 /* At least 50GB */
 								AND DATEDIFF(SECOND, bs.backup_start_date, bs.backup_finish_date) <= 60 /* Backup took less than 60 seconds */
-								AND bs.backup_finish_date >= DATEADD(DAY, -14, GETDATE()); /* In the last 2 weeks */
+								AND bs.backup_finish_date >= DATEADD(DAY, -14, GETDATE());';
+						END; /* In the last 2 weeks */
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -1866,6 +2008,10 @@ BEGIN
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 236) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 						
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1877,16 +2023,17 @@ BEGIN
 								)
 								SELECT TOP 1 236 AS CheckID ,
 										50 AS Priority ,
-										'Performance' AS FindingsGroup ,
-										'Snapshotting Too Many Databases' AS Finding ,
-										'https://www.brentozar.com/go/toomanysnaps' AS URL ,
-										( CAST(SUM(1) AS VARCHAR(20)) + ' databases snapshotted at once in the last two weeks, indicating that IO may be freezing up. Microsoft does not recommend VSS snaps for 35 or more databases.') AS Details
+										''Performance'' AS FindingsGroup ,
+										''Snapshotting Too Many Databases'' AS Finding ,
+										''https://www.brentozar.com/go/toomanysnaps'' AS URL ,
+										( CAST(SUM(1) AS VARCHAR(20)) + '' databases snapshotted at once in the last two weeks, indicating that IO may be freezing up. Microsoft does not recommend VSS snaps for 35 or more databases.'') AS Details
 								FROM msdb.dbo.backupset bs
-								WHERE bs.type = 'D'
+								WHERE bs.type = ''D''
 								AND bs.backup_finish_date >= DATEADD(DAY, -14, GETDATE()) /* In the last 2 weeks */
 								GROUP BY bs.backup_finish_date
 								HAVING SUM(1) >= 35
-								ORDER BY SUM(1) DESC;
+								ORDER BY SUM(1) DESC;';
+						END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -1895,6 +2042,10 @@ BEGIN
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 4) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 						
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1906,17 +2057,18 @@ BEGIN
 								)
 								SELECT  4 AS CheckID ,
 										230 AS Priority ,
-										'Security' AS FindingsGroup ,
-										'Sysadmins' AS Finding ,
-										'https://www.brentozar.com/go/sa' AS URL ,
-										( 'Login [' + l.name
-										  + '] is a sysadmin - meaning they can do absolutely anything in SQL Server, including dropping databases or hiding their tracks.' ) AS Details
+										''Security'' AS FindingsGroup ,
+										''Sysadmins'' AS Finding ,
+										''https://www.brentozar.com/go/sa'' AS URL ,
+										( ''Login ['' + l.name
+										  + ''] is a sysadmin - meaning they can do absolutely anything in SQL Server, including dropping databases or hiding their tracks.'' ) AS Details
 								FROM    master.sys.syslogins l
 								WHERE   l.sysadmin = 1
 										AND l.name <> SUSER_SNAME(0x01)
 										AND l.denylogin = 0
-										AND l.name NOT LIKE 'NT SERVICE\%'
-										AND l.name <> 'l_certSignSmDetach'; /* Added in SQL 2016 */
+										AND l.name NOT LIKE ''NT SERVICE\%''
+										AND l.name <> ''l_certSignSmDetach'';';
+						END; /* Added in SQL 2016 */
 					END;
 
                     IF NOT EXISTS ( SELECT  1
@@ -1962,6 +2114,10 @@ BEGIN
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 5) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 						
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1973,15 +2129,16 @@ BEGIN
 								)
 								SELECT  5 AS CheckID ,
 										230 AS Priority ,
-										'Security' AS FindingsGroup ,
-										'Security Admins' AS Finding ,
-										'https://www.brentozar.com/go/sa' AS URL ,
-										( 'Login [' + l.name
-										  + '] is a security admin - meaning they can give themselves permission to do absolutely anything in SQL Server, including dropping databases or hiding their tracks.' ) AS Details
+										''Security'' AS FindingsGroup ,
+										''Security Admins'' AS Finding ,
+										''https://www.brentozar.com/go/sa'' AS URL ,
+										( ''Login ['' + l.name
+										  + ''] is a security admin - meaning they can give themselves permission to do absolutely anything in SQL Server, including dropping databases or hiding their tracks.'' ) AS Details
 								FROM    master.sys.syslogins l
 								WHERE   l.securityadmin = 1
 										AND l.name <> SUSER_SNAME(0x01)
-										AND l.denylogin = 0;
+										AND l.denylogin = 0;';
+						END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -2026,6 +2183,10 @@ BEGIN
 						
 						IF @UsualOwnerOfJobs IS NULL
 							SET @UsualOwnerOfJobs = SUSER_SNAME(0x01);
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2037,15 +2198,18 @@ BEGIN
 								)
 								SELECT  6 AS CheckID ,
 										230 AS Priority ,
-										'Security' AS FindingsGroup ,
-										'Jobs Owned By Users' AS Finding ,
-										'https://www.brentozar.com/go/owners' AS URL ,
-										( 'Job [' + j.name + '] is owned by ['
+										''Security'' AS FindingsGroup ,
+										''Jobs Owned By Users'' AS Finding ,
+										''https://www.brentozar.com/go/owners'' AS URL ,
+										( ''Job ['' + j.name + ''] is owned by [''
 										  + SUSER_SNAME(j.owner_sid)
-										  + '] - meaning if their login is disabled or not available due to Active Directory problems, the job will stop working.' ) AS Details
+										  + ''] - meaning if their login is disabled or not available due to Active Directory problems, the job will stop working.'' ) AS Details
 								FROM    msdb.dbo.sysjobs j
 								WHERE   j.enabled = 1
-										AND SUSER_SNAME(j.owner_sid) <> @UsualOwnerOfJobs;
+										AND SUSER_SNAME(j.owner_sid) <> @UsualOwnerOfJobs;',
+						    N'@UsualOwnerOfJobs SYSNAME',
+						    @UsualOwnerOfJobs = @UsualOwnerOfJobs;
+						END;
 					END;
 
 				/* --TOURSTOP06-- */
@@ -2056,6 +2220,10 @@ BEGIN
 						/* --TOURSTOP02-- */
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 7) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 						
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2067,16 +2235,17 @@ BEGIN
 								)
 								SELECT  7 AS CheckID ,
 										230 AS Priority ,
-										'Security' AS FindingsGroup ,
-										'Stored Procedure Runs at Startup' AS Finding ,
-										'https://www.brentozar.com/go/startup' AS URL ,
-										( 'Stored procedure [master].['
-										  + r.SPECIFIC_SCHEMA + '].['
+										''Security'' AS FindingsGroup ,
+										''Stored Procedure Runs at Startup'' AS Finding ,
+										''https://www.brentozar.com/go/startup'' AS URL ,
+										( ''Stored procedure [master].[''
+										  + r.SPECIFIC_SCHEMA + ''].[''
 										  + r.SPECIFIC_NAME
-										  + '] runs automatically when SQL Server starts up.  Make sure you know exactly what this stored procedure is doing, because it could pose a security risk.' ) AS Details
+										  + ''] runs automatically when SQL Server starts up.  Make sure you know exactly what this stored procedure is doing, because it could pose a security risk.'' ) AS Details
 								FROM    master.INFORMATION_SCHEMA.ROUTINES r
 								WHERE   OBJECTPROPERTY(OBJECT_ID(ROUTINE_NAME),
-													   'ExecIsStartup') = 1;
+													   ''ExecIsStartup'') = 1;';
+						END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -2750,6 +2919,10 @@ BEGIN
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 27) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 						
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2761,19 +2934,20 @@ BEGIN
 								  Details
 								)
 								SELECT  27 AS CheckID ,
-										'master' AS DatabaseName ,
+										''master'' AS DatabaseName ,
 										200 AS Priority ,
-										'Informational' AS FindingsGroup ,
-										'Tables in the Master Database' AS Finding ,
-										'https://www.brentozar.com/go/mastuser' AS URL ,
-										( 'The ' + name
-										  + ' table in the master database was created by end users on '
+										''Informational'' AS FindingsGroup ,
+										''Tables in the Master Database'' AS Finding ,
+										''https://www.brentozar.com/go/mastuser'' AS URL ,
+										( ''The '' + name
+										  + '' table in the master database was created by end users on ''
 										  + CAST(create_date AS VARCHAR(20))
-										  + '. Tables in the master database may not be restored in the event of a disaster.' ) AS Details
+										  + ''. Tables in the master database may not be restored in the event of a disaster.'' ) AS Details
 								FROM    master.sys.tables
 								WHERE   is_ms_shipped = 0
-                                  AND   name NOT IN ('CommandLog','SqlServerVersions','$ndo$srvproperty')
-								  AND	name NOT LIKE 'rds^_%' ESCAPE '^';
+                                  AND   name NOT IN (''CommandLog'',''SqlServerVersions'',''$ndo$srvproperty'')
+								  AND	name NOT LIKE ''rds^_%'' ESCAPE ''^'';';
+						END;
 								  /* That last one is the Dynamics NAV licensing table: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2426 */
 					END;
 
@@ -2783,6 +2957,10 @@ BEGIN
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 28) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 						
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2794,17 +2972,18 @@ BEGIN
 								  Details
 								)
 								SELECT  28 AS CheckID ,
-								        'msdb' AS DatabaseName ,
+								        ''msdb'' AS DatabaseName ,
 										200 AS Priority ,
-										'Informational' AS FindingsGroup ,
-										'Tables in the MSDB Database' AS Finding ,
-										'https://www.brentozar.com/go/msdbuser' AS URL ,
-										( 'The ' + name
-										  + ' table in the msdb database was created by end users on '
+										''Informational'' AS FindingsGroup ,
+										''Tables in the MSDB Database'' AS Finding ,
+										''https://www.brentozar.com/go/msdbuser'' AS URL ,
+										( ''The '' + name
+										  + '' table in the msdb database was created by end users on ''
 										  + CAST(create_date AS VARCHAR(20))
-										  + '. Tables in the msdb database may not be restored in the event of a disaster.' ) AS Details
+										  + ''. Tables in the msdb database may not be restored in the event of a disaster.'' ) AS Details
 								FROM    msdb.sys.tables
-								WHERE   is_ms_shipped = 0 AND name NOT LIKE '%DTA_%';
+								WHERE   is_ms_shipped = 0 AND name NOT LIKE ''%DTA_%'';';
+						END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -2813,6 +2992,10 @@ BEGIN
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 29) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 						
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2824,27 +3007,36 @@ BEGIN
 								  Details
 								)
 								SELECT  29 AS CheckID ,
-								        'model' AS DatabaseName ,
+								        ''model'' AS DatabaseName ,
 										200 AS Priority ,
-										'Informational' AS FindingsGroup ,
-										'Tables in the Model Database' AS Finding ,
-										'https://www.brentozar.com/go/model' AS URL ,
-										( 'The ' + name
-										  + ' table in the model database was created by end users on '
+										''Informational'' AS FindingsGroup ,
+										''Tables in the Model Database'' AS Finding ,
+										''https://www.brentozar.com/go/model'' AS URL ,
+										( ''The '' + name
+										  + '' table in the model database was created by end users on ''
 										  + CAST(create_date AS VARCHAR(20))
-										  + '. Tables in the model database are automatically copied into all new databases.' ) AS Details
+										  + ''. Tables in the model database are automatically copied into all new databases.'' ) AS Details
 								FROM    model.sys.tables
-								WHERE   is_ms_shipped = 0;
+								WHERE   is_ms_shipped = 0;';
+						END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 30 )
 					BEGIN
-						IF ( SELECT COUNT(*)
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						SET @CrossDBCount = NULL;
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'SELECT @r = ( SELECT COUNT(*)
 							 FROM   msdb.dbo.sysalerts
 							 WHERE  severity BETWEEN 19 AND 25
-						   ) < 7
+						   );',
+						    N'@r INT OUTPUT', @r = @CrossDBCount OUTPUT;
+						END;
+
+						IF @CrossDBCount < 7
 
 						   BEGIN
 
@@ -2871,11 +3063,19 @@ BEGIN
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 59 )
 					BEGIN
-						IF EXISTS ( SELECT  *
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						SET @CrossDBExists = 0;
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS ( SELECT  *
 									FROM    msdb.dbo.sysalerts
 									WHERE   enabled = 1
 											AND COALESCE(has_notification, 0) = 0
-											AND (job_id IS NULL OR job_id = 0x))
+											AND (job_id IS NULL OR job_id = 0x));',
+						    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+						END;
+
+						IF (@CrossDBExists = 1)
 
 							BEGIN
 							
@@ -2903,9 +3103,17 @@ BEGIN
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 96 )
 					BEGIN
-						IF NOT EXISTS ( SELECT  *
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						SET @CrossDBExists = 0;
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS ( SELECT  *
 										FROM    msdb.dbo.sysalerts
-										WHERE   message_id IN ( 823, 824, 825 ) )
+										WHERE   message_id IN ( 823, 824, 825 ) );',
+						    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+						END;
+
+						IF NOT (@CrossDBExists = 1)
 							
 							BEGIN;
 							
@@ -2933,9 +3141,17 @@ BEGIN
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 61 )
 					BEGIN
-						IF NOT EXISTS ( SELECT  *
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						SET @CrossDBExists = 0;
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS ( SELECT  *
 										FROM    msdb.dbo.sysalerts
-										WHERE   severity BETWEEN 19 AND 25 )
+										WHERE   severity BETWEEN 19 AND 25 );',
+						    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+						END;
+
+						IF NOT (@CrossDBExists = 1)
 							
 							BEGIN
 							
@@ -2965,13 +3181,25 @@ BEGIN
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 98 )
 					BEGIN
-						IF EXISTS ( SELECT  name
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						SET @CrossDBExists = 0;
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS ( SELECT  name
 									FROM    msdb.dbo.sysalerts
-									WHERE   enabled = 0 )
+									WHERE   enabled = 0 );',
+						    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+						END;
+
+						IF (@CrossDBExists = 1)
 							
 							BEGIN
 							
 							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 98) WITH NOWAIT;
+							/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+							IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+							BEGIN
+							EXEC sys.sp_executesql N'
 							
 							INSERT  INTO #BlitzResults
 									( CheckID ,
@@ -2983,13 +3211,14 @@ BEGIN
 									)
 									SELECT  98 AS CheckID ,
 											200 AS Priority ,
-											'Monitoring' AS FindingsGroup ,
-											'Alerts Disabled' AS Finding ,
-											'https://www.brentozar.com/go/alert' AS URL ,
-											( 'The following Alert is disabled, please review and enable if desired: '
+											''Monitoring'' AS FindingsGroup ,
+											''Alerts Disabled'' AS Finding ,
+											''https://www.brentozar.com/go/alert'' AS URL ,
+											( ''The following Alert is disabled, please review and enable if desired: ''
 											  + name ) AS Details
 									FROM    msdb.dbo.sysalerts
-									WHERE   enabled = 0;
+									WHERE   enabled = 0;';
+							END;
 			END;
 		END;
 
@@ -3005,6 +3234,10 @@ BEGIN
 			BEGIN;
 				RAISERROR ('Running CheckId [%d].', 0, 1, 219) WITH NOWAIT;
 			END;
+			/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+			IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+			BEGIN
+			EXEC sys.sp_executesql N'
 
 			INSERT INTO #BlitzResults (
 				CheckID
@@ -3016,15 +3249,16 @@ BEGIN
 				)
 			SELECT 219 AS CheckID
 				,200 AS [Priority]
-				,'Monitoring' AS FindingsGroup
-				,'Alerts Without Event Descriptions' AS Finding
-				,'https://www.brentozar.com/go/alert' AS [URL]
-				,('The following Alert is not including detailed event descriptions in its output messages: ' + QUOTENAME([name])
-				+ '. You can fix it by ticking the relevant boxes in its Properties --> Options page.') AS Details
+				,''Monitoring'' AS FindingsGroup
+				,''Alerts Without Event Descriptions'' AS Finding
+				,''https://www.brentozar.com/go/alert'' AS [URL]
+				,(''The following Alert is not including detailed event descriptions in its output messages: '' + QUOTENAME([name])
+				+ ''. You can fix it by ticking the relevant boxes in its Properties --> Options page.'') AS Details
 			FROM msdb.dbo.sysalerts
 			WHERE [enabled] = 1
 			  AND include_event_description = 0 --bitmask: 1 = email, 2 = pager, 4 = net send
-			;
+			;';
+			END;
 		END;
 
 		--check whether we have NO ENABLED operators!
@@ -3032,9 +3266,17 @@ BEGIN
 						FROM    #SkipChecks
 						WHERE   DatabaseName IS NULL AND CheckID = 31 )
 		BEGIN;
-						IF NOT EXISTS ( SELECT  *
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						SET @CrossDBExists = 0;
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS ( SELECT  *
 										FROM    msdb.dbo.sysoperators
-										WHERE   enabled = 1 )
+										WHERE   enabled = 1 );',
+						    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+						END;
+
+						IF NOT (@CrossDBExists = 1)
 							
 							BEGIN
 							
@@ -3144,9 +3386,17 @@ BEGIN
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 90 )
 					BEGIN
-						IF EXISTS ( SELECT  *
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						SET @CrossDBExists = 0;
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS ( SELECT  *
 									FROM    msdb.sys.all_objects
-									WHERE   name = 'suspect_pages' )
+									WHERE   name = ''suspect_pages'' );',
+						    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+						END;
+
+						IF (@CrossDBExists = 1)
 							BEGIN
 
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 90) WITH NOWAIT;
@@ -3676,6 +3926,10 @@ BEGIN
 					BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 57) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -3687,16 +3941,17 @@ BEGIN
 								)
 								SELECT  57 AS CheckID ,
 										230 AS Priority ,
-										'Security' AS FindingsGroup ,
-										'SQL Agent Job Runs at Startup' AS Finding ,
-										'https://www.brentozar.com/go/startup' AS URL ,
-										( 'Job [' + j.name
-										  + '] runs automatically when SQL Server Agent starts up.  Make sure you know exactly what this job is doing, because it could pose a security risk.' ) AS Details
+										''Security'' AS FindingsGroup ,
+										''SQL Agent Job Runs at Startup'' AS Finding ,
+										''https://www.brentozar.com/go/startup'' AS URL ,
+										( ''Job ['' + j.name
+										  + ''] runs automatically when SQL Server Agent starts up.  Make sure you know exactly what this job is doing, because it could pose a security risk.'' ) AS Details
 								FROM    msdb.dbo.sysschedules sched
 										JOIN msdb.dbo.sysjobschedules jsched ON sched.schedule_id = jsched.schedule_id
 										JOIN msdb.dbo.sysjobs j ON jsched.job_id = j.job_id
 								WHERE   sched.freq_type = 64
-								        AND sched.enabled = 1;
+								        AND sched.enabled = 1;';
+						END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -3795,7 +4050,11 @@ BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 94) WITH NOWAIT;
 
-						;WITH las_job_run AS (
+						;
+/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+BEGIN
+EXEC sys.sp_executesql N'WITH las_job_run AS (
 											SELECT  MAX(instance_id) AS instance_id, 
 													job_id, COUNT_BIG(*) AS job_executions,
 													SUM(CASE WHEN run_status = 0 THEN 1 ELSE 0 END) AS failed_executions
@@ -3813,30 +4072,30 @@ BEGIN
 								)
 								SELECT  94 AS CheckID ,
 										200 AS [Priority] ,
-										'Monitoring' AS FindingsGroup ,
-										'Agent Jobs Without Failure Emails' AS Finding ,
-										'https://www.brentozar.com/go/alerts' AS URL ,
-										'The job ' + [name]
-										+ ' has not been set up to notify an operator if it fails.' 
+										''Monitoring'' AS FindingsGroup ,
+										''Agent Jobs Without Failure Emails'' AS Finding ,
+										''https://www.brentozar.com/go/alerts'' AS URL ,
+										''The job '' + [name]
+										+ '' has not been set up to notify an operator if it fails.'' 
 										+ CASE 
-											WHEN jh.run_date IS NULL OR jh.run_time IS NULL OR jh.run_status IS NULL THEN ''
-											ELSE N' Executions: '+ CAST(ljr.job_executions AS VARCHAR(30)) 
+											WHEN jh.run_date IS NULL OR jh.run_time IS NULL OR jh.run_status IS NULL THEN ''''
+											ELSE N'' Executions: ''+ CAST(ljr.job_executions AS VARCHAR(30)) 
 												+ CASE ljr.failed_executions
-													WHEN 0 THEN N''
-													ELSE N' ('+CAST(ljr.failed_executions AS NVARCHAR(10)) + N' failed)'
+													WHEN 0 THEN N''''
+													ELSE N'' (''+CAST(ljr.failed_executions AS NVARCHAR(10)) + N'' failed)''
 													END
-												+ N' - last execution started on '
+												+ N'' - last execution started on ''
 												+ CAST(CONVERT(DATE,CAST(jh.run_date AS NVARCHAR(8)),113) AS NVARCHAR(10)) 
-												+ N', at ' 
-												+ STUFF(STUFF(RIGHT(N'000000' + CAST(jh.run_time AS varchar(6)),6),3,0,N':'),6,0,N':')
-												+ N', with status "'
+												+ N'', at '' 
+												+ STUFF(STUFF(RIGHT(N''000000'' + CAST(jh.run_time AS varchar(6)),6),3,0,N'':''),6,0,N'':'')
+												+ N'', with status "''
 												+ CASE jh.run_status 
-														WHEN 0 THEN N'Failed'
-														WHEN 1 THEN N'Succeeded'
-														WHEN 2 THEN N'Retry'
-														WHEN 3 THEN N'Canceled'
-														WHEN 4 THEN N'In Progress'
-													END +N'".'
+														WHEN 0 THEN N''Failed''
+														WHEN 1 THEN N''Succeeded''
+														WHEN 2 THEN N''Retry''
+														WHEN 3 THEN N''Canceled''
+														WHEN 4 THEN N''In Progress''
+													END +N''".''
 											END	AS Details
 								FROM    msdb.[dbo].[sysjobs] j
 										LEFT JOIN las_job_run ljr 
@@ -3847,7 +4106,8 @@ BEGIN
 										AND j.notify_email_operator_id = 0
 										AND j.notify_netsend_operator_id = 0
 										AND j.notify_page_operator_id = 0
-										AND j.category_id <> 100; /* Exclude SSRS category */
+										AND j.category_id <> 100;';
+END; /* Exclude SSRS category */
 					END;
 
 				IF EXISTS ( SELECT  1
@@ -3906,7 +4166,7 @@ BEGIN
 					IF NOT EXISTS ( SELECT  1
 									FROM    #SkipChecks
 									WHERE   DatabaseName IS NULL AND CheckID = 110 )
-								AND EXISTS (SELECT * FROM master.sys.all_objects WHERE name = 'dm_os_memory_nodes')
+								AND EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_os_memory_nodes')
 						BEGIN
 
 							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 110) WITH NOWAIT;
@@ -3965,15 +4225,30 @@ BEGIN
 								FROM    sys.databases
 								WHERE   state > 1;
 					END;
+				/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+				SET @CrossDBExists = 0;
+				IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+					AND NOT EXISTS ( SELECT  1
+					                 FROM    #SkipChecks
+					                 WHERE   DatabaseName IS NULL AND CheckID = 105 )
+				BEGIN
+				EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS ( SELECT  *
+							FROM    master.sys.extended_procedures );',
+				    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+				END;
 
-				IF EXISTS ( SELECT  *
-							FROM    master.sys.extended_procedures )
+
+				IF (@CrossDBExists = 1)
 					AND NOT EXISTS ( SELECT 1
 									 FROM   #SkipChecks
 									 WHERE  DatabaseName IS NULL AND CheckID = 105 )
 					BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 105) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -3985,14 +4260,15 @@ BEGIN
 								  Details
 								)
 								SELECT  105 AS CheckID ,
-										'master' ,
+										''master'' ,
 										200 AS Priority ,
-										'Reliability' AS FindingGroup ,
-										'Extended Stored Procedures in Master' AS Finding ,
-										'https://www.brentozar.com/go/clr' AS URL ,
-										'The [' + name
-										+ '] extended stored procedure is in the master database. CLR may be in use, and the master database now needs to be part of your backup/recovery planning.'
-								FROM    master.sys.extended_procedures;
+										''Reliability'' AS FindingGroup ,
+										''Extended Stored Procedures in Master'' AS Finding ,
+										''https://www.brentozar.com/go/clr'' AS URL ,
+										''The ['' + name
+										+ ''] extended stored procedure is in the master database. CLR may be in use, and the master database now needs to be part of your backup/recovery planning.''
+								FROM    master.sys.extended_procedures;';
+						END;
 					END;
 
 					IF NOT EXISTS ( SELECT 1
@@ -4090,6 +4366,10 @@ BEGIN
 						BEGIN
 
 							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 111) WITH NOWAIT;
+							/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+							IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+							BEGIN
+							EXEC sys.sp_executesql N'
 
 							INSERT  INTO #BlitzResults
 									( CheckID ,
@@ -4102,11 +4382,11 @@ BEGIN
 									)
 									SELECT  111 AS CheckID ,
 											50 AS Priority ,
-											'Reliability' AS FindingGroup ,
-											'Possibly Broken Log Shipping'  AS Finding ,
+											''Reliability'' AS FindingGroup ,
+											''Possibly Broken Log Shipping''  AS Finding ,
 											d.[name] ,
-											'https://www.brentozar.com/go/shipping' AS URL ,
-											d.[name] + ' is in a restoring state, but has not had a backup applied in the last two days. This is a possible indication of a broken transaction log shipping setup.'
+											''https://www.brentozar.com/go/shipping'' AS URL ,
+											d.[name] + '' is in a restoring state, but has not had a backup applied in the last two days. This is a possible indication of a broken transaction log shipping setup.''
 											FROM [master].sys.databases d
 											INNER JOIN [master].sys.database_mirroring dm ON d.database_id = dm.database_id
 												AND dm.mirroring_role IS NULL
@@ -4115,14 +4395,15 @@ BEGIN
 											AND NOT EXISTS(SELECT * FROM msdb.dbo.restorehistory rh
 											INNER JOIN msdb.dbo.backupset bs ON rh.backup_set_id = bs.backup_set_id
 											WHERE d.[name] COLLATE SQL_Latin1_General_CP1_CI_AS = rh.destination_database_name COLLATE SQL_Latin1_General_CP1_CI_AS
-											AND rh.restore_date >= DATEADD(dd, -2, GETDATE()));
+											AND rh.restore_date >= DATEADD(dd, -2, GETDATE()));';
+							END;
 
 						END;
 
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 112 )
-									AND EXISTS (SELECT * FROM master.sys.all_objects WHERE name = 'change_tracking_databases')
+									AND EXISTS (SELECT * FROM sys.all_objects WHERE name = 'change_tracking_databases')
 							BEGIN
 
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 112) WITH NOWAIT;
@@ -4148,11 +4429,22 @@ BEGIN
 										
 										EXECUTE(@StringToExecute);
 							END;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						SET @CrossDBExists = 0;
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+							AND NOT EXISTS ( SELECT  1
+							                 FROM    #SkipChecks
+							                 WHERE   DatabaseName IS NULL AND CheckID = 116 )
+						BEGIN
+						EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS (SELECT * FROM msdb.sys.all_columns WHERE name = ''compressed_backup_size'');',
+						    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+						END;
+
 
 						IF NOT EXISTS ( SELECT 1
 										 FROM   #SkipChecks
 										 WHERE  DatabaseName IS NULL AND CheckID = 116 )
-									AND EXISTS (SELECT * FROM msdb.sys.all_columns WHERE name = 'compressed_backup_size')
+									AND (@CrossDBExists = 1)
 						BEGIN
 
 							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 116) WITH NOWAIT
@@ -4184,7 +4476,7 @@ BEGIN
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 117 )
-									AND EXISTS (SELECT * FROM master.sys.all_objects WHERE name = 'dm_exec_query_resource_semaphores')
+									AND EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_exec_query_resource_semaphores')
 							BEGIN
 								
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 117) WITH NOWAIT;
@@ -6019,8 +6311,12 @@ IF NOT EXISTS ( SELECT  1
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 180) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 					
-						WITH XMLNAMESPACES ('www.microsoft.com/SqlServer/Dts' AS [dts])
+						WITH XMLNAMESPACES (''www.microsoft.com/SqlServer/Dts'' AS [dts])
 						,[maintenance_plan_steps] AS (
 							SELECT [name]
 								, [id] -- ID required to link maintenace plan with jobs and jobhistory (sp_Blitz Issue #776)							
@@ -6039,18 +6335,18 @@ IF NOT EXISTS ( SELECT  1
 						180 AS [CheckID] ,
 						-- sp_Blitz Issue #776
 						-- Job has history and was executed in the last 30 days
-						CASE WHEN (cast(datediff(dd, substring(cast(sjh.run_date as nvarchar(10)), 1, 4) + '-' + substring(cast(sjh.run_date as nvarchar(10)), 5, 2) + '-' + substring(cast(sjh.run_date as nvarchar(10)), 7, 2), GETDATE()) AS INT) < 30) OR (j.[enabled] = 1 AND ssc.[enabled] = 1 )THEN
+						CASE WHEN (cast(datediff(dd, substring(cast(sjh.run_date as nvarchar(10)), 1, 4) + ''-'' + substring(cast(sjh.run_date as nvarchar(10)), 5, 2) + ''-'' + substring(cast(sjh.run_date as nvarchar(10)), 7, 2), GETDATE()) AS INT) < 30) OR (j.[enabled] = 1 AND ssc.[enabled] = 1 )THEN
 						    100
 						ELSE -- no job history (implicit) AND job not run in the past 30 days AND (Job disabled OR Job Schedule disabled)
 					        200
 						END AS Priority,
-						'Performance' AS [FindingsGroup] ,
-						'Shrink Database Step In Maintenance Plan' AS [Finding] ,
-						'https://www.brentozar.com/go/autoshrink' AS [URL] ,									
-						'The maintenance plan ' + [mps].[name] + ' has a step to shrink databases in it. Shrinking databases is as outdated as maintenance plans.'
-						+ CASE WHEN COALESCE(ssc.name,'0') != '0' THEN + ' (Schedule: [' + ssc.name + '])' ELSE + '' END AS [Details]
+						''Performance'' AS [FindingsGroup] ,
+						''Shrink Database Step In Maintenance Plan'' AS [Finding] ,
+						''https://www.brentozar.com/go/autoshrink'' AS [URL] ,									
+						''The maintenance plan '' + [mps].[name] + '' has a step to shrink databases in it. Shrinking databases is as outdated as maintenance plans.''
+						+ CASE WHEN COALESCE(ssc.name,''0'') != ''0'' THEN + '' (Schedule: ['' + ssc.name + ''])'' ELSE + '''' END AS [Details]
 						FROM [maintenance_plan_steps] [mps]
-							CROSS APPLY [maintenance_plan_xml].[nodes]('//dts:Executables/dts:Executable') [t]([c])
+							CROSS APPLY [maintenance_plan_xml].[nodes](''//dts:Executables/dts:Executable'') [t]([c])
                     	join msdb.dbo.sysmaintplan_subplans as sms
                     		on mps.id = sms.plan_id
                     	JOIN msdb.dbo.sysjobs j
@@ -6067,7 +6363,8 @@ IF NOT EXISTS ( SELECT  1
                     		AND step.step_id = sjh.step_id
                     		AND sjh.run_date IN (SELECT max(sjh2.run_date) FROM msdb.dbo.sysjobhistory AS sjh2 WHERE sjh2.job_id = j.job_id) -- get the latest entry date
                     		AND sjh.run_time IN (SELECT max(sjh3.run_time) FROM msdb.dbo.sysjobhistory AS sjh3 WHERE sjh3.job_id = j.job_id AND sjh3.run_date = sjh.run_date) -- get the latest entry time
-						WHERE [c].[value]('(@dts:ObjectName)', 'VARCHAR(128)') = 'Shrink Database Task';
+						WHERE [c].[value](''(@dts:ObjectName)'', ''VARCHAR(128)'') = ''Shrink Database Task'';';
+						END;
 
 						END;
 
@@ -6078,8 +6375,12 @@ IF NOT EXISTS ( SELECT  1
 						AND CONVERT(VARCHAR(128), SERVERPROPERTY ('productversion')) LIKE '1%' /* Only run on 2008+ */
 				BEGIN
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 181) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 
-						WITH XMLNAMESPACES ('www.microsoft.com/SqlServer/Dts' AS [dts])
+						WITH XMLNAMESPACES (''www.microsoft.com/SqlServer/Dts'' AS [dts])
 						,[maintenance_plan_steps] AS (
 							SELECT [name]
 								, CAST(CAST([packagedata] AS VARBINARY(MAX)) AS XML) AS [maintenance_plan_xml]
@@ -6087,12 +6388,12 @@ IF NOT EXISTS ( SELECT  1
 							WHERE [packagetype] = 6
 							), [maintenance_plan_table] AS (
 						SELECT [mps].[name]
-							,[c].[value]('(@dts:ObjectName)', 'NVARCHAR(128)') AS [step_name]
+							,[c].[value](''(@dts:ObjectName)'', ''NVARCHAR(128)'') AS [step_name]
 						FROM [maintenance_plan_steps] [mps]
-							CROSS APPLY [maintenance_plan_xml].[nodes]('//dts:Executables/dts:Executable') [t]([c])
+							CROSS APPLY [maintenance_plan_xml].[nodes](''//dts:Executables/dts:Executable'') [t]([c])
 						), [mp_steps_pretty] AS (SELECT DISTINCT [m1].[name] ,
-								STUFF((SELECT N', ' + [m2].[step_name]  FROM [maintenance_plan_table] AS [m2] WHERE [m1].[name] = [m2].[name]
-								FOR XML PATH(N'')), 1, 2, N'') AS [maintenance_plan_steps]
+								STUFF((SELECT N'', '' + [m2].[step_name]  FROM [maintenance_plan_table] AS [m2] WHERE [m1].[name] = [m2].[name]
+								FOR XML PATH(N'''')), 1, 2, N'''') AS [maintenance_plan_steps]
 						FROM [maintenance_plan_table] AS [m1])
 						
 							INSERT    INTO [#BlitzResults]
@@ -6106,13 +6407,14 @@ IF NOT EXISTS ( SELECT  1
 						SELECT
 						181 AS [CheckID] ,
 						100 AS [Priority] ,
-						'Performance' AS [FindingsGroup] ,
-						'Repetitive Steps In Maintenance Plans' AS [Finding] ,
-						'https://ola.hallengren.com/' AS [URL] ,
-						'The maintenance plan ' + [m].[name] + ' is doing repetitive work on indexes and statistics. Perhaps it''s time to try something more modern?' AS [Details]
+						''Performance'' AS [FindingsGroup] ,
+						''Repetitive Steps In Maintenance Plans'' AS [Finding] ,
+						''https://ola.hallengren.com/'' AS [URL] ,
+						''The maintenance plan '' + [m].[name] + '' is doing repetitive work on indexes and statistics. Perhaps it''''s time to try something more modern?'' AS [Details]
 						FROM [mp_steps_pretty] m
-						WHERE m.[maintenance_plan_steps] LIKE '%Rebuild%Reorganize%'
-						OR m.[maintenance_plan_steps] LIKE '%Rebuild%Update%';
+						WHERE m.[maintenance_plan_steps] LIKE ''%Rebuild%Reorganize%''
+						OR m.[maintenance_plan_steps] LIKE ''%Rebuild%Update%'';';
+						END;
 
 						END;
 			
@@ -6147,12 +6449,22 @@ IF NOT EXISTS ( SELECT  1
 					END;
 
 		/* Reliability - TempDB File Error */
+		SET @CrossDBCount = 0;
+		IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+			AND NOT EXISTS ( SELECT  1
+			                 FROM    #SkipChecks
+			                 WHERE   DatabaseName IS NULL AND CheckID = 191 )
+		BEGIN
+			EXEC sys.sp_executesql
+			    N'SELECT @r = (SELECT COUNT(*) FROM sys.master_files WHERE database_id = 2);',
+			    N'@r INT OUTPUT', @r = @CrossDBCount OUTPUT;
+		END;
 		IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 191 )
-			AND (SELECT COUNT(*) FROM sys.master_files WHERE database_id = 2) <> (SELECT COUNT(*) FROM tempdb.sys.database_files)
+			AND @CrossDBCount <> (SELECT COUNT(*) FROM tempdb.sys.database_files)
 			/* User may have no permissions to see tempdb files in sys.master_files. In that case count returned will be 0 and we want to skip the check */
-			AND (SELECT COUNT(*) FROM sys.master_files WHERE database_id = 2) <> 0
+			AND @CrossDBCount <> 0
 				BEGIN
 					
 					IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 191) WITH NOWAIT
@@ -6698,6 +7010,10 @@ IF NOT EXISTS ( SELECT  1
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 234) WITH NOWAIT;
+							/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+							IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+							BEGIN
+							EXEC sys.sp_executesql N'
 						
 							INSERT  INTO #BlitzResults
 									( CheckID ,
@@ -6711,14 +7027,15 @@ IF NOT EXISTS ( SELECT  1
 							SELECT 234 AS CheckID,
 							       100 AS Priority,
 								   db_name(f.database_id) AS DatabaseName,
-							       'Reliability' AS FindingsGroup,
-							       'SQL Server Update May Fail' AS Finding,
-							       'https://desertdba.com/failovers-cant-serve-two-masters/' AS URL,
-							       'This database has a file with a logical name of ''master'', which can break SQL Server updates. Rename it in SSMS by right-clicking on the database, go into Properties, and rename the file. Takes effect instantly.' AS details
+							       ''Reliability'' AS FindingsGroup,
+							       ''SQL Server Update May Fail'' AS Finding,
+							       ''https://desertdba.com/failovers-cant-serve-two-masters/'' AS URL,
+							       ''This database has a file with a logical name of ''''master'''', which can break SQL Server updates. Rename it in SSMS by right-clicking on the database, go into Properties, and rename the file. Takes effect instantly.'' AS details
 							FROM master.sys.master_files f
-							WHERE (f.name = N'master')
+							WHERE (f.name = N''master'')
 							  AND f.database_id > 4
-							  AND db_name(f.database_id) <> 'master'; /* Thanks Michaels3 for catching this */
+							  AND db_name(f.database_id) <> ''master'';';
+							END; /* Thanks Michaels3 for catching this */
 					END;
 
 
@@ -6781,31 +7098,45 @@ IF NOT EXISTS ( SELECT  1
 						EXEC @ExecRet = sp_executesql @tsql, N'@ExecRet_Out INT OUTPUT', @ExecRet_Out = @ExecRet OUTPUT;
 						IF @ExecRet > 0
 							BEGIN
-							DECLARE @TempDBfiles TABLE (config VARCHAR(50), data_files INT)
+							IF OBJECT_ID('tempdb..#BlitzTempDBfiles') IS NOT NULL DROP TABLE #BlitzTempDBfiles;
+							CREATE TABLE #BlitzTempDBfiles (config VARCHAR(50), data_files INT);
+							/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+							IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+							BEGIN
+							EXEC sys.sp_executesql N'
 							/* Valid configs */
-							INSERT INTO @TempDBfiles
-								SELECT 'Fixed predictable growth' AS config, SUM(1) AS data_files
+							INSERT INTO #BlitzTempDBfiles
+								SELECT ''Fixed predictable growth'' AS config, SUM(1) AS data_files
 									FROM master.sys.master_files
-									WHERE database_id = DB_ID('tempdb')
+									WHERE database_id = DB_ID(''tempdb'')
 									  AND type = 0 /* data */
 									  AND max_size <> -1 /* only limited ones */
 									  AND growth <> 0 /* growth is set */
 									HAVING SUM(1) > 0
 								UNION ALL
-								SELECT 'Growth turned off' AS config, SUM(1) AS data_files
+								SELECT ''Growth turned off'' AS config, SUM(1) AS data_files
 									FROM master.sys.master_files
-									WHERE database_id = DB_ID('tempdb')
+									WHERE database_id = DB_ID(''tempdb'')
 									  AND type = 0 /* data */
 									  AND max_size = -1 /* unlimited */
 									  AND growth = 0
-									HAVING SUM(1) > 0;
-
-							IF 1 <> (SELECT COUNT(*) FROM @TempDBfiles)
-								OR (SELECT SUM(data_files) FROM @TempDBfiles) <> 
-									(SELECT SUM(1)
+									HAVING SUM(1) > 0;';
+							END;
+							/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+							SET @CrossDBCount = NULL;
+							IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+							BEGIN
+							EXEC sys.sp_executesql N'SELECT @r = (SELECT SUM(1)
 										FROM master.sys.master_files
-										WHERE database_id = DB_ID('tempdb')
-										  AND type = 0 /* data */)
+										WHERE database_id = DB_ID(''tempdb'')
+										  AND type = 0 /* data */);',
+							    N'@r INT OUTPUT', @r = @CrossDBCount OUTPUT;
+							END;
+
+
+							IF 1 <> (SELECT COUNT(*) FROM #BlitzTempDBfiles)
+								OR (SELECT SUM(data_files) FROM #BlitzTempDBfiles) <> 
+									@CrossDBCount
 								BEGIN
 									INSERT INTO #BlitzResults
 										( CheckID ,
@@ -8595,9 +8926,14 @@ EXEC dbo.sp_ineachdb @suppress_quotename = 1, @command = 'USE [?]; SET TRANSACTI
 					BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 73) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 
 						INSERT INTO #AlertInfo
-						EXEC [master].[dbo].[sp_MSgetalertinfo] @includeaddresses = 0;
+						EXEC [master].[dbo].[sp_MSgetalertinfo] @includeaddresses = 0;';
+						END;
 						
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -8886,6 +9222,10 @@ EXEC dbo.sp_ineachdb @suppress_quotename = 1, @command = 'USE [?]; SET TRANSACTI
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 79) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 						
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -8898,18 +9238,18 @@ EXEC dbo.sp_ineachdb @suppress_quotename = 1, @command = 'USE [?]; SET TRANSACTI
 								SELECT  79 AS CheckID ,
 										-- sp_Blitz Issue #776
 										-- Job has history and was executed in the last 30 days OR Job is enabled AND Job Schedule is enabled
-                						CASE WHEN (cast(datediff(dd, substring(cast(sjh.run_date as nvarchar(10)), 1, 4) + '-' + substring(cast(sjh.run_date as nvarchar(10)), 5, 2) + '-' + substring(cast(sjh.run_date as nvarchar(10)), 7, 2), GETDATE()) AS INT) < 30) OR (j.[enabled] = 1 AND ssc.[enabled] = 1 )THEN
+                						CASE WHEN (cast(datediff(dd, substring(cast(sjh.run_date as nvarchar(10)), 1, 4) + ''-'' + substring(cast(sjh.run_date as nvarchar(10)), 5, 2) + ''-'' + substring(cast(sjh.run_date as nvarchar(10)), 7, 2), GETDATE()) AS INT) < 30) OR (j.[enabled] = 1 AND ssc.[enabled] = 1 )THEN
                 						    100
                 						ELSE -- no job history (implicit) AND job not run in the past 30 days AND (Job disabled OR Job Schedule disabled)
             						        200
                 						END AS Priority,
-										'Performance' AS FindingsGroup ,
-										'Shrink Database Job' AS Finding ,
-										'https://www.brentozar.com/go/autoshrink' AS URL ,
-										'In the [' + j.[name] + '] job, step ['
+										''Performance'' AS FindingsGroup ,
+										''Shrink Database Job'' AS Finding ,
+										''https://www.brentozar.com/go/autoshrink'' AS URL ,
+										''In the ['' + j.[name] + ''] job, step [''
 										+ step.[step_name]
-										+ '] has SHRINKDATABASE or SHRINKFILE, which may be causing database fragmentation.'
-										+ CASE WHEN COALESCE(ssc.name,'0') != '0' THEN + ' (Schedule: [' + ssc.name + '])' ELSE + '' END AS Details
+										+ ''] has SHRINKDATABASE or SHRINKFILE, which may be causing database fragmentation.''
+										+ CASE WHEN COALESCE(ssc.name,''0'') != ''0'' THEN + '' (Schedule: ['' + ssc.name + ''])'' ELSE + '''' END AS Details
 								FROM    msdb.dbo.sysjobs j
 										INNER JOIN msdb.dbo.sysjobsteps step ON j.job_id = step.job_id
 										LEFT OUTER JOIN msdb.dbo.sysjobschedules AS sjsc
@@ -8922,8 +9262,9 @@ EXEC dbo.sp_ineachdb @suppress_quotename = 1, @command = 'USE [?]; SET TRANSACTI
 										    AND step.step_id = sjh.step_id
 										    AND sjh.run_date IN (SELECT max(sjh2.run_date) FROM msdb.dbo.sysjobhistory AS sjh2 WHERE sjh2.job_id = j.job_id) -- get the latest entry date
 										    AND sjh.run_time IN (SELECT max(sjh3.run_time) FROM msdb.dbo.sysjobhistory AS sjh3 WHERE sjh3.job_id = j.job_id AND sjh3.run_date = sjh.run_date) -- get the latest entry time
-								WHERE   step.command LIKE N'%SHRINKDATABASE%'
-										OR step.command LIKE N'%SHRINKFILE%';
+								WHERE   step.command LIKE N''%SHRINKDATABASE%''
+										OR step.command LIKE N''%SHRINKFILE%'';';
+						END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -8962,6 +9303,10 @@ EXEC dbo.sp_ineachdb @suppress_quotename = 1, @command = 'USE [?]; SET TRANSACTI
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 123) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 						
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -8973,13 +9318,14 @@ EXEC dbo.sp_ineachdb @suppress_quotename = 1, @command = 'USE [?]; SET TRANSACTI
 								)
 								SELECT TOP 1 123 AS CheckID ,
 										200 AS Priority ,
-										'Informational' AS FindingsGroup ,
-										'Agent Jobs Starting Simultaneously' AS Finding ,
-										'https://www.brentozar.com/go/busyagent/' AS URL ,
-										( 'Multiple SQL Server Agent jobs are configured to start simultaneously. For detailed schedule listings, see the query in the URL.' ) AS Details
+										''Informational'' AS FindingsGroup ,
+										''Agent Jobs Starting Simultaneously'' AS Finding ,
+										''https://www.brentozar.com/go/busyagent/'' AS URL ,
+										( ''Multiple SQL Server Agent jobs are configured to start simultaneously. For detailed schedule listings, see the query in the URL.'' ) AS Details
 								FROM    msdb.dbo.sysjobactivity
 								WHERE start_execution_date > DATEADD(dd, -14, GETDATE())
-								GROUP BY start_execution_date HAVING COUNT(*) > 1;
+								GROUP BY start_execution_date HAVING COUNT(*) > 1;';
+						END;
 					END;
 
 				IF @CheckServerInfo = 1
@@ -9178,18 +9524,31 @@ IF NOT EXISTS ( SELECT  1
 						/* We couldn't get the instant_file_initialization_enabled column from sys.dm_server_services, fall back to read error log */
     					BEGIN
        						SET @IFIReadDMVFailed = 1;
+       						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+       						SET @CrossDBExists = 0;
+       						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+       						BEGIN
+       						EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS ( SELECT 1/0
+       					    			 FROM   master.sys.all_objects
+       					    			 WHERE  name IN (''rds_startup_tasks'', ''rds_help_revlogin'', ''rds_hexadecimal'', ''rds_failover_tracking'', ''rds_database_tracking'', ''rds_track_change'')
+       								   );',
+       						    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+       						END;
+
        						/* If this is Amazon RDS, we'll use the rdsadmin.dbo.rds_read_error_log */
        						IF LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
        						AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
        						AND db_id('rdsadmin') IS NOT NULL
-       						AND EXISTS ( SELECT 1/0
-       					    			 FROM   master.sys.all_objects
-       					    			 WHERE  name IN ('rds_startup_tasks', 'rds_help_revlogin', 'rds_hexadecimal', 'rds_failover_tracking', 'rds_database_tracking', 'rds_track_change')
-       								   )
+       						AND (@CrossDBExists = 1)
        						BEGIN
+           						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+           						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+           						BEGIN
+           						EXEC sys.sp_executesql N'
            						/* Amazon RDS detected, read rdsadmin.dbo.rds_read_error_log */
            						INSERT INTO #ErrorLog
-           						EXEC rdsadmin.dbo.rds_read_error_log 0, 1, N'Database Instant File Initialization: enabled';
+           						EXEC rdsadmin.dbo.rds_read_error_log 0, 1, N''Database Instant File Initialization: enabled'';';
+           						END;
        						END
        						ELSE
        						BEGIN
@@ -9476,10 +9835,15 @@ IF NOT EXISTS ( SELECT  1
 							BEGIN
 								
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 92) WITH NOWAIT;
+								/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+								IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+								BEGIN
+								EXEC sys.sp_executesql N'
 								
 								INSERT  INTO #driveInfo
 										( drive, available_MB )
-										EXEC master..xp_fixeddrives;
+										EXEC master..xp_fixeddrives;';
+								END;
 								
 								IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_os_volume_stats')
 								BEGIN
@@ -9717,12 +10081,17 @@ IF NOT EXISTS ( SELECT  1
 								BEGIN																		
 								
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 212) WITH NOWAIT;
+						        /* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						        IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						        BEGIN
+						        EXEC sys.sp_executesql N'
 
 						        INSERT INTO #Instances (Instance_Number, Instance_Name, Data_Field)
-								EXEC master.sys.xp_regread @rootkey = 'HKEY_LOCAL_MACHINE',
-								                           @key = 'SOFTWARE\Microsoft\Microsoft SQL Server',
-								                           @value_name = 'InstalledInstances'
-								
+								EXEC master.sys.xp_regread @rootkey = ''HKEY_LOCAL_MACHINE'',
+								                           @key = ''SOFTWARE\Microsoft\Microsoft SQL Server'',
+								                           @value_name = ''InstalledInstances'';';
+						        END;
+
                                 IF (SELECT COUNT(*) FROM #Instances) > 1
                                 BEGIN
 
@@ -10249,12 +10618,15 @@ IF NOT EXISTS ( SELECT  1
 						SET @StringToExecute = 'SET NOCOUNT ON;SELECT [Priority] , [FindingsGroup] , [Finding] , [DatabaseName] , [URL] ,  [Details] , CheckID FROM ##BlitzResults ORDER BY Priority , FindingsGroup , Finding , DatabaseName , Details; SET NOCOUNT OFF;';
 						SET @EmailSubject = 'sp_Blitz Results for ' + @@SERVERNAME;
 						SET @EmailBody = 'sp_Blitz ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)) + '. http://FirstResponderKit.org';
-						IF @EmailProfile IS NULL
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'IF @EmailProfile IS NULL
 							EXEC msdb.dbo.sp_send_dbmail
 								@recipients = @EmailRecipients,
 								@subject = @EmailSubject,
 								@body = @EmailBody,
-								@query_attachment_filename = 'sp_Blitz-Results.csv',
+								@query_attachment_filename = ''sp_Blitz-Results.csv'',
 								@attach_query_result_as_file = 1,
 								@query_result_header = 1,
 								@query_result_width = 32767,
@@ -10268,14 +10640,17 @@ IF NOT EXISTS ( SELECT  1
 								@recipients = @EmailRecipients,
 								@subject = @EmailSubject,
 								@body = @EmailBody,
-								@query_attachment_filename = 'sp_Blitz-Results.csv',
+								@query_attachment_filename = ''sp_Blitz-Results.csv'',
 								@attach_query_result_as_file = 1,
 								@query_result_header = 1,
 								@query_result_width = 32767,
 								@append_query_error = 1,
 								@query_result_no_padding = 1,
 								@query_result_separator = @query_result_separator,
-								@query = @StringToExecute;
+								@query = @StringToExecute;',
+						    N'@EmailProfile SYSNAME, @EmailRecipients VARCHAR(MAX), @EmailSubject NVARCHAR(255), @EmailBody NVARCHAR(MAX), @StringToExecute NVARCHAR(4000), @query_result_separator CHAR(1)',
+						    @EmailProfile = @EmailProfile, @EmailRecipients = @EmailRecipients, @EmailSubject = @EmailSubject, @EmailBody = @EmailBody, @StringToExecute = @StringToExecute, @query_result_separator = @query_result_separator;
+						END;
 						IF (OBJECT_ID('tempdb..##BlitzResults', 'U') IS NOT NULL) DROP TABLE ##BlitzResults;
 						END;
 				END;
