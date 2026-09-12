@@ -707,6 +707,16 @@ BEGIN TRY
       (SELECT 1 FROM #FRKRecoveryProof WHERE log_backup_set_id=@Regular AND log_backups=1 AND log_time_seconds=40)
         THROW 51000,'Equal intervals did not prefer the regular backup.',1;
     DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    /* Old NULL metadata and newly pushed known metadata still share one estimate. */
+    DROP TABLE FRKLogHistory.dbo.backupset;
+    SELECT * INTO FRKLogHistory.dbo.backupset FROM FRKLogHistory.dbo.AllBackupSets WHERE backup_set_id<>@Endpoint;
+    UPDATE FRKLogHistory.dbo.backupset SET first_recovery_fork_guid=NULL,last_recovery_fork_guid=NULL WHERE backup_set_id=@Copy;
+    EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
+    IF (SELECT COUNT(*) FROM #FRKRecoveryProof)<>1 OR NOT EXISTS
+      (SELECT 1 FROM #FRKRecoveryProof WHERE log_backup_set_id=@Regular AND log_backups=1 AND log_time_seconds=40)
+      OR NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'Recovery fork metadata missing')
+        THROW 51000,'Mixed unknown and known fork metadata double-counted covered logs.',1;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
     /* A later full must not erase the overlapping endpoint of the earlier full. */
     INSERT FRKLogSource.dbo.Proof VALUES(6);
     SET @File=@Root+N'full2.bak';

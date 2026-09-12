@@ -816,7 +816,7 @@ RAISERROR('Get time & size totals for logs', 0, 1) WITH NOWAIT;
 							WITH LogIntervals AS (
     SELECT rp.id,bLog.backup_start_date,bLog.backup_finish_date,bLog.backup_size,bLog.last_lsn,
         MAX(bLog.last_lsn) OVER (
-            PARTITION BY rp.id,bLog.first_recovery_fork_guid,bLog.last_recovery_fork_guid
+            PARTITION BY rp.id
             ORDER BY bLog.first_lsn,bLog.last_lsn DESC,bLog.is_copy_only,bLog.backup_set_id DESC
             ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS PriorMaxLastLSN
     FROM #RTORecoveryPoints rp
@@ -824,7 +824,9 @@ RAISERROR('Get time & size totals for logs', 0, 1) WITH NOWAIT;
         AND bLog.type=''L'' AND bLog.last_lsn>COALESCE(rp.diff_last_lsn,rp.full_last_lsn)
         AND bLog.last_lsn<=rp.log_last_lsn
 ), LogTotals AS (
-    /* Ordered running maximum removes contained intervals without a range self-join.
+    /* Histories with conflicting known forks were excluded above. Treat NULL fork
+       metadata as unknown within the remaining single-fork estimate.
+       Ordered running maximum removes contained intervals without a range self-join.
        Equal intervals prefer regular backups, then the newest backup ID. */
     SELECT id,SUM(DATEDIFF(second,backup_start_date,backup_finish_date)) AS log_time_seconds,
         SUM(backup_size) AS log_file_size,COUNT(*) AS log_backups
