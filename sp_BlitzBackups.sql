@@ -607,7 +607,7 @@ SELECT DISTINCT b.database_name,b.database_guid,N''Backup to a discard device''
 FROM #RTOBackupSets b
 JOIN #RTODiscardMedia m ON b.media_set_id=m.media_set_id
 WHERE (UPPER(m.physical_device_name)=N''NUL'' OR m.physical_device_name=N''/dev/null'')
-  AND b.type=''L'' AND b.is_copy_only=0
+  AND b.type=''L'' AND (b.is_copy_only=0 OR b.is_copy_only IS NULL)
   AND NOT EXISTS(SELECT 1 FROM #RTOExcluded x WHERE x.database_name=b.database_name AND x.database_guid=b.database_guid);';
 EXEC sys.sp_executesql @StringToExecute,N'@StartTime datetime2',@StartTime;
 SET @StringToExecute=N'
@@ -759,7 +759,8 @@ FROM #RTOBackupSets bLog
 
 	EXEC sys.sp_executesql @StringToExecute;
 
-/* Fill out a diff in that range */
+/* A differential is optional: use it only when its full base is known.
+   Otherwise estimate the valid full-plus-log path, including logs from the full. */
 
 RAISERROR('Fill out a diff in that range', 0, 1) WITH NOWAIT;
 
@@ -1412,7 +1413,7 @@ IF @ProductVersionMajor >= 12
 		CONVERT(NVARCHAR(25),MAX(bs.backup_finish_date),120)+''. These backups do not exist.'' AS [Warning]
 	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS bs
 	INNER JOIN #RTODiscardMedia bmf ON bs.media_set_id = bmf.media_set_id
-	WHERE UPPER(bmf.physical_device_name)= N''NUL''
+	WHERE (UPPER(bmf.physical_device_name)=N''NUL'' OR bmf.physical_device_name=N''/dev/null'')
 	AND (bs.is_copy_only = 1 OR bs.recovery_model = N''SIMPLE'')
 	AND bs.backup_finish_date >= @StartTime
 	GROUP BY bs.database_name' + @crlf;
@@ -1425,7 +1426,7 @@ IF @ProductVersionMajor >= 12
 		CONVERT(NVARCHAR(25),MAX(bs.backup_finish_date),120)+''. These backups do not exist and they might mess up your current backup chain.'' AS [Warning]
 	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS bs
 	INNER JOIN #RTODiscardMedia bmf ON bs.media_set_id = bmf.media_set_id
-	WHERE UPPER(bmf.physical_device_name)= N''NUL''
+	WHERE (UPPER(bmf.physical_device_name)=N''NUL'' OR bmf.physical_device_name=N''/dev/null'')
 	AND bs.is_copy_only = 0 AND bs.recovery_model <> N''SIMPLE''
 	AND bs.backup_finish_date >= @StartTime
 	GROUP BY bs.database_name' + @crlf;

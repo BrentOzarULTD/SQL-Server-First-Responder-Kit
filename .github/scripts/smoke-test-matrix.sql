@@ -640,14 +640,19 @@ BEGIN TRY
     SET @Definition=REPLACE(@Definition,N'DROP TABLE #Backups, #Warnings, #Recoverability, #RTORecoveryPoints',
         N'INSERT #FRKRecoveryProof SELECT full_backup_set_id,log_backup_set_id,log_backups,log_file_size_mb,log_time_seconds FROM #RTORecoveryPoints WHERE log_last_lsn IS NOT NULL;
           INSERT #FRKBackupProof SELECT RTOWorstCaseMinutes FROM #Backups;
-          INSERT #FRKWarningProof SELECT Finding FROM #Warnings WHERE CheckId IN(15,16);
+          INSERT #FRKWarningProof SELECT Finding FROM #Warnings WHERE CheckId IN(14,15,16);
           DROP TABLE #Backups, #Warnings, #Recoverability, #RTORecoveryPoints');
     EXEC FRKLogHistory.sys.sp_executesql @Definition;
     DECLARE @Case int=1, @ExpectedCount int, @ExpectedSeconds int, @ExpectedRTO decimal(18,2), @ExpectedMB decimal(18,2);
     WHILE @Case<=8
     BEGIN
         IF @Case=2 DELETE FRKLogHistory.dbo.backupset WHERE backup_set_id=@Endpoint;
-        IF @Case=3 DELETE FRKLogHistory.dbo.backupset WHERE backup_set_id=@Regular;
+        IF @Case=3
+        BEGIN
+            IF EXISTS(SELECT 1 FROM FRKLogHistory.dbo.backupset WHERE backup_set_id=@Endpoint)
+                THROW 51000,'Case 2 failed to remove the endpoint before case 3.',1;
+            DELETE FRKLogHistory.dbo.backupset WHERE backup_set_id=@Regular;
+        END;
         IF @Case=4 DELETE FRKLogHistory.dbo.backupset WHERE type='I';
         IF @Case=5
         BEGIN
@@ -664,7 +669,7 @@ BEGIN TRY
         IF @Case=7
         BEGIN
             UPDATE FRKLogHistory.dbo.backupset SET first_recovery_fork_guid=@ForkA,last_recovery_fork_guid=@ForkA;
-            UPDATE FRKLogHistory.dbo.backupmediafamily SET physical_device_name=N'NUL'
+            UPDATE FRKLogHistory.dbo.backupmediafamily SET physical_device_name=N'/dev/null'
               WHERE media_set_id=(SELECT media_set_id FROM FRKLogHistory.dbo.backupset WHERE backup_set_id=@Copy);
         END;
         IF @Case=8 UPDATE FRKLogHistory.dbo.backupmediafamily SET physical_device_name=N'NUL'
@@ -687,6 +692,7 @@ BEGIN TRY
         IF @Case IN(6,8) AND (EXISTS(SELECT 1 FROM #FRKRecoveryProof) OR
             (SELECT COUNT(*) FROM #FRKBackupProof)<>1 OR EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL))
             THROW 51000,'Ambiguous or discarded backup history reported an RTO estimate.',1;
+        IF @Case=7 AND NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'Backup to NUL device') THROW 51000,'Linux discard-device warning absent.',1;
         IF @Case=5 AND NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'Recovery fork metadata missing') THROW 51000,'Missing fork metadata warning absent.',1;
         IF @Case IN(6,8) AND NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'RTO estimate unavailable') THROW 51000,'Unavailable RTO did not explain the limitation.',1;
         DELETE #FRKWarningProof;
@@ -716,6 +722,24 @@ BEGIN TRY
       (SELECT 1 FROM #FRKRecoveryProof WHERE log_backup_set_id=@Regular AND log_backups=1 AND log_time_seconds=40)
       OR NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'Recovery fork metadata missing')
         THROW 51000,'Mixed unknown and known fork metadata double-counted covered logs.',1;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    /* A differential with an unknown base is optional; full plus logs remains valid. */
+    UPDATE FRKLogHistory.dbo.backupset SET differential_base_guid=NULL WHERE type='I';
+    EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
+    IF (SELECT COUNT(*) FROM #FRKRecoveryProof)<>1 OR NOT EXISTS
+      (SELECT 1 FROM #FRKRecoveryProof WHERE log_backup_set_id=@Regular AND log_backups=1 AND log_time_seconds=40)
+      OR NOT EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes=CAST(50.0/60 AS decimal(18,1)))
+        THROW 51000,'Unknown differential base did not use the complete full-plus-log path.',1;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    /* Unknown copy-only metadata on discard media must not produce a numeric RTO. */
+    ALTER TABLE FRKLogHistory.dbo.backupset ALTER COLUMN is_copy_only bit NULL;
+    UPDATE FRKLogHistory.dbo.backupset SET is_copy_only=NULL WHERE backup_set_id=@Regular;
+    UPDATE m SET physical_device_name=N'/dev/null' FROM FRKLogHistory.dbo.backupmediafamily m
+      JOIN FRKLogHistory.dbo.backupset b ON b.media_set_id=m.media_set_id WHERE b.backup_set_id=@Regular;
+    EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
+    IF EXISTS(SELECT 1 FROM #FRKRecoveryProof) OR EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
+      OR NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'RTO estimate unavailable')
+        THROW 51000,'Unknown copy-only metadata allowed a discard log into RTO.',1;
     DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
     /* A later full must not erase the overlapping endpoint of the earlier full. */
     INSERT FRKLogSource.dbo.Proof VALUES(6);
