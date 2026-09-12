@@ -2023,6 +2023,21 @@ BEGIN
 END;
 
 
+/* Procedure and function DMVs do not expose statement memory-grant or duplicate data. */
+IF LEFT(@QueryFilter, 3) IN ('pro', 'fun')
+   AND @SortOrder IN ('memory grant', 'avg memory grant', 'unused grant', 'duplicate')
+BEGIN
+   RAISERROR('This sort order requires statement statistics. Use @QueryFilter = ''statements'' or choose another sort order.', 16, 1);
+   RETURN;
+END;
+
+/* Function statistics do not expose spill counters. */
+IF LEFT(@QueryFilter, 3) = 'fun' AND @SortOrder IN ('spills', 'avg spills')
+BEGIN
+   RAISERROR('Function statistics do not support sorting by spills. Use @QueryFilter = ''statements'' or choose another sort order.', 16, 1);
+   RETURN;
+END;
+
 RAISERROR (N'Creating dynamic SQL based on SQL Server version.',0,1) WITH NOWAIT;
 
 SET @insert_list += N'
