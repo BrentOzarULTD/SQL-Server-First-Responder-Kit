@@ -573,18 +573,19 @@ CREATE TABLE #RTOBackupSets(
  backup_set_uuid uniqueidentifier,type char(1),first_lsn numeric(25,0),last_lsn numeric(25,0),
  backup_start_date datetime,backup_finish_date datetime,backup_size numeric(20,0),
  first_recovery_fork_guid uniqueidentifier,last_recovery_fork_guid uniqueidentifier,
- differential_base_guid uniqueidentifier,media_set_id int,is_copy_only bit);
+ differential_base_guid uniqueidentifier,media_set_id int,is_copy_only bit,is_damaged bit);
 SET @StringToExecute=N'
 INSERT #RTOBackupSets
 SELECT b.database_name,b.database_guid,b.backup_set_id,b.backup_set_uuid,b.type,b.first_lsn,b.last_lsn,
  b.backup_start_date,b.backup_finish_date,b.backup_size,b.first_recovery_fork_guid,b.last_recovery_fork_guid,
- b.differential_base_guid,b.media_set_id,b.is_copy_only
+ b.differential_base_guid,b.media_set_id,b.is_copy_only,b.is_damaged
 FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset b
 WHERE b.type IN (''D'',''I'',''L'')
+ AND (b.is_damaged=0 OR (b.type=''L'' AND (b.is_copy_only=0 OR b.is_copy_only IS NULL)))
  AND (b.backup_finish_date>=@StartTime OR b.backup_finish_date>=(
     SELECT MAX(anchor.backup_finish_date) FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset anchor
     WHERE anchor.database_name=b.database_name AND anchor.database_guid=b.database_guid
-      AND anchor.type=''D'' AND anchor.backup_finish_date<=@StartTime
+      AND anchor.type=''D'' AND anchor.is_damaged=0 AND anchor.backup_finish_date<=@StartTime
       AND NOT EXISTS(SELECT 1 FROM #RTODiscardMedia am
         WHERE am.media_set_id=anchor.media_set_id AND (UPPER(am.physical_device_name)=N''NUL'' OR am.physical_device_name=N''/dev/null''))
  ))
@@ -614,7 +615,11 @@ FROM #RTOBackupSets b
 JOIN #RTODiscardMedia m ON b.media_set_id=m.media_set_id
 WHERE (UPPER(m.physical_device_name)=N''NUL'' OR m.physical_device_name=N''/dev/null'')
   AND b.type=''L'' AND (b.is_copy_only=0 OR b.is_copy_only IS NULL)
-  AND NOT EXISTS(SELECT 1 FROM #RTOExcluded x WHERE x.database_name=b.database_name AND x.database_guid=b.database_guid);';
+  AND NOT EXISTS(SELECT 1 FROM #RTOExcluded x WHERE x.database_name=b.database_name AND x.database_guid=b.database_guid);
+INSERT #RTOExcluded
+SELECT DISTINCT b.database_name,b.database_guid,N''Damaged log backup or unknown integrity metadata''
+FROM #RTOBackupSets b WHERE b.type=''L'' AND (b.is_damaged=1 OR b.is_damaged IS NULL)
+ AND NOT EXISTS(SELECT 1 FROM #RTOExcluded x WHERE x.database_name=b.database_name AND x.database_guid=b.database_guid);';
 EXEC sys.sp_executesql @StringToExecute,N'@StartTime datetime2',@StartTime;
 SET @StringToExecute=N'
 INSERT #Warnings(CheckId,Priority,DatabaseName,Finding,Warning)
@@ -721,7 +726,6 @@ RAISERROR('Add any full backups in the StartDate range that weren''t part of the
 							 WHERE bFull.type = ''D''
 							     AND bFull.backup_finish_date IS NOT NULL
 							     AND rp.full_backup_set_uuid IS NULL
-							     AND bFull.backup_finish_date >= @StartTime
                                  AND NOT EXISTS (SELECT 1 FROM #RTOExcluded x WHERE x.database_name=bFull.database_name AND x.database_guid=bFull.database_guid);
 							';
 

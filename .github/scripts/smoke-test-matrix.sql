@@ -916,6 +916,15 @@ BEGIN TRY
        AND full_backup_set_id=(SELECT MIN(backup_set_id) FROM FRKLogHistory.dbo.backupset WHERE type='D'))
         THROW 51000,'Older full lost its overlapping log endpoint or selected a different database.',1;
     DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    UPDATE FRKLogHistory.dbo.backupset SET backup_start_date=DATEADD(hour,-2,GETDATE()),
+      backup_finish_date=DATEADD(second,10,DATEADD(hour,-2,GETDATE()))
+      WHERE backup_set_id=(SELECT MIN(backup_set_id) FROM FRKLogHistory.dbo.backupset WHERE type='D');
+    EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory',@HoursBack=1;
+    IF (SELECT COUNT(*) FROM #FRKRecoveryProof)<>2 OR NOT EXISTS
+      (SELECT 1 FROM #FRKRecoveryProof WHERE log_backup_set_id=@BoundaryLog AND log_backups=2 AND log_time_seconds=90
+       AND full_backup_set_id=(SELECT MIN(backup_set_id) FROM FRKLogHistory.dbo.backupset WHERE type='D'))
+        THROW 51000,'Pre-window anchor was omitted when a newer full existed.',1;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
     DROP TABLE FRKLogHistory.dbo.backupset;
     SELECT * INTO FRKLogHistory.dbo.backupset FROM msdb.dbo.backupset
       WHERE database_name=N'FRKLogSource' AND database_guid=(SELECT database_guid FROM sys.database_recovery_status WHERE database_id=DB_ID(N'FRKLogSource'));
@@ -992,6 +1001,25 @@ BEGIN TRY
     IF EXISTS(SELECT 1 FROM #FRKRecoveryProof) OR EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
        OR NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'RTO estimate unavailable')
         THROW 51000,'Pre-window discard log did not suppress the broken chain.',1;
+    /* Damaged full/diff alternatives are optional; a damaged regular log breaks the chain. */
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    DROP TABLE FRKLogHistory.dbo.backupset;
+    SELECT * INTO FRKLogHistory.dbo.backupset FROM msdb.dbo.backupset
+      WHERE database_name=N'FRKLogSource' AND database_guid=(SELECT database_guid FROM sys.database_recovery_status WHERE database_id=DB_ID(N'FRKLogSource'));
+    DROP TABLE FRKLogHistory.dbo.backupmediafamily;
+    SELECT * INTO FRKLogHistory.dbo.backupmediafamily FROM msdb.dbo.backupmediafamily
+      WHERE media_set_id IN(SELECT media_set_id FROM FRKLogHistory.dbo.backupset);
+    UPDATE FRKLogHistory.dbo.backupset SET is_damaged=1 WHERE type='I' OR backup_set_id=@CurrentFull;
+    EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
+    IF EXISTS(SELECT 1 FROM #FRKRecoveryProof WHERE full_backup_set_id=@CurrentFull)
+       OR NOT EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
+        THROW 51000,'Damaged full/diff alternatives displaced the usable chain.',1;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    UPDATE FRKLogHistory.dbo.backupset SET is_damaged=1 WHERE backup_set_id=@Regular;
+    EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
+    IF EXISTS(SELECT 1 FROM #FRKRecoveryProof) OR EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
+       OR NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'RTO estimate unavailable')
+        THROW 51000,'Damaged regular log received a restore estimate.',1;
     /* Exercise the unmodified push path with four-part local-server names.
        Precreate the destination so this tests insertion/mapping without remote DDL. */
     DROP TABLE FRKLogHistory.dbo.backupset;

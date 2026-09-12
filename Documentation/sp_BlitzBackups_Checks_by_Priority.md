@@ -29,7 +29,7 @@ If you want to add a new one, start at 17.
 |      150 | Read only state backups                |       5 |
 |      200 | Snapshot backups                       |       4 |
 
-Check 15 leaves RTO unknown when the candidate history contains multiple known recovery forks a regular log written to a discard device, missing media metadata, or no usable full for its log endpoint. Candidate history includes the reporting window and its preceding usable full backup; discarded copy-only, full, and differential alternatives are ignored. Centralized history without backupmediafamily remains readable, but cannot receive a verified RTO estimate until media metadata is available.
+Check 15 leaves RTO unknown when the candidate history contains multiple known recovery forks a regular log written to a discard device or marked damaged, missing media or integrity metadata, or no usable full for its log endpoint. Candidate history includes the reporting window and its preceding usable full backup; discarded or damaged copy-only, full, and differential alternatives are ignored. Centralized history without backupmediafamily remains readable, but cannot receive a verified RTO estimate until media metadata is available.
 
 RTO is a worst-case estimate for the requested interval, not only the latest restore point. A later full within that interval does not make an earlier discard-log gap restorable, so the interval remains unavailable rather than reporting only its later healthy portion.
 
