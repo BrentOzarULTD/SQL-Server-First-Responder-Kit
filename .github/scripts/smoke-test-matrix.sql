@@ -141,6 +141,123 @@ EXEC dbo.sp_BlitzCache
      @OutputSchemaName   = 'dbo',
      @OutputTableName    = 'BlitzCache';
 
+--#STEP: sp_BlitzCache reserved global names in a case-sensitive database
+/* This runner owns a disposable SQL Server. A separate database makes the
+   procedure's comparisons case-sensitive even when master/tempdb are not. */
+IF DB_ID(N'FRKReservedNameTest') IS NOT NULL
+    THROW 51000, 'Reserved-name fixture database already exists.', 1;
+EXEC(N'CREATE DATABASE FRKReservedNameTest COLLATE Latin1_General_100_CS_AS;');
+BEGIN TRY
+    DECLARE @Definition nvarchar(max) = OBJECT_DEFINITION(OBJECT_ID(N'dbo.sp_BlitzCache'));
+    SET @Definition = REPLACE(@Definition, N'ALTER PROCEDURE dbo.sp_BlitzCache', N'CREATE PROCEDURE dbo.sp_BlitzCache');
+    EXEC FRKReservedNameTest.sys.sp_executesql @Definition;
+
+    DECLARE @Names TABLE (Name sysname COLLATE Latin1_General_100_BIN2, SortOrder varchar(50), Qualified bit);
+    INSERT @Names VALUES
+        (N'##BlitzCacheProcs', 'cpu', 0),
+        (N'##BlitzCacheResults', 'cpu', 0),
+        (N'##blitzcacheprocs', 'duplicate', 0),
+        (N'##BLITZCACHERESULTS', 'query hash', 0),
+        (N'##BlitzCachéProcs', 'cpu', 0),
+        (N'##ＢlitzCacheResults', 'cpu', 0),
+        (N'##BlitzCacheProcs', 'cpu', 1),
+        (N'##BlitzCacheResults', 'cpu', 1);
+    DECLARE @Name sysname, @Sort varchar(50), @Qualified bit,
+            @OutputDB sysname, @OutputSchema sysname;
+    WHILE EXISTS (SELECT 1 FROM @Names)
+    BEGIN
+        SELECT TOP (1) @Name = Name, @Sort = SortOrder, @Qualified = Qualified FROM @Names;
+        SELECT @OutputDB = CASE WHEN @Qualified = 1 THEN N'FRKReservedNameTest' END,
+               @OutputSchema = CASE WHEN @Qualified = 1 THEN N'dbo' END;
+        BEGIN TRY
+            EXEC FRKReservedNameTest.dbo.sp_BlitzCache
+                 @Top = 1, @SortOrder = @Sort, @OutputTableName = @Name,
+                 @OutputDatabaseName = @OutputDB, @OutputSchemaName = @OutputSchema;
+            THROW 51000, 'Reserved global name was accepted.', 1;
+        END TRY
+        BEGIN CATCH
+            IF ERROR_NUMBER() <> 50000 OR ERROR_MESSAGE() NOT LIKE 'OutputTableName is a reserved name%'
+                THROW;
+        END CATCH;
+        DELETE @Names WHERE Name = @Name AND SortOrder = @Sort AND Qualified = @Qualified;
+    END;
+    DROP DATABASE FRKReservedNameTest;
+END TRY
+BEGIN CATCH
+    DROP DATABASE FRKReservedNameTest;
+    THROW;
+END CATCH;
+
+--#STEP: sp_BlitzCache ordinary global output still works
+IF OBJECT_ID(N'tempdb..##FRKCacheOutput') IS NOT NULL
+    THROW 51000, 'Global-output fixture already exists.', 1;
+BEGIN TRY
+    EXEC FRKSmokeTest.sys.sp_executesql N'SELECT SUM(CONVERT(bigint, a.Id)) FROM dbo.Users a CROSS JOIN dbo.Users b;';
+    EXEC dbo.sp_BlitzCache @Top = 5, @DatabaseName = N'FRKSmokeTest',
+         @MinimumExecutionCount = 0, @OutputTableName = N'##FRKCacheOutput';
+    IF OBJECT_ID(N'tempdb..##FRKCacheOutput') IS NULL
+       OR COL_LENGTH(N'tempdb..##FRKCacheOutput', N'QueryText') IS NULL
+        THROW 51000, 'Global cache output is missing or has the wrong schema.', 1;
+    IF (SELECT COUNT(*) FROM ##FRKCacheOutput) < 1
+        THROW 51000, 'Global cache output is unexpectedly empty.', 1;
+    DROP TABLE ##FRKCacheOutput;
+END TRY
+BEGIN CATCH
+    DROP TABLE IF EXISTS ##FRKCacheOutput;
+    THROW;
+END CATCH;
+--#STEP: sp_BlitzCache rejects unsupported filters before reanalysis
+/* Populate real results in this session so @Reanalyze cannot silently fall
+   back to a fresh collection. */
+EXEC dbo.sp_BlitzCache @Top = 1;
+IF OBJECT_ID(N'tempdb..##BlitzCacheResults') IS NULL
+    THROW 51000, 'Reanalysis fixture was not created.', 1;
+DECLARE @Cases TABLE (SortOrder varchar(50), QueryFilter varchar(10));
+INSERT @Cases
+SELECT s.SortOrder, f.QueryFilter
+FROM (VALUES ('memory grant'), ('avg memory grant'), ('unused grant'), ('duplicate')) s(SortOrder)
+CROSS JOIN (VALUES ('procedures'), ('functions')) f(QueryFilter);
+INSERT @Cases VALUES ('spills', 'functions'), ('avg spills', 'functions'),
+    ('average memory grants', 'procedures'), ('duplicates', 'functions'),
+    ('query hash, average memory grants', 'procedures');
+DECLARE @Sort varchar(50), @Filter varchar(10), @Reanalyze bit;
+BEGIN TRY
+    WHILE EXISTS (SELECT 1 FROM @Cases)
+    BEGIN
+        SELECT TOP (1) @Sort = SortOrder, @Filter = QueryFilter FROM @Cases;
+        SET @Reanalyze = 0;
+        WHILE @Reanalyze IS NOT NULL
+        BEGIN
+            BEGIN TRY
+                EXEC dbo.sp_BlitzCache @Top = 1, @SortOrder = @Sort,
+                     @QueryFilter = @Filter, @Reanalyze = @Reanalyze;
+                THROW 51000, 'Unsupported sort/filter combination was accepted.', 1;
+            END TRY
+            BEGIN CATCH
+                IF ERROR_NUMBER() <> 50000 OR
+                   (ERROR_MESSAGE() NOT LIKE 'This sort order requires statement statistics.%'
+                    AND ERROR_MESSAGE() NOT LIKE 'Function statistics do not support sorting by spills.%')
+                    THROW;
+            END CATCH;
+            SET @Reanalyze = CASE WHEN @Reanalyze = 0 THEN 1 END;
+        END;
+        DELETE @Cases WHERE SortOrder = @Sort AND QueryFilter = @Filter;
+    END;
+    DROP TABLE ##BlitzCacheResults;
+END TRY
+BEGIN CATCH
+    DROP TABLE IF EXISTS ##BlitzCacheResults;
+    THROW;
+END CATCH;
+
+--#STEP: sp_BlitzCache supported filters and query-hash aliases
+EXEC dbo.sp_BlitzCache @Top = 1, @QueryFilter = 'procedures', @SortOrder = 'cpu';
+EXEC dbo.sp_BlitzCache @Top = 1, @QueryFilter = 'functions', @SortOrder = 'cpu';
+EXEC dbo.sp_BlitzCache @Top = 1, @QueryFilter = 'procedures', @SortOrder = 'spills';
+EXEC dbo.sp_BlitzCache @Top = 1, @QueryFilter = 'statements', @SortOrder = 'average memory grants';
+EXEC dbo.sp_BlitzCache @Top = 1, @QueryFilter = 'statements', @SortOrder = 'query hash, average reads';
+EXEC dbo.sp_BlitzCache @Top = 1, @QueryFilter = 'statements', @SortOrder = 'query hash';
+
 --#STEP: sp_BlitzCache filtered to database
 EXEC dbo.sp_BlitzCache @DatabaseName = 'FRKSmokeTest';
 
@@ -353,3 +470,131 @@ IF @QueryPlanHash IS NULL
     RAISERROR('Seeded marker query was not found in the plan cache; sp_BlitzPlanCompare was not exercised.', 16, 1);
 
 EXEC dbo.sp_BlitzPlanCompare @QueryPlanHash = @QueryPlanHash, @DatabaseName = 'FRKSmokeTest';
+
+--#STEP: sp_BlitzFirst multi-server deltas and in-place upgrades
+IF DB_ID(N'FRKDeltaSmoke') IS NOT NULL THROW 51000,'Delta fixture already exists.',1;
+EXEC(N'CREATE DATABASE FRKDeltaSmoke;');
+GO
+EXEC master.dbo.sp_BlitzFirst @Seconds=1,@OutputDatabaseName=N'FRKDeltaSmoke',@OutputSchemaName=N'dbo',@OutputTableNameFileStats=N'Files',@OutputTableNamePerfmonStats=N'Perfmon',@OutputTableNameWaitStats=N'Waits';
+GO
+USE FRKDeltaSmoke;
+
+DELETE dbo.Files; DELETE dbo.Perfmon; DELETE dbo.Waits;
+CREATE TABLE dbo.Expected(ServerName nvarchar(128),CheckDate datetimeoffset,CounterValue bigint,ElapsedSeconds int);
+DECLARE @Base datetimeoffset=DATEADD(hour,-1,SYSDATETIMEOFFSET());
+INSERT dbo.Expected VALUES
+(N'ServerA',DATEADD(minute,0,@Base),1000,NULL),
+(N'ServerA',DATEADD(minute,5,@Base),2000,300),
+(N'ServerA',DATEADD(minute,10,@Base),3000,300),
+(N'ServerB',DATEADD(minute,0,@Base),4000,NULL),
+(N'ServerB',DATEADD(minute,5,@Base),5000,300),
+(N'ServerB',DATEADD(minute,12,@Base),6000,420);
+INSERT dbo.Files(ServerName,CheckDate,DatabaseID,FileID,num_of_reads,num_of_writes,io_stall_read_ms,io_stall_write_ms,bytes_read,bytes_written)
+SELECT ServerName,CheckDate,1,1,CounterValue,CounterValue,CounterValue,CounterValue,CounterValue,CounterValue FROM dbo.Expected;
+INSERT dbo.Perfmon(ServerName,CheckDate,object_name,counter_name,instance_name,cntr_type,cntr_value)
+SELECT ServerName,CheckDate,N'Object',N'Counter',N'Instance',272696576,CounterValue FROM dbo.Expected;
+INSERT dbo.Waits(ServerName,CheckDate,wait_type,wait_time_ms,signal_wait_time_ms,waiting_tasks_count)
+SELECT ServerName,CheckDate,N'LCK_M_X',CounterValue,0,CounterValue FROM dbo.Expected;
+CREATE USER CodexDeltaReader WITHOUT LOGIN;
+GRANT SELECT ON dbo.Files_Deltas TO CodexDeltaReader;
+GRANT SELECT ON dbo.Perfmon_Deltas TO CodexDeltaReader;
+GRANT SELECT ON dbo.Waits_Deltas TO CodexDeltaReader;
+SELECT object_id,name INTO dbo.OriginalViewIds FROM sys.views WHERE name IN('Files_Deltas','Perfmon_Deltas','Waits_Deltas');
+
+DELETE dbo.Files WHERE ServerName NOT IN(N'ServerA',N'ServerB');
+DELETE dbo.Perfmon WHERE ServerName NOT IN(N'ServerA',N'ServerB');
+DELETE dbo.Waits WHERE ServerName NOT IN(N'ServerA',N'ServerB');
+IF (SELECT COUNT(*) FROM dbo.Files_Deltas)<>4 OR (SELECT COUNT(*) FROM dbo.Perfmon_Deltas)<>4 OR (SELECT COUNT(*) FROM dbo.Waits_Deltas)<>4 THROW 51000,'Incorrect view row counts',1;
+IF EXISTS(
+    SELECT 1 FROM (SELECT ServerName,CheckDate FROM dbo.Expected WHERE ElapsedSeconds IS NOT NULL) e
+    FULL OUTER JOIN (SELECT ServerName,CheckDate,COUNT(*) AS Copies FROM dbo.Files_Deltas GROUP BY ServerName,CheckDate) d
+    ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate
+    WHERE e.ServerName IS NULL OR d.ServerName IS NULL OR d.Copies<>1)
+    THROW 51000,'Missing, extra, or duplicate Files delta key.',1;
+IF EXISTS(
+    SELECT 1 FROM (SELECT ServerName,CheckDate FROM dbo.Expected WHERE ElapsedSeconds IS NOT NULL) e
+    FULL OUTER JOIN (SELECT ServerName,CheckDate,COUNT(*) AS Copies FROM dbo.Perfmon_Deltas GROUP BY ServerName,CheckDate) d
+    ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate
+    WHERE e.ServerName IS NULL OR d.ServerName IS NULL OR d.Copies<>1)
+    THROW 51000,'Missing, extra, or duplicate Perfmon delta key.',1;
+IF EXISTS(
+    SELECT 1 FROM (SELECT ServerName,CheckDate FROM dbo.Expected WHERE ElapsedSeconds IS NOT NULL) e
+    FULL OUTER JOIN (SELECT ServerName,CheckDate,COUNT(*) AS Copies FROM dbo.Waits_Deltas GROUP BY ServerName,CheckDate) d
+    ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate
+    WHERE e.ServerName IS NULL OR d.ServerName IS NULL OR d.Copies<>1)
+    THROW 51000,'Missing, extra, or duplicate Waits delta key.',1;
+IF EXISTS(SELECT 1 FROM dbo.Files_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.num_of_reads<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect file delta',1;
+IF EXISTS(SELECT 1 FROM dbo.Perfmon_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.cntr_delta<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect perfmon delta',1;
+IF EXISTS(SELECT 1 FROM dbo.Waits_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.wait_time_ms_delta<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect wait delta',1;
+IF EXISTS(SELECT 1 FROM dbo.OriginalViewIds i LEFT JOIN sys.views v ON i.object_id=v.object_id AND i.name=v.name WHERE v.object_id IS NULL) THROW 51000,'View object ID changed',1;
+IF (SELECT COUNT(*) FROM sys.database_permissions WHERE grantee_principal_id=DATABASE_PRINCIPAL_ID('CodexDeltaReader') AND permission_name='SELECT')<>3 THROW 51000,'View permissions lost',1;
+PRINT 'SERVER DELTAS AND UPGRADE PASS';
+
+GO
+ALTER VIEW dbo.Files_Deltas AS SELECT CAST(1 AS int) AS Legacy;
+GO
+ALTER VIEW dbo.Perfmon_Deltas AS SELECT CAST(1 AS int) AS Legacy;
+GO
+ALTER VIEW dbo.Waits_Deltas AS SELECT CAST(1 AS int) AS Legacy;
+GO
+EXEC master.dbo.sp_BlitzFirst @Seconds=1,@OutputDatabaseName=N'FRKDeltaSmoke',@OutputSchemaName=N'dbo',@OutputTableNameFileStats=N'Files',@OutputTableNamePerfmonStats=N'Perfmon',@OutputTableNameWaitStats=N'Waits';
+GO
+
+DELETE dbo.Files WHERE ServerName NOT IN(N'ServerA',N'ServerB');
+DELETE dbo.Perfmon WHERE ServerName NOT IN(N'ServerA',N'ServerB');
+DELETE dbo.Waits WHERE ServerName NOT IN(N'ServerA',N'ServerB');
+IF (SELECT COUNT(*) FROM dbo.Files_Deltas)<>4 OR (SELECT COUNT(*) FROM dbo.Perfmon_Deltas)<>4 OR (SELECT COUNT(*) FROM dbo.Waits_Deltas)<>4 THROW 51000,'Incorrect view row counts',1;
+IF EXISTS(
+    SELECT 1 FROM (SELECT ServerName,CheckDate FROM dbo.Expected WHERE ElapsedSeconds IS NOT NULL) e
+    FULL OUTER JOIN (SELECT ServerName,CheckDate,COUNT(*) AS Copies FROM dbo.Files_Deltas GROUP BY ServerName,CheckDate) d
+    ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate
+    WHERE e.ServerName IS NULL OR d.ServerName IS NULL OR d.Copies<>1)
+    THROW 51000,'Missing, extra, or duplicate Files delta key.',1;
+IF EXISTS(
+    SELECT 1 FROM (SELECT ServerName,CheckDate FROM dbo.Expected WHERE ElapsedSeconds IS NOT NULL) e
+    FULL OUTER JOIN (SELECT ServerName,CheckDate,COUNT(*) AS Copies FROM dbo.Perfmon_Deltas GROUP BY ServerName,CheckDate) d
+    ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate
+    WHERE e.ServerName IS NULL OR d.ServerName IS NULL OR d.Copies<>1)
+    THROW 51000,'Missing, extra, or duplicate Perfmon delta key.',1;
+IF EXISTS(
+    SELECT 1 FROM (SELECT ServerName,CheckDate FROM dbo.Expected WHERE ElapsedSeconds IS NOT NULL) e
+    FULL OUTER JOIN (SELECT ServerName,CheckDate,COUNT(*) AS Copies FROM dbo.Waits_Deltas GROUP BY ServerName,CheckDate) d
+    ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate
+    WHERE e.ServerName IS NULL OR d.ServerName IS NULL OR d.Copies<>1)
+    THROW 51000,'Missing, extra, or duplicate Waits delta key.',1;
+IF EXISTS(SELECT 1 FROM dbo.Files_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.num_of_reads<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect file delta',1;
+IF EXISTS(SELECT 1 FROM dbo.Perfmon_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.cntr_delta<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect perfmon delta',1;
+IF EXISTS(SELECT 1 FROM dbo.Waits_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.wait_time_ms_delta<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect wait delta',1;
+IF EXISTS(SELECT 1 FROM dbo.OriginalViewIds i LEFT JOIN sys.views v ON i.object_id=v.object_id AND i.name=v.name WHERE v.object_id IS NULL) THROW 51000,'View object ID changed',1;
+IF (SELECT COUNT(*) FROM sys.database_permissions WHERE grantee_principal_id=DATABASE_PRINCIPAL_ID('CodexDeltaReader') AND permission_name='SELECT')<>3 THROW 51000,'View permissions lost',1;
+PRINT 'SERVER DELTAS AND UPGRADE PASS';
+
+GRANT VIEW DEFINITION ON dbo.Files_Deltas TO CodexDeltaReader;
+GRANT VIEW DEFINITION ON dbo.Perfmon_Deltas TO CodexDeltaReader;
+GRANT VIEW DEFINITION ON dbo.Waits_Deltas TO CodexDeltaReader;
+EXECUTE AS USER=N'CodexDeltaReader';
+BEGIN TRY
+    IF (SELECT COUNT(*) FROM sys.sql_modules WHERE definition LIKE '%FRK_ServerScopedDeltas_v1%') <> 3
+        THROW 51000,'Collector cannot recognize the migrated views.',1;
+    IF HAS_PERMS_BY_NAME(N'dbo.Files_Deltas', N'OBJECT', N'ALTER') <> 0
+        THROW 51000,'Metadata visibility test unexpectedly has ALTER permission.',1;
+    REVERT;
+END TRY
+BEGIN CATCH
+    REVERT;
+    THROW;
+END CATCH;
+SELECT object_id,modify_date INTO dbo.ViewModified FROM sys.views
+WHERE name IN(N'Files_Deltas',N'Perfmon_Deltas',N'Waits_Deltas');
+WAITFOR DELAY '00:00:01';
+GO
+EXEC master.dbo.sp_BlitzFirst @Seconds=1,@OutputDatabaseName=N'FRKDeltaSmoke',@OutputSchemaName=N'dbo',@OutputTableNameFileStats=N'Files',@OutputTableNamePerfmonStats=N'Perfmon',@OutputTableNameWaitStats=N'Waits';
+GO
+IF EXISTS(SELECT 1 FROM dbo.ViewModified m JOIN sys.views v ON v.object_id=m.object_id
+          WHERE v.modify_date<>m.modify_date)
+    THROW 51000,'Repeated collection unnecessarily altered a migrated view.',1;
+PRINT 'Multi-server delta values, upgrades, permissions, and repeat behavior passed.';
+USE master;
+DROP DATABASE FRKDeltaSmoke;
+--#STEP: sp_BlitzAnalysis defaults and isolates output schemas
+/* The runner checks three result sets using analysis-schema-regression.sql. */
