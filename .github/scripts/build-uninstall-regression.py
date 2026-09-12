@@ -11,16 +11,17 @@ def literal(value):
 def identifier(value):
     return '[' + value.replace(']', ']]') + ']'
 
-names = ["FRKUninstall'雪]", 'FRKUninstall' + 'x' * 115 + ']']
+names = ["FRKUninstall'雪]", 'FRKUninstall' + 'x' * 115 + ']', 'FRKUninstallCaseInsensitive']
 print('USE master; SET NOCOUNT ON;')
 print("DECLARE @DataPath nvarchar(4000) = CONVERT(nvarchar(4000), SERVERPROPERTY('InstanceDefaultDataPath'));")
 print("DECLARE @CreateDatabase nvarchar(max);")
 print("DECLARE @MasterBlitzID int = (SELECT object_id FROM master.sys.procedures WHERE schema_id=1 AND name COLLATE Latin1_General_100_BIN2=N'sp_Blitz');")
 print("IF @MasterBlitzID IS NULL THROW 51000, 'Install the kit before testing uninstall.', 1;")
 for name in names:
+    collation = 'Latin1_General_100_CI_AS' if name == names[2] else 'Latin1_General_100_CS_AS'
     print(f"IF DB_ID({literal(name)}) IS NOT NULL THROW 51000, 'Uninstall fixture already exists.', 1;")
     if len(name) < 100:
-        print(f'EXEC({literal("CREATE DATABASE " + identifier(name) + " COLLATE Latin1_General_100_CS_AS")});')
+        print(f'EXEC({literal("CREATE DATABASE " + identifier(name) + " COLLATE " + collation)});')
     else:
         prefix = 'CREATE DATABASE ' + identifier(name) + " ON PRIMARY (NAME=N'FRKUninstallLong', FILENAME=N'"
         middle = "FRKUninstallLong.mdf') LOG ON (NAME=N'FRKUninstallLong_log', FILENAME=N'"
@@ -35,12 +36,9 @@ EXEC(N'CREATE PROCEDURE dbo.SP_BLITZ AS RETURN;');
 EXEC(N'CREATE PROCEDURE dbo.KeepMe AS RETURN;');
 CREATE TABLE dbo.SqlServerVersions (n int);
 CREATE TABLE custom.SqlServerVersions (n int);'''
+    if name == names[2]:
+        setup = setup.replace("EXEC(N'CREATE PROCEDURE dbo.sp_Blitz AS RETURN;');", '')
     print(f'EXEC({literal(setup)});')
-
-# Current-database path must not fall through to the system procedure in master.
-current_source = "USE " + identifier(names[0]) + ";" + chr(10) + source
-print(f'EXEC({literal(current_source)});')
-print("IF NOT EXISTS (SELECT 1 FROM master.sys.procedures WHERE object_id=@MasterBlitzID AND schema_id=1 AND name COLLATE Latin1_General_100_BIN2=N'sp_Blitz') THROW 51000, 'Current uninstall removed the master procedure.', 1;")
 
 def assertions(name):
     sql = f'''USE {identifier(name)};
@@ -54,8 +52,18 @@ IF OBJECT_ID(N'dbo.KeepMe') IS NULL OR OBJECT_ID(N'custom.SqlServerVersions') IS
     THROW 51000, 'Unrelated object was removed.', 1;
 IF OBJECT_ID(N'dbo.SqlServerVersions') IS NOT NULL
     THROW 51000, 'Kit versions table remains.', 1;'''
+    if name == names[2]:
+        sql = sql.replace("IF NOT EXISTS (SELECT 1 FROM sys.procedures WHERE schema_id=1 AND name COLLATE Latin1_General_100_BIN2=N'SP_BLITZ')\n    THROW 51000, 'Differently cased procedure was removed.', 1;", '')
     print(f'EXEC({literal(sql)});')
-assertions(names[0])
+# Current mode covers both CS and CI identifier semantics, and must preserve master.
+for name in (names[0], names[2]):
+    current_source = "USE " + identifier(name) + ";" + chr(10) + source
+    print(f'EXEC({literal(current_source)});')
+    print("IF NOT EXISTS (SELECT 1 FROM master.sys.procedures WHERE object_id=@MasterBlitzID AND schema_id=1 AND name COLLATE Latin1_General_100_BIN2=N'sp_Blitz') THROW 51000, 'Current uninstall removed the master procedure.', 1;")
+    assertions(name)
+# Recreate the CI kit name so all-databases mode must remove it as well.
+reseed = "USE " + identifier(names[2]) + "; EXEC(N'CREATE PROCEDURE dbo.SP_BLITZ AS RETURN;'); CREATE TABLE dbo.SqlServerVersions(n int);"
+print(f'EXEC({literal(reseed)});')
 # Exercise the real all-databases enumeration, including both unusual names.
 print(f'EXEC({literal(source.replace("DECLARE @allDatabases bit = 0;", "DECLARE @allDatabases bit = 1;"))});')
 for name in names:
