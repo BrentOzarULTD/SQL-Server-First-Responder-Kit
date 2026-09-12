@@ -523,9 +523,9 @@ IF EXISTS(
     ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate
     WHERE e.ServerName IS NULL OR d.ServerName IS NULL OR d.Copies<>1)
     THROW 51000,'Missing, extra, or duplicate Waits delta key.',1;
-IF EXISTS(SELECT 1 FROM dbo.Files_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.num_of_reads<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect file delta',1;
-IF EXISTS(SELECT 1 FROM dbo.Perfmon_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.cntr_delta<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect perfmon delta',1;
-IF EXISTS(SELECT 1 FROM dbo.Waits_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.wait_time_ms_delta<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect wait delta',1;
+IF EXISTS(SELECT 1 FROM dbo.Files_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.num_of_reads IS NULL OR d.num_of_reads<>1000 OR d.ElapsedSeconds IS NULL OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect file delta',1;
+IF EXISTS(SELECT 1 FROM dbo.Perfmon_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.cntr_delta IS NULL OR d.cntr_delta<>1000 OR d.ElapsedSeconds IS NULL OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect perfmon delta',1;
+IF EXISTS(SELECT 1 FROM dbo.Waits_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.wait_time_ms_delta IS NULL OR d.wait_time_ms_delta<>1000 OR d.ElapsedSeconds IS NULL OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect wait delta',1;
 IF EXISTS(SELECT 1 FROM dbo.OriginalViewIds i LEFT JOIN sys.views v ON i.object_id=v.object_id AND i.name=v.name WHERE v.object_id IS NULL) THROW 51000,'View object ID changed',1;
 IF (SELECT COUNT(*) FROM sys.database_permissions WHERE grantee_principal_id=DATABASE_PRINCIPAL_ID('CodexDeltaReader') AND permission_name='SELECT')<>3 THROW 51000,'View permissions lost',1;
 PRINT 'SERVER DELTAS AND UPGRADE PASS';
@@ -562,9 +562,9 @@ IF EXISTS(
     ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate
     WHERE e.ServerName IS NULL OR d.ServerName IS NULL OR d.Copies<>1)
     THROW 51000,'Missing, extra, or duplicate Waits delta key.',1;
-IF EXISTS(SELECT 1 FROM dbo.Files_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.num_of_reads<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect file delta',1;
-IF EXISTS(SELECT 1 FROM dbo.Perfmon_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.cntr_delta<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect perfmon delta',1;
-IF EXISTS(SELECT 1 FROM dbo.Waits_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.wait_time_ms_delta<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect wait delta',1;
+IF EXISTS(SELECT 1 FROM dbo.Files_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.num_of_reads IS NULL OR d.num_of_reads<>1000 OR d.ElapsedSeconds IS NULL OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect file delta',1;
+IF EXISTS(SELECT 1 FROM dbo.Perfmon_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.cntr_delta IS NULL OR d.cntr_delta<>1000 OR d.ElapsedSeconds IS NULL OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect perfmon delta',1;
+IF EXISTS(SELECT 1 FROM dbo.Waits_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.wait_time_ms_delta IS NULL OR d.wait_time_ms_delta<>1000 OR d.ElapsedSeconds IS NULL OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect wait delta',1;
 IF EXISTS(SELECT 1 FROM dbo.OriginalViewIds i LEFT JOIN sys.views v ON i.object_id=v.object_id AND i.name=v.name WHERE v.object_id IS NULL) THROW 51000,'View object ID changed',1;
 IF (SELECT COUNT(*) FROM sys.database_permissions WHERE grantee_principal_id=DATABASE_PRINCIPAL_ID('CodexDeltaReader') AND permission_name='SELECT')<>3 THROW 51000,'View permissions lost',1;
 PRINT 'SERVER DELTAS AND UPGRADE PASS';
@@ -596,6 +596,8 @@ IF EXISTS(SELECT 1 FROM dbo.ViewModified m JOIN sys.views v ON v.object_id=m.obj
 PRINT 'Multi-server delta values, upgrades, permissions, and repeat behavior passed.';
 USE master;
 DROP DATABASE FRKDeltaSmoke;
+--#STEP: sp_BlitzLock parses a real system_health ring-buffer deadlock
+/* The runner creates two concurrent workers and asserts the parsed participants. */
 --#STEP: sp_BlitzCache isolates analysis and all Excel export paths
 EXEC FRKSmokeTest.sys.sp_executesql
      N'SELECT COUNT_BIG(*) FROM dbo.Posts WHERE Id > 10 /* FRK isolation workload */';
