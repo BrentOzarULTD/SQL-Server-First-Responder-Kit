@@ -36,7 +36,7 @@ SELECT 'sp_kill' as ProcedureName
 IF (@allDatabases = 0)
 BEGIN
 
-    SELECT @SQL += N'DROP PROCEDURE dbo.' + D.ProcedureName + ';' + CHAR(10)
+    SELECT @SQL += N'DROP PROCEDURE ' + QUOTENAME(SCHEMA_NAME(P.schema_id)) + N'.' + QUOTENAME(P.name) + ';' + CHAR(10)
     FROM sys.procedures P
     JOIN #ToDelete D ON D.ProcedureName = P.name COLLATE DATABASE_DEFAULT;
 
@@ -48,34 +48,36 @@ END
 ELSE
 BEGIN
 
-    DECLARE @dbname SYSNAME;
+    DECLARE @dbname NVARCHAR(258);
+    DECLARE @databaseName SYSNAME;
     DECLARE @innerSQL NVARCHAR(max);
 
     DECLARE c CURSOR LOCAL FAST_FORWARD
-    FOR SELECT QUOTENAME([name])
+    FOR SELECT QUOTENAME([name]), [name]
     FROM sys.databases
     WHERE [state] = 0;
 
     OPEN c;
 
-    FETCH NEXT FROM c INTO @dbname;
+    FETCH NEXT FROM c INTO @dbname, @databaseName;
 
     WHILE(@@FETCH_STATUS = 0)
     BEGIN
 
-        SET @innerSQL = N'    SELECT @SQL += N''USE  ' + @dbname + N';' + NCHAR(10) + N'DROP PROCEDURE dbo.'' + D.ProcedureName + '';'' + NCHAR(10)
+        SET @innerSQL = N'    SELECT @SQL += N''USE '' + QUOTENAME(@databaseName) + N'';'' + NCHAR(10) + N''DROP PROCEDURE '' + QUOTENAME(S.name) + N''.'' + QUOTENAME(P.name) + N'';'' + NCHAR(10)
         FROM ' + @dbname + N'.sys.procedures P
+        JOIN ' + @dbname + N'.sys.schemas S ON S.schema_id = P.schema_id
         JOIN #ToDelete D ON D.ProcedureName = P.name COLLATE DATABASE_DEFAULT';
 
-        EXEC sp_executesql @innerSQL, N'@SQL nvarchar(max) OUTPUT', @SQL = @SQL OUTPUT;
+        EXEC sp_executesql @innerSQL, N'@SQL nvarchar(max) OUTPUT, @databaseName sysname', @SQL = @SQL OUTPUT, @databaseName = @databaseName;
 
-        SET @innerSQL = N'    SELECT @SQL += N''USE  ' + @dbname + N';' + NCHAR(10) + N'DROP TABLE dbo.SqlServerVersions;'' + NCHAR(10)
+        SET @innerSQL = N'    SELECT @SQL += N''USE '' + QUOTENAME(@databaseName) + N'';'' + NCHAR(10) + N''DROP TABLE dbo.SqlServerVersions;'' + NCHAR(10)
         FROM ' + @dbname + N'.sys.tables
         WHERE schema_id = 1 AND name = ''SqlServerVersions''';
 
-        EXEC sp_executesql @innerSQL, N'@SQL nvarchar(max) OUTPUT', @SQL = @SQL OUTPUT;
+        EXEC sp_executesql @innerSQL, N'@SQL nvarchar(max) OUTPUT, @databaseName sysname', @SQL = @SQL OUTPUT, @databaseName = @databaseName;
 
-        FETCH NEXT FROM c INTO @dbname;
+        FETCH NEXT FROM c INTO @dbname, @databaseName;
     
     END
 
