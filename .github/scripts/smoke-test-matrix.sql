@@ -470,3 +470,6 @@ IF @QueryPlanHash IS NULL
     RAISERROR('Seeded marker query was not found in the plan cache; sp_BlitzPlanCompare was not exercised.', 16, 1);
 
 EXEC dbo.sp_BlitzPlanCompare @QueryPlanHash = @QueryPlanHash, @DatabaseName = 'FRKSmokeTest';
+
+--#STEP: sp_BlitzAnalysis defaults and isolates output schemas
+/* The runner checks three result sets using analysis-schema-regression.sql. */

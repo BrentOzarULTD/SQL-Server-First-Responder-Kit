@@ -93,6 +93,12 @@ BEGIN
 	RETURN;
 END
 
+/* Default to dbo schema if NULL is passed in */
+IF (@OutputSchemaName IS NULL)
+BEGIN
+	SET @OutputSchemaName = 'dbo';
+END
+
 /* Set fully qualified table names */
 SET @FullOutputTableNameBlitzFirst = QUOTENAME(@OutputDatabaseName)+N'.'+QUOTENAME(@OutputSchemaName)+N'.'+QUOTENAME(@OutputTableNameBlitzFirst);
 SET @FullOutputTableNameFileStats = QUOTENAME(@OutputDatabaseName)+N'.'+QUOTENAME(@OutputSchemaName)+N'.'+QUOTENAME(@OutputTableNameFileStats+N'_Deltas');
@@ -183,12 +189,6 @@ BEGIN
 		SET @EndDate = SYSDATETIMEOFFSET();
 	END
 END 
-
-/* Default to dbo schema if NULL is passed in */
-IF (@OutputSchemaName IS NULL) 
-BEGIN 
-	SET @OutputSchemaName = 'dbo';
-END
 
 /* Prompt the user for @BringThePain = 1 if they are searching a timeframe greater than 4 hours and they are using BlitzCacheSortorder = 'all' */
 IF(@BlitzCacheSortorder = 'all' AND DATEDIFF(HOUR,@StartDate,@EndDate) > 4 AND @BringThePain = 0)
