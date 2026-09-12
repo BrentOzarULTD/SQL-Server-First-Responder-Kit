@@ -653,6 +653,14 @@ GO
 IF EXISTS(SELECT 1 FROM dbo.ViewModified m JOIN sys.views v ON v.object_id=m.object_id
           WHERE v.modify_date<>m.modify_date)
     THROW 51000,'Repeated collection unnecessarily altered a migrated view.',1;
+
+DECLARE @LongSchema sysname=REPLICATE(N'S',128), @LongTable sysname=REPLICATE(N'F',120), @LongSQL nvarchar(max);
+SET @LongSQL=N'CREATE SCHEMA '+QUOTENAME(@LongSchema)+N';';
+EXEC(@LongSQL);
+EXEC master.dbo.sp_BlitzFirst @Seconds=1,@OutputDatabaseName=N'FRKDeltaSmoke',@OutputSchemaName=@LongSchema,@OutputTableNameFileStats=@LongTable;
+IF NOT EXISTS(SELECT 1 FROM sys.views v JOIN sys.sql_modules m ON m.object_id=v.object_id
+ WHERE v.schema_id=SCHEMA_ID(@LongSchema) AND v.name=@LongTable+N'_Deltas' AND LEN(m.definition)>4000)
+ THROW 51000,'Long-identifier view was truncated or the fixture did not exceed 4000 characters.',1;
 PRINT 'Multi-server delta values, upgrades, permissions, and repeat behavior passed.';
 USE master;
 DROP DATABASE FRKDeltaSmoke;

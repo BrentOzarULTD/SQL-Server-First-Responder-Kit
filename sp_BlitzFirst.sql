@@ -4340,7 +4340,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
         /* Upgrade existing views in place to preserve permissions. */
         BEGIN
-            SET @StringToExecute = 'USE '
+            SET @StringToExecute = CONVERT(nvarchar(max), N'USE ')
                 + @OutputDatabaseName
                 + '; IF NOT EXISTS (SELECT 1 FROM sys.sql_modules'
                 + ' WHERE object_id = OBJECT_ID(@ViewName)'
@@ -4516,7 +4516,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
         /* Upgrade existing views in place to preserve permissions. */
         BEGIN
-            SET @StringToExecute = 'USE '
+            SET @StringToExecute = CONVERT(nvarchar(max), N'USE ')
                 + @OutputDatabaseName
                 + '; IF NOT EXISTS (SELECT 1 FROM sys.sql_modules'
                 + ' WHERE object_id = OBJECT_ID(@ViewName)'
@@ -4837,7 +4837,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
         /* Upgrade existing views in place to preserve permissions. */
         BEGIN
-            SET @StringToExecute = 'USE '
+            SET @StringToExecute = CONVERT(nvarchar(max), N'USE ')
                 + @OutputDatabaseName
                 + '; IF NOT EXISTS (SELECT 1 FROM sys.sql_modules'
                 + ' WHERE object_id = OBJECT_ID(@ViewName)'
