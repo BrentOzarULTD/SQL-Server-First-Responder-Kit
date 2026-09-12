@@ -847,6 +847,13 @@ BEGIN
     SET @HideSummary = 1;
 END;
 
+/* Reject internal global-table names before any plan-cache preprocessing. */
+IF @OutputTableName COLLATE Latin1_General_100_CI_AS IN ('##BlitzCacheProcs', '##BlitzCacheResults')
+BEGIN
+    RAISERROR('OutputTableName is a reserved name for this procedure. We only use ##BlitzCacheProcs and ##BlitzCacheResults, please choose another table name.', 16, 1);
+    RETURN;
+END;
+
 /* Lets get @SortOrder set to lower case here for comparisons later */
 SET @SortOrder = LOWER(@SortOrder);
 
@@ -1153,12 +1160,6 @@ IF @Top IS NULL
     OR @Reanalyze IS NULL
 BEGIN
     RAISERROR(N'Several parameters (@Top, @SortOrder, @QueryFilter, @Reanalyze) are required. Do not set them to NULL. Please try again.', 16, 1) WITH NOWAIT;
-    RETURN;
-END;
-
-IF @OutputTableName IN ('##BlitzCacheProcs', '##BlitzCacheResults')
-BEGIN
-    RAISERROR('OutputTableName is a reserved name for this procedure. We only use ##BlitzCacheProcs and ##BlitzCacheResults, please choose another table name.', 16, 1);
     RETURN;
 END;
 
