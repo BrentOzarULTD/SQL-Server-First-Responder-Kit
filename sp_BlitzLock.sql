@@ -1705,11 +1705,11 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
         FROM
         (
             SELECT
-                event_date = dd.deadlock_xml.value('(event/@timestamp)[1]', 'datetime2'),
-                victim_id = dd.deadlock_xml.value('(//deadlock/victim-list/victimProcess/@id)[1]', 'nvarchar(256)'),
+                event_date = dd.event_date,
+                victim_id = dd.victim_id,
                 resource_xml = ISNULL(ca.dp.query(N'.'), N'')
-            FROM #deadlock_data AS dd
-            CROSS APPLY dd.deadlock_xml.nodes('//deadlock/resource-list') AS ca(dp)
+            FROM #dd AS dd
+            CROSS APPLY dd.deadlock_graph.nodes('/deadlock/resource-list') AS ca(dp)
         ) AS dr
         OPTION(RECOMPILE);
 
