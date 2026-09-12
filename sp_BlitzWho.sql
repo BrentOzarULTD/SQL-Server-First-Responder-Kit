@@ -644,18 +644,26 @@ SELECT @BlockingCheck = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						DECLARE @LiveQueryPlans TABLE
 						(
 							Session_Id INT NOT NULL,
-							Query_Plan XML NOT NULL
+							Query_Plan XML NULL
 						);
 
 						'
 IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_statistics_xml') AND name = 'query_plan' AND @GetLiveQueryPlan=1)
 BEGIN
 	SET @BlockingCheck = @BlockingCheck + N'
-							INSERT INTO @LiveQueryPlans
-							SELECT	s.session_id, query_plan 
-							FROM	sys.dm_exec_sessions AS s
-							CROSS APPLY sys.dm_exec_query_statistics_xml(s.session_id)
-							WHERE	s.session_id <> @@SPID;';
+							BEGIN TRY
+								INSERT INTO @LiveQueryPlans
+								SELECT s.session_id, query_plan
+								FROM sys.dm_exec_sessions AS s
+								CROSS APPLY sys.dm_exec_query_statistics_xml(s.session_id)
+								WHERE s.session_id <> @@SPID;
+							END TRY
+							BEGIN CATCH
+								/* The DMF can raise the XML depth error before a caller can TRY_CONVERT it. */
+								IF ERROR_NUMBER() <> 6335 THROW;
+								DELETE FROM @LiveQueryPlans;
+								RAISERROR(''Live query plans could not be retrieved because a plan exceeded the XML nesting limit. Continuing without live plans.'', 10, 1) WITH NOWAIT;
+							END CATCH;';
 END
 
 
@@ -887,7 +895,9 @@ SELECT @StringToExecute = N' CASE WHEN YEAR(s.last_request_start_time) = 1900 TH
 					    OR s.session_id = b.blocking_session_id)
 		    ) AS blocked
 	    OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle, blocked.sql_handle)) AS dest
-	    OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS derp
+	    /* Retrieve the whole batch as text so oversized XML becomes NULL before output or parameter shredding. */
+	    OUTER APPLY sys.dm_exec_text_query_plan(r.plan_handle, 0, -1) AS text_plan
+	    OUTER APPLY (SELECT TRY_CONVERT(XML, text_plan.query_plan) AS query_plan) AS derp
 	    OUTER APPLY (
 			    SELECT CONVERT(DECIMAL(38,2), SUM( ((((tsu.user_objects_alloc_page_count - user_objects_dealloc_page_count) + (tsu.internal_objects_alloc_page_count - internal_objects_dealloc_page_count)) * 8) / 1024.)) ) AS tempdb_allocations_mb
 			    FROM sys.dm_db_task_space_usage tsu

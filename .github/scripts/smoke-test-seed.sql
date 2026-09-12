@@ -140,20 +140,7 @@ BACKUP DATABASE FRKSmokeTest
     WITH INIT, FORMAT, NAME = 'FRKSmokeTest full 2';
 GO
 
-/* ---------------------------------------------------------------------------
-   Checks CI skips, and why.
-
-   CheckID 106 reads the live default trace with fn_trace_gettable. That file is
-   being written continuously -- more so here, because the smoke test itself does
-   constant DDL -- and a read that lands on a torn or rolling file raises Msg 568,
-   which aborts the whole sp_Blitz run rather than just that check. It fired on
-   one of six sp_Blitz calls in a single CI run, which would mean red builds on
-   pull requests that changed nothing. Tracked in issue #4050; remove this row
-   once that is fixed.
-
-   Feeding it through @SkipChecksTable rather than hard-coding an exclusion has a
-   side benefit: the skip-checks code path is itself exercised on every run.
-   --------------------------------------------------------------------------- */
+/* Keep an empty skip table to exercise the @SkipChecksTable input path. */
 IF OBJECT_ID('FRKSmokeTest.dbo.BlitzChecksToSkip') IS NOT NULL
     DROP TABLE FRKSmokeTest.dbo.BlitzChecksToSkip;
 GO
@@ -166,8 +153,58 @@ CREATE TABLE FRKSmokeTest.dbo.BlitzChecksToSkip
 );
 GO
 
-INSERT FRKSmokeTest.dbo.BlitzChecksToSkip (DatabaseName, CheckID, ServerName)
-VALUES (NULL, 106, NULL);  /* issue #4050 */
+
+/* A disabled login can be impersonated by the runner, but cannot log in over the network. */
+USE master;
+IF SUSER_ID(N'FRKSmokeLimited') IS NULL
+BEGIN
+    DECLARE @CreateLimitedLogin nvarchar(max) =
+        N'CREATE LOGIN FRKSmokeLimited WITH PASSWORD = ''' + CONVERT(nvarchar(36), NEWID()) + N'aA1!'';';
+    EXEC sys.sp_executesql @CreateLimitedLogin;
+END;
+ALTER LOGIN FRKSmokeLimited DISABLE;
+GRANT VIEW SERVER STATE TO FRKSmokeLimited;
+IF CONVERT(int, SERVERPROPERTY('ProductMajorVersion')) >= 16
+    EXEC(N'GRANT VIEW SERVER PERFORMANCE STATE TO FRKSmokeLimited;');
+IF USER_ID(N'FRKSmokeLimited') IS NULL
+    CREATE USER FRKSmokeLimited FOR LOGIN FRKSmokeLimited;
+DENY SELECT ON sys.extended_procedures TO FRKSmokeLimited;
+DENY SELECT ON sys.master_files TO FRKSmokeLimited;
+GO
+USE msdb;
+IF USER_ID(N'FRKSmokeLimited') IS NULL
+    CREATE USER FRKSmokeLimited FOR LOGIN FRKSmokeLimited;
+/* An absent user alone is insufficient: msdb normally allows guest access. */
+DENY CONNECT TO FRKSmokeLimited;
+GO
+USE FRKSmokeTest;
+IF USER_ID(N'FRKSmokeLimited') IS NULL
+    CREATE USER FRKSmokeLimited FOR LOGIN FRKSmokeLimited;
+IF OBJECT_ID(N'dbo.LimitedLoginChecksToSkip') IS NOT NULL
+    DROP TABLE dbo.LimitedLoginChecksToSkip;
+CREATE TABLE dbo.LimitedLoginChecksToSkip
+(
+    DatabaseName nvarchar(128) NULL,
+    CheckID int NOT NULL PRIMARY KEY,
+    ServerName nvarchar(128) NULL
+);
+/* The five hoisted probes whose skip guards this test protects. */
+INSERT dbo.LimitedLoginChecksToSkip(CheckID) VALUES (202),(178),(105),(116),(191);
+/* Other checks requiring the deliberately denied msdb/master metadata. */
+INSERT dbo.LimitedLoginChecksToSkip(CheckID)
+VALUES (1),(2),(3),(8),(90),(92),(93),(111),(119),(186),(232),(234),(236),(256);
+GRANT SELECT ON dbo.LimitedLoginChecksToSkip TO FRKSmokeLimited;
+GO
+USE master;
+/* Per-run session identity for the dedicated sp_kill victim. */
+IF OBJECT_ID('FRKSmokeTest.dbo.KillVictim') IS NOT NULL
+    DROP TABLE FRKSmokeTest.dbo.KillVictim;
+CREATE TABLE FRKSmokeTest.dbo.KillVictim
+(
+    Token uniqueidentifier NOT NULL PRIMARY KEY,
+    SessionId smallint NOT NULL,
+    LoginTime datetime NOT NULL
+);
 GO
 
 PRINT 'Seed complete.';

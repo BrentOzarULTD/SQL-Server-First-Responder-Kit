@@ -408,7 +408,7 @@ BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @BackupPathFull to add a "/"', 0, 1) WITH NOWAIT;
 	SET @BackupPathFull += N'/';
 END;
-ELSE IF (SELECT RIGHT(@BackupPathFull, 1)) <> '\' --Has to end in a '\'
+ELSE IF (SELECT RIGHT(@BackupPathFull, 1)) NOT IN ('\', '/') --Has to end in a path separator
 BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @BackupPathFull to add a "\"', 0, 1) WITH NOWAIT;
 	SET @BackupPathFull += N'\';
@@ -419,7 +419,7 @@ BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @BackupPathDiff to add a "/"', 0, 1) WITH NOWAIT;
 	SET @BackupPathDiff += N'/';
 END;
-ELSE IF (SELECT RIGHT(@BackupPathDiff, 1)) <> '\' --Has to end in a '\'
+ELSE IF (SELECT RIGHT(@BackupPathDiff, 1)) NOT IN ('\', '/') --Has to end in a path separator
 BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @BackupPathDiff to add a "\"', 0, 1) WITH NOWAIT;
 	SET @BackupPathDiff += N'\';
@@ -430,7 +430,7 @@ BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @BackupPathLog to add a "/"', 0, 1) WITH NOWAIT;
 	SET @BackupPathLog += N'/';
 END;
-IF (SELECT RIGHT(@BackupPathLog, 1)) <> '\' --Has to end in a '\'
+ELSE IF (SELECT RIGHT(@BackupPathLog, 1)) NOT IN ('\', '/') --Has to end in a path separator
 BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @BackupPathLog to add a "\"', 0, 1) WITH NOWAIT;
 	SET @BackupPathLog += N'\';
@@ -446,7 +446,7 @@ BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveDataDrive to add a "/"', 0, 1) WITH NOWAIT;
 	SET @MoveDataDrive += N'/';
 END;
-ELSE IF (SELECT RIGHT(@MoveDataDrive, 1)) <> '\' --Has to end in a '\'
+ELSE IF (SELECT RIGHT(@MoveDataDrive, 1)) NOT IN ('\', '/') --Has to end in a path separator
 BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveDataDrive to add a "\"', 0, 1) WITH NOWAIT;
 	SET @MoveDataDrive += N'\';
@@ -462,7 +462,7 @@ BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveLogDrive to add a "/"', 0, 1) WITH NOWAIT;
 	SET @MoveLogDrive += N'/';
 END;
-ELSE IF (SELECT RIGHT(@MoveLogDrive, 1)) <> '\' --Has to end in a '\'
+ELSE IF (SELECT RIGHT(@MoveLogDrive, 1)) NOT IN ('\', '/') --Has to end in a path separator
 BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveLogDrive to add a "\"', 0, 1) WITH NOWAIT;
 	SET @MoveLogDrive += N'\';
@@ -478,7 +478,7 @@ BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveFilestreamDrive to add a "/"', 0, 1) WITH NOWAIT;
 	SET @MoveFilestreamDrive += N'/';
 END;
-ELSE IF (SELECT RIGHT(@MoveFilestreamDrive, 1)) <> '\' --Has to end in a '\'
+ELSE IF (SELECT RIGHT(@MoveFilestreamDrive, 1)) NOT IN ('\', '/') --Has to end in a path separator
 BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveFilestreamDrive to add a "\"', 0, 1) WITH NOWAIT;
 	SET @MoveFilestreamDrive += N'\';
@@ -494,7 +494,7 @@ BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveFullTextCatalogDrive to add a "/"', 0, 1) WITH NOWAIT;
 	SET @MoveFullTextCatalogDrive += N'/';
 END;
-IF (SELECT RIGHT(@MoveFullTextCatalogDrive, 1)) <> '\' --Has to end in a '\'
+ELSE IF (SELECT RIGHT(@MoveFullTextCatalogDrive, 1)) NOT IN ('\', '/') --Has to end in a path separator
 BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @MoveFullTextCatalogDrive to add a "\"', 0, 1) WITH NOWAIT;
 	SET @MoveFullTextCatalogDrive += N'\';
@@ -505,7 +505,7 @@ BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @StandbyUndoPath to add a "/"', 0, 1) WITH NOWAIT;
 	SET @StandbyUndoPath += N'/';
 END;
-IF (SELECT RIGHT(@StandbyUndoPath, 1)) <> '\' --Has to end in a '\'
+ELSE IF (SELECT RIGHT(@StandbyUndoPath, 1)) NOT IN ('\', '/') --Has to end in a path separator
 BEGIN
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Fixing @StandbyUndoPath to add a "\"', 0, 1) WITH NOWAIT;
 	SET @StandbyUndoPath += N'\';
@@ -651,7 +651,9 @@ BEGIN
 		   WHERE EndPosition < LEN( @BackupPathFull ) + 1
 	 )
 	INSERT INTO @PathItem
-	SELECT CASE RIGHT( PathItem, 1 ) WHEN '\' THEN PathItem ELSE PathItem + '\' END FROM BackupPaths;
+	SELECT CASE WHEN RIGHT(PathItem, 1) IN ('\', '/') THEN PathItem
+             WHEN CHARINDEX('/', PathItem) > 0 THEN PathItem + '/'
+             ELSE PathItem + '\' END FROM BackupPaths;
 
 	WHILE 1 = 1
 	BEGIN
@@ -877,8 +879,8 @@ BEGIN
 				    WHEN Type = 'S' THEN @MoveFilestreamDrive
 					WHEN Type = 'F' THEN @MoveFullTextCatalogDrive
 			    END + COALESCE(@FileNamePrefix, '') + CASE
-                        WHEN @Database = @RestoreDatabaseName THEN REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1))
-					    ELSE REPLACE(REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX('\', REVERSE(PhysicalName), 1) -1)), @Database, SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) -2))
+                        WHEN @Database = @RestoreDatabaseName THEN REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX(CASE WHEN CHARINDEX('\', PhysicalName) > 0 THEN '\' ELSE '/' END, REVERSE(PhysicalName), 1) -1))
+					    ELSE REPLACE(REVERSE(LEFT(REVERSE(PhysicalName), CHARINDEX(CASE WHEN CHARINDEX('\', PhysicalName) > 0 THEN '\' ELSE '/' END, REVERSE(PhysicalName), 1) -1)), @Database, SUBSTRING(@RestoreDatabaseName, 2, LEN(@RestoreDatabaseName) -2))
 					    END AS TargetPhysicalName,
                     PhysicalName,
                     LogicalName
@@ -1091,7 +1093,9 @@ BEGIN
 		   WHERE EndPosition < LEN( @BackupPathDiff ) + 1
 	 )
 	INSERT INTO @PathItem
-	SELECT CASE RIGHT( PathItem, 1 ) WHEN '\' THEN PathItem ELSE PathItem + '\' END FROM BackupPaths;
+	SELECT CASE WHEN RIGHT(PathItem, 1) IN ('\', '/') THEN PathItem
+             WHEN CHARINDEX('/', PathItem) > 0 THEN PathItem + '/'
+             ELSE PathItem + '\' END FROM BackupPaths;
 
 	WHILE 1 = 1
 	BEGIN
@@ -1277,7 +1281,9 @@ BEGIN
 		   WHERE EndPosition < LEN( @BackupPathLog ) + 1
 	 )
 	INSERT INTO @PathItem
-	SELECT CASE RIGHT( PathItem, 1 ) WHEN '\' THEN PathItem ELSE PathItem + '\' END FROM BackupPaths;
+	SELECT CASE WHEN RIGHT(PathItem, 1) IN ('\', '/') THEN PathItem
+             WHEN CHARINDEX('/', PathItem) > 0 THEN PathItem + '/'
+             ELSE PathItem + '\' END FROM BackupPaths;
 
 	WHILE 1 = 1
 	BEGIN

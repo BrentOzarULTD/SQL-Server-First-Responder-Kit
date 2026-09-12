@@ -282,7 +282,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
 	@CheckDateOverride DATETIMEOFFSET = NULL,
 	@MinutesBack INT = NULL,
     @AI TINYINT = 0, /* 1 = ask for advice, 2 = build prompt but don't actually call AI. Only works with a single query plan: automatically sets @ExpertMode = 1, @KeepCRLF = 1. */
-    @AIModel VARCHAR(200) = NULL, /* Defaults to gpt-4.1-mini */
+    @AIModel VARCHAR(200) = NULL, /* Defaults to gpt-5.6-luna */
     @AIURL VARCHAR(200) = NULL, /* Defaults to https://api.openai.com/v1/chat/completions */
     @AICredential VARCHAR(200) = NULL, /* Defaults to 'https://api.openai.com/' or the root of your AIURL, trailing slash included */
     @AIConfigTable NVARCHAR(500) = NULL, /* Table where AI provider config is stored - can be in the format db.schema.table, schema.table, or just table. */
@@ -490,7 +490,7 @@ IF @Help = 1
 	UNION ALL
 	SELECT N'@AIModel',
 			N'VARCHAR(200)',
-			N'Defaults to gpt-4.1-mini. Can accept other models, or if you have a dbo.AI_Services table, we will look up services there.'
+			N'Defaults to gpt-5.6-luna. Can accept other models, or if you have a dbo.AI_Services table, we will look up services there.'
 
 	UNION ALL
 	SELECT N'@AIURL',
@@ -943,7 +943,7 @@ BEGIN
     DECLARE @AIModelRequested NVARCHAR(200) = @AIModel;
     DECLARE @AIFallbackModel NVARCHAR(200);
     SELECT TOP 1 @AIFallbackModel = AI_Model FROM #ai_providers WHERE Default_Model = 1 ORDER BY Id;
-    IF @AIFallbackModel IS NULL SET @AIFallbackModel = N'gpt-5-nano';
+    IF @AIFallbackModel IS NULL SET @AIFallbackModel = N'gpt-5.6-luna';
     RAISERROR('@AIModel "%s" was not found in configuration table %s. Using "%s" instead.',
         10, 1, @AIModelRequested, @AIConfigTable, @AIFallbackModel) WITH NOWAIT;
     SET @AIModel = NULL;
@@ -1018,7 +1018,7 @@ IF @AI > 0
             ORDER BY Id;
         
     IF @AIModel IS NULL
-        SET @AIModel = N'gpt-5-nano';
+        SET @AIModel = N'gpt-5.6-luna';
     
     IF @AIURL IS NULL OR @AIURL NOT LIKE N'http%'
         SET @AIURL = CASE 
@@ -1034,11 +1034,9 @@ IF @AI > 0
         SET @AITimeoutSeconds = 230;
 
     IF @AISystemPrompt IS NULL OR @AISystemPrompt = N''
-        SET @AISystemPrompt = N'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
+        SET @AISystemPrompt = N'Review a poorly performing query for Microsoft SQL Server or Azure SQL Database. Focus on the query and index changes most likely to improve end-user performance; keep server configuration and routine statistics maintenance outside the plan.
 
-    You have a query that isn''t performing to end user expectations. You have been tasked with making serious improvements to it, quickly. You are not allowed to change server-level settings or make frivolous suggestions like updating statistics. Instead, you need to focus on query changes or index changes. 
-    
-    Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.';
+Return one self-contained Markdown response with prioritized findings, recommended changes, complete scripts, and validation or rollback steps. Keep the response focused.';
 
     IF @AIModel LIKE 'gemini%' AND @AIPayloadTemplate IS NULL
         SET @AIPayloadTemplate = N'{

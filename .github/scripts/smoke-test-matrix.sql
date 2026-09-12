@@ -21,6 +21,52 @@ Deliberately excluded:
     code under test (issue #4046, decision 4).
 */
 
+--#STEP: sp_Blitz restricted login honors skip guards
+/* Grants happen after the runner installs the procedures. */
+GRANT EXECUTE ON dbo.sp_Blitz TO FRKSmokeLimited;
+GRANT EXECUTE ON dbo.sp_ineachdb TO FRKSmokeLimited;
+EXECUTE AS LOGIN = 'FRKSmokeLimited';
+BEGIN TRY
+    IF ISNULL(IS_SRVROLEMEMBER(N'sysadmin'), 1) <> 0
+       OR ISNULL(HAS_PERMS_BY_NAME(NULL, NULL, 'VIEW SERVER STATE'), 0) <> 1
+        THROW 51000, 'Restricted-login test has the wrong server permissions.', 1;
+
+    /* Prove the probes fail without guards: empty metadata is not a denial. */
+    DECLARE @Probes TABLE(CheckID int PRIMARY KEY, Query nvarchar(max));
+    INSERT @Probes VALUES
+      (202,N'SELECT TOP (0) * FROM msdb.INFORMATION_SCHEMA.COLUMNS;'),
+      (178,N'SELECT TOP (0) * FROM msdb.dbo.backupset;'),
+      (105,N'SELECT TOP (0) * FROM master.sys.extended_procedures;'),
+      (116,N'SELECT TOP (0) * FROM msdb.sys.all_columns;'),
+      (191,N'SELECT TOP (0) * FROM sys.master_files;');
+    DECLARE @ProbeID int, @Probe nvarchar(max);
+    WHILE EXISTS (SELECT 1 FROM @Probes)
+    BEGIN
+        SELECT TOP (1) @ProbeID = CheckID, @Probe = Query FROM @Probes ORDER BY CheckID;
+        BEGIN TRY
+            EXEC sys.sp_executesql @Probe;
+            THROW 51000, 'A restricted metadata probe unexpectedly succeeded.', 1;
+        END TRY
+        BEGIN CATCH
+            IF ERROR_NUMBER() NOT IN (229, 916) THROW;
+        END CATCH;
+        DELETE @Probes WHERE CheckID = @ProbeID;
+    END;
+
+    EXEC dbo.sp_Blitz
+         @CheckUserDatabaseObjects = 0,
+         @CheckProcedureCache = 0,
+         @CheckServerInfo = 1,
+         @SkipChecksDatabase = 'FRKSmokeTest',
+         @SkipChecksSchema = 'dbo',
+         @SkipChecksTable = 'LimitedLoginChecksToSkip';
+    REVERT;
+END TRY
+BEGIN CATCH
+    REVERT;
+    THROW;
+END CATCH;
+
 --#STEP: sp_Blitz default
 EXEC dbo.sp_Blitz
      @SkipChecksDatabase = 'FRKSmokeTest',
@@ -200,23 +246,40 @@ EXEC dbo.sp_kill @ExecuteKills = 'N';
 --#STEP: sp_kill order by duration
 EXEC dbo.sp_kill @ExecuteKills = 'N', @OrderBy = 'duration';
 
-/*
-NOT coverage of the kill loop, despite running with @ExecuteKills = 'Y'.
-
-With a filter that matches no session, sp_kill sets @TotalKills to 0 and leaves
-through its "nothing to kill" branch; the cursor and EXEC(@KillSQL) at
-sp_kill.sql:793-840 are never reached. What this does cover is parameter
-handling and the filter/report path under the executing flag, without CI killing
-its own connection.
-
-Real coverage needs a second session held open for sp_kill to kill, respawned
-for every matrix run since the first one consumes it. Tracked in issue #4051.
-Labelled for what it is rather than what it looks like -- a step whose name
-implies coverage it does not provide is the same trap as the @VersionCheckMode
-call this whole harness replaced.
-*/
---#STEP: sp_kill executing flag with no matching session (not the kill loop)
+--#STEP: sp_kill executing flag with no matching session
 EXEC dbo.sp_kill @ExecuteKills = 'Y', @AppName = 'NoSuchApp-FRKSmokeTest';
+
+--#STEP: sp_kill kills a dedicated session
+DECLARE @Token uniqueidentifier = '$(KillVictimToken)', @VictimSpid int,
+        @LoginTime datetime, @Attempts int = 0;
+/* Wait for registration, checking session identity as well as the reusable SPID. */
+WHILE @VictimSpid IS NULL AND @Attempts < 30
+BEGIN
+    SELECT @VictimSpid = v.SessionId, @LoginTime = v.LoginTime
+    FROM FRKSmokeTest.dbo.KillVictim AS v
+    JOIN sys.dm_exec_sessions AS s
+      ON s.session_id = v.SessionId AND s.login_time = v.LoginTime
+    WHERE v.Token = @Token
+      AND s.is_user_process = 1 AND s.session_id <> @@SPID;
+    IF @VictimSpid IS NULL WAITFOR DELAY '00:00:01';
+    SET @Attempts += 1;
+END;
+IF @VictimSpid IS NULL
+    THROW 51000, 'The dedicated sp_kill victim did not become ready.', 1;
+
+EXEC dbo.sp_kill @ExecuteKills = 'Y', @SPID = @VictimSpid;
+
+SET @Attempts = 0;
+WHILE EXISTS (SELECT 1 FROM sys.dm_exec_sessions
+              WHERE session_id = @VictimSpid AND login_time = @LoginTime)
+      AND @Attempts < 10
+BEGIN
+    WAITFOR DELAY '00:00:01';
+    SET @Attempts += 1;
+END;
+IF EXISTS (SELECT 1 FROM sys.dm_exec_sessions
+           WHERE session_id = @VictimSpid AND login_time = @LoginTime)
+    THROW 51000, 'sp_kill returned without terminating the dedicated victim.', 1;
 
 --#STEP: sp_DatabaseRestore help
 EXEC dbo.sp_DatabaseRestore @Help = 1;
