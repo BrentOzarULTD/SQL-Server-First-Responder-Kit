@@ -221,7 +221,10 @@ THROW 51000, 'The dedicated victim timed out without being killed.', 1;" \
 )
 
 run_step() {
-  if [[ "$2" == 'sp_kill kills a dedicated session' ]]; then
+  if [[ "$2" == 'sp_BlitzLock parses a real system_health ring-buffer deadlock' ]]; then
+    SQLCMDSERVER="$SQLCMDSERVER" SQLCMDUSER="$SQLCMDUSER" SQLCMD="$SQLCMD" \
+      python3 "$SCRIPT_DIR/test-lock-ring-buffer.py"
+  elif [[ "$2" == 'sp_kill kills a dedicated session' ]]; then
     run_kill_step "$1"
   else
     "$SQLCMD" "${SQLCMD_ARGS[@]}" -d master -i "$1"

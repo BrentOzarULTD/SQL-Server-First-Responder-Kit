@@ -353,3 +353,6 @@ IF @QueryPlanHash IS NULL
     RAISERROR('Seeded marker query was not found in the plan cache; sp_BlitzPlanCompare was not exercised.', 16, 1);
 
 EXEC dbo.sp_BlitzPlanCompare @QueryPlanHash = @QueryPlanHash, @DatabaseName = 'FRKSmokeTest';
+
+--#STEP: sp_BlitzLock parses a real system_health ring-buffer deadlock
+/* The runner creates two concurrent workers and asserts the parsed participants. */
