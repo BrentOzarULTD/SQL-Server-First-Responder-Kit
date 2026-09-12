@@ -582,10 +582,13 @@ SELECT b.database_name,b.database_guid,b.backup_set_id,b.backup_set_uuid,b.type,
 FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset b
 WHERE b.type IN (''D'',''I'',''L'')
  AND (b.is_damaged=0 OR (b.type=''L'' AND (b.is_copy_only=0 OR b.is_copy_only IS NULL)))
+ AND (EXISTS(SELECT 1 FROM #RTOKnownMedia km WHERE km.media_set_id=b.media_set_id)
+      OR (b.type=''L'' AND (b.is_copy_only=0 OR b.is_copy_only IS NULL)))
  AND (b.backup_finish_date>=@StartTime OR b.backup_finish_date>=(
     SELECT MAX(anchor.backup_finish_date) FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset anchor
     WHERE anchor.database_name=b.database_name AND anchor.database_guid=b.database_guid
       AND anchor.type=''D'' AND anchor.is_damaged=0 AND anchor.backup_finish_date<=@StartTime
+      AND EXISTS(SELECT 1 FROM #RTOKnownMedia km WHERE km.media_set_id=anchor.media_set_id)
       AND NOT EXISTS(SELECT 1 FROM #RTODiscardMedia am
         WHERE am.media_set_id=anchor.media_set_id AND (UPPER(am.physical_device_name)=N''NUL'' OR am.physical_device_name=N''/dev/null''))
  ))
@@ -734,6 +737,12 @@ RAISERROR('Add any full backups in the StartDate range that weren''t part of the
 
 		EXEC sys.sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
 
+/* A full-only history with unavailable base metadata still needs an explanation. */
+INSERT #Warnings(CheckId,Priority,DatabaseName,Finding,Warning)
+SELECT 15,50,b.database_name,N'RTO estimate unavailable',N'No usable full backup with known media and integrity metadata was found for this interval.'
+FROM #Backups b WHERE NOT EXISTS(SELECT 1 FROM #RTORecoveryPoints rp WHERE rp.database_name=b.database_name AND rp.database_guid=b.database_guid)
+AND NOT EXISTS(SELECT 1 FROM #Warnings w WHERE w.CheckId=15 AND w.DatabaseName=b.database_name);
+
 /* Fill out the most recent log for that full, but before the next full */
 
 RAISERROR('Fill out the most recent log for that full, but before the next full', 0, 1) WITH NOWAIT;
@@ -781,7 +790,7 @@ RAISERROR('Fill out a diff in that range', 0, 1) WITH NOWAIT;
 							SET diff_last_lsn = (SELECT TOP 1 bDiff.last_lsn FROM #RTOBackupSets bDiff
 							                        WHERE rp.database_guid = bDiff.database_guid AND rp.database_name = bDiff.database_name
 							                            AND bDiff.type = ''I''
-							                            AND bDiff.last_lsn < rp.log_last_lsn
+							                            AND (rp.log_last_lsn IS NULL OR bDiff.last_lsn < rp.log_last_lsn)
 							                            AND rp.full_backup_set_uuid = bDiff.differential_base_guid
 							                            ORDER BY bDiff.last_lsn DESC)
 							FROM #RTORecoveryPoints rp

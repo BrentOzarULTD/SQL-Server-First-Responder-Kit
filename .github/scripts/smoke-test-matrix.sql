@@ -774,6 +774,7 @@ BEGIN TRY
     SELECT * INTO FRKLogHistory.dbo.AllBackupSets FROM FRKLogHistory.dbo.backupset;
     CREATE TABLE #FRKRecoveryProof(full_backup_set_id int,log_backup_set_id int, log_backups int, log_file_size_mb decimal(18,2), log_time_seconds int);
     CREATE TABLE #FRKBackupProof(RTOWorstCaseMinutes decimal(18,2));
+    CREATE TABLE #FRKDiffProof(diff_backup_set_id int,diff_time_seconds int);
     CREATE TABLE #FRKWarningProof(Finding nvarchar(200));
     /* Copy the installed procedure into the isolated fixture database. Only add result
        capture before teardown; all production queries and calculations run unchanged. */
@@ -784,6 +785,7 @@ BEGIN TRY
     SET @Definition=REPLACE(@Definition,N'DROP TABLE #Backups, #Warnings, #Recoverability, #RTORecoveryPoints',
         N'INSERT #FRKRecoveryProof SELECT full_backup_set_id,log_backup_set_id,log_backups,log_file_size_mb,log_time_seconds FROM #RTORecoveryPoints WHERE log_last_lsn IS NOT NULL;
           INSERT #FRKBackupProof SELECT RTOWorstCaseMinutes FROM #Backups;
+          INSERT #FRKDiffProof SELECT diff_backup_set_id,diff_time_seconds FROM #RTORecoveryPoints WHERE log_last_lsn IS NULL AND diff_backup_set_id IS NOT NULL;
           INSERT #FRKWarningProof SELECT Finding FROM #Warnings WHERE CheckId IN(14,15,16);
           DROP TABLE #Backups, #Warnings, #Recoverability, #RTORecoveryPoints');
     EXEC FRKLogHistory.sys.sp_executesql @Definition;
@@ -844,6 +846,16 @@ BEGIN TRY
         DELETE #FRKBackupProof;
         SET @Case+=1;
     END;
+    /* SIMPLE-style full/differential history has a differential endpoint without logs. */
+    DROP TABLE FRKLogHistory.dbo.backupset;
+    SELECT * INTO FRKLogHistory.dbo.backupset FROM FRKLogHistory.dbo.AllBackupSets WHERE type IN('D','I');
+    UPDATE FRKLogHistory.dbo.backupset SET backup_start_date=DATEADD(hour,-2,GETDATE()),
+      backup_finish_date=DATEADD(second,10,DATEADD(hour,-2,GETDATE())) WHERE type='D';
+    EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory',@HoursBack=1;
+    IF (SELECT COUNT(*) FROM #FRKDiffProof)<>1 OR NOT EXISTS(SELECT 1 FROM #FRKDiffProof WHERE diff_time_seconds=20)
+       OR NOT EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes=0.50)
+        THROW 51000,'Differential-only recovery point omitted its differential.',1;
+    DELETE #FRKDiffProof; DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
     /* Equal intervals prefer the regular backup's duration and endpoint ID. */
     DROP TABLE FRKLogHistory.dbo.backupset;
     SELECT * INTO FRKLogHistory.dbo.backupset FROM FRKLogHistory.dbo.AllBackupSets WHERE backup_set_id<>@Endpoint;
@@ -873,6 +885,13 @@ BEGIN TRY
       (SELECT 1 FROM #FRKRecoveryProof WHERE log_backup_set_id=@Regular AND log_backups=1 AND log_time_seconds=40)
       OR NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'Recovery fork metadata missing')
         THROW 51000,'Mixed unknown and known fork metadata double-counted covered logs.',1;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    DELETE m FROM FRKLogHistory.dbo.backupmediafamily m JOIN FRKLogHistory.dbo.backupset b
+      ON b.media_set_id=m.media_set_id WHERE b.backup_set_id=@Copy;
+    EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
+    IF NOT EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes=1.20)
+       OR EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'RTO estimate unavailable')
+        THROW 51000,'Optional copy-only media gap suppressed the healthy regular chain.',1;
     DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
     /* A differential with an unknown base is optional; full plus logs remains valid. */
     UPDATE FRKLogHistory.dbo.backupset SET differential_base_guid=NULL WHERE type='I';
