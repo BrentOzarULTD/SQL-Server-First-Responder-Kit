@@ -132,7 +132,8 @@ run_query "DROP PROCEDURE IF EXISTS dbo.sp_Blitz;
            DROP PROCEDURE IF EXISTS dbo.sp_BlitzIndex;" > /dev/null
 
 remaining="$(run_scalar_int "SET NOCOUNT ON;
-SELECT COUNT(*) FROM sys.procedures WHERE name IN ('sp_Blitz', 'sp_ineachdb', 'sp_BlitzIndex');")"
+SELECT COUNT(*) FROM sys.procedures WHERE schema_id = SCHEMA_ID(N'dbo')
+AND name IN ('sp_Blitz', 'sp_ineachdb', 'sp_BlitzIndex');")"
 
 # Anything but a definite zero -- including an empty result -- means we cannot
 # prove the database is clean, and a stale procedure could carry the run.
