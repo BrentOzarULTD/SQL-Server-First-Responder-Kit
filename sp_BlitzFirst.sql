@@ -3739,8 +3739,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         'Server Info' AS FindingGroup,
         'Batch Requests per Sec' AS Finding,
         'https://www.brentozar.com/go/measure' AS URL,
-        CAST(CAST(ps.value_delta AS MONEY) / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS NVARCHAR(20)) AS Details,
-        ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS DetailsInt
+        CAST(CAST(ps.value_delta AS MONEY) / NULLIF(DATEDIFF(ss, ps1.SampleTime, ps.SampleTime), 0) AS NVARCHAR(20)) AS Details,
+        ps.value_delta / NULLIF(DATEDIFF(ss, ps1.SampleTime, ps.SampleTime), 0) AS DetailsInt
     FROM #PerfmonStats ps
         INNER JOIN #PerfmonStats ps1 ON ps.object_name = ps1.object_name AND ps.counter_name = ps1.counter_name AND ps1.Pass = 1
     WHERE ps.Pass = 2
@@ -3765,8 +3765,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		    'Server Info' AS FindingGroup,
 		    'SQL Compilations per Sec' AS Finding,
 		    'https://www.brentozar.com/go/measure' AS URL,
-		    CAST(ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS NVARCHAR(20)) AS Details,
-		    ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS DetailsInt
+		    CAST(ps.value_delta / NULLIF(DATEDIFF(ss, ps1.SampleTime, ps.SampleTime), 0) AS NVARCHAR(20)) AS Details,
+		    ps.value_delta / NULLIF(DATEDIFF(ss, ps1.SampleTime, ps.SampleTime), 0) AS DetailsInt
 		FROM #PerfmonStats ps
 		    INNER JOIN #PerfmonStats ps1 ON ps.object_name = ps1.object_name AND ps.counter_name = ps1.counter_name AND ps1.Pass = 1
 		WHERE ps.Pass = 2
@@ -3788,8 +3788,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		    'Server Info' AS FindingGroup,
 		    'SQL Re-Compilations per Sec' AS Finding,
 		    'https://www.brentozar.com/go/measure' AS URL,
-		    CAST(ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS NVARCHAR(20)) AS Details,
-		    ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS DetailsInt
+		    CAST(ps.value_delta / NULLIF(DATEDIFF(ss, ps1.SampleTime, ps.SampleTime), 0) AS NVARCHAR(20)) AS Details,
+		    ps.value_delta / NULLIF(DATEDIFF(ss, ps1.SampleTime, ps.SampleTime), 0) AS DetailsInt
 		FROM #PerfmonStats ps
 		    INNER JOIN #PerfmonStats ps1 ON ps.object_name = ps1.object_name AND ps.counter_name = ps1.counter_name AND ps1.Pass = 1
 		WHERE ps.Pass = 2
@@ -5072,7 +5072,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                         CAST((wd2.wait_time_ms-wd1.wait_time_ms)/
                             (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) AS NUMERIC(12,1))
                     ELSE 0 END AS [Avg ms Per Wait],
-					CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Hour],
+					CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / NULLIF(DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime), 0) AS DECIMAL(18,1)) AS [Per Core Per Hour],
                     (wd2.waiting_tasks_count - wd1.waiting_tasks_count) AS [Number of Waits]
                 FROM  max_batch b
                 JOIN #WaitStats wd2 ON
@@ -5217,7 +5217,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                         CAST((wd2.wait_time_ms-wd1.wait_time_ms)/
                             (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) AS NUMERIC(12,1))
                     ELSE 0 END AS [Avg ms Per Wait],
-                    CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Hour],
+                    CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / NULLIF(DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime), 0) AS DECIMAL(18,1)) AS [Per Core Per Hour],
                     CAST(c.[Signal Wait Time (Seconds)] / 60.0 / 60 AS DECIMAL(18,1)) AS [Signal Wait Time (Hours)],
                     CASE WHEN c.[Wait Time (Seconds)] > 0
                      THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) AS NUMERIC(4,1))
@@ -5261,7 +5261,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                         CAST((wd2.wait_time_ms-wd1.wait_time_ms)/
                             (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) AS NUMERIC(12,1))
                     ELSE 0 END AS [Avg ms Per Wait],
-                    CAST((CAST(wd2.wait_time_ms - wd1.wait_time_ms AS MONEY)) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Second],
+                    CAST((CAST(wd2.wait_time_ms - wd1.wait_time_ms AS MONEY)) / 1000.0 / cores.cpu_count / NULLIF(DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime), 0) AS DECIMAL(18,1)) AS [Per Core Per Second],
                     c.[Signal Wait Time (Seconds)],
                     CASE WHEN c.[Wait Time (Seconds)] > 0
                      THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) AS NUMERIC(4,1))
@@ -5353,10 +5353,10 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 pFirst.SampleTime AS FirstSampleTime, pFirst.cntr_value AS FirstSampleValue,
                 pLast.SampleTime AS LastSampleTime, pLast.cntr_value AS LastSampleValue,
                 pLast.cntr_value - pFirst.cntr_value AS ValueDelta,
-                ((1.0 * pLast.cntr_value - pFirst.cntr_value) / DATEDIFF(ss, pFirst.SampleTime, pLast.SampleTime)) AS ValuePerSecond
+                ((1.0 * pLast.cntr_value - pFirst.cntr_value) / NULLIF(DATEDIFF(ss, pFirst.SampleTime, pLast.SampleTime), 0)) AS ValuePerSecond
                 FROM #PerfmonStats pLast
                     INNER JOIN #PerfmonStats pFirst ON pFirst.[object_name] = pLast.[object_name] AND pFirst.counter_name = pLast.counter_name AND (pFirst.instance_name = pLast.instance_name OR (pFirst.instance_name IS NULL AND pLast.instance_name IS NULL))
-                    AND pLast.ID > pFirst.ID
+                    AND pLast.Pass = 2 AND pFirst.Pass = 1
 				WHERE pLast.cntr_value <> pFirst.cntr_value
                 ORDER BY Pattern, pLast.[object_name], pLast.counter_name, pLast.instance_name;
 
