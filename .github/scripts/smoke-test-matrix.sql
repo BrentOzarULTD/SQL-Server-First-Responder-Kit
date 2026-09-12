@@ -539,14 +539,16 @@ USE FRKDeltaSmoke;
 
 DELETE dbo.Files; DELETE dbo.Perfmon; DELETE dbo.Waits;
 CREATE TABLE dbo.Expected(ServerName nvarchar(128),CheckDate datetimeoffset,CounterValue bigint,ElapsedSeconds int);
-DECLARE @Base datetimeoffset=DATEADD(hour,-1,SYSDATETIMEOFFSET());
+DECLARE @Base datetimeoffset=DATEADD(hour,-1,SYSDATETIMEOFFSET()),
+ @ServerA nvarchar(128)=N'FRKDeltaA_'+CONVERT(nvarchar(36),NEWID()),
+ @ServerB nvarchar(128)=N'FRKDeltaB_'+CONVERT(nvarchar(36),NEWID());
 INSERT dbo.Expected VALUES
-(N'ServerA',DATEADD(minute,0,@Base),1000,NULL),
-(N'ServerA',DATEADD(minute,5,@Base),2000,300),
-(N'ServerA',DATEADD(minute,10,@Base),3000,300),
-(N'ServerB',DATEADD(minute,0,@Base),4000,NULL),
-(N'ServerB',DATEADD(minute,5,@Base),5000,300),
-(N'ServerB',DATEADD(minute,12,@Base),6000,420);
+(@ServerA,DATEADD(minute,0,@Base),1000,NULL),
+(@ServerA,DATEADD(minute,5,@Base),2000,300),
+(@ServerA,DATEADD(minute,10,@Base),3000,300),
+(@ServerB,DATEADD(minute,0,@Base),4000,NULL),
+(@ServerB,DATEADD(minute,5,@Base),5000,300),
+(@ServerB,DATEADD(minute,12,@Base),6000,420);
 INSERT dbo.Files(ServerName,CheckDate,DatabaseID,FileID,num_of_reads,num_of_writes,io_stall_read_ms,io_stall_write_ms,bytes_read,bytes_written)
 SELECT ServerName,CheckDate,1,1,CounterValue,CounterValue,CounterValue,CounterValue,CounterValue,CounterValue FROM dbo.Expected;
 INSERT dbo.Perfmon(ServerName,CheckDate,object_name,counter_name,instance_name,cntr_type,cntr_value)
@@ -559,9 +561,9 @@ GRANT SELECT ON dbo.Perfmon_Deltas TO CodexDeltaReader;
 GRANT SELECT ON dbo.Waits_Deltas TO CodexDeltaReader;
 SELECT object_id,name INTO dbo.OriginalViewIds FROM sys.views WHERE name IN('Files_Deltas','Perfmon_Deltas','Waits_Deltas');
 
-DELETE dbo.Files WHERE ServerName NOT IN(N'ServerA',N'ServerB');
-DELETE dbo.Perfmon WHERE ServerName NOT IN(N'ServerA',N'ServerB');
-DELETE dbo.Waits WHERE ServerName NOT IN(N'ServerA',N'ServerB');
+DELETE d FROM dbo.Files d WHERE NOT EXISTS(SELECT 1 FROM dbo.Expected e WHERE e.ServerName=d.ServerName);
+DELETE d FROM dbo.Perfmon d WHERE NOT EXISTS(SELECT 1 FROM dbo.Expected e WHERE e.ServerName=d.ServerName);
+DELETE d FROM dbo.Waits d WHERE NOT EXISTS(SELECT 1 FROM dbo.Expected e WHERE e.ServerName=d.ServerName);
 IF (SELECT COUNT(*) FROM dbo.Files_Deltas)<>4 OR (SELECT COUNT(*) FROM dbo.Perfmon_Deltas)<>4 OR (SELECT COUNT(*) FROM dbo.Waits_Deltas)<>4 THROW 51000,'Incorrect view row counts',1;
 IF EXISTS(
     SELECT 1 FROM (SELECT ServerName,CheckDate FROM dbo.Expected WHERE ElapsedSeconds IS NOT NULL) e
@@ -598,9 +600,9 @@ GO
 EXEC master.dbo.sp_BlitzFirst @Seconds=1,@OutputDatabaseName=N'FRKDeltaSmoke',@OutputSchemaName=N'dbo',@OutputTableNameFileStats=N'Files',@OutputTableNamePerfmonStats=N'Perfmon',@OutputTableNameWaitStats=N'Waits';
 GO
 
-DELETE dbo.Files WHERE ServerName NOT IN(N'ServerA',N'ServerB');
-DELETE dbo.Perfmon WHERE ServerName NOT IN(N'ServerA',N'ServerB');
-DELETE dbo.Waits WHERE ServerName NOT IN(N'ServerA',N'ServerB');
+DELETE d FROM dbo.Files d WHERE NOT EXISTS(SELECT 1 FROM dbo.Expected e WHERE e.ServerName=d.ServerName);
+DELETE d FROM dbo.Perfmon d WHERE NOT EXISTS(SELECT 1 FROM dbo.Expected e WHERE e.ServerName=d.ServerName);
+DELETE d FROM dbo.Waits d WHERE NOT EXISTS(SELECT 1 FROM dbo.Expected e WHERE e.ServerName=d.ServerName);
 IF (SELECT COUNT(*) FROM dbo.Files_Deltas)<>4 OR (SELECT COUNT(*) FROM dbo.Perfmon_Deltas)<>4 OR (SELECT COUNT(*) FROM dbo.Waits_Deltas)<>4 THROW 51000,'Incorrect view row counts',1;
 IF EXISTS(
     SELECT 1 FROM (SELECT ServerName,CheckDate FROM dbo.Expected WHERE ElapsedSeconds IS NOT NULL) e
