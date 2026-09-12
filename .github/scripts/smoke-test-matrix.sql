@@ -353,3 +353,93 @@ IF @QueryPlanHash IS NULL
     RAISERROR('Seeded marker query was not found in the plan cache; sp_BlitzPlanCompare was not exercised.', 16, 1);
 
 EXEC dbo.sp_BlitzPlanCompare @QueryPlanHash = @QueryPlanHash, @DatabaseName = 'FRKSmokeTest';
+
+--#STEP: sp_BlitzFirst multi-server deltas and in-place upgrades
+IF DB_ID(N'FRKDeltaSmoke') IS NOT NULL THROW 51000,'Delta fixture already exists.',1;
+EXEC(N'CREATE DATABASE FRKDeltaSmoke;');
+GO
+EXEC master.dbo.sp_BlitzFirst @Seconds=1,@OutputDatabaseName=N'FRKDeltaSmoke',@OutputSchemaName=N'dbo',@OutputTableNameFileStats=N'Files',@OutputTableNamePerfmonStats=N'Perfmon',@OutputTableNameWaitStats=N'Waits';
+GO
+USE FRKDeltaSmoke;
+
+DELETE dbo.Files; DELETE dbo.Perfmon; DELETE dbo.Waits;
+CREATE TABLE dbo.Expected(ServerName nvarchar(128),CheckDate datetimeoffset,CounterValue bigint,ElapsedSeconds int);
+DECLARE @Base datetimeoffset=DATEADD(hour,-1,SYSDATETIMEOFFSET());
+INSERT dbo.Expected VALUES
+(N'ServerA',DATEADD(minute,0,@Base),1000,NULL),
+(N'ServerA',DATEADD(minute,5,@Base),2000,300),
+(N'ServerA',DATEADD(minute,10,@Base),3000,300),
+(N'ServerB',DATEADD(minute,0,@Base),4000,NULL),
+(N'ServerB',DATEADD(minute,5,@Base),5000,300),
+(N'ServerB',DATEADD(minute,12,@Base),6000,420);
+INSERT dbo.Files(ServerName,CheckDate,DatabaseID,FileID,num_of_reads,num_of_writes,io_stall_read_ms,io_stall_write_ms,bytes_read,bytes_written)
+SELECT ServerName,CheckDate,1,1,CounterValue,CounterValue,CounterValue,CounterValue,CounterValue,CounterValue FROM dbo.Expected;
+INSERT dbo.Perfmon(ServerName,CheckDate,object_name,counter_name,instance_name,cntr_type,cntr_value)
+SELECT ServerName,CheckDate,N'Object',N'Counter',N'Instance',272696576,CounterValue FROM dbo.Expected;
+INSERT dbo.Waits(ServerName,CheckDate,wait_type,wait_time_ms,signal_wait_time_ms,waiting_tasks_count)
+SELECT ServerName,CheckDate,N'LCK_M_X',CounterValue,0,CounterValue FROM dbo.Expected;
+CREATE USER CodexDeltaReader WITHOUT LOGIN;
+GRANT SELECT ON dbo.Files_Deltas TO CodexDeltaReader;
+GRANT SELECT ON dbo.Perfmon_Deltas TO CodexDeltaReader;
+GRANT SELECT ON dbo.Waits_Deltas TO CodexDeltaReader;
+SELECT object_id,name INTO dbo.OriginalViewIds FROM sys.views WHERE name IN('Files_Deltas','Perfmon_Deltas','Waits_Deltas');
+
+DELETE dbo.Files WHERE ServerName NOT IN(N'ServerA',N'ServerB');
+DELETE dbo.Perfmon WHERE ServerName NOT IN(N'ServerA',N'ServerB');
+DELETE dbo.Waits WHERE ServerName NOT IN(N'ServerA',N'ServerB');
+IF (SELECT COUNT(*) FROM dbo.Files_Deltas)<>4 OR (SELECT COUNT(*) FROM dbo.Perfmon_Deltas)<>4 OR (SELECT COUNT(*) FROM dbo.Waits_Deltas)<>4 THROW 51000,'Incorrect view row counts',1;
+IF EXISTS(SELECT 1 FROM dbo.Files_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.num_of_reads<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect file delta',1;
+IF EXISTS(SELECT 1 FROM dbo.Perfmon_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.cntr_delta<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect perfmon delta',1;
+IF EXISTS(SELECT 1 FROM dbo.Waits_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.wait_time_ms_delta<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect wait delta',1;
+IF EXISTS(SELECT 1 FROM dbo.OriginalViewIds i LEFT JOIN sys.views v ON i.object_id=v.object_id AND i.name=v.name WHERE v.object_id IS NULL) THROW 51000,'View object ID changed',1;
+IF (SELECT COUNT(*) FROM sys.database_permissions WHERE grantee_principal_id=DATABASE_PRINCIPAL_ID('CodexDeltaReader') AND permission_name='SELECT')<>3 THROW 51000,'View permissions lost',1;
+PRINT 'SERVER DELTAS AND UPGRADE PASS';
+
+GO
+ALTER VIEW dbo.Files_Deltas AS SELECT CAST(1 AS int) AS Legacy;
+GO
+ALTER VIEW dbo.Perfmon_Deltas AS SELECT CAST(1 AS int) AS Legacy;
+GO
+ALTER VIEW dbo.Waits_Deltas AS SELECT CAST(1 AS int) AS Legacy;
+GO
+EXEC master.dbo.sp_BlitzFirst @Seconds=1,@OutputDatabaseName=N'FRKDeltaSmoke',@OutputSchemaName=N'dbo',@OutputTableNameFileStats=N'Files',@OutputTableNamePerfmonStats=N'Perfmon',@OutputTableNameWaitStats=N'Waits';
+GO
+
+DELETE dbo.Files WHERE ServerName NOT IN(N'ServerA',N'ServerB');
+DELETE dbo.Perfmon WHERE ServerName NOT IN(N'ServerA',N'ServerB');
+DELETE dbo.Waits WHERE ServerName NOT IN(N'ServerA',N'ServerB');
+IF (SELECT COUNT(*) FROM dbo.Files_Deltas)<>4 OR (SELECT COUNT(*) FROM dbo.Perfmon_Deltas)<>4 OR (SELECT COUNT(*) FROM dbo.Waits_Deltas)<>4 THROW 51000,'Incorrect view row counts',1;
+IF EXISTS(SELECT 1 FROM dbo.Files_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.num_of_reads<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect file delta',1;
+IF EXISTS(SELECT 1 FROM dbo.Perfmon_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.cntr_delta<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect perfmon delta',1;
+IF EXISTS(SELECT 1 FROM dbo.Waits_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.wait_time_ms_delta<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect wait delta',1;
+IF EXISTS(SELECT 1 FROM dbo.OriginalViewIds i LEFT JOIN sys.views v ON i.object_id=v.object_id AND i.name=v.name WHERE v.object_id IS NULL) THROW 51000,'View object ID changed',1;
+IF (SELECT COUNT(*) FROM sys.database_permissions WHERE grantee_principal_id=DATABASE_PRINCIPAL_ID('CodexDeltaReader') AND permission_name='SELECT')<>3 THROW 51000,'View permissions lost',1;
+PRINT 'SERVER DELTAS AND UPGRADE PASS';
+
+GRANT VIEW DEFINITION ON dbo.Files_Deltas TO CodexDeltaReader;
+GRANT VIEW DEFINITION ON dbo.Perfmon_Deltas TO CodexDeltaReader;
+GRANT VIEW DEFINITION ON dbo.Waits_Deltas TO CodexDeltaReader;
+EXECUTE AS USER=N'CodexDeltaReader';
+BEGIN TRY
+    IF (SELECT COUNT(*) FROM sys.sql_modules WHERE definition LIKE '%FRK_ServerScopedDeltas_v1%') <> 3
+        THROW 51000,'Collector cannot recognize the migrated views.',1;
+    IF HAS_PERMS_BY_NAME(N'dbo.Files_Deltas', N'OBJECT', N'ALTER') <> 0
+        THROW 51000,'Metadata visibility test unexpectedly has ALTER permission.',1;
+    REVERT;
+END TRY
+BEGIN CATCH
+    REVERT;
+    THROW;
+END CATCH;
+SELECT object_id,modify_date INTO dbo.ViewModified FROM sys.views
+WHERE name IN(N'Files_Deltas',N'Perfmon_Deltas',N'Waits_Deltas');
+WAITFOR DELAY '00:00:01';
+GO
+EXEC master.dbo.sp_BlitzFirst @Seconds=1,@OutputDatabaseName=N'FRKDeltaSmoke',@OutputSchemaName=N'dbo',@OutputTableNameFileStats=N'Files',@OutputTableNamePerfmonStats=N'Perfmon',@OutputTableNameWaitStats=N'Waits';
+GO
+IF EXISTS(SELECT 1 FROM dbo.ViewModified m JOIN sys.views v ON v.object_id=m.object_id
+          WHERE v.modify_date<>m.modify_date)
+    THROW 51000,'Repeated collection unnecessarily altered a migrated view.',1;
+PRINT 'Multi-server delta values, upgrades, permissions, and repeat behavior passed.';
+USE master;
+DROP DATABASE FRKDeltaSmoke;
