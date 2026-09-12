@@ -220,8 +220,33 @@ THROW 51000, 'The dedicated victim timed out without being killed.', 1;" \
   return "$status"
 )
 
+run_analysis_schema_step() {
+  local schema expected absent log="$WORK_DIR/analysis-schema.log"
+  for schema in "NULL" "N'dbo'" "N'FRKAnalysisSmoke'"; do
+    expected='FRK_DBO_SCHEMA_SENTINEL'
+    absent='FRK_CUSTOM_SCHEMA_SENTINEL'
+    if [[ "$schema" == "N'FRKAnalysisSmoke'" ]]; then
+      expected='FRK_CUSTOM_SCHEMA_SENTINEL'
+      absent='FRK_DBO_SCHEMA_SENTINEL'
+    fi
+    if ! "$SQLCMD" "${SQLCMD_ARGS[@]}" -d master -v SchemaArgument="$schema" \
+         -i "$SCRIPT_DIR/analysis-schema-regression.sql" > "$log" 2>&1; then
+      cat "$log"
+      return 1
+    fi
+    if ! grep -Fq "$expected" "$log" || grep -Fq "$absent" "$log"; then
+      echo "Analysis schema $schema returned missing or cross-schema findings."
+      cat "$log"
+      return 1
+    fi
+    echo "PASS Analysis schema $schema returned only $expected"
+  done
+}
+
 run_step() {
-  if [[ "$2" == 'sp_kill kills a dedicated session' ]]; then
+  if [[ "$2" == 'sp_BlitzAnalysis defaults and isolates output schemas' ]]; then
+    run_analysis_schema_step
+  elif [[ "$2" == 'sp_kill kills a dedicated session' ]]; then
     run_kill_step "$1"
   else
     "$SQLCMD" "${SQLCMD_ARGS[@]}" -d master -i "$1"
