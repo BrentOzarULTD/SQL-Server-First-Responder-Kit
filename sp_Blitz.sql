@@ -8242,7 +8242,7 @@ IF NOT EXISTS ( SELECT  1
 
 								DELETE br
 								FROM #BlitzResults br
-								INNER JOIN #SkipChecks sc ON sc.CheckID = 80 AND br.DatabaseName = sc.DatabaseName;
+								INNER JOIN #SkipChecks sc ON sc.CheckID = 80 AND br.CheckID = sc.CheckID AND br.DatabaseName = sc.DatabaseName;
 					        END;
                             
 	
