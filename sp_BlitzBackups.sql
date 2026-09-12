@@ -570,7 +570,7 @@ RAISERROR('Updating #RTORecoveryPoints', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute += N'
 							 UPDATE #RTORecoveryPoints
-							 SET log_backup_set_id = bLasted.backup_set_id
+							 SET log_backup_set_id = bLasted.backup_set_id_log
 							     ,full_backup_set_id = bLasted.backup_set_id
 							     ,full_last_lsn = bLasted.last_lsn
 							     ,full_backup_set_uuid = bLasted.backup_set_uuid
@@ -581,16 +581,14 @@ RAISERROR('Updating #RTORecoveryPoints', 0, 1) WITH NOWAIT;
 							 				INNER JOIN ' + QUOTENAME(@MSDBName) + N'.dbo.backupset bLastFull 
 							 					ON bLog.database_guid = bLastFull.database_guid 
 							 					AND bLog.database_name = bLastFull.database_name
-							 					AND bLog.first_lsn > bLastFull.last_lsn
+                                    AND bLog.last_lsn > bLastFull.last_lsn
 							 					AND bLastFull.type = ''D''
 							 				WHERE rp.database_guid = bLog.database_guid 
 							 					AND rp.database_name = bLog.database_name
-							 			) bLasted
-							 LEFT OUTER JOIN ' + QUOTENAME(@MSDBName) + N'.dbo.backupset bLaterFulls ON bLasted.database_guid = bLaterFulls.database_guid AND bLasted.database_name = bLaterFulls.database_name
-							     AND bLasted.last_lsn < bLaterFulls.last_lsn
-							     AND bLaterFulls.first_lsn < bLasted.last_lsn
-							     AND bLaterFulls.type = ''D''
-							 WHERE bLaterFulls.backup_set_id IS NULL;
+                                    AND bLog.type = ''L''
+                                    AND bLog.last_lsn = rp.log_last_lsn
+                                ORDER BY bLastFull.last_lsn DESC, bLastFull.backup_set_id DESC
+                            ) bLasted;
 							 ';
 
 	IF @Debug = 1
@@ -690,7 +688,7 @@ RAISERROR('Get time & size totals for full & diff', 0, 1) WITH NOWAIT;
 	EXEC sys.sp_executesql @StringToExecute;
 
 
-/* Get time & size totals for logs */
+/* Get time & size totals for logs, including the log that overlaps the full/diff endpoint. */
 
 RAISERROR('Get time & size totals for logs', 0, 1) WITH NOWAIT;
 
@@ -703,8 +701,8 @@ RAISERROR('Get time & size totals for logs', 0, 1) WITH NOWAIT;
 								    , SUM(1) AS log_backups
 								        FROM #RTORecoveryPoints rp
 								            INNER JOIN ' + QUOTENAME(@MSDBName) + N'.dbo.backupset bLog ON rp.database_guid = bLog.database_guid AND rp.database_name = bLog.database_name AND bLog.type = ''L''
-								            AND bLog.first_lsn > COALESCE(rp.diff_last_lsn, rp.full_last_lsn)
-								            AND bLog.first_lsn <= rp.log_last_lsn
+								            AND bLog.last_lsn > COALESCE(rp.diff_last_lsn, rp.full_last_lsn)
+								            AND bLog.last_lsn <= rp.log_last_lsn
 								        GROUP BY rp.id
 								)
 								UPDATE #RTORecoveryPoints
