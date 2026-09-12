@@ -141,6 +141,71 @@ EXEC dbo.sp_BlitzCache
      @OutputSchemaName   = 'dbo',
      @OutputTableName    = 'BlitzCache';
 
+--#STEP: sp_BlitzCache reserved global names in a case-sensitive database
+/* This runner owns a disposable SQL Server. A separate database makes the
+   procedure's comparisons case-sensitive even when master/tempdb are not. */
+IF DB_ID(N'FRKReservedNameTest') IS NOT NULL
+    THROW 51000, 'Reserved-name fixture database already exists.', 1;
+EXEC(N'CREATE DATABASE FRKReservedNameTest COLLATE Latin1_General_100_CS_AS;');
+BEGIN TRY
+    DECLARE @Definition nvarchar(max) = OBJECT_DEFINITION(OBJECT_ID(N'dbo.sp_BlitzCache'));
+    SET @Definition = REPLACE(@Definition, N'ALTER PROCEDURE dbo.sp_BlitzCache', N'CREATE PROCEDURE dbo.sp_BlitzCache');
+    EXEC FRKReservedNameTest.sys.sp_executesql @Definition;
+
+    DECLARE @Names TABLE (Name sysname COLLATE Latin1_General_100_BIN2, SortOrder varchar(50), Qualified bit);
+    INSERT @Names VALUES
+        (N'##BlitzCacheProcs', 'cpu', 0),
+        (N'##BlitzCacheResults', 'cpu', 0),
+        (N'##blitzcacheprocs', 'duplicate', 0),
+        (N'##BLITZCACHERESULTS', 'query hash', 0),
+        (N'##BlitzCachéProcs', 'cpu', 0),
+        (N'##ＢlitzCacheResults', 'cpu', 0),
+        (N'##BlitzCacheProcs', 'cpu', 1),
+        (N'##BlitzCacheResults', 'cpu', 1);
+    DECLARE @Name sysname, @Sort varchar(50), @Qualified bit,
+            @OutputDB sysname, @OutputSchema sysname;
+    WHILE EXISTS (SELECT 1 FROM @Names)
+    BEGIN
+        SELECT TOP (1) @Name = Name, @Sort = SortOrder, @Qualified = Qualified FROM @Names;
+        SELECT @OutputDB = CASE WHEN @Qualified = 1 THEN N'FRKReservedNameTest' END,
+               @OutputSchema = CASE WHEN @Qualified = 1 THEN N'dbo' END;
+        BEGIN TRY
+            EXEC FRKReservedNameTest.dbo.sp_BlitzCache
+                 @Top = 1, @SortOrder = @Sort, @OutputTableName = @Name,
+                 @OutputDatabaseName = @OutputDB, @OutputSchemaName = @OutputSchema;
+            THROW 51000, 'Reserved global name was accepted.', 1;
+        END TRY
+        BEGIN CATCH
+            IF ERROR_NUMBER() <> 50000 OR ERROR_MESSAGE() NOT LIKE 'OutputTableName is a reserved name%'
+                THROW;
+        END CATCH;
+        DELETE @Names WHERE Name = @Name AND SortOrder = @Sort AND Qualified = @Qualified;
+    END;
+    DROP DATABASE FRKReservedNameTest;
+END TRY
+BEGIN CATCH
+    DROP DATABASE FRKReservedNameTest;
+    THROW;
+END CATCH;
+
+--#STEP: sp_BlitzCache ordinary global output still works
+IF OBJECT_ID(N'tempdb..##FRKCacheOutput') IS NOT NULL
+    THROW 51000, 'Global-output fixture already exists.', 1;
+BEGIN TRY
+    EXEC FRKSmokeTest.sys.sp_executesql N'SELECT SUM(CONVERT(bigint, a.Id)) FROM dbo.Users a CROSS JOIN dbo.Users b;';
+    EXEC dbo.sp_BlitzCache @Top = 5, @DatabaseName = N'FRKSmokeTest',
+         @MinimumExecutionCount = 0, @OutputTableName = N'##FRKCacheOutput';
+    IF OBJECT_ID(N'tempdb..##FRKCacheOutput') IS NULL
+       OR COL_LENGTH(N'tempdb..##FRKCacheOutput', N'QueryText') IS NULL
+        THROW 51000, 'Global cache output is missing or has the wrong schema.', 1;
+    IF (SELECT COUNT(*) FROM ##FRKCacheOutput) < 1
+        THROW 51000, 'Global cache output is unexpectedly empty.', 1;
+    DROP TABLE ##FRKCacheOutput;
+END TRY
+BEGIN CATCH
+    DROP TABLE IF EXISTS ##FRKCacheOutput;
+    THROW;
+END CATCH;
 --#STEP: sp_BlitzCache rejects unsupported filters before reanalysis
 /* Populate real results in this session so @Reanalyze cannot silently fall
    back to a fresh collection. */

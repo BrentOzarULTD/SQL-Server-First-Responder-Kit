@@ -847,6 +847,13 @@ BEGIN
     SET @HideSummary = 1;
 END;
 
+/* Reserve case/accent/kana/width-equivalent internal names before preprocessing. */
+IF @OutputTableName COLLATE Latin1_General_100_CI_AI IN ('##BlitzCacheProcs', '##BlitzCacheResults')
+BEGIN
+    RAISERROR('OutputTableName is a reserved name for this procedure. We only use ##BlitzCacheProcs and ##BlitzCacheResults, please choose another table name.', 16, 1);
+    RETURN;
+END;
+
 /* Lets get @SortOrder set to lower case here for comparisons later */
 SET @SortOrder = LOWER(@SortOrder);
 
@@ -8612,10 +8619,6 @@ END ';
 			IF @ValidOutputServer = 1
 				BEGIN
 					RAISERROR('Due to the nature of temporary tables, outputting to a linked server requires a permanent table.', 16, 0);
-				END;
-			ELSE IF @OutputTableName IN ('##BlitzCacheProcs','##BlitzCacheResults')
-				BEGIN
-					RAISERROR('OutputTableName is a reserved name for this procedure. We only use ##BlitzCacheProcs and ##BlitzCacheResults, please choose another table name.', 16, 0);
 				END;
 			ELSE
 				BEGIN				
