@@ -690,6 +690,10 @@ BEGIN TRY
     INSERT FRKLogSource.dbo.Proof VALUES(6);
     SET @File=@Root+N'full2.bak';
     BACKUP DATABASE FRKLogSource TO DISK=@File WITH INIT;
+    INSERT FRKLogSource.dbo.Proof VALUES(7);
+    EXEC FRKLogSource.sys.sp_executesql N'CHECKPOINT;';
+    SET @File=@Root+N'current.trn';
+    BACKUP LOG FRKLogSource TO DISK=@File WITH INIT;
     DROP TABLE FRKLogHistory.dbo.backupset;
     SELECT * INTO FRKLogHistory.dbo.backupset FROM msdb.dbo.backupset
       WHERE database_name=N'FRKLogSource' AND database_guid=(SELECT database_guid FROM sys.database_recovery_status WHERE database_id=DB_ID(N'FRKLogSource'));
@@ -699,16 +703,13 @@ BEGIN TRY
     UPDATE FRKLogHistory.dbo.backupset SET backup_finish_date=DATEADD(second,
         CASE WHEN type='D' THEN 10 WHEN type='I' THEN 20 WHEN backup_set_id=@Copy THEN 30
              WHEN backup_set_id=@Regular THEN 40 ELSE 50 END,backup_start_date);
+    DECLARE @BoundaryLog int=(SELECT MAX(backup_set_id) FROM FRKLogHistory.dbo.backupset WHERE type='L');
     EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
-    IF (SELECT COUNT(*) FROM #FRKRecoveryProof)<>1 OR NOT EXISTS
-      (SELECT 1 FROM #FRKRecoveryProof WHERE log_backup_set_id=@Endpoint AND log_backups=2 AND log_time_seconds=90
+    IF (SELECT COUNT(*) FROM #FRKRecoveryProof)<>2 OR NOT EXISTS
+      (SELECT 1 FROM #FRKRecoveryProof WHERE log_backup_set_id=@BoundaryLog AND log_backups=2 AND log_time_seconds=90
        AND full_backup_set_id=(SELECT MIN(backup_set_id) FROM FRKLogHistory.dbo.backupset WHERE type='D'))
         THROW 51000,'Older full lost its overlapping log endpoint or selected a different database.',1;
     DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
-    INSERT FRKLogSource.dbo.Proof VALUES(7);
-    EXEC FRKLogSource.sys.sp_executesql N'CHECKPOINT;';
-    SET @File=@Root+N'current.trn';
-    BACKUP LOG FRKLogSource TO DISK=@File WITH INIT;
     DROP TABLE FRKLogHistory.dbo.backupset;
     SELECT * INTO FRKLogHistory.dbo.backupset FROM msdb.dbo.backupset
       WHERE database_name=N'FRKLogSource' AND database_guid=(SELECT database_guid FROM sys.database_recovery_status WHERE database_id=DB_ID(N'FRKLogSource'));

@@ -709,8 +709,11 @@ RAISERROR('Fill out the most recent log for that full, but before the next full'
 FROM #RTOBackupSets bLog
                                 WHERE bLog.database_guid=rp.database_guid AND bLog.database_name=rp.database_name
                                   AND bLog.type=''L'' AND bLog.last_lsn>rp.full_last_lsn
-                                  AND bLog.last_lsn<=rpNextFull.full_last_lsn
-                                ORDER BY bLog.last_lsn DESC,bLog.first_lsn ASC,bLog.backup_set_id ASC
+                                  AND bLog.first_lsn<=rpNextFull.full_last_lsn
+                                /* STOPAT can use the first log spanning the next full. */
+                                ORDER BY CASE WHEN bLog.last_lsn>=rpNextFull.full_last_lsn THEN 0 ELSE 1 END,
+                                  CASE WHEN bLog.last_lsn>=rpNextFull.full_last_lsn THEN bLog.last_lsn END ASC,
+                                  bLog.last_lsn DESC,bLog.first_lsn ASC,bLog.backup_set_id ASC
                             ) endpoint
                             WHERE rpEarlierFull.full_backup_set_id IS NULL;
 							';
