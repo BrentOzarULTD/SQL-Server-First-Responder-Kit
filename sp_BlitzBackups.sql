@@ -864,7 +864,8 @@ RAISERROR('Get time & size totals for logs', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute += N'
 							WITH LogIntervals AS (
-    SELECT rp.id,bLog.backup_start_date,bLog.backup_finish_date,bLog.backup_size,bLog.last_lsn,
+    SELECT rp.id,bLog.backup_start_date,bLog.backup_finish_date,bLog.backup_size,bLog.first_lsn,bLog.last_lsn,
+        COALESCE(rp.diff_last_lsn,rp.full_last_lsn) AS BaseLSN,rp.log_last_lsn AS EndpointLSN,
         MAX(bLog.last_lsn) OVER (
             PARTITION BY rp.id
             ORDER BY bLog.first_lsn,bLog.last_lsn DESC,CASE bLog.is_copy_only WHEN 0 THEN 0 WHEN 1 THEN 1 ELSE 2 END,bLog.backup_set_id DESC
@@ -878,7 +879,9 @@ RAISERROR('Get time & size totals for logs', 0, 1) WITH NOWAIT;
        metadata as unknown within the remaining single-fork estimate.
        Ordered running maximum removes contained intervals without a range self-join.
        Equal intervals prefer regular backups, then the newest backup ID. */
-    SELECT id,SUM(DATEDIFF(second,backup_start_date,backup_finish_date)) AS log_time_seconds,
+    SELECT id,CASE WHEN MAX(CASE WHEN first_lsn>COALESCE(PriorMaxLastLSN,BaseLSN) THEN 1 ELSE 0 END)=0
+                         AND MAX(last_lsn)=MAX(EndpointLSN)
+                    THEN SUM(DATEDIFF(second,backup_start_date,backup_finish_date)) END AS log_time_seconds,
         SUM(backup_size) AS log_file_size,COUNT(*) AS log_backups
     FROM LogIntervals WHERE PriorMaxLastLSN IS NULL OR last_lsn>PriorMaxLastLSN
     GROUP BY id
@@ -895,6 +898,18 @@ RAISERROR('Get time & size totals for logs', 0, 1) WITH NOWAIT;
 		PRINT @StringToExecute;
 
 	EXEC sys.sp_executesql @StringToExecute;
+
+/* Do not publish a worst-case estimate from an incomplete log chain. */
+INSERT #RTOExcluded
+SELECT DISTINCT rp.database_name,rp.database_guid,N'Backup history has a gap in the required log LSN coverage.'
+FROM #RTORecoveryPoints rp
+WHERE rp.log_last_lsn IS NOT NULL AND rp.log_time_seconds IS NULL
+  AND NOT EXISTS(SELECT 1 FROM #RTOExcluded x WHERE x.database_name=rp.database_name AND x.database_guid=rp.database_guid);
+INSERT #Warnings(CheckId,Priority,DatabaseName,Finding,Warning)
+SELECT 15,50,x.database_name,N'RTO estimate unavailable',x.Reason FROM #RTOExcluded x
+WHERE NOT EXISTS(SELECT 1 FROM #Warnings w WHERE w.CheckId=15 AND w.DatabaseName=x.database_name);
+DELETE rp FROM #RTORecoveryPoints rp
+JOIN #RTOExcluded x ON x.database_name=rp.database_name AND x.database_guid=rp.database_guid;
 
 RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
 

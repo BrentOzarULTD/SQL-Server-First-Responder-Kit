@@ -791,6 +791,29 @@ BEGIN TRY
           INSERT #FRKWarningProof SELECT Finding FROM #Warnings WHERE CheckId IN(14,15,16);
           DROP TABLE #Backups, #Warnings, #Recoverability, #RTORecoveryPoints');
     EXEC FRKLogHistory.sys.sp_executesql @Definition;
+    /* Focused LSN coverage cases: first gap, middle gap, overlapping replacement. */
+    DECLARE @GapCase int=1;
+    WHILE @GapCase<=3
+    BEGIN
+        UPDATE FRKLogHistory.dbo.backupset SET first_lsn=0,last_lsn=100 WHERE type='D';
+        UPDATE FRKLogHistory.dbo.backupset SET first_lsn=100,last_lsn=120 WHERE type='I';
+        UPDATE FRKLogHistory.dbo.backupset SET first_lsn=120,last_lsn=150 WHERE backup_set_id=@Copy;
+        UPDATE FRKLogHistory.dbo.backupset SET first_lsn=150,last_lsn=180 WHERE backup_set_id=@Regular;
+        UPDATE FRKLogHistory.dbo.backupset SET first_lsn=180,last_lsn=200 WHERE backup_set_id=@Endpoint;
+        IF @GapCase=1 UPDATE FRKLogHistory.dbo.backupset SET first_lsn=121 WHERE backup_set_id=@Copy;
+        IF @GapCase>=2 DELETE FRKLogHistory.dbo.backupset WHERE backup_set_id=@Regular;
+        IF @GapCase=3 UPDATE FRKLogHistory.dbo.backupset SET last_lsn=180 WHERE backup_set_id=@Copy;
+        EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
+        IF @GapCase<3 AND (EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
+            OR NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'RTO estimate unavailable'))
+            THROW 51000,'Incomplete log coverage received an RTO estimate.',1;
+        IF @GapCase=3 AND NOT EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
+            THROW 51000,'Overlapping replacement did not cover the missing log.',1;
+        DELETE #FRKDiffProof; DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
+        DROP TABLE FRKLogHistory.dbo.backupset;
+        SELECT * INTO FRKLogHistory.dbo.backupset FROM FRKLogHistory.dbo.AllBackupSets;
+        SET @GapCase+=1;
+    END;
     DECLARE @Case int=1, @ExpectedCount int, @ExpectedSeconds int, @ExpectedRTO decimal(18,2), @ExpectedMB decimal(18,2);
     WHILE @Case<=8
     BEGIN
