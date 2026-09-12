@@ -653,6 +653,14 @@ GO
 IF EXISTS(SELECT 1 FROM dbo.ViewModified m JOIN sys.views v ON v.object_id=m.object_id
           WHERE v.modify_date<>m.modify_date)
     THROW 51000,'Repeated collection unnecessarily altered a migrated view.',1;
+
+DECLARE @LongSchema sysname=REPLICATE(N'S',128), @LongTable sysname=REPLICATE(N'F',120), @LongSQL nvarchar(max);
+SET @LongSQL=N'CREATE SCHEMA '+QUOTENAME(@LongSchema)+N';';
+EXEC(@LongSQL);
+EXEC master.dbo.sp_BlitzFirst @Seconds=1,@OutputDatabaseName=N'FRKDeltaSmoke',@OutputSchemaName=@LongSchema,@OutputTableNameFileStats=@LongTable;
+IF NOT EXISTS(SELECT 1 FROM sys.views v JOIN sys.sql_modules m ON m.object_id=v.object_id
+ WHERE v.schema_id=SCHEMA_ID(@LongSchema) AND v.name=@LongTable+N'_Deltas' AND LEN(m.definition)>4000)
+ THROW 51000,'Long-identifier view was truncated or the fixture did not exceed 4000 characters.',1;
 PRINT 'Multi-server delta values, upgrades, permissions, and repeat behavior passed.';
 USE master;
 DROP DATABASE FRKDeltaSmoke;
@@ -788,3 +796,53 @@ SELECT @Cleanup+=N'DROP SYNONYM '+QUOTENAME(SCHEMA_NAME(schema_id))+N'.'+QUOTENA
 EXEC(@Cleanup);
 DROP DATABASE [FRK'雪]]Output];
 PRINT 'All seven quoted output create/reuse cases passed';
+
+--#STEP: quoted Unicode global temporary outputs
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]sp_Blitz]') IS NOT NULL THROW 51000,'Global fixture already exists.',1;
+EXEC master.dbo.sp_Blitz @OutputTableName=N'##FRK''雪]sp_Blitz',@CheckUserDatabaseObjects=0;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]sp_Blitz]') IS NULL THROW 51000,'Quoted global output missing.',1;
+EXEC master.dbo.sp_Blitz @OutputTableName=N'##FRK''雪]sp_Blitz',@CheckUserDatabaseObjects=0;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]sp_Blitz]') IS NULL THROW 51000,'Quoted global output missing.',1;
+DROP TABLE [##FRK'雪]]sp_Blitz];
+PRINT 'sp_Blitz quoted global outputs passed';
+GO
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]sp_BlitzCache]') IS NOT NULL THROW 51000,'Global fixture already exists.',1;
+EXEC master.dbo.sp_BlitzCache @OutputTableName=N'##FRK''雪]sp_BlitzCache',@Top=1,@SkipAnalysis=1,@IgnoreSystemDBs=0;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]sp_BlitzCache]') IS NULL THROW 51000,'Quoted global output missing.',1;
+IF NOT EXISTS(SELECT 1 FROM [##FRK'雪]]sp_BlitzCache]) THROW 51000,'Quoted global output is empty.',1;
+EXEC master.dbo.sp_BlitzCache @OutputTableName=N'##FRK''雪]sp_BlitzCache',@Top=1,@SkipAnalysis=1,@IgnoreSystemDBs=0;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]sp_BlitzCache]') IS NULL THROW 51000,'Quoted global output missing.',1;
+IF NOT EXISTS(SELECT 1 FROM [##FRK'雪]]sp_BlitzCache]) THROW 51000,'Quoted global output is empty.',1;
+DROP TABLE [##FRK'雪]]sp_BlitzCache];
+PRINT 'sp_BlitzCache quoted global outputs passed';
+GO
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]sp_BlitzIndex]') IS NOT NULL THROW 51000,'Global fixture already exists.',1;
+EXEC master.dbo.sp_BlitzIndex @OutputTableName=N'[##FRK''雪]]sp_BlitzIndex]',@DatabaseName=N'FRKSmokeTest',@Mode=2,@OutputDatabaseName=N'tempdb',@OutputSchemaName=N'dbo';
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]sp_BlitzIndex]') IS NULL THROW 51000,'Quoted global output missing.',1;
+IF NOT EXISTS(SELECT 1 FROM [##FRK'雪]]sp_BlitzIndex]) THROW 51000,'Quoted global output is empty.',1;
+EXEC master.dbo.sp_BlitzIndex @OutputTableName=N'[##FRK''雪]]sp_BlitzIndex]',@DatabaseName=N'FRKSmokeTest',@Mode=2,@OutputDatabaseName=N'tempdb',@OutputSchemaName=N'dbo';
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]sp_BlitzIndex]') IS NULL THROW 51000,'Quoted global output missing.',1;
+IF NOT EXISTS(SELECT 1 FROM [##FRK'雪]]sp_BlitzIndex]) THROW 51000,'Quoted global output is empty.',1;
+DROP TABLE [##FRK'雪]]sp_BlitzIndex];
+PRINT 'sp_BlitzIndex quoted global outputs passed';
+GO
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]sp_BlitzFirst]') IS NOT NULL THROW 51000,'Global fixture already exists.',1;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]FileStats]') IS NOT NULL THROW 51000,'Global fixture already exists.',1;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]PerfmonStats]') IS NOT NULL THROW 51000,'Global fixture already exists.',1;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]WaitStats]') IS NOT NULL THROW 51000,'Global fixture already exists.',1;
+EXEC master.dbo.sp_BlitzFirst @OutputTableName=N'##FRK''雪]sp_BlitzFirst',@Seconds=1,@OutputTableNameFileStats=N'##FRK''雪]FileStats',@OutputTableNamePerfmonStats=N'##FRK''雪]PerfmonStats',@OutputTableNameWaitStats=N'##FRK''雪]WaitStats';
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]sp_BlitzFirst]') IS NULL THROW 51000,'Quoted global output missing.',1;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]FileStats]') IS NULL THROW 51000,'Quoted global output missing.',1;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]PerfmonStats]') IS NULL THROW 51000,'Quoted global output missing.',1;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]WaitStats]') IS NULL THROW 51000,'Quoted global output missing.',1;
+EXEC master.dbo.sp_BlitzFirst @OutputTableName=N'##FRK''雪]sp_BlitzFirst',@Seconds=1,@OutputTableNameFileStats=N'##FRK''雪]FileStats',@OutputTableNamePerfmonStats=N'##FRK''雪]PerfmonStats',@OutputTableNameWaitStats=N'##FRK''雪]WaitStats';
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]sp_BlitzFirst]') IS NULL THROW 51000,'Quoted global output missing.',1;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]FileStats]') IS NULL THROW 51000,'Quoted global output missing.',1;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]PerfmonStats]') IS NULL THROW 51000,'Quoted global output missing.',1;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]WaitStats]') IS NULL THROW 51000,'Quoted global output missing.',1;
+DROP TABLE [##FRK'雪]]sp_BlitzFirst];
+DROP TABLE [##FRK'雪]]FileStats];
+DROP TABLE [##FRK'雪]]PerfmonStats];
+DROP TABLE [##FRK'雪]]WaitStats];
+PRINT 'sp_BlitzFirst quoted global outputs passed';
+GO
