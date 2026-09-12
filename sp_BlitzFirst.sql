@@ -4771,7 +4771,6 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             + ' INSERT '
             + @OutputTableNamePerfmonStats
             + ' (ServerName, CheckDate, object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second) SELECT '
-            + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
             + ' @SrvName, @CheckDate, object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second FROM #PerfmonStats WHERE Pass = 2';
 
 		EXEC sp_executesql @StringToExecute,
