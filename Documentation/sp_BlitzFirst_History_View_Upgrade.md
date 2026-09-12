@@ -24,10 +24,12 @@ can only insert history rows cannot perform this migration. Run it as the
 history database owner instead of permanently granting the scheduled collector
 DDL permissions.
 
-The scheduled collector must also be able to read the three view definitions
+The scheduled collector must also be able to read the definitions of the delta views its job creates
 to recognize that migration is complete. In the output database, grant this to
 the collector's database user if its existing permissions do not already allow
-it (substitute the actual names):
+it. Grant only on views created by the job: an output-table parameter set to
+NULL does not create its delta view. Omit the corresponding GRANT below and
+substitute the actual names:
 
 ```sql
 USE DBAHistory;

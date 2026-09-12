@@ -4344,7 +4344,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + @OutputDatabaseName
                 + '; IF NOT EXISTS (SELECT 1 FROM sys.sql_modules'
                 + ' WHERE object_id = OBJECT_ID(@ViewName)'
-                + ' AND CHARINDEX(''FRK_ServerScopedDeltas_v1'', definition) > 0)'
+                + ' AND CHARINDEX(''/* FRK_ServerScopedDeltas_v1 */'', definition) > 0)'
                 + ' EXEC (N''CREATE OR ALTER VIEW '
                 + REPLACE(@OutputSchemaName, N'''', N'''''') + '.'
                 + REPLACE(@OutputTableNameFileStats_View, N'''', N'''''') + ' AS /* FRK_ServerScopedDeltas_v1 */ ' + @LineFeed
@@ -4520,7 +4520,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + @OutputDatabaseName
                 + '; IF NOT EXISTS (SELECT 1 FROM sys.sql_modules'
                 + ' WHERE object_id = OBJECT_ID(@ViewName)'
-                + ' AND CHARINDEX(''FRK_ServerScopedDeltas_v1'', definition) > 0)'
+                + ' AND CHARINDEX(''/* FRK_ServerScopedDeltas_v1 */'', definition) > 0)'
                 + ' EXEC (N''CREATE OR ALTER VIEW '
                 + REPLACE(@OutputSchemaName, N'''', N'''''') + '.'
                 + REPLACE(@OutputTableNamePerfmonStats_View, N'''', N'''''') + ' AS /* FRK_ServerScopedDeltas_v1 */ ' + @LineFeed
@@ -4841,7 +4841,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + @OutputDatabaseName
                 + '; IF NOT EXISTS (SELECT 1 FROM sys.sql_modules'
                 + ' WHERE object_id = OBJECT_ID(@ViewName)'
-                + ' AND CHARINDEX(''FRK_ServerScopedDeltas_v1'', definition) > 0)'
+                + ' AND CHARINDEX(''/* FRK_ServerScopedDeltas_v1 */'', definition) > 0)'
                 + ' EXEC (N''CREATE OR ALTER VIEW '
                 + REPLACE(@OutputSchemaName, N'''', N'''''') + '.'
                 + REPLACE(@OutputTableNameWaitStats_View, N'''', N'''''') + ' AS /* FRK_ServerScopedDeltas_v1 */ ' + @LineFeed

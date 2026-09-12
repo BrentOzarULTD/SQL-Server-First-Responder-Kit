@@ -266,7 +266,7 @@ run_quoted_output_step() {
   run_file "$1" || status=$?
   run_query "DECLARE @Cleanup nvarchar(max)=N'';
     SELECT @Cleanup+=N'DROP SYNONYM '+QUOTENAME(SCHEMA_NAME(schema_id))+N'.'+QUOTENAME(name)+N';'
-    FROM sys.synonyms WHERE PARSENAME(base_object_name,3)=N'FRK''雪]Output';
+    FROM sys.synonyms WHERE PARSENAME(base_object_name,3)=N'FRK''雪]Output' AND schema_id=SCHEMA_ID(N'dbo') AND name IN(N'DeadLockTbl',N'DeadlockFindings');
     EXEC(@Cleanup);
     IF DB_ID(N'FRK''雪]Output') IS NOT NULL DROP DATABASE [FRK'雪]]Output];" || status=1
   return "$status"

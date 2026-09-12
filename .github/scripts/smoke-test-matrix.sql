@@ -591,11 +591,11 @@ IF (SELECT COUNT(*) FROM sys.database_permissions WHERE grantee_principal_id=DAT
 PRINT 'SERVER DELTAS AND UPGRADE PASS';
 
 GO
-ALTER VIEW dbo.Files_Deltas AS SELECT CAST(1 AS int) AS Legacy;
+ALTER VIEW dbo.Files_Deltas AS SELECT CAST(1 AS int) AS JoinKey, CAST(1 AS int) AS FRK_ServerScopedDeltas_v1;
 GO
-ALTER VIEW dbo.Perfmon_Deltas AS SELECT CAST(1 AS int) AS Legacy;
+ALTER VIEW dbo.Perfmon_Deltas AS SELECT CAST(1 AS int) AS JoinKey, CAST(1 AS int) AS FRK_ServerScopedDeltas_v1;
 GO
-ALTER VIEW dbo.Waits_Deltas AS SELECT CAST(1 AS int) AS Legacy;
+ALTER VIEW dbo.Waits_Deltas AS SELECT CAST(1 AS int) AS JoinKey, CAST(1 AS int) AS FRK_ServerScopedDeltas_v1;
 GO
 EXEC master.dbo.sp_BlitzFirst @Seconds=1,@OutputDatabaseName=N'FRKDeltaSmoke',@OutputSchemaName=N'dbo',@OutputTableNameFileStats=N'Files',@OutputTableNamePerfmonStats=N'Perfmon',@OutputTableNameWaitStats=N'Waits';
 GO
@@ -650,6 +650,8 @@ WAITFOR DELAY '00:00:01';
 GO
 EXEC master.dbo.sp_BlitzFirst @Seconds=1,@OutputDatabaseName=N'FRKDeltaSmoke',@OutputSchemaName=N'dbo',@OutputTableNameFileStats=N'Files',@OutputTableNamePerfmonStats=N'Perfmon',@OutputTableNameWaitStats=N'Waits';
 GO
+IF EXISTS(SELECT 1 FROM dbo.OriginalViewIds i LEFT JOIN sys.views v ON i.object_id=v.object_id AND i.name=v.name WHERE v.object_id IS NULL) THROW 51000,'Repeated collection changed a view object ID',1;
+IF (SELECT COUNT(*) FROM sys.database_permissions WHERE grantee_principal_id=DATABASE_PRINCIPAL_ID('CodexDeltaReader') AND permission_name='SELECT')<>3 THROW 51000,'Repeated collection lost view permissions',1;
 IF EXISTS(SELECT 1 FROM dbo.ViewModified m JOIN sys.views v ON v.object_id=m.object_id
           WHERE v.modify_date<>m.modify_date)
     THROW 51000,'Repeated collection unnecessarily altered a migrated view.',1;
@@ -792,7 +794,7 @@ PRINT 'sp_BlitzLock quoted output passed';
 GO
 /* Remove only the synonyms created for this fixture. */
 DECLARE @Cleanup nvarchar(max)=N'';
-SELECT @Cleanup+=N'DROP SYNONYM '+QUOTENAME(SCHEMA_NAME(schema_id))+N'.'+QUOTENAME(name)+N';' FROM sys.synonyms WHERE PARSENAME(base_object_name,3)=N'FRK''雪]Output';
+SELECT @Cleanup+=N'DROP SYNONYM '+QUOTENAME(SCHEMA_NAME(schema_id))+N'.'+QUOTENAME(name)+N';' FROM sys.synonyms WHERE PARSENAME(base_object_name,3)=N'FRK''雪]Output' AND schema_id=SCHEMA_ID(N'dbo') AND name IN(N'DeadLockTbl',N'DeadlockFindings');
 EXEC(@Cleanup);
 DROP DATABASE [FRK'雪]]Output];
 PRINT 'All seven quoted output create/reuse cases passed';
