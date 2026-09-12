@@ -94,8 +94,8 @@ BEGIN
 END
 
 /* Default to dbo schema if NULL is passed in */
-IF (@OutputSchemaName IS NULL) 
-BEGIN 
+IF (@OutputSchemaName IS NULL)
+BEGIN
 	SET @OutputSchemaName = 'dbo';
 END
 
