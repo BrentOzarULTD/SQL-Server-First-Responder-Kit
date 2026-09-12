@@ -868,6 +868,70 @@ IF (
    END;
 
 
+/* Normalize and reject incompatible filters before collecting plan-cache data. */
+DECLARE @SortByQueryHash bit = CASE WHEN @SortOrder LIKE 'query hash%' THEN 1 ELSE 0 END;
+IF @SortByQueryHash = 1
+BEGIN
+	/* When they ran it, @SortOrder probably looked like 'query hash, cpu', so strip the first sort order out: */
+    SELECT @SortOrder = LTRIM(REPLACE(REPLACE(@SortOrder,'query hash', ''), ',', ''));
+
+	/* If they just called it with @SortOrder = 'query hash', set it to 'cpu' for backwards compatibility: */
+	IF @SortOrder = '' SET @SortOrder = 'cpu';
+
+END;
+
+SET @SortOrder = REPLACE(REPLACE(@SortOrder, 'average', 'avg'), '.', '');
+
+SET @SortOrder = CASE
+                     WHEN @SortOrder IN ('executions per minute','execution per minute','executions / minute','execution / minute','xpm') THEN 'avg executions'
+                     WHEN @SortOrder IN ('recent compilations','recent compilation','compile') THEN 'compiles'
+                     WHEN @SortOrder IN ('read') THEN 'reads'
+                     WHEN @SortOrder IN ('avg read') THEN 'avg reads'
+                     WHEN @SortOrder IN ('write') THEN 'writes'
+                     WHEN @SortOrder IN ('avg write') THEN 'avg writes'
+                     WHEN @SortOrder IN ('memory grants') THEN 'memory grant'
+                     WHEN @SortOrder IN ('avg memory grants') THEN 'avg memory grant'
+                     WHEN @SortOrder IN ('unused grants','unused memory', 'unused memory grant', 'unused memory grants') THEN 'unused grant'
+                     WHEN @SortOrder IN ('spill') THEN 'spills'
+                     WHEN @SortOrder IN ('avg spill') THEN 'avg spills'
+                     WHEN @SortOrder IN ('execution') THEN 'executions'
+                     WHEN @SortOrder IN ('duplicates') THEN 'duplicate'
+                 ELSE @SortOrder END
+
+RAISERROR(N'Checking sort order', 0, 1) WITH NOWAIT;
+IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg writes',
+                       'duration', 'avg duration', 'executions', 'avg executions',
+                       'compiles', 'memory grant', 'avg memory grant', 'unused grant',
+					   'spills', 'avg spills', 'all', 'all avg', 'sp_BlitzIndex',
+					   'query hash', 'duplicate')
+  BEGIN
+  RAISERROR(N'Invalid sort order chosen, reverting to cpu', 16, 1) WITH NOWAIT;
+  SET @SortOrder = 'cpu';
+  END;
+
+SET @QueryFilter = LOWER(@QueryFilter);
+
+IF LEFT(@QueryFilter, 3) NOT IN ('all', 'sta', 'pro', 'fun')
+  BEGIN
+  RAISERROR(N'Invalid query filter chosen. Reverting to all.', 0, 1) WITH NOWAIT;
+  SET @QueryFilter = 'all';
+  END;
+
+/* Procedure and function DMVs do not expose statement memory-grant or duplicate data. */
+IF LEFT(@QueryFilter, 3) IN ('pro', 'fun')
+   AND @SortOrder IN ('memory grant', 'avg memory grant', 'unused grant', 'duplicate')
+BEGIN
+   RAISERROR('This sort order requires statement statistics. Use @QueryFilter = ''statements'' or choose another sort order.', 16, 1);
+   RETURN;
+END;
+
+/* Function statistics do not expose spill counters. */
+IF LEFT(@QueryFilter, 3) = 'fun' AND @SortOrder IN ('spills', 'avg spills')
+BEGIN
+   RAISERROR('Function statistics do not support sorting by spills. Use @QueryFilter = ''statements'' or choose another sort order.', 16, 1);
+   RETURN;
+END;
+
 DROP TABLE IF EXISTS #configuration;
 
 CREATE TABLE #configuration (
@@ -1086,7 +1150,7 @@ Return one self-contained Markdown response with prioritized findings, recommend
 
 
 /* If they want to sort by query hash, populate the @OnlyQueryHashes list for them */
-IF @SortOrder LIKE 'query hash%'
+IF @SortByQueryHash = 1
 	BEGIN
 	RAISERROR('Beginning query hash sort', 0, 1) WITH NOWAIT;
 
@@ -1110,11 +1174,6 @@ IF @SortOrder LIKE 'query hash%'
     FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
 	OPTION(RECOMPILE);
 
-	/* When they ran it, @SortOrder probably looked like 'query hash, cpu', so strip the first sort order out: */
-    SELECT @SortOrder = LTRIM(REPLACE(REPLACE(@SortOrder,'query hash', ''), ',', ''));
-	
-	/* If they just called it with @SortOrder = 'query hash', set it to 'cpu' for backwards compatibility: */
-	IF @SortOrder = '' SET @SortOrder = 'cpu';
 
 	END
 
@@ -1227,43 +1286,6 @@ BEGIN
 END;
 
 SELECT @MinMemoryPerQuery = CONVERT(INT, c.value) FROM sys.configurations AS c WHERE c.name = 'min memory per query (KB)';
-
-SET @SortOrder = REPLACE(REPLACE(@SortOrder, 'average', 'avg'), '.', '');
-
-SET @SortOrder = CASE 
-                     WHEN @SortOrder IN ('executions per minute','execution per minute','executions / minute','execution / minute','xpm') THEN 'avg executions'
-                     WHEN @SortOrder IN ('recent compilations','recent compilation','compile') THEN 'compiles'
-                     WHEN @SortOrder IN ('read') THEN 'reads'
-                     WHEN @SortOrder IN ('avg read') THEN 'avg reads'
-                     WHEN @SortOrder IN ('write') THEN 'writes'
-                     WHEN @SortOrder IN ('avg write') THEN 'avg writes'
-                     WHEN @SortOrder IN ('memory grants') THEN 'memory grant'
-                     WHEN @SortOrder IN ('avg memory grants') THEN 'avg memory grant'
-                     WHEN @SortOrder IN ('unused grants','unused memory', 'unused memory grant', 'unused memory grants') THEN 'unused grant'
-                     WHEN @SortOrder IN ('spill') THEN 'spills'
-                     WHEN @SortOrder IN ('avg spill') THEN 'avg spills'
-                     WHEN @SortOrder IN ('execution') THEN 'executions'
-                     WHEN @SortOrder IN ('duplicates') THEN 'duplicate'
-                 ELSE @SortOrder END							  
-							  
-RAISERROR(N'Checking sort order', 0, 1) WITH NOWAIT;
-IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg writes',
-                       'duration', 'avg duration', 'executions', 'avg executions',
-                       'compiles', 'memory grant', 'avg memory grant', 'unused grant',
-					   'spills', 'avg spills', 'all', 'all avg', 'sp_BlitzIndex',
-					   'query hash', 'duplicate')
-  BEGIN
-  RAISERROR(N'Invalid sort order chosen, reverting to cpu', 16, 1) WITH NOWAIT;
-  SET @SortOrder = 'cpu';
-  END; 
-
-SET @QueryFilter = LOWER(@QueryFilter);
-
-IF LEFT(@QueryFilter, 3) NOT IN ('all', 'sta', 'pro', 'fun')
-  BEGIN
-  RAISERROR(N'Invalid query filter chosen. Reverting to all.', 0, 1) WITH NOWAIT;
-  SET @QueryFilter = 'all';
-  END;
 
 IF @SkipAnalysis = 1
   BEGIN
@@ -2022,21 +2044,6 @@ BEGIN
    RETURN;
 END;
 
-
-/* Procedure and function DMVs do not expose statement memory-grant or duplicate data. */
-IF LEFT(@QueryFilter, 3) IN ('pro', 'fun')
-   AND @SortOrder IN ('memory grant', 'avg memory grant', 'unused grant', 'duplicate')
-BEGIN
-   RAISERROR('This sort order requires statement statistics. Use @QueryFilter = ''statements'' or choose another sort order.', 16, 1);
-   RETURN;
-END;
-
-/* Function statistics do not expose spill counters. */
-IF LEFT(@QueryFilter, 3) = 'fun' AND @SortOrder IN ('spills', 'avg spills')
-BEGIN
-   RAISERROR('Function statistics do not support sorting by spills. Use @QueryFilter = ''statements'' or choose another sort order.', 16, 1);
-   RETURN;
-END;
 
 RAISERROR (N'Creating dynamic SQL based on SQL Server version.',0,1) WITH NOWAIT;
 
