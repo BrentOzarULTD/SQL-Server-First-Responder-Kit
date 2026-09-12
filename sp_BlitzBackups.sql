@@ -450,7 +450,7 @@ GOTO PushBackupHistoryToListener
 		+ N' FullMBpsAvg, FullMBpsMin, FullMBpsMax, FullSizeMBAvg, FullSizeMBMin, FullSizeMBMax, FullCompressedSizeMBAvg, FullCompressedSizeMBMin, FullCompressedSizeMBMax, ' + @crlf
 		+ N' DiffMBpsAvg, DiffMBpsMin, DiffMBpsMax, DiffSizeMBAvg, DiffSizeMBMin, DiffSizeMBMax, DiffCompressedSizeMBAvg, DiffCompressedSizeMBMin, DiffCompressedSizeMBMax, ' + @crlf
 		+ N' LogMBpsAvg, LogMBpsMin, LogMBpsMax, LogSizeMBAvg, LogSizeMBMin, LogSizeMBMax, LogCompressedSizeMBAvg, LogCompressedSizeMBMin, LogCompressedSizeMBMax ) ' + @crlf
-		+ N'SELECT bF.database_name, bF.database_guid ' + @crlf
+		+ N'SELECT bK.database_name, bK.database_guid ' + @crlf
 		+ N' , bF.MBpsAvg AS FullMBpsAvg ' + @crlf
 		+ N' , bF.MBpsMin AS FullMBpsMin ' + @crlf
 		+ N' , bF.MBpsMax AS FullMBpsMax ' + @crlf
@@ -478,16 +478,24 @@ GOTO PushBackupHistoryToListener
 		+ N' , bL.CompressedSizeMBAvg AS LogCompressedSizeMBAvg ' + @crlf
 		+ N' , bL.CompressedSizeMBMin AS LogCompressedSizeMBMin ' + @crlf
 		+ N' , bL.CompressedSizeMBMax AS LogCompressedSizeMBMax ' + @crlf
-		+ N' FROM Backups bF ' + @crlf
-		+ N' LEFT OUTER JOIN Backups bD ON bF.database_name = bD.database_name AND bF.database_guid = bD.database_guid AND bD.backup_type = ''I''' + @crlf
-		+ N' LEFT OUTER JOIN Backups bL ON bF.database_name = bL.database_name AND bF.database_guid = bL.database_guid AND bL.backup_type = ''L''' + @crlf
-		+ N' WHERE bF.backup_type = ''D''; ' + @crlf;
+		+ N' FROM (SELECT DISTINCT database_name,database_guid FROM Backups WHERE backup_type IN (''D'',''I'',''L'')) bK LEFT JOIN Backups bF ON bK.database_name=bF.database_name AND bK.database_guid=bF.database_guid AND bF.backup_type=''D'''  + @crlf
+		+ N' LEFT OUTER JOIN Backups bD ON bK.database_name = bD.database_name AND bK.database_guid = bD.database_guid AND bD.backup_type = ''I''' + @crlf
+		+ N' LEFT OUTER JOIN Backups bL ON bK.database_name = bL.database_name AND bK.database_guid = bL.database_guid AND bL.backup_type = ''L''' + @crlf
+		+ N'; ' + @crlf;
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
 	EXEC sys.sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
 
+
+/* Preserve visible diagnostics even when every in-window backup is unusable.
+   Seed before RPO so these rows receive the same history-gap calculation. */
+SET @StringToExecute=N'INSERT #Backups(database_name,database_guid)
+SELECT DISTINCT b.database_name,b.database_guid FROM '+QUOTENAME(@MSDBName)+N'.dbo.backupset b
+WHERE b.type IN (''D'',''I'',''L'') AND b.backup_finish_date>=@StartTime
+AND NOT EXISTS(SELECT 1 FROM #Backups x WHERE x.database_name=b.database_name AND x.database_guid=b.database_guid);';
+EXEC sys.sp_executesql @StringToExecute,N'@StartTime datetime2',@StartTime;
 
 	RAISERROR('Updating #Backups with worst RPO case', 0, 1) WITH NOWAIT;
 
@@ -555,7 +563,15 @@ RAISERROR('Gathering RTO information', 0, 1) WITH NOWAIT;
 CREATE TABLE #RTODiscardMedia(media_set_id int,physical_device_name nvarchar(4000));
 CREATE TABLE #RTOKnownMedia(media_set_id int PRIMARY KEY);
 DECLARE @RTOMediaAvailable bit=CASE WHEN OBJECT_ID(QUOTENAME(@MSDBName)+N'.dbo.backupmediafamily') IS NOT NULL THEN 1 ELSE 0 END;
-IF @RTOMediaAvailable=1
+/* Media IDs copied from multiple instances cannot identify a source's media. */
+DECLARE @RTOMergedSources bit=0;
+IF @MSDBName<>N'msdb'
+BEGIN
+    SET @StringToExecute=N'SELECT @Merged=CASE WHEN COUNT(*)>1 THEN 1 ELSE 0 END
+      FROM (SELECT DISTINCT server_name,machine_name FROM '+QUOTENAME(@MSDBName)+N'.dbo.backupset) sources;';
+    EXEC sys.sp_executesql @StringToExecute,N'@Merged bit OUTPUT',@Merged=@RTOMergedSources OUTPUT;
+END;
+IF @RTOMediaAvailable=1 AND @RTOMergedSources=0
 BEGIN
     SET @StringToExecute=N'WITH ExpectedFamilies AS (
         SELECT media_set_id,MIN(first_family_number) AS FirstFamily,MAX(last_family_number) AS LastFamily
@@ -643,17 +659,10 @@ WHERE first_recovery_fork_guid IS NULL OR last_recovery_fork_guid IS NULL;';
 EXEC sys.sp_executesql @StringToExecute;
 
     INSERT #RTOExcluded
-    SELECT DISTINCT b.database_name,b.database_guid,N'Backup media metadata missing'
+    SELECT DISTINCT b.database_name,b.database_guid,CASE WHEN @RTOMergedSources=1 THEN N'Merged history has ambiguous source media IDs' ELSE N'Backup media metadata missing' END
     FROM #RTOBackupSets b
     WHERE NOT EXISTS(SELECT 1 FROM #RTOKnownMedia m WHERE m.media_set_id=b.media_set_id)
       AND NOT EXISTS(SELECT 1 FROM #RTOExcluded x WHERE x.database_name=b.database_name AND x.database_guid=b.database_guid);
-
-/* Keep databases with in-window logs visible even if their full predates the window.
-   Leave in-window throughput aggregates NULL when no full was measured there. */
-INSERT #Backups(database_name,database_guid)
-SELECT DISTINCT b.database_name,b.database_guid FROM #RTOBackupSets b
-WHERE b.backup_finish_date>=@StartTime
-AND NOT EXISTS(SELECT 1 FROM #Backups x WHERE x.database_name=b.database_name AND x.database_guid=b.database_guid);
 
 INSERT #Warnings(CheckId,Priority,DatabaseName,Finding,Warning)
 SELECT 15,50,database_name,N'RTO estimate unavailable',
@@ -1430,15 +1439,15 @@ IF @ProductVersionMajor >= 12
 		INSERT #Warnings ( CheckId, Priority, DatabaseName, Finding, Warning )
 		EXEC sys.sp_executesql @StringToExecute, N'@StartTime DATETIME2', @StartTime;
 
-	/*Looking for backups directed at the NUL device.*/
+	/*Looking for backups directed at a discard device.*/
 	SET @StringToExecute =N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
 	SET @StringToExecute += N'SELECT 
 		14 AS CheckId,
 		20 AS [Priority],
 		bs.database_name AS [Database Name],
-		''Backup to NUL device'' AS [Finding],
-		''The database '' + QUOTENAME(bs.database_name) + '' has had '' + CONVERT(VARCHAR(10), COUNT(*)) + '' backups to the NUL device, the latest one being on ''+
+		''Backup to discard device'' AS [Finding],
+		''The database '' + QUOTENAME(bs.database_name) + '' has had '' + CONVERT(VARCHAR(10), COUNT(*)) + '' backups to a discard device, the latest one being on ''+
 		CONVERT(NVARCHAR(25),MAX(bs.backup_finish_date),120)+''. These backups do not exist.'' AS [Warning]
 	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS bs
 	INNER JOIN #RTODiscardMedia bmf ON bs.media_set_id = bmf.media_set_id
@@ -1450,8 +1459,8 @@ IF @ProductVersionMajor >= 12
 		14 AS CheckId,
 		10 AS [Priority],
 		bs.database_name AS [Database Name],
-		''Backup to NUL device without COPY_ONLY'' AS [Finding],
-		''The database '' + QUOTENAME(bs.database_name) + '' is not in SIMPLE recovery model and has had '' + CONVERT(VARCHAR(10), COUNT(*)) + '' backups to the NUL device, the latest one being on ''+
+		''Backup to discard device without COPY_ONLY'' AS [Finding],
+		''The database '' + QUOTENAME(bs.database_name) + '' is not in SIMPLE recovery model and has had '' + CONVERT(VARCHAR(10), COUNT(*)) + '' backups to a discard device, the latest one being on ''+
 		CONVERT(NVARCHAR(25),MAX(bs.backup_finish_date),120)+''. These backups do not exist and they might mess up your current backup chain.'' AS [Warning]
 	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS bs
 	INNER JOIN #RTODiscardMedia bmf ON bs.media_set_id = bmf.media_set_id

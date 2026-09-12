@@ -775,6 +775,7 @@ BEGIN TRY
     CREATE TABLE #FRKRecoveryProof(full_backup_set_id int,log_backup_set_id int, log_backups int, log_file_size_mb decimal(18,2), log_time_seconds int);
     CREATE TABLE #FRKBackupProof(RTOWorstCaseMinutes decimal(18,2));
     CREATE TABLE #FRKDiffProof(diff_backup_set_id int,diff_time_seconds int);
+    CREATE TABLE #FRKRPOProof(Minutes decimal(18,1),Endpoint int,PriorBackup int);
     CREATE TABLE #FRKWarningProof(Finding nvarchar(200));
     /* Copy the installed procedure into the isolated fixture database. Only add result
        capture before teardown; all production queries and calculations run unchanged. */
@@ -785,6 +786,7 @@ BEGIN TRY
     SET @Definition=REPLACE(@Definition,N'DROP TABLE #Backups, #Warnings, #Recoverability, #RTORecoveryPoints',
         N'INSERT #FRKRecoveryProof SELECT full_backup_set_id,log_backup_set_id,log_backups,log_file_size_mb,log_time_seconds FROM #RTORecoveryPoints WHERE log_last_lsn IS NOT NULL;
           INSERT #FRKBackupProof SELECT RTOWorstCaseMinutes FROM #Backups;
+          INSERT #FRKRPOProof SELECT RPOWorstCaseMinutes,RPOWorstCaseBackupSetID,RPOWorstCaseBackupSetIDPrior FROM #Backups;
           INSERT #FRKDiffProof SELECT diff_backup_set_id,diff_time_seconds FROM #RTORecoveryPoints WHERE log_last_lsn IS NULL AND diff_backup_set_id IS NOT NULL;
           INSERT #FRKWarningProof SELECT Finding FROM #Warnings WHERE CheckId IN(14,15,16);
           DROP TABLE #Backups, #Warnings, #Recoverability, #RTORecoveryPoints');
@@ -838,12 +840,12 @@ BEGIN TRY
         IF @Case IN(6,8) AND (EXISTS(SELECT 1 FROM #FRKRecoveryProof) OR
             (SELECT COUNT(*) FROM #FRKBackupProof)<>1 OR EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL))
             THROW 51000,'Ambiguous or discarded backup history reported an RTO estimate.',1;
-        IF @Case=7 AND NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'Backup to NUL device') THROW 51000,'Linux discard-device warning absent.',1;
+        IF @Case=7 AND NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'Backup to discard device') THROW 51000,'Linux discard-device warning absent.',1;
         IF @Case=5 AND NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'Recovery fork metadata missing') THROW 51000,'Missing fork metadata warning absent.',1;
         IF @Case IN(6,8) AND NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'RTO estimate unavailable') THROW 51000,'Unavailable RTO did not explain the limitation.',1;
         DELETE #FRKWarningProof;
         DELETE #FRKRecoveryProof;
-        DELETE #FRKBackupProof;
+        DELETE #FRKBackupProof; DELETE #FRKRPOProof;
         SET @Case+=1;
     END;
     /* SIMPLE-style full/differential history has a differential endpoint without logs. */
@@ -855,7 +857,7 @@ BEGIN TRY
     IF (SELECT COUNT(*) FROM #FRKDiffProof)<>1 OR NOT EXISTS(SELECT 1 FROM #FRKDiffProof WHERE diff_time_seconds=20)
        OR NOT EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes=0.50)
         THROW 51000,'Differential-only recovery point omitted its differential.',1;
-    DELETE #FRKDiffProof; DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    DELETE #FRKDiffProof; DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
     /* Equal intervals prefer the regular backup's duration and endpoint ID. */
     DROP TABLE FRKLogHistory.dbo.backupset;
     SELECT * INTO FRKLogHistory.dbo.backupset FROM FRKLogHistory.dbo.AllBackupSets WHERE backup_set_id<>@Endpoint;
@@ -868,14 +870,14 @@ BEGIN TRY
     IF (SELECT COUNT(*) FROM #FRKRecoveryProof)<>1 OR NOT EXISTS
       (SELECT 1 FROM #FRKRecoveryProof WHERE log_backup_set_id=@Regular AND log_backups=1 AND log_time_seconds=40)
         THROW 51000,'Equal intervals did not prefer the regular backup.',1;
-    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
     ALTER TABLE FRKLogHistory.dbo.backupset ALTER COLUMN is_copy_only bit NULL;
     UPDATE FRKLogHistory.dbo.backupset SET is_copy_only=NULL WHERE backup_set_id=@Copy;
     EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
     IF (SELECT COUNT(*) FROM #FRKRecoveryProof)<>1 OR NOT EXISTS
       (SELECT 1 FROM #FRKRecoveryProof WHERE log_backup_set_id=@Regular AND log_backups=1 AND log_time_seconds=40)
         THROW 51000,'Unknown copy-only metadata sorted before a known regular backup.',1;
-    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
     /* Old NULL metadata and newly pushed known metadata still share one estimate. */
     DROP TABLE FRKLogHistory.dbo.backupset;
     SELECT * INTO FRKLogHistory.dbo.backupset FROM FRKLogHistory.dbo.AllBackupSets WHERE backup_set_id<>@Endpoint;
@@ -885,14 +887,14 @@ BEGIN TRY
       (SELECT 1 FROM #FRKRecoveryProof WHERE log_backup_set_id=@Regular AND log_backups=1 AND log_time_seconds=40)
       OR NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'Recovery fork metadata missing')
         THROW 51000,'Mixed unknown and known fork metadata double-counted covered logs.',1;
-    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
     DELETE m FROM FRKLogHistory.dbo.backupmediafamily m JOIN FRKLogHistory.dbo.backupset b
       ON b.media_set_id=m.media_set_id WHERE b.backup_set_id=@Copy;
     EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
     IF NOT EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes=1.20)
        OR EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'RTO estimate unavailable')
         THROW 51000,'Optional copy-only media gap suppressed the healthy regular chain.',1;
-    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
     /* A differential with an unknown base is optional; full plus logs remains valid. */
     UPDATE FRKLogHistory.dbo.backupset SET differential_base_guid=NULL WHERE type='I';
     EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
@@ -900,7 +902,7 @@ BEGIN TRY
       (SELECT 1 FROM #FRKRecoveryProof WHERE log_backup_set_id=@Regular AND log_backups=1 AND log_time_seconds=40)
       OR NOT EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes=CAST(50.0/60 AS decimal(18,1)))
         THROW 51000,'Unknown differential base did not use the complete full-plus-log path.',1;
-    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
     /* Unknown copy-only metadata on discard media must not produce a numeric RTO. */
     ALTER TABLE FRKLogHistory.dbo.backupset ALTER COLUMN is_copy_only bit NULL;
     UPDATE FRKLogHistory.dbo.backupset SET is_copy_only=NULL WHERE backup_set_id=@Regular;
@@ -910,7 +912,7 @@ BEGIN TRY
     IF EXISTS(SELECT 1 FROM #FRKRecoveryProof) OR EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
       OR NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'RTO estimate unavailable')
         THROW 51000,'Unknown copy-only metadata allowed a discard log into RTO.',1;
-    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
     /* A later full must not erase the overlapping endpoint of the earlier full. */
     INSERT FRKLogSource.dbo.Proof VALUES(6);
     SET @File=@Root+N'full2.bak';
@@ -934,7 +936,7 @@ BEGIN TRY
       (SELECT 1 FROM #FRKRecoveryProof WHERE log_backup_set_id=@BoundaryLog AND log_backups=2 AND log_time_seconds=90
        AND full_backup_set_id=(SELECT MIN(backup_set_id) FROM FRKLogHistory.dbo.backupset WHERE type='D'))
         THROW 51000,'Older full lost its overlapping log endpoint or selected a different database.',1;
-    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
     UPDATE FRKLogHistory.dbo.backupset SET backup_start_date=DATEADD(hour,-2,GETDATE()),
       backup_finish_date=DATEADD(second,10,DATEADD(hour,-2,GETDATE()))
       WHERE backup_set_id=(SELECT MIN(backup_set_id) FROM FRKLogHistory.dbo.backupset WHERE type='D');
@@ -943,7 +945,7 @@ BEGIN TRY
       (SELECT 1 FROM #FRKRecoveryProof WHERE log_backup_set_id=@BoundaryLog AND log_backups=2 AND log_time_seconds=90
        AND full_backup_set_id=(SELECT MIN(backup_set_id) FROM FRKLogHistory.dbo.backupset WHERE type='D'))
         THROW 51000,'Pre-window anchor was omitted when a newer full existed.',1;
-    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
     DROP TABLE FRKLogHistory.dbo.backupset;
     SELECT * INTO FRKLogHistory.dbo.backupset FROM msdb.dbo.backupset
       WHERE database_name=N'FRKLogSource' AND database_guid=(SELECT database_guid FROM sys.database_recovery_status WHERE database_id=DB_ID(N'FRKLogSource'));
@@ -965,8 +967,19 @@ BEGIN TRY
       OR EXISTS(SELECT 1 FROM #FRKWarningProof)
       OR NOT EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
         THROW 51000,'An ancient fork suppressed or contaminated the current recovery chain.',1;
+    IF NOT EXISTS(SELECT 1 FROM #FRKRPOProof WHERE Minutes IS NOT NULL AND Endpoint=@CurrentLog AND PriorBackup=@CurrentFull)
+        THROW 51000,'Newly visible old-full history omitted its RPO fields.',1;
+    /* Merged sources cannot share an unqualified media_set_id mapping safely. */
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
+    UPDATE FRKLogHistory.dbo.backupset SET server_name=N'OtherSource' WHERE backup_set_id=@CurrentLog;
+    EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory',@HoursBack=1;
+    IF EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
+       OR NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'RTO estimate unavailable')
+        THROW 51000,'Merged source media IDs were treated as unambiguous.',1;
+    UPDATE b SET server_name=n.server_name FROM FRKLogHistory.dbo.backupset b
+      JOIN msdb.dbo.backupset n ON b.backup_set_id=n.backup_set_id;
     /* A media table with missing candidate rows is also incomplete metadata. */
-    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
     DELETE m FROM FRKLogHistory.dbo.backupmediafamily m JOIN FRKLogHistory.dbo.backupset b
       ON b.media_set_id=m.media_set_id WHERE b.backup_set_id=@CurrentLog;
     EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory',@HoursBack=1;
@@ -975,7 +988,7 @@ BEGIN TRY
        OR NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'RTO estimate unavailable')
         THROW 51000,'Missing candidate media rows were treated as usable backups.',1;
     /* Missing media metadata must produce an explained NULL estimate, not an error. */
-    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
     DROP TABLE FRKLogHistory.dbo.backupmediafamily;
     EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory',@HoursBack=1;
     IF EXISTS(SELECT 1 FROM #FRKRecoveryProof) OR (SELECT COUNT(*) FROM #FRKBackupProof)<>1
@@ -986,7 +999,7 @@ BEGIN TRY
       WHERE media_set_id IN(SELECT media_set_id FROM FRKLogHistory.dbo.backupset);
 
     /* No usable preceding full: do not silently lose the database or invent an RTO. */
-    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
     DELETE FRKLogHistory.dbo.backupset WHERE backup_set_id<@CurrentFull;
     UPDATE m SET physical_device_name=N'NUL' FROM FRKLogHistory.dbo.backupmediafamily m
       JOIN FRKLogHistory.dbo.backupset b ON b.media_set_id=m.media_set_id WHERE b.backup_set_id=@CurrentFull;
@@ -997,7 +1010,7 @@ BEGIN TRY
         THROW 51000,'Unusable preceding full did not produce an explained NULL RTO.',1;
 
     /* A discarded full/diff alternative must not suppress the older usable chain. */
-    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
     DROP TABLE FRKLogHistory.dbo.backupset;
     SELECT * INTO FRKLogHistory.dbo.backupset FROM msdb.dbo.backupset
       WHERE database_name=N'FRKLogSource' AND database_guid=(SELECT database_guid FROM sys.database_recovery_status WHERE database_id=DB_ID(N'FRKLogSource'));
@@ -1010,7 +1023,7 @@ BEGIN TRY
         THROW 51000,'Discarded full/diff alternatives suppressed a usable chain.',1;
 
     /* A regular discard log before the window still breaks the selected chain. */
-    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
     DELETE FRKLogHistory.dbo.backupset WHERE backup_set_id=@CurrentFull;
     UPDATE FRKLogHistory.dbo.backupset SET backup_start_date=DATEADD(hour,-2,GETDATE()),
       backup_finish_date=DATEADD(second,10,DATEADD(hour,-2,GETDATE())) WHERE backup_set_id<>@CurrentLog;
@@ -1021,7 +1034,7 @@ BEGIN TRY
        OR NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'RTO estimate unavailable')
         THROW 51000,'Pre-window discard log did not suppress the broken chain.',1;
     /* Damaged full/diff alternatives are optional; a damaged regular log breaks the chain. */
-    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
     DROP TABLE FRKLogHistory.dbo.backupset;
     SELECT * INTO FRKLogHistory.dbo.backupset FROM msdb.dbo.backupset
       WHERE database_name=N'FRKLogSource' AND database_guid=(SELECT database_guid FROM sys.database_recovery_status WHERE database_id=DB_ID(N'FRKLogSource'));
@@ -1033,12 +1046,19 @@ BEGIN TRY
     IF EXISTS(SELECT 1 FROM #FRKRecoveryProof WHERE full_backup_set_id=@CurrentFull)
        OR NOT EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
         THROW 51000,'Damaged full/diff alternatives displaced the usable chain.',1;
-    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
     UPDATE FRKLogHistory.dbo.backupset SET is_damaged=1 WHERE backup_set_id=@Regular;
     EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
     IF EXISTS(SELECT 1 FROM #FRKRecoveryProof) OR EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
        OR NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'RTO estimate unavailable')
         THROW 51000,'Damaged regular log received a restore estimate.',1;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
+    DELETE FRKLogHistory.dbo.backupset WHERE type<>'D';
+    UPDATE FRKLogHistory.dbo.backupset SET is_damaged=1;
+    EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
+    IF (SELECT COUNT(*) FROM #FRKBackupProof)<>1 OR EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
+       OR NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'RTO estimate unavailable')
+        THROW 51000,'Entirely damaged full history disappeared instead of explaining NULL RTO.',1;
     /* A real striped full requires metadata for both media families. */
     DECLARE @SecondFile nvarchar(512)=@Root+N'striped2.bak',
       @MirrorFirst nvarchar(512)=@Root+N'mirror1.bak',@MirrorSecond nvarchar(512)=@Root+N'mirror2.bak';
@@ -1053,7 +1073,7 @@ BEGIN TRY
       WHERE media_set_id IN(SELECT media_set_id FROM FRKLogHistory.dbo.backupset);
     IF (SELECT COUNT(*) FROM FRKLogHistory.dbo.backupmediafamily)<>4
         THROW 51000,'Mirrored fixture did not produce two copies of two families.',1;
-    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
     EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
     IF NOT EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
         THROW 51000,'Complete striped metadata did not permit an estimate.',1;
@@ -1061,7 +1081,7 @@ BEGIN TRY
     DELETE FRKLogHistory.dbo.backupmediafamily WHERE (mirror=0 AND family_sequence_number=2)
       OR (mirror=1 AND family_sequence_number=1);
     RESTORE VERIFYONLY FROM DISK=@File,DISK=@MirrorSecond;
-    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
     EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
     IF NOT EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
         THROW 51000,'Interchangeable families from different mirrors were rejected.',1;
@@ -1069,11 +1089,11 @@ BEGIN TRY
     SELECT * INTO FRKLogHistory.dbo.backupmediafamily FROM msdb.dbo.backupmediafamily
       WHERE media_set_id IN(SELECT media_set_id FROM FRKLogHistory.dbo.backupset);
     UPDATE FRKLogHistory.dbo.backupmediafamily SET physical_device_name=N'NUL' WHERE mirror=0;
-    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
     EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
     IF NOT EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
         THROW 51000,'A discard mirror suppressed another usable mirror.',1;
-    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
     DELETE FRKLogHistory.dbo.backupmediafamily WHERE family_sequence_number=2;
     EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
     IF EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
