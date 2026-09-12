@@ -401,39 +401,97 @@ IF EXISTS (SELECT 1 FROM sys.dm_exec_sessions
 --#STEP: sp_DatabaseRestore help
 EXEC dbo.sp_DatabaseRestore @Help = 1;
 
-/*
-sp_DatabaseRestore's execute path is NOT covered here, and deliberately so.
+--#STEP: sp_DatabaseRestore multiple log directories and empty-directory rejection
+/* Real full/log backups; names and files are owned by this disposable CI test. */
+IF DB_ID(N'FRKMultiLogSource') IS NOT NULL OR DB_ID(N'FRKMultiLogRestored') IS NOT NULL
+    THROW 51000, 'Restore fixture already exists.', 1;
+DECLARE @Root nvarchar(512) = CONVERT(nvarchar(400), SERVERPROPERTY('InstanceDefaultDataPath')),
+        @Separator nchar(1), @Full nvarchar(512), @LogA nvarchar(512), @LogB nvarchar(512),
+        @Empty nvarchar(512), @Missing nvarchar(512), @File nvarchar(512), @Paths nvarchar(max), @DeleteBefore datetime = DATEADD(day,1,GETDATE());
+SET @Separator = CASE WHEN CHARINDEX(N'/', @Root) > 0 THEN N'/' ELSE N'\' END;
+IF RIGHT(@Root, 1) <> @Separator SET @Root += @Separator;
+SET @Root += N'FRKMultiLog_' + REPLACE(CONVERT(nvarchar(36), NEWID()), N'-', N'');
+EXEC master.dbo.xp_create_subdir @Root;
+SET @Full = @Root + @Separator + N'full' + @Separator;
+SET @LogA = @Root + @Separator + N'logA' + @Separator;
+SET @LogB = @Root + @Separator + N'logB' + @Separator;
+SET @Empty = @Root + @Separator + N'logEmpty' + @Separator;
+SET @Missing = @Root + @Separator + N'logMissing' + @Separator;
+EXEC master.dbo.xp_create_subdir @Full;
+EXEC master.dbo.xp_create_subdir @LogA;
+EXEC master.dbo.xp_create_subdir @LogB;
+EXEC master.dbo.xp_create_subdir @Empty;
+BEGIN TRY
+    EXEC(N'CREATE DATABASE FRKMultiLogSource;');
+    ALTER DATABASE FRKMultiLogSource SET RECOVERY FULL;
+    EXEC FRKMultiLogSource.sys.sp_executesql N'CREATE TABLE dbo.Proof(Id int PRIMARY KEY); INSERT dbo.Proof VALUES(1);';
+    SET @File = @Full + N'FRKMultiLogSource_FULL_20260101_000000.bak';
+    BACKUP DATABASE FRKMultiLogSource TO DISK = @File WITH INIT;
+    INSERT FRKMultiLogSource.dbo.Proof VALUES(2);
+    SET @File = @LogA + N'FRKMultiLogSource_LOG_20260101_000100.trn';
+    BACKUP LOG FRKMultiLogSource TO DISK = @File WITH INIT;
+    INSERT FRKMultiLogSource.dbo.Proof VALUES(3);
+    SET @File = @LogB + N'FRKMultiLogSource_LOG_20260101_000200.trn';
+    BACKUP LOG FRKMultiLogSource TO DISK = @File WITH INIT;
 
-Its dependencies (Ola Hallengren's CommandLog + CommandExecute) are deliberately
-NOT installed either -- see the re-enabling note below. They were, briefly, and
-that is how the bug underneath was found: with both present the procedure runs
-far enough to fail against a Linux fixture rather than stopping at the
-missing-dependency check.
+    EXEC dbo.sp_DatabaseRestore @Database=N'FRKMultiLogSource', @RestoreDatabaseName=N'FRKMultiLogRestored',
+        @BackupPathFull=@Full, @BackupPathLog=@LogA, @SimpleFolderEnumeration=1, @RunRecovery=1;
+    IF (SELECT COUNT(*) FROM FRKMultiLogRestored.dbo.Proof) <> 2
+        THROW 51000, 'Single directory did not restore exactly the first log.', 1;
+    DROP DATABASE FRKMultiLogRestored;
+    SET @Paths = @LogA + N',' + @LogB;
+    EXEC dbo.sp_DatabaseRestore @Database=N'FRKMultiLogSource', @RestoreDatabaseName=N'FRKMultiLogRestored',
+        @BackupPathFull=@Full, @BackupPathLog=@Paths, @SimpleFolderEnumeration=1, @RunRecovery=1;
+    IF (SELECT COUNT(*) FROM FRKMultiLogRestored.dbo.Proof) <> 3
+        THROW 51000, 'Multiple directories did not restore both logs.', 1;
+    DROP DATABASE FRKMultiLogRestored;
 
-@MoveFiles defaults to 1, and that path handles paths with a hardcoded
-backslash in two places: it splits the filename off PhysicalName with
-CHARINDEX('\\', ...), which returns 0 on a forward-slash path and makes
-LEFT(..., -1) raise Msg 537; and it joins the backup directory to the file name
-with a backslash, producing '/var/opt/mssql/data/\\FRKSmokeTest_Full2.bak'.
+    DECLARE @BadPath nvarchar(512) = @Empty, @Rejected bit;
+    WHILE @BadPath IS NOT NULL
+    BEGIN
+        SET @Rejected = 0;
+        SET @Paths = @LogA + N',' + @BadPath;
+        BEGIN TRY
+            EXEC dbo.sp_DatabaseRestore @Database=N'FRKMultiLogSource', @RestoreDatabaseName=N'FRKMultiLogRestored',
+                @BackupPathFull=@Full, @BackupPathLog=@Paths, @SimpleFolderEnumeration=1, @RunRecovery=1;
+        END TRY
+        BEGIN CATCH
+            IF ERROR_NUMBER() <> 50000 OR ERROR_MESSAGE() NOT LIKE N'(LOG) No files were returned%'
+                OR CHARINDEX(@BadPath, ERROR_MESSAGE()) = 0 THROW;
+            SET @Rejected = 1;
+        END CATCH;
+        IF @Rejected = 0 THROW 51000, 'An empty or missing later log directory was silently accepted.', 1;
+        IF EXISTS (SELECT 1 FROM sys.databases WHERE name=N'FRKMultiLogRestored' AND state_desc<>N'RESTORING')
+            THROW 51000, 'The incomplete restore was recovered.', 1;
+        IF DB_ID(N'FRKMultiLogRestored') IS NOT NULL DROP DATABASE FRKMultiLogRestored;
+        SET @BadPath = CASE WHEN @BadPath = @Empty THEN @Missing ELSE NULL END;
+    END;
+    INSERT FRKMultiLogSource.dbo.Proof VALUES(4);
+    DECLARE @Stripe2 nvarchar(512) = @LogB + N'FRKMultiLogSource_LOG_20260101_000300_2.trn';
+    SET @File = @LogA + N'FRKMultiLogSource_LOG_20260101_000300_1.trn';
+    BACKUP LOG FRKMultiLogSource TO DISK = @File, DISK = @Stripe2 WITH INIT;
+    SET @Paths = @LogA + N',' + @LogB;
+    EXEC dbo.sp_DatabaseRestore @Database=N'FRKMultiLogSource', @RestoreDatabaseName=N'FRKMultiLogRestored',
+        @BackupPathFull=@Full, @BackupPathLog=@Paths, @SimpleFolderEnumeration=1, @RunRecovery=1;
+    IF (SELECT COUNT(*) FROM FRKMultiLogRestored.dbo.Proof) <> 4
+        THROW 51000, 'The log striped across two directories was not restored.', 1;
+    DROP DATABASE FRKMultiLogRestored;
 
-Tracked in issue #4049. A permanently-failing step is worse than an absent one:
-it trains everyone to expect red and it advertises coverage that does not exist.
-So this stays at @Help until #4049 lands.
-
-Re-enabling takes TWO changes, not one. Uncommenting the invocation below on its
-own will fail immediately on sp_DatabaseRestore's CommandExecute prerequisite
-check: the workflow no longer fetches Ola Hallengren's CommandLog and
-CommandExecute, because with only @Help left nothing could reach them. Restore
-the workflow's dependency step (its URL and both SHA-256 hashes are preserved in
-a comment there) and this invocation together.
-
-    EXEC dbo.sp_DatabaseRestore
-         @Database            = 'FRKSmokeTest',
-         @RestoreDatabaseName = 'FRKSmokeTestRestored',
-         @BackupPathFull      = '/var/opt/mssql/data/',
-         @RunRecovery         = 1,
-         @ExistingDBAction    = 3;
-*/
+    DROP DATABASE FRKMultiLogSource;
+    /* xp_delete_file removes only backup files in these unique owned directories. */
+    EXEC master.dbo.xp_delete_file 0, @Full, N'bak', @DeleteBefore;
+    EXEC master.dbo.xp_delete_file 0, @LogA, N'trn', @DeleteBefore;
+    EXEC master.dbo.xp_delete_file 0, @LogB, N'trn', @DeleteBefore;
+END TRY
+BEGIN CATCH
+    IF DB_ID(N'FRKMultiLogRestored') IS NOT NULL DROP DATABASE FRKMultiLogRestored;
+    IF DB_ID(N'FRKMultiLogSource') IS NOT NULL DROP DATABASE FRKMultiLogSource;
+    EXEC master.dbo.xp_delete_file 0, @Full, N'bak', @DeleteBefore;
+    EXEC master.dbo.xp_delete_file 0, @LogA, N'trn', @DeleteBefore;
+    EXEC master.dbo.xp_delete_file 0, @LogB, N'trn', @DeleteBefore;
+    THROW;
+END CATCH;
+PRINT 'PASS: single/multiple log directories and empty/missing later paths';
 
 --#STEP: sp_BlitzPlanCompare help
 EXEC dbo.sp_BlitzPlanCompare @Help = 1;
@@ -523,9 +581,9 @@ IF EXISTS(
     ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate
     WHERE e.ServerName IS NULL OR d.ServerName IS NULL OR d.Copies<>1)
     THROW 51000,'Missing, extra, or duplicate Waits delta key.',1;
-IF EXISTS(SELECT 1 FROM dbo.Files_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.num_of_reads<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect file delta',1;
-IF EXISTS(SELECT 1 FROM dbo.Perfmon_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.cntr_delta<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect perfmon delta',1;
-IF EXISTS(SELECT 1 FROM dbo.Waits_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.wait_time_ms_delta<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect wait delta',1;
+IF EXISTS(SELECT 1 FROM dbo.Files_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.num_of_reads IS NULL OR d.num_of_reads<>1000 OR d.ElapsedSeconds IS NULL OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect file delta',1;
+IF EXISTS(SELECT 1 FROM dbo.Perfmon_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.cntr_delta IS NULL OR d.cntr_delta<>1000 OR d.ElapsedSeconds IS NULL OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect perfmon delta',1;
+IF EXISTS(SELECT 1 FROM dbo.Waits_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.wait_time_ms_delta IS NULL OR d.wait_time_ms_delta<>1000 OR d.ElapsedSeconds IS NULL OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect wait delta',1;
 IF EXISTS(SELECT 1 FROM dbo.OriginalViewIds i LEFT JOIN sys.views v ON i.object_id=v.object_id AND i.name=v.name WHERE v.object_id IS NULL) THROW 51000,'View object ID changed',1;
 IF (SELECT COUNT(*) FROM sys.database_permissions WHERE grantee_principal_id=DATABASE_PRINCIPAL_ID('CodexDeltaReader') AND permission_name='SELECT')<>3 THROW 51000,'View permissions lost',1;
 PRINT 'SERVER DELTAS AND UPGRADE PASS';
@@ -562,9 +620,9 @@ IF EXISTS(
     ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate
     WHERE e.ServerName IS NULL OR d.ServerName IS NULL OR d.Copies<>1)
     THROW 51000,'Missing, extra, or duplicate Waits delta key.',1;
-IF EXISTS(SELECT 1 FROM dbo.Files_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.num_of_reads<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect file delta',1;
-IF EXISTS(SELECT 1 FROM dbo.Perfmon_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.cntr_delta<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect perfmon delta',1;
-IF EXISTS(SELECT 1 FROM dbo.Waits_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.wait_time_ms_delta<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect wait delta',1;
+IF EXISTS(SELECT 1 FROM dbo.Files_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.num_of_reads IS NULL OR d.num_of_reads<>1000 OR d.ElapsedSeconds IS NULL OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect file delta',1;
+IF EXISTS(SELECT 1 FROM dbo.Perfmon_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.cntr_delta IS NULL OR d.cntr_delta<>1000 OR d.ElapsedSeconds IS NULL OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect perfmon delta',1;
+IF EXISTS(SELECT 1 FROM dbo.Waits_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.wait_time_ms_delta IS NULL OR d.wait_time_ms_delta<>1000 OR d.ElapsedSeconds IS NULL OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect wait delta',1;
 IF EXISTS(SELECT 1 FROM dbo.OriginalViewIds i LEFT JOIN sys.views v ON i.object_id=v.object_id AND i.name=v.name WHERE v.object_id IS NULL) THROW 51000,'View object ID changed',1;
 IF (SELECT COUNT(*) FROM sys.database_permissions WHERE grantee_principal_id=DATABASE_PRINCIPAL_ID('CodexDeltaReader') AND permission_name='SELECT')<>3 THROW 51000,'View permissions lost',1;
 PRINT 'SERVER DELTAS AND UPGRADE PASS';
@@ -596,6 +654,8 @@ IF EXISTS(SELECT 1 FROM dbo.ViewModified m JOIN sys.views v ON v.object_id=m.obj
 PRINT 'Multi-server delta values, upgrades, permissions, and repeat behavior passed.';
 USE master;
 DROP DATABASE FRKDeltaSmoke;
+--#STEP: sp_BlitzLock parses a real system_health ring-buffer deadlock
+/* The runner creates two concurrent workers and asserts the parsed participants. */
 --#STEP: sp_BlitzCache isolates analysis and all Excel export paths
 EXEC FRKSmokeTest.sys.sp_executesql
      N'SELECT COUNT_BIG(*) FROM dbo.Posts WHERE Id > 10 /* FRK isolation workload */';
@@ -681,7 +741,9 @@ DECLARE @AsOf datetimeoffset=SYSDATETIMEOFFSET();
 EXEC master.dbo.sp_BlitzFirst @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_BlitzFirst''雪]',@AsOf=@AsOf;
 PRINT 'sp_BlitzFirst quoted output passed';
 GO
-/* sp_BlitzIndex: create, reuse, and append. */
+/* sp_BlitzIndex: create, reuse, and append.
+   Its initial PARSENAME normalization removes delimiters before the later
+   QUOTENAME call. Delimiters are required here to preserve the literal ]. */
 EXEC master.dbo.sp_BlitzIndex @OutputDatabaseName=N'[FRK''雪]]Output]',@OutputSchemaName=N'[Schema''雪]]]',@OutputTableName=N'[sp_BlitzIndex''雪]]]',@DatabaseName=N'FRKSmokeTest',@Mode=2;
 DECLARE @OriginalID int=OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzIndex''雪]]]'), @Rows bigint=(SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_BlitzIndex'雪]]]);
 IF @OriginalID IS NULL THROW 51000,'Quoted output table was not created.',1;
@@ -712,6 +774,7 @@ EXEC master.dbo.sp_BlitzLock @OutputDatabaseName=N'FRK''雪]Output',@OutputSchem
 DECLARE @OriginalID int=OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzLock''雪]]]'), @Rows bigint=(SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_BlitzLock'雪]]]);
 IF @OriginalID IS NULL THROW 51000,'Quoted output table was not created.',1;
 IF @Rows=0 THROW 51000,'Quoted output is unexpectedly empty.',1;
+IF (SELECT COUNT(DISTINCT spid) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_BlitzLock'雪]]])<>2 THROW 51000,'Quoted deadlock output lost a participant.',1;
 EXEC master.dbo.sp_BlitzLock @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_BlitzLock''雪]',@TargetDatabaseName=N'FRK''雪]Output',@TargetTableName=N'DeadlockInput',@TargetColumnName=N'EventData';
 IF OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzLock''雪]]]')<>@OriginalID THROW 51000,'Quoted output table was replaced.',1;
 IF (SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_BlitzLock'雪]]])<=@Rows THROW 51000,'Quoted output did not append.',1;

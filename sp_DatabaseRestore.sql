@@ -1293,8 +1293,14 @@ BEGIN
 
 		IF @SimpleFolderEnumeration = 1
 		BEGIN    -- Get list of files
-			INSERT INTO @FileListSimple (BackupFile, depth, [file]) EXEC master.sys.xp_dirtree @BackupPathLog, 1, 1;
-			INSERT @FileList (BackupPath, BackupFile) SELECT @CurrentBackupPathLog, BackupFile FROM @FileListSimple;
+			INSERT INTO @FileListSimple (BackupFile, depth, [file]) EXEC master.sys.xp_dirtree @CurrentBackupPathLog, 1, 1;
+			/* Validate this directory before combining it with earlier directories. */
+			IF NOT EXISTS (SELECT 1 FROM @FileListSimple WHERE [file] = 1)
+			BEGIN
+				RAISERROR('(LOG) No files were returned for database %s in path %s', 16, 1, @Database, @CurrentBackupPathLog) WITH NOWAIT;
+				RETURN;
+			END;
+			INSERT @FileList (BackupPath, BackupFile) SELECT @CurrentBackupPathLog, BackupFile FROM @FileListSimple WHERE [file] = 1;
 			DELETE FROM @FileListSimple;
 		END
 		ELSE
