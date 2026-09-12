@@ -6,6 +6,11 @@ The production script is embedded verbatim except for its allDatabases setting.
 from pathlib import Path
 
 source = (Path(__file__).resolve().parents[2] / 'Uninstall.sql').read_text()
+mode_declaration = "DECLARE @allDatabases bit = 0;"
+if source.count(mode_declaration) != 1:
+    raise RuntimeError("Expected exactly one allDatabases declaration; cannot generate both uninstall modes.")
+all_source = source.replace(mode_declaration, "DECLARE @allDatabases bit = 1;")
+
 def literal(value):
     return "N'" + value.replace("'", "''") + "'"
 def identifier(value):
@@ -65,7 +70,7 @@ for name in (names[0], names[2]):
 reseed = "USE " + identifier(names[2]) + "; EXEC(N'CREATE PROCEDURE dbo.SP_BLITZ AS RETURN;'); CREATE TABLE dbo.SqlServerVersions(n int);"
 print(f'EXEC({literal(reseed)});')
 # Exercise the real all-databases enumeration, including both unusual names.
-print(f'EXEC({literal(source.replace("DECLARE @allDatabases bit = 0;", "DECLARE @allDatabases bit = 1;"))});')
+print(f'EXEC({literal(all_source)});')
 for name in names:
     assertions(name)
     print(f'EXEC({literal("DROP DATABASE " + identifier(name))});')
