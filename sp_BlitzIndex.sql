@@ -2629,22 +2629,31 @@ OPTION (RECOMPILE);';
                 JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s
                     ON s.schema_id = fk.schema_id
                 WHERE fk.is_disabled = 0
-                AND   EXISTS
-                      (
-                          SELECT  
-                              1/0
-                          FROM ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_key_columns fkc
-                          WHERE fkc.constraint_object_id = fk.object_id
-                          AND NOT EXISTS
-                              (
-                                  SELECT  
-                                      1/0
-                                  FROM  ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns ic
-                                  WHERE ic.object_id = fkc.parent_object_id
-                                  AND   ic.column_id = fkc.parent_column_id
-                                  AND   ic.index_column_id = fkc.constraint_column_id
-                              )
-                      )
+                AND NOT EXISTS
+                    (
+                        SELECT 1
+                        FROM ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS i
+                        WHERE i.object_id = fk.parent_object_id
+                        AND i.type IN (1, 2)
+                        AND i.is_disabled = 0
+                        AND i.is_hypothetical = 0
+                        AND i.has_filter = 0
+                        AND NOT EXISTS
+                            (
+                                SELECT 1
+                                FROM ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_key_columns AS fkc
+                                WHERE fkc.constraint_object_id = fk.object_id
+                                AND NOT EXISTS
+                                    (
+                                        SELECT 1
+                                        FROM ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns AS ic
+                                        WHERE ic.object_id = i.object_id
+                                        AND ic.index_id = i.index_id
+                                        AND ic.column_id = fkc.parent_column_id
+                                        AND ic.key_ordinal = fkc.constraint_column_id
+                                    )
+                            )
+                    )
 				OPTION (RECOMPILE);'
         IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
