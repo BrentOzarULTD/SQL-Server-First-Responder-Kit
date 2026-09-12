@@ -7,6 +7,11 @@ import os
 import subprocess
 import uuid
 
+# sqlcmd reads SQLCMDPASSWORD from the environment; keep secrets off argv.
+client_env = os.environ.copy()
+if not client_env.get('SQLCMDPASSWORD'):
+    raise RuntimeError('SQLCMDPASSWORD must be set for the SQL-authenticated test.')
+
 suffix = uuid.uuid4().hex[:12]
 schema = 'FRKRing_' + suffix
 table = 'Fixture_' + suffix
@@ -15,7 +20,7 @@ args = [os.environ.get('SQLCMD', 'sqlcmd'), '-S', os.environ['SQLCMDSERVER'],
 
 def run(sql, database='FRKSmokeTest', check=True):
     result = subprocess.run(args + ['-d', database, '-Q', sql],
-                            capture_output=True, text=True, timeout=120)
+                            capture_output=True, text=True, timeout=120, env=client_env)
     if check and result.returncode:
         raise RuntimeError(result.stdout + result.stderr)
     return result
