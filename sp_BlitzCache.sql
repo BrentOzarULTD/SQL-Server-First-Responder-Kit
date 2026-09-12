@@ -847,6 +847,13 @@ BEGIN
     SET @HideSummary = 1;
 END;
 
+/* Reserve case/accent/kana/width-equivalent internal names before preprocessing. */
+IF @OutputTableName COLLATE Latin1_General_100_CI_AI IN ('##BlitzCacheProcs', '##BlitzCacheResults')
+BEGIN
+    RAISERROR('OutputTableName is a reserved name for this procedure. We only use ##BlitzCacheProcs and ##BlitzCacheResults, please choose another table name.', 16, 1);
+    RETURN;
+END;
+
 /* Lets get @SortOrder set to lower case here for comparisons later */
 SET @SortOrder = LOWER(@SortOrder);
 
@@ -867,6 +874,70 @@ IF (
          SET @Top = 10;
    END;
 
+
+/* Normalize and reject incompatible filters before collecting plan-cache data. */
+DECLARE @SortByQueryHash bit = CASE WHEN @SortOrder LIKE 'query hash%' THEN 1 ELSE 0 END;
+IF @SortByQueryHash = 1
+BEGIN
+	/* When they ran it, @SortOrder probably looked like 'query hash, cpu', so strip the first sort order out: */
+    SELECT @SortOrder = LTRIM(REPLACE(REPLACE(@SortOrder,'query hash', ''), ',', ''));
+
+	/* If they just called it with @SortOrder = 'query hash', set it to 'cpu' for backwards compatibility: */
+	IF @SortOrder = '' SET @SortOrder = 'cpu';
+
+END;
+
+SET @SortOrder = REPLACE(REPLACE(@SortOrder, 'average', 'avg'), '.', '');
+
+SET @SortOrder = CASE
+                     WHEN @SortOrder IN ('executions per minute','execution per minute','executions / minute','execution / minute','xpm') THEN 'avg executions'
+                     WHEN @SortOrder IN ('recent compilations','recent compilation','compile') THEN 'compiles'
+                     WHEN @SortOrder IN ('read') THEN 'reads'
+                     WHEN @SortOrder IN ('avg read') THEN 'avg reads'
+                     WHEN @SortOrder IN ('write') THEN 'writes'
+                     WHEN @SortOrder IN ('avg write') THEN 'avg writes'
+                     WHEN @SortOrder IN ('memory grants') THEN 'memory grant'
+                     WHEN @SortOrder IN ('avg memory grants') THEN 'avg memory grant'
+                     WHEN @SortOrder IN ('unused grants','unused memory', 'unused memory grant', 'unused memory grants') THEN 'unused grant'
+                     WHEN @SortOrder IN ('spill') THEN 'spills'
+                     WHEN @SortOrder IN ('avg spill') THEN 'avg spills'
+                     WHEN @SortOrder IN ('execution') THEN 'executions'
+                     WHEN @SortOrder IN ('duplicates') THEN 'duplicate'
+                 ELSE @SortOrder END
+
+RAISERROR(N'Checking sort order', 0, 1) WITH NOWAIT;
+IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg writes',
+                       'duration', 'avg duration', 'executions', 'avg executions',
+                       'compiles', 'memory grant', 'avg memory grant', 'unused grant',
+					   'spills', 'avg spills', 'all', 'all avg', 'sp_BlitzIndex',
+					   'query hash', 'duplicate')
+  BEGIN
+  RAISERROR(N'Invalid sort order chosen, reverting to cpu', 16, 1) WITH NOWAIT;
+  SET @SortOrder = 'cpu';
+  END;
+
+SET @QueryFilter = LOWER(@QueryFilter);
+
+IF LEFT(@QueryFilter, 3) NOT IN ('all', 'sta', 'pro', 'fun')
+  BEGIN
+  RAISERROR(N'Invalid query filter chosen. Reverting to all.', 0, 1) WITH NOWAIT;
+  SET @QueryFilter = 'all';
+  END;
+
+/* Procedure and function DMVs do not expose statement memory-grant or duplicate data. */
+IF LEFT(@QueryFilter, 3) IN ('pro', 'fun')
+   AND @SortOrder IN ('memory grant', 'avg memory grant', 'unused grant', 'duplicate')
+BEGIN
+   RAISERROR('This sort order requires statement statistics. Use @QueryFilter = ''statements'' or choose another sort order.', 16, 1);
+   RETURN;
+END;
+
+/* Function statistics do not expose spill counters. */
+IF LEFT(@QueryFilter, 3) = 'fun' AND @SortOrder IN ('spills', 'avg spills')
+BEGIN
+   RAISERROR('Function statistics do not support sorting by spills. Use @QueryFilter = ''statements'' or choose another sort order.', 16, 1);
+   RETURN;
+END;
 
 DROP TABLE IF EXISTS #configuration;
 
@@ -1086,7 +1157,7 @@ Return one self-contained Markdown response with prioritized findings, recommend
 
 
 /* If they want to sort by query hash, populate the @OnlyQueryHashes list for them */
-IF @SortOrder LIKE 'query hash%'
+IF @SortByQueryHash = 1
 	BEGIN
 	RAISERROR('Beginning query hash sort', 0, 1) WITH NOWAIT;
 
@@ -1110,11 +1181,6 @@ IF @SortOrder LIKE 'query hash%'
     FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
 	OPTION(RECOMPILE);
 
-	/* When they ran it, @SortOrder probably looked like 'query hash, cpu', so strip the first sort order out: */
-    SELECT @SortOrder = LTRIM(REPLACE(REPLACE(@SortOrder,'query hash', ''), ',', ''));
-	
-	/* If they just called it with @SortOrder = 'query hash', set it to 'cpu' for backwards compatibility: */
-	IF @SortOrder = '' SET @SortOrder = 'cpu';
 
 	END
 
@@ -1227,43 +1293,6 @@ BEGIN
 END;
 
 SELECT @MinMemoryPerQuery = CONVERT(INT, c.value) FROM sys.configurations AS c WHERE c.name = 'min memory per query (KB)';
-
-SET @SortOrder = REPLACE(REPLACE(@SortOrder, 'average', 'avg'), '.', '');
-
-SET @SortOrder = CASE 
-                     WHEN @SortOrder IN ('executions per minute','execution per minute','executions / minute','execution / minute','xpm') THEN 'avg executions'
-                     WHEN @SortOrder IN ('recent compilations','recent compilation','compile') THEN 'compiles'
-                     WHEN @SortOrder IN ('read') THEN 'reads'
-                     WHEN @SortOrder IN ('avg read') THEN 'avg reads'
-                     WHEN @SortOrder IN ('write') THEN 'writes'
-                     WHEN @SortOrder IN ('avg write') THEN 'avg writes'
-                     WHEN @SortOrder IN ('memory grants') THEN 'memory grant'
-                     WHEN @SortOrder IN ('avg memory grants') THEN 'avg memory grant'
-                     WHEN @SortOrder IN ('unused grants','unused memory', 'unused memory grant', 'unused memory grants') THEN 'unused grant'
-                     WHEN @SortOrder IN ('spill') THEN 'spills'
-                     WHEN @SortOrder IN ('avg spill') THEN 'avg spills'
-                     WHEN @SortOrder IN ('execution') THEN 'executions'
-                     WHEN @SortOrder IN ('duplicates') THEN 'duplicate'
-                 ELSE @SortOrder END							  
-							  
-RAISERROR(N'Checking sort order', 0, 1) WITH NOWAIT;
-IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg writes',
-                       'duration', 'avg duration', 'executions', 'avg executions',
-                       'compiles', 'memory grant', 'avg memory grant', 'unused grant',
-					   'spills', 'avg spills', 'all', 'all avg', 'sp_BlitzIndex',
-					   'query hash', 'duplicate')
-  BEGIN
-  RAISERROR(N'Invalid sort order chosen, reverting to cpu', 16, 1) WITH NOWAIT;
-  SET @SortOrder = 'cpu';
-  END; 
-
-SET @QueryFilter = LOWER(@QueryFilter);
-
-IF LEFT(@QueryFilter, 3) NOT IN ('all', 'sta', 'pro', 'fun')
-  BEGIN
-  RAISERROR(N'Invalid query filter chosen. Reverting to all.', 0, 1) WITH NOWAIT;
-  SET @QueryFilter = 'all';
-  END;
 
 IF @SkipAnalysis = 1
   BEGIN
@@ -2333,10 +2362,10 @@ BEGIN
                 ELSE CAST((total_worker_time / 1000.0) / COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time)) AS MONEY)
                 END AS AverageCPUPerMinute ,
            CASE WHEN t.t_TotalWorker = 0 THEN 0
-                ELSE CAST(ROUND(100.00 * total_worker_time / t.t_TotalWorker, 2) AS MONEY)
+                ELSE CAST(ROUND(100.00 * (total_worker_time / 1000.0) / t.t_TotalWorker, 2) AS MONEY)
                 END AS PercentCPUByType,
            CASE WHEN t.t_TotalElapsed = 0 THEN 0
-                ELSE CAST(ROUND(100.00 * total_elapsed_time / t.t_TotalElapsed, 2) AS MONEY)
+                ELSE CAST(ROUND(100.00 * (total_elapsed_time / 1000.0) / t.t_TotalElapsed, 2) AS MONEY)
                 END AS PercentDurationByType,
            CASE WHEN t.t_TotalReads = 0 THEN 0
                 ELSE CAST(ROUND(100.00 * total_logical_reads / t.t_TotalReads, 2) AS MONEY)
@@ -3344,6 +3373,7 @@ JOIN    (   SELECT  r.SqlHandle
 WHERE   s.statement.exist('//p:StmtSimple[@StatementOptmLevel[.="TRIVIAL"]]/p:QueryPlan/p:ParameterList') = 1
 ) AS s
 ON b.SqlHandle = s.SqlHandle
+WHERE b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 
@@ -3375,6 +3405,7 @@ WITH pc AS (
 		ON b.SqlHandle = pc.SqlHandle
 		AND b.QueryHash = pc.QueryHash
 		WHERE b.QueryType NOT LIKE '%Procedure%'
+        AND b.SPID = @@SPID
 	OPTION (RECOMPILE);
 
 IF EXISTS (
@@ -3839,6 +3870,7 @@ UPDATE b
 FROM ##BlitzCacheProcs b
 JOIN spools sp
 ON sp.QueryHash = b.QueryHash
+WHERE b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 RAISERROR('Checking for wonky Table Spools', 0, 1) WITH NOWAIT;
@@ -3866,6 +3898,7 @@ UPDATE b
 FROM ##BlitzCacheProcs b
 JOIN spools sp
 ON sp.QueryHash = b.QueryHash
+WHERE b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 
@@ -3880,7 +3913,8 @@ AS ( SELECT CONVERT(BINARY(8),
      FROM   #statements AS s
 	 JOIN ##BlitzCacheProcs b
 	 ON s.QueryHash = b.QueryHash
-	 WHERE b.index_spool_rows IS NULL
+	 WHERE b.SPID = @@SPID
+     AND   b.index_spool_rows IS NULL
 	 AND   b.index_spool_cost IS NULL
 	 AND   b.table_spool_cost IS NULL
 	 AND   b.table_spool_rows IS NULL
@@ -3893,7 +3927,8 @@ UPDATE b
 FROM ##BlitzCacheProcs b
 JOIN selects AS s
 ON s.QueryHash = b.QueryHash
-AND b.AverageWrites > 1024.;
+AND b.AverageWrites > 1024.
+WHERE b.SPID = @@SPID;
 
 	RAISERROR(N'Checking for forced serialization', 0, 1) WITH NOWAIT;
 	WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
@@ -4142,6 +4177,7 @@ FROM #relop AS r
 JOIN ##BlitzCacheProcs AS b
 ON b.SqlHandle = r.SqlHandle
 WHERE  r.relop.exist('/p:RelOp[(@EstimateRows="100" or @EstimateRows="1") and @LogicalOp="Table-valued function"]') = 1
+AND b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 
@@ -4155,6 +4191,7 @@ FROM #relop AS r
 JOIN ##BlitzCacheProcs AS b
 ON b.SqlHandle = r.SqlHandle
 WHERE  r.relop.exist('/p:RelOp/p:Merge/@ManyToMany[.="1"]') = 1
+AND b.SPID = @@SPID
 OPTION (RECOMPILE);
 END ;
 
@@ -4462,6 +4499,7 @@ FROM ##BlitzCacheProcs AS b
 JOIN precheck pk
 ON pk.SqlHandle = b.SqlHandle
 AND pk.SPID = b.SPID
+WHERE b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 
@@ -4505,6 +4543,7 @@ JOIN precheck pk
 ON pk.SqlHandle = b.SqlHandle
 AND pk.SPID = b.SPID
 WHERE b.QueryType <> N'Statement'
+AND b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 
@@ -4549,6 +4588,7 @@ JOIN precheck pk
 ON pk.SqlHandle = b.SqlHandle
 AND pk.SPID = b.SPID
 WHERE b.QueryType = N'Statement'
+AND b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 RAISERROR(N'Filling in implicit conversion and cached plan parameter info', 0, 1) WITH NOWAIT;
@@ -5952,6 +5992,7 @@ BEGIN
     /* excel output */
     UPDATE ##BlitzCacheProcs
     SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),' ','<>'),'><',''),'<>',' '), 1, 32000)
+	WHERE SPID = @@SPID
 	OPTION(RECOMPILE);
 
     SET @sql = N'
@@ -7794,7 +7835,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END; 
@@ -7824,7 +7865,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END; 
@@ -7843,7 +7884,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END; 
@@ -7873,7 +7914,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END; 
@@ -7971,7 +8012,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END;  
@@ -8001,7 +8042,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END; 
@@ -8020,7 +8061,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END;  
@@ -8050,7 +8091,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END; 
@@ -8590,10 +8631,6 @@ END ';
 			IF @ValidOutputServer = 1
 				BEGIN
 					RAISERROR('Due to the nature of temporary tables, outputting to a linked server requires a permanent table.', 16, 0);
-				END;
-			ELSE IF @OutputTableName IN ('##BlitzCacheProcs','##BlitzCacheResults')
-				BEGIN
-					RAISERROR('OutputTableName is a reserved name for this procedure. We only use ##BlitzCacheProcs and ##BlitzCacheResults, please choose another table name.', 16, 0);
 				END;
 			ELSE
 				BEGIN				

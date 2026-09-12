@@ -321,6 +321,13 @@ BEGIN
     RETURN;
 END;
 
+/* Azure SQL DB cannot use linked-server output, including its own server name. */
+IF @AzureSQLDB = 1 AND @OutputServerName IS NOT NULL
+BEGIN
+    RAISERROR('Azure SQL Database does not support @OutputServerName. Output to a table in the current database instead.', 12, 1);
+    RETURN;
+END;
+
 /* Some prep-work for output object names before checking if they're ok or not */
 IF (@OutputTableName IS NOT NULL)
 BEGIN
@@ -1903,6 +1910,7 @@ BEGIN TRY
 				, reserved_row_overflow_MB NUMERIC(29,2)
 				, lock_escalation_desc nvarchar(60)
 				, data_compression_desc nvarchar(60)
+                , reserved_dictionary_MB NUMERIC(29,2)
 			)
 
 			-- get relevant info from sys.dm_db_index_operational_stats
@@ -1944,7 +1952,7 @@ BEGIN TRY
                         SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                         INSERT INTO #dm_db_partition_stats_etc
                         (
-                            database_id, object_id, sname, index_id, partition_number, partition_id, row_count, reserved_MB, reserved_LOB_MB, reserved_row_overflow_MB, lock_escalation_desc, data_compression_desc
+                            database_id, object_id, sname, index_id, partition_number, partition_id, row_count, reserved_MB, reserved_LOB_MB, reserved_row_overflow_MB, lock_escalation_desc, data_compression_desc, reserved_dictionary_MB
                         )
                         SELECT  ' + CAST(@DatabaseID AS NVARCHAR(10)) + N' AS database_id,
                                 ps.object_id, 
@@ -1957,7 +1965,10 @@ BEGIN TRY
                                 ps.lob_reserved_page_count * 8. / 1024. AS reserved_LOB_MB,
                                 ps.row_overflow_reserved_page_count * 8. / 1024. AS reserved_row_overflow_MB,
 								le.lock_escalation_desc,
-                            par.data_compression_desc
+                            par.data_compression_desc,
+                            COALESCE((SELECT SUM(dict.on_disk_size / 1024.0 / 1024)
+                                      FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_dictionaries AS dict
+                                      WHERE dict.partition_id = ps.partition_id), 0) AS reserved_dictionary_MB
 ';
 
             SET @dsql = @dsql + N'
@@ -2210,11 +2221,11 @@ BEGIN TRY
 								SUM(os.page_latch_wait_in_ms),
 								SUM(os.page_io_latch_wait_count),								
 								SUM(os.page_io_latch_wait_in_ms)
-                                ,COALESCE((SELECT SUM (dict.on_disk_size / 1024.0 / 1024) FROM sys.column_store_dictionaries dict WHERE dict.partition_id = h.partition_id),0) AS reserved_dictionary_MB 
+                                ,h.reserved_dictionary_MB
                     from #dm_db_partition_stats_etc h
                     left JOIN #dm_db_index_operational_stats as os ON
                         h.object_id=os.object_id and h.index_id=os.index_id and h.partition_number=os.partition_number 
-                    group by h.database_id, h.object_id, h.sname, h.index_id, h.partition_number, h.partition_id, h.row_count, h.reserved_MB, h.reserved_LOB_MB, h.reserved_row_overflow_MB, h.lock_escalation_desc, h.data_compression_desc                          
+                    group by h.database_id, h.object_id, h.sname, h.index_id, h.partition_number, h.partition_id, h.row_count, h.reserved_MB, h.reserved_LOB_MB, h.reserved_row_overflow_MB, h.lock_escalation_desc, h.data_compression_desc, h.reserved_dictionary_MB
                 
 		END; --End Check For @SkipPartitions = 0
 
@@ -2629,22 +2640,31 @@ OPTION (RECOMPILE);';
                 JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s
                     ON s.schema_id = fk.schema_id
                 WHERE fk.is_disabled = 0
-                AND   EXISTS
-                      (
-                          SELECT  
-                              1/0
-                          FROM ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_key_columns fkc
-                          WHERE fkc.constraint_object_id = fk.object_id
-                          AND NOT EXISTS
-                              (
-                                  SELECT  
-                                      1/0
-                                  FROM  ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns ic
-                                  WHERE ic.object_id = fkc.parent_object_id
-                                  AND   ic.column_id = fkc.parent_column_id
-                                  AND   ic.index_column_id = fkc.constraint_column_id
-                              )
-                      )
+                AND NOT EXISTS
+                    (
+                        SELECT 1
+                        FROM ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS i
+                        WHERE i.object_id = fk.parent_object_id
+                        AND i.type IN (1, 2)
+                        AND i.is_disabled = 0
+                        AND i.is_hypothetical = 0
+                        AND i.has_filter = 0
+                        AND NOT EXISTS
+                            (
+                                SELECT 1
+                                FROM ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_key_columns AS fkc
+                                WHERE fkc.constraint_object_id = fk.object_id
+                                AND NOT EXISTS
+                                    (
+                                        SELECT 1
+                                        FROM ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns AS ic
+                                        WHERE ic.object_id = i.object_id
+                                        AND ic.index_id = i.index_id
+                                        AND ic.column_id = fkc.parent_column_id
+                                        AND ic.key_ordinal = fkc.constraint_column_id
+                                    )
+                            )
+                    )
 				OPTION (RECOMPILE);'
         IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
@@ -4415,7 +4435,7 @@ BEGIN
 							EXEC @@@OutputServerName@@@.@@@OutputDatabaseName@@@.dbo.sp_executesql N''ALTER TABLE @@@OutputSchemaName@@@.@@@OutputTableName@@@ ADD [total_forwarded_fetch_count] BIGINT''
 					END';
 	
-				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName);
@@ -4430,7 +4450,7 @@ BEGIN
 					ELSE
 						SET @TableExists = 1';
 				
-				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputServerName@@@', @OutputServerName);
+				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
 				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputSchemaName@@@', @OutputSchemaName); 
 				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputTableName@@@', @OutputTableName); 
@@ -5820,8 +5840,9 @@ BEGIN
                                 NULL AS index_sanity_id, 
                                 250 AS Priority,
                                 N'Omitted Index Features' AS findings_group,
-								database_name AS [Database Name],
-                                N'No Indexes Use Includes' AS finding, 'https://www.brentozar.com/go/IndexFeatures' AS URL,
+                                N'No Indexes Use Includes' AS finding,
+                                database_name AS [Database Name],
+                                'https://www.brentozar.com/go/IndexFeatures' AS URL,
                                 N'No Indexes Use Includes' AS details,
                                 database_name + N' (Entire database)' AS index_definition, 
                                 N'' AS secret_columns, 
@@ -6812,7 +6833,7 @@ BEGIN
 					ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
 					OPTION (RECOMPILE);';
 	
-				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
@@ -7032,7 +7053,7 @@ BEGIN
 							ORDER BY [Display Order] ASC
 							OPTION (RECOMPILE);';
 	
-					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
 					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
 					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
@@ -7409,7 +7430,7 @@ BEGIN
 									ORDER BY [Database Name], [Schema Name], [Object Name], [Index ID]
 									OPTION (RECOMPILE);';
 	
-								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
+								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
 								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
 								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
@@ -7733,7 +7754,7 @@ BEGIN
 						ORDER BY [Display Order] ASC, [Magic Benefit Number] DESC
 						OPTION (RECOMPILE);';
 	
-					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
 					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
 					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 

@@ -141,6 +141,123 @@ EXEC dbo.sp_BlitzCache
      @OutputSchemaName   = 'dbo',
      @OutputTableName    = 'BlitzCache';
 
+--#STEP: sp_BlitzCache reserved global names in a case-sensitive database
+/* This runner owns a disposable SQL Server. A separate database makes the
+   procedure's comparisons case-sensitive even when master/tempdb are not. */
+IF DB_ID(N'FRKReservedNameTest') IS NOT NULL
+    THROW 51000, 'Reserved-name fixture database already exists.', 1;
+EXEC(N'CREATE DATABASE FRKReservedNameTest COLLATE Latin1_General_100_CS_AS;');
+BEGIN TRY
+    DECLARE @Definition nvarchar(max) = OBJECT_DEFINITION(OBJECT_ID(N'dbo.sp_BlitzCache'));
+    SET @Definition = REPLACE(@Definition, N'ALTER PROCEDURE dbo.sp_BlitzCache', N'CREATE PROCEDURE dbo.sp_BlitzCache');
+    EXEC FRKReservedNameTest.sys.sp_executesql @Definition;
+
+    DECLARE @Names TABLE (Name sysname COLLATE Latin1_General_100_BIN2, SortOrder varchar(50), Qualified bit);
+    INSERT @Names VALUES
+        (N'##BlitzCacheProcs', 'cpu', 0),
+        (N'##BlitzCacheResults', 'cpu', 0),
+        (N'##blitzcacheprocs', 'duplicate', 0),
+        (N'##BLITZCACHERESULTS', 'query hash', 0),
+        (N'##BlitzCachéProcs', 'cpu', 0),
+        (N'##ＢlitzCacheResults', 'cpu', 0),
+        (N'##BlitzCacheProcs', 'cpu', 1),
+        (N'##BlitzCacheResults', 'cpu', 1);
+    DECLARE @Name sysname, @Sort varchar(50), @Qualified bit,
+            @OutputDB sysname, @OutputSchema sysname;
+    WHILE EXISTS (SELECT 1 FROM @Names)
+    BEGIN
+        SELECT TOP (1) @Name = Name, @Sort = SortOrder, @Qualified = Qualified FROM @Names;
+        SELECT @OutputDB = CASE WHEN @Qualified = 1 THEN N'FRKReservedNameTest' END,
+               @OutputSchema = CASE WHEN @Qualified = 1 THEN N'dbo' END;
+        BEGIN TRY
+            EXEC FRKReservedNameTest.dbo.sp_BlitzCache
+                 @Top = 1, @SortOrder = @Sort, @OutputTableName = @Name,
+                 @OutputDatabaseName = @OutputDB, @OutputSchemaName = @OutputSchema;
+            THROW 51000, 'Reserved global name was accepted.', 1;
+        END TRY
+        BEGIN CATCH
+            IF ERROR_NUMBER() <> 50000 OR ERROR_MESSAGE() NOT LIKE 'OutputTableName is a reserved name%'
+                THROW;
+        END CATCH;
+        DELETE @Names WHERE Name = @Name AND SortOrder = @Sort AND Qualified = @Qualified;
+    END;
+    DROP DATABASE FRKReservedNameTest;
+END TRY
+BEGIN CATCH
+    DROP DATABASE FRKReservedNameTest;
+    THROW;
+END CATCH;
+
+--#STEP: sp_BlitzCache ordinary global output still works
+IF OBJECT_ID(N'tempdb..##FRKCacheOutput') IS NOT NULL
+    THROW 51000, 'Global-output fixture already exists.', 1;
+BEGIN TRY
+    EXEC FRKSmokeTest.sys.sp_executesql N'SELECT SUM(CONVERT(bigint, a.Id)) FROM dbo.Users a CROSS JOIN dbo.Users b;';
+    EXEC dbo.sp_BlitzCache @Top = 5, @DatabaseName = N'FRKSmokeTest',
+         @MinimumExecutionCount = 0, @OutputTableName = N'##FRKCacheOutput';
+    IF OBJECT_ID(N'tempdb..##FRKCacheOutput') IS NULL
+       OR COL_LENGTH(N'tempdb..##FRKCacheOutput', N'QueryText') IS NULL
+        THROW 51000, 'Global cache output is missing or has the wrong schema.', 1;
+    IF (SELECT COUNT(*) FROM ##FRKCacheOutput) < 1
+        THROW 51000, 'Global cache output is unexpectedly empty.', 1;
+    DROP TABLE ##FRKCacheOutput;
+END TRY
+BEGIN CATCH
+    DROP TABLE IF EXISTS ##FRKCacheOutput;
+    THROW;
+END CATCH;
+--#STEP: sp_BlitzCache rejects unsupported filters before reanalysis
+/* Populate real results in this session so @Reanalyze cannot silently fall
+   back to a fresh collection. */
+EXEC dbo.sp_BlitzCache @Top = 1;
+IF OBJECT_ID(N'tempdb..##BlitzCacheResults') IS NULL
+    THROW 51000, 'Reanalysis fixture was not created.', 1;
+DECLARE @Cases TABLE (SortOrder varchar(50), QueryFilter varchar(10));
+INSERT @Cases
+SELECT s.SortOrder, f.QueryFilter
+FROM (VALUES ('memory grant'), ('avg memory grant'), ('unused grant'), ('duplicate')) s(SortOrder)
+CROSS JOIN (VALUES ('procedures'), ('functions')) f(QueryFilter);
+INSERT @Cases VALUES ('spills', 'functions'), ('avg spills', 'functions'),
+    ('average memory grants', 'procedures'), ('duplicates', 'functions'),
+    ('query hash, average memory grants', 'procedures');
+DECLARE @Sort varchar(50), @Filter varchar(10), @Reanalyze bit;
+BEGIN TRY
+    WHILE EXISTS (SELECT 1 FROM @Cases)
+    BEGIN
+        SELECT TOP (1) @Sort = SortOrder, @Filter = QueryFilter FROM @Cases;
+        SET @Reanalyze = 0;
+        WHILE @Reanalyze IS NOT NULL
+        BEGIN
+            BEGIN TRY
+                EXEC dbo.sp_BlitzCache @Top = 1, @SortOrder = @Sort,
+                     @QueryFilter = @Filter, @Reanalyze = @Reanalyze;
+                THROW 51000, 'Unsupported sort/filter combination was accepted.', 1;
+            END TRY
+            BEGIN CATCH
+                IF ERROR_NUMBER() <> 50000 OR
+                   (ERROR_MESSAGE() NOT LIKE 'This sort order requires statement statistics.%'
+                    AND ERROR_MESSAGE() NOT LIKE 'Function statistics do not support sorting by spills.%')
+                    THROW;
+            END CATCH;
+            SET @Reanalyze = CASE WHEN @Reanalyze = 0 THEN 1 END;
+        END;
+        DELETE @Cases WHERE SortOrder = @Sort AND QueryFilter = @Filter;
+    END;
+    DROP TABLE ##BlitzCacheResults;
+END TRY
+BEGIN CATCH
+    DROP TABLE IF EXISTS ##BlitzCacheResults;
+    THROW;
+END CATCH;
+
+--#STEP: sp_BlitzCache supported filters and query-hash aliases
+EXEC dbo.sp_BlitzCache @Top = 1, @QueryFilter = 'procedures', @SortOrder = 'cpu';
+EXEC dbo.sp_BlitzCache @Top = 1, @QueryFilter = 'functions', @SortOrder = 'cpu';
+EXEC dbo.sp_BlitzCache @Top = 1, @QueryFilter = 'procedures', @SortOrder = 'spills';
+EXEC dbo.sp_BlitzCache @Top = 1, @QueryFilter = 'statements', @SortOrder = 'average memory grants';
+EXEC dbo.sp_BlitzCache @Top = 1, @QueryFilter = 'statements', @SortOrder = 'query hash, average reads';
+EXEC dbo.sp_BlitzCache @Top = 1, @QueryFilter = 'statements', @SortOrder = 'query hash';
+
 --#STEP: sp_BlitzCache filtered to database
 EXEC dbo.sp_BlitzCache @DatabaseName = 'FRKSmokeTest';
 
@@ -353,3 +470,46 @@ IF @QueryPlanHash IS NULL
     RAISERROR('Seeded marker query was not found in the plan cache; sp_BlitzPlanCompare was not exercised.', 16, 1);
 
 EXEC dbo.sp_BlitzPlanCompare @QueryPlanHash = @QueryPlanHash, @DatabaseName = 'FRKSmokeTest';
+
+--#STEP: sp_BlitzCache isolates analysis and all Excel export paths
+EXEC FRKSmokeTest.sys.sp_executesql
+     N'SELECT COUNT_BIG(*) FROM dbo.Posts WHERE Id > 10 /* FRK isolation workload */';
+EXEC dbo.sp_BlitzCache @Top=100, @IgnoreSystemDBs=0, @SkipAnalysis=1, @HideSummary=1;
+IF NOT EXISTS(SELECT 1 FROM ##BlitzCacheProcs WHERE SPID=@@SPID AND QueryHash IS NOT NULL)
+    THROW 51000,'Isolation fixture has no cached statement.',1;
+DELETE ##BlitzCacheProcs WHERE SPID=-9876;
+INSERT ##BlitzCacheProcs(SPID,DatabaseName,QueryText,SqlHandle,QueryHash,QueryType,QueryPlanCost)
+SELECT -9876,DatabaseName,N'  SELECT   123 /* FRK other session */  ',SqlHandle,QueryHash,N'Statement',-987
+FROM ##BlitzCacheProcs WHERE SPID=@@SPID AND QueryHash IS NOT NULL;
+DECLARE @OtherCount int=(SELECT COUNT(*) FROM ##BlitzCacheProcs WHERE SPID=-9876);
+BEGIN TRY
+    EXEC dbo.sp_BlitzCache @Top=100, @IgnoreSystemDBs=0, @HideSummary=1;
+    IF NOT EXISTS(SELECT 1 FROM ##BlitzCacheProcs a JOIN ##BlitzCacheProcs b
+                  ON a.SqlHandle=b.SqlHandle AND a.QueryHash=b.QueryHash
+                  WHERE a.SPID=@@SPID AND b.SPID=-9876 AND a.QueryPlanCost>=0)
+        THROW 51000,'Analysis did not exercise the shared plan handles.',1;
+    IF EXISTS(SELECT 1 FROM ##BlitzCacheProcs WHERE SPID=-9876 AND QueryPlanCost<>-987)
+        THROW 51000,'Analysis changed another session.',1;
+    DECLARE @Modes TABLE(SortOrder varchar(20));
+    INSERT @Modes VALUES('cpu'),('all'),('all avg');
+    DECLARE @Sort varchar(20);
+    WHILE EXISTS(SELECT 1 FROM @Modes)
+    BEGIN
+        SELECT TOP(1) @Sort=SortOrder FROM @Modes;
+        EXEC dbo.sp_BlitzCache @Top=1, @DatabaseName=N'FRKSmokeTest',
+             @HideSummary=1, @ExportToExcel=1, @SortOrder=@Sort;
+        IF (SELECT COUNT(*) FROM ##BlitzCacheProcs WHERE SPID=-9876)<>@OtherCount
+           OR EXISTS(SELECT 1 FROM ##BlitzCacheProcs WHERE SPID=-9876
+                     AND (QueryText<>N'  SELECT   123 /* FRK other session */  ' OR QueryPlanCost<>-987))
+            THROW 51000,'Excel export changed another session.',1;
+        DELETE @Modes WHERE SortOrder=@Sort;
+    END;
+    DELETE ##BlitzCacheProcs WHERE SPID=-9876;
+END TRY
+BEGIN CATCH
+    DELETE ##BlitzCacheProcs WHERE SPID=-9876;
+    THROW;
+END CATCH;
+PRINT 'Analysis, direct export, all, and all avg preserved the other session.';
+--#STEP: sp_BlitzAnalysis defaults and isolates output schemas
+/* The runner checks three result sets using analysis-schema-regression.sql. */

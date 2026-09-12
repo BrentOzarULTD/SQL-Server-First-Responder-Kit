@@ -265,6 +265,12 @@ AS
         RETURN;
     END;
 BEGIN
+IF @RestoreSpeedFullMBps <= 0 OR @RestoreSpeedDiffMBps <= 0 OR @RestoreSpeedLogMBps <= 0
+BEGIN
+    RAISERROR('Restore speed overrides must be greater than zero, or NULL to use observed backup speeds.', 16, 1);
+    RETURN;
+END;
+
 DECLARE @StringToExecute NVARCHAR(MAX) = N'', 
 		@InnerStringToExecute NVARCHAR(MAX) = N'',
 		@ProductVersion NVARCHAR(128), 
@@ -740,18 +746,18 @@ RAISERROR('Gathering RTO worst cases', 0, 1) WITH NOWAIT;
                                                                     /* Fulls */
                                                                     (CASE WHEN @RestoreSpeedFullMBps IS NULL 
 																	   THEN wc.full_time_seconds / 60.0
-																	   ELSE @RestoreSpeedFullMBps / wc.full_file_size_mb
+																	   ELSE wc.full_file_size_mb / @RestoreSpeedFullMBps / 60.0
 																	   END)
 
                                                                     /* Diffs, which might not have been taken */
                                                                     + (CASE WHEN @RestoreSpeedDiffMBps IS NOT NULL AND wc.diff_file_size_mb IS NOT NULL
-                                                                        THEN @RestoreSpeedDiffMBps / wc.diff_file_size_mb
+                                                                        THEN wc.diff_file_size_mb / @RestoreSpeedDiffMBps / 60.0
                                                                         ELSE COALESCE(wc.diff_time_seconds,0) / 60.0
                                                                         END)
 
                                                                     /* Logs, which might not have been taken */
                                                                     + (CASE WHEN @RestoreSpeedLogMBps IS NOT NULL AND wc.log_file_size_mb IS NOT NULL
-                                                                        THEN @RestoreSpeedLogMBps / wc.log_file_size_mb
+                                                                        THEN wc.log_file_size_mb / @RestoreSpeedLogMBps / 60.0
                                                                         ELSE COALESCE(wc.log_time_seconds,0) / 60.0
                                                                         END)
 								        , RTOWorstCaseBackupFileSizeMB = wc.rto_worst_case_size_mb
