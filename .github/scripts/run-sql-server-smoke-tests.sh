@@ -244,7 +244,10 @@ run_analysis_schema_step() {
 }
 
 run_step() {
-  if [[ "$2" == 'sp_BlitzAnalysis defaults and isolates output schemas' ]]; then
+  if [[ "$2" == 'sp_BlitzLock parses a real system_health ring-buffer deadlock' ]]; then
+    SQLCMDSERVER="$SQLCMDSERVER" SQLCMDUSER="$SQLCMDUSER" SQLCMD="$SQLCMD" \
+      python3 "$SCRIPT_DIR/test-lock-ring-buffer.py"
+  elif [[ "$2" == 'sp_BlitzAnalysis defaults and isolates output schemas' ]]; then
     run_analysis_schema_step
   elif [[ "$2" == 'sp_kill kills a dedicated session' ]]; then
     run_kill_step "$1"
@@ -304,6 +307,21 @@ echo "=== Seeding test data ==="
 run_file "$SEED_SQL"
 
 echo
+echo "=== Installing pinned restore-test dependencies ==="
+OLA_REVISION=41617578643e722b790ea4d57ef80f8de38ae747
+for dependency in CommandLog CommandExecute; do
+  curl -fsSL "https://raw.githubusercontent.com/olahallengren/sql-server-maintenance-solution/$OLA_REVISION/$dependency.sql" -o "$WORK_DIR/$dependency.sql"
+done
+(
+  cd "$WORK_DIR"
+  sha256sum --check <<'CHECKSUMS'
+190962fc9802ce8d8f5082a23119567d27f05d2bfc36e1bdf5ce79edea5d8e76  CommandExecute.sql
+7a508fa7ed562ec5ee09d4f587f7f2a87f7a4eb3c57450602ee99cdeb4e18b31  CommandLog.sql
+CHECKSUMS
+)
+run_file "$WORK_DIR/CommandLog.sql"
+run_file "$WORK_DIR/CommandExecute.sql"
+
 echo "=== Installing the kit ==="
 install_kit
 
@@ -311,6 +329,10 @@ echo
 echo "=== Running the matrix ==="
 split_matrix "$WORK_DIR/steps"
 run_matrix
+
+# Uninstall intentionally runs last on this disposable server.
+python3 "$SCRIPT_DIR/build-uninstall-regression.py" > "$WORK_DIR/uninstall.sql"
+run_file "$WORK_DIR/uninstall.sql"
 
 echo
 echo "Smoke tests passed."
