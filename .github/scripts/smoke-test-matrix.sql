@@ -597,6 +597,13 @@ ALTER VIEW dbo.Perfmon_Deltas AS SELECT CAST(1 AS int) AS JoinKey, CAST(1 AS int
 GO
 ALTER VIEW dbo.Waits_Deltas AS SELECT CAST(1 AS int) AS JoinKey, CAST(1 AS int) AS FRK_ServerScopedDeltas_v1;
 GO
+/* A bare identifier is deliberately present to reproduce the old collision.
+   The complete comment marker must be absent before the migration call. */
+IF EXISTS(SELECT 1 FROM sys.sql_modules WHERE object_id IN
+    (OBJECT_ID(N'dbo.Files_Deltas'),OBJECT_ID(N'dbo.Perfmon_Deltas'),OBJECT_ID(N'dbo.Waits_Deltas'))
+    AND CHARINDEX(N'/* FRK_ServerScopedDeltas_v1 */',definition)>0)
+    THROW 51000,'Legacy fixture unexpectedly contains the complete migration marker.',1;
+GO
 EXEC master.dbo.sp_BlitzFirst @Seconds=1,@OutputDatabaseName=N'FRKDeltaSmoke',@OutputSchemaName=N'dbo',@OutputTableNameFileStats=N'Files',@OutputTableNamePerfmonStats=N'Perfmon',@OutputTableNameWaitStats=N'Waits';
 GO
 

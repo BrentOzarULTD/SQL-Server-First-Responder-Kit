@@ -109,7 +109,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ';
-    PRINT 'History view upgrade: run the first collection as the output database owner, and give the collector VIEW DEFINITION on the three _Deltas views. See Documentation/sp_BlitzFirst_History_View_Upgrade.md.';
+    PRINT 'History view upgrade: run the first collection as the output database owner, and give the collector VIEW DEFINITION on each configured _Deltas view. See Documentation/sp_BlitzFirst_History_View_Upgrade.md.';
 
 RETURN;
 END;    /* @Help = 1 */
