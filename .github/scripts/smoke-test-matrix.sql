@@ -513,3 +513,101 @@ END CATCH;
 PRINT 'Analysis, direct export, all, and all avg preserved the other session.';
 --#STEP: sp_BlitzAnalysis defaults and isolates output schemas
 /* The runner checks three result sets using analysis-schema-regression.sql. */
+
+--#STEP: sp_BlitzBackups excludes redundant copy-only logs
+IF DB_ID(N'FRKLogSource') IS NOT NULL OR DB_ID(N'FRKLogHistory') IS NOT NULL
+    THROW 51000, 'Backup overlap fixture already exists.', 1;
+EXEC(N'CREATE DATABASE FRKLogSource;');
+EXEC(N'CREATE DATABASE FRKLogHistory;');
+GO
+DECLARE @Root nvarchar(512) = CONVERT(nvarchar(400), SERVERPROPERTY('InstanceDefaultDataPath')),
+        @Separator nchar(1), @File nvarchar(512), @Definition nvarchar(max);
+SET @Separator = CASE WHEN CHARINDEX(N'/', @Root)>0 THEN N'/' ELSE N'\' END;
+IF RIGHT(@Root,1)<>@Separator SET @Root += @Separator;
+SET @Root += N'FRKLog_' + REPLACE(CONVERT(nvarchar(36),NEWID()),N'-',N'') + @Separator;
+EXEC master.dbo.xp_create_subdir @Root;
+BEGIN TRY
+    ALTER DATABASE FRKLogSource SET RECOVERY FULL;
+    EXEC FRKLogSource.sys.sp_executesql N'CREATE TABLE dbo.Proof(Id int PRIMARY KEY); INSERT dbo.Proof VALUES(1);';
+    SET @File=@Root+N'full.bak';
+    BACKUP DATABASE FRKLogSource TO DISK=@File WITH INIT;
+    INSERT FRKLogSource.dbo.Proof VALUES(2);
+    SET @File=@Root+N'diff.bak';
+    BACKUP DATABASE FRKLogSource TO DISK=@File WITH DIFFERENTIAL, INIT;
+    INSERT FRKLogSource.dbo.Proof VALUES(3);
+    SET @File=@Root+N'copy.trn';
+    BACKUP LOG FRKLogSource TO DISK=@File WITH COPY_ONLY, INIT;
+    INSERT FRKLogSource.dbo.Proof VALUES(4);
+    SET @File=@Root+N'regular.trn';
+    BACKUP LOG FRKLogSource TO DISK=@File WITH INIT;
+    INSERT FRKLogSource.dbo.Proof VALUES(5);
+    SET @File=@Root+N'endpoint.trn';
+    BACKUP LOG FRKLogSource TO DISK=@File WITH COPY_ONLY, INIT;
+
+    SELECT * INTO FRKLogHistory.dbo.backupset FROM msdb.dbo.backupset WHERE database_name=N'FRKLogSource' AND database_guid=(SELECT database_guid FROM sys.database_recovery_status WHERE database_id=DB_ID(N'FRKLogSource'));
+    SELECT * INTO FRKLogHistory.dbo.backupmediafamily FROM msdb.dbo.backupmediafamily
+        WHERE media_set_id IN(SELECT media_set_id FROM FRKLogHistory.dbo.backupset);
+    DECLARE @Copy int=(SELECT MIN(backup_set_id) FROM FRKLogHistory.dbo.backupset WHERE type='L'),
+            @Regular int=(SELECT backup_set_id FROM FRKLogHistory.dbo.backupset WHERE type='L' AND is_copy_only=0),
+            @Endpoint int=(SELECT MAX(backup_set_id) FROM FRKLogHistory.dbo.backupset WHERE type='L');
+    IF (SELECT COUNT(*) FROM FRKLogHistory.dbo.backupset)<>5 OR @Copy IS NULL OR @Regular IS NULL OR @Endpoint=@Copy
+        THROW 51000, 'Native backup history fixture is incomplete.', 1;
+    IF NOT EXISTS(SELECT 1 FROM FRKLogHistory.dbo.backupset c JOIN FRKLogHistory.dbo.backupset r
+        ON r.backup_set_id=@Regular AND r.first_lsn<=c.first_lsn AND r.last_lsn>=c.last_lsn
+        WHERE c.backup_set_id=@Copy)
+        THROW 51000, 'The regular backup does not cover the copy-only interval.', 1;
+    /* Deterministic durations in the private history copy; native LSNs/sizes remain intact. */
+    UPDATE FRKLogHistory.dbo.backupset SET backup_finish_date=DATEADD(second,
+        CASE WHEN type='D' THEN 10 WHEN type='I' THEN 20 WHEN backup_set_id=@Copy THEN 30
+             WHEN backup_set_id=@Regular THEN 40 ELSE 50 END,backup_start_date);
+    CREATE TABLE #FRKRecoveryProof(log_backups int, log_file_size_mb decimal(18,2), log_time_seconds int);
+    CREATE TABLE #FRKBackupProof(RTOWorstCaseMinutes decimal(18,2));
+    /* Copy the installed procedure into the isolated fixture database. Only add result
+       capture before teardown; all production queries and calculations run unchanged. */
+    SELECT @Definition=definition FROM sys.sql_modules WHERE object_id=OBJECT_ID(N'dbo.sp_BlitzBackups');
+    SET @Definition=REPLACE(@Definition,N'ALTER PROCEDURE',N'CREATE PROCEDURE');
+    IF CHARINDEX(N'DROP TABLE #Backups, #Warnings, #Recoverability, #RTORecoveryPoints',@Definition)=0
+        THROW 51000, 'Cannot locate the production result-capture point.', 1;
+    SET @Definition=REPLACE(@Definition,N'DROP TABLE #Backups, #Warnings, #Recoverability, #RTORecoveryPoints',
+        N'INSERT #FRKRecoveryProof SELECT log_backups,log_file_size_mb,log_time_seconds FROM #RTORecoveryPoints WHERE log_last_lsn IS NOT NULL;
+          INSERT #FRKBackupProof SELECT RTOWorstCaseMinutes FROM #Backups;
+          DROP TABLE #Backups, #Warnings, #Recoverability, #RTORecoveryPoints');
+    EXEC FRKLogHistory.sys.sp_executesql @Definition;
+    DECLARE @Case int=1, @ExpectedCount int, @ExpectedSeconds int, @ExpectedRTO decimal(18,2), @ExpectedMB decimal(18,2);
+    WHILE @Case<=4
+    BEGIN
+        IF @Case=2 DELETE FRKLogHistory.dbo.backupset WHERE backup_set_id=@Endpoint;
+        IF @Case=3 DELETE FRKLogHistory.dbo.backupset WHERE backup_set_id=@Regular;
+        IF @Case=4 DELETE FRKLogHistory.dbo.backupset WHERE type='I';
+        SET @ExpectedCount=CASE WHEN @Case=1 THEN 2 ELSE 1 END;
+        SET @ExpectedSeconds=CASE @Case WHEN 1 THEN 90 WHEN 2 THEN 40 ELSE 30 END;
+        SET @ExpectedRTO=CASE @Case WHEN 1 THEN 2.00 WHEN 2 THEN 1.20 WHEN 3 THEN 1.00 ELSE 0.70 END;
+        SELECT @ExpectedMB=CONVERT(decimal(18,2),SUM(backup_size)/1048576.0)
+          FROM FRKLogHistory.dbo.backupset WHERE backup_set_id IN
+            (CASE WHEN @Case<=2 THEN @Regular ELSE @Copy END,CASE WHEN @Case=1 THEN @Endpoint ELSE NULL END);
+        EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
+        IF (SELECT COUNT(*) FROM #FRKRecoveryProof)<>1 OR NOT EXISTS
+            (SELECT 1 FROM #FRKRecoveryProof WHERE log_backups=@ExpectedCount
+             AND log_time_seconds=@ExpectedSeconds AND log_file_size_mb=@ExpectedMB)
+            THROW 51000, 'Incorrect log count, size, or duration for the actual backup chain.', 1;
+        SELECT @Case AS TestCase, @ExpectedRTO AS ExpectedRTO, * FROM #FRKBackupProof;
+        IF (SELECT COUNT(*) FROM #FRKBackupProof)<>1 OR NOT EXISTS
+            (SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes=@ExpectedRTO)
+            THROW 51000, 'Incorrect user-visible RTO for the actual backup chain.', 1;
+        DELETE #FRKRecoveryProof;
+        DELETE #FRKBackupProof;
+        SET @Case+=1;
+    END;
+    DROP DATABASE FRKLogHistory;
+    DROP DATABASE FRKLogSource;
+    EXEC master.dbo.xp_delete_file 0,@Root,N'bak';
+    EXEC master.dbo.xp_delete_file 0,@Root,N'trn';
+END TRY
+BEGIN CATCH
+    IF DB_ID(N'FRKLogHistory') IS NOT NULL DROP DATABASE FRKLogHistory;
+    IF DB_ID(N'FRKLogSource') IS NOT NULL DROP DATABASE FRKLogSource;
+    EXEC master.dbo.xp_delete_file 0,@Root,N'bak';
+    EXEC master.dbo.xp_delete_file 0,@Root,N'trn';
+    THROW;
+END CATCH;
+PRINT 'PASS: overlapping copy-only logs, copy-only endpoint, and full/diff boundaries';

@@ -709,6 +709,24 @@ RAISERROR('Get time & size totals for logs', 0, 1) WITH NOWAIT;
 								            INNER JOIN ' + QUOTENAME(@MSDBName) + N'.dbo.backupset bLog ON rp.database_guid = bLog.database_guid AND rp.database_name = bLog.database_name AND bLog.type = ''L''
 								            AND bLog.last_lsn > COALESCE(rp.diff_last_lsn, rp.full_last_lsn)
 								            AND bLog.last_lsn <= rp.log_last_lsn
+                                    /* A covering backup makes this interval redundant (for example,
+                                       COPY_ONLY followed by a regular log backup). Keep one copy of
+                                       identical intervals and never cross recovery forks. */
+                                    AND NOT EXISTS (
+                                        SELECT 1
+                                        FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset AS bCover
+                                        WHERE bCover.database_guid = bLog.database_guid
+                                          AND bCover.database_name = bLog.database_name
+                                          AND bCover.type = ''L''
+                                          AND bCover.first_recovery_fork_guid = bLog.first_recovery_fork_guid
+                                          AND bCover.last_recovery_fork_guid = bLog.last_recovery_fork_guid
+                                          AND bCover.first_lsn <= bLog.first_lsn
+                                          AND bCover.last_lsn >= bLog.last_lsn
+                                          AND bCover.last_lsn <= rp.log_last_lsn
+                                          AND (bCover.first_lsn < bLog.first_lsn
+                                               OR bCover.last_lsn > bLog.last_lsn
+                                               OR bCover.backup_set_id < bLog.backup_set_id)
+                                    )
 								        GROUP BY rp.id
 								)
 								UPDATE #RTORecoveryPoints
