@@ -321,6 +321,13 @@ BEGIN
     RETURN;
 END;
 
+/* Azure SQL DB cannot use linked-server output, including its own server name. */
+IF @AzureSQLDB = 1 AND @OutputServerName IS NOT NULL
+BEGIN
+    RAISERROR('Azure SQL Database does not support @OutputServerName. Output to a table in the current database instead.', 12, 1);
+    RETURN;
+END;
+
 /* Some prep-work for output object names before checking if they're ok or not */
 IF (@OutputTableName IS NOT NULL)
 BEGIN
@@ -4428,7 +4435,7 @@ BEGIN
 							EXEC @@@OutputServerName@@@.@@@OutputDatabaseName@@@.dbo.sp_executesql N''ALTER TABLE @@@OutputSchemaName@@@.@@@OutputTableName@@@ ADD [total_forwarded_fetch_count] BIGINT''
 					END';
 	
-				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName);
@@ -4443,7 +4450,7 @@ BEGIN
 					ELSE
 						SET @TableExists = 1';
 				
-				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputServerName@@@', @OutputServerName);
+				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
 				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputSchemaName@@@', @OutputSchemaName); 
 				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputTableName@@@', @OutputTableName); 
@@ -6826,7 +6833,7 @@ BEGIN
 					ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
 					OPTION (RECOMPILE);';
 	
-				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
@@ -7046,7 +7053,7 @@ BEGIN
 							ORDER BY [Display Order] ASC
 							OPTION (RECOMPILE);';
 	
-					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
 					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
 					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
@@ -7423,7 +7430,7 @@ BEGIN
 									ORDER BY [Database Name], [Schema Name], [Object Name], [Index ID]
 									OPTION (RECOMPILE);';
 	
-								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
+								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
 								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
 								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
@@ -7747,7 +7754,7 @@ BEGIN
 						ORDER BY [Display Order] ASC, [Magic Benefit Number] DESC
 						OPTION (RECOMPILE);';
 	
-					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
 					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
 					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 

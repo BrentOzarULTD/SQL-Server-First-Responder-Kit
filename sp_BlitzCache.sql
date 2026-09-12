@@ -3373,6 +3373,7 @@ JOIN    (   SELECT  r.SqlHandle
 WHERE   s.statement.exist('//p:StmtSimple[@StatementOptmLevel[.="TRIVIAL"]]/p:QueryPlan/p:ParameterList') = 1
 ) AS s
 ON b.SqlHandle = s.SqlHandle
+WHERE b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 
@@ -3404,6 +3405,7 @@ WITH pc AS (
 		ON b.SqlHandle = pc.SqlHandle
 		AND b.QueryHash = pc.QueryHash
 		WHERE b.QueryType NOT LIKE '%Procedure%'
+        AND b.SPID = @@SPID
 	OPTION (RECOMPILE);
 
 IF EXISTS (
@@ -3868,6 +3870,7 @@ UPDATE b
 FROM ##BlitzCacheProcs b
 JOIN spools sp
 ON sp.QueryHash = b.QueryHash
+WHERE b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 RAISERROR('Checking for wonky Table Spools', 0, 1) WITH NOWAIT;
@@ -3895,6 +3898,7 @@ UPDATE b
 FROM ##BlitzCacheProcs b
 JOIN spools sp
 ON sp.QueryHash = b.QueryHash
+WHERE b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 
@@ -3909,7 +3913,8 @@ AS ( SELECT CONVERT(BINARY(8),
      FROM   #statements AS s
 	 JOIN ##BlitzCacheProcs b
 	 ON s.QueryHash = b.QueryHash
-	 WHERE b.index_spool_rows IS NULL
+	 WHERE b.SPID = @@SPID
+     AND   b.index_spool_rows IS NULL
 	 AND   b.index_spool_cost IS NULL
 	 AND   b.table_spool_cost IS NULL
 	 AND   b.table_spool_rows IS NULL
@@ -3922,7 +3927,8 @@ UPDATE b
 FROM ##BlitzCacheProcs b
 JOIN selects AS s
 ON s.QueryHash = b.QueryHash
-AND b.AverageWrites > 1024.;
+AND b.AverageWrites > 1024.
+WHERE b.SPID = @@SPID;
 
 	RAISERROR(N'Checking for forced serialization', 0, 1) WITH NOWAIT;
 	WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
@@ -4171,6 +4177,7 @@ FROM #relop AS r
 JOIN ##BlitzCacheProcs AS b
 ON b.SqlHandle = r.SqlHandle
 WHERE  r.relop.exist('/p:RelOp[(@EstimateRows="100" or @EstimateRows="1") and @LogicalOp="Table-valued function"]') = 1
+AND b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 
@@ -4184,6 +4191,7 @@ FROM #relop AS r
 JOIN ##BlitzCacheProcs AS b
 ON b.SqlHandle = r.SqlHandle
 WHERE  r.relop.exist('/p:RelOp/p:Merge/@ManyToMany[.="1"]') = 1
+AND b.SPID = @@SPID
 OPTION (RECOMPILE);
 END ;
 
@@ -4491,6 +4499,7 @@ FROM ##BlitzCacheProcs AS b
 JOIN precheck pk
 ON pk.SqlHandle = b.SqlHandle
 AND pk.SPID = b.SPID
+WHERE b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 
@@ -4534,6 +4543,7 @@ JOIN precheck pk
 ON pk.SqlHandle = b.SqlHandle
 AND pk.SPID = b.SPID
 WHERE b.QueryType <> N'Statement'
+AND b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 
@@ -4578,6 +4588,7 @@ JOIN precheck pk
 ON pk.SqlHandle = b.SqlHandle
 AND pk.SPID = b.SPID
 WHERE b.QueryType = N'Statement'
+AND b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 RAISERROR(N'Filling in implicit conversion and cached plan parameter info', 0, 1) WITH NOWAIT;
@@ -5981,6 +5992,7 @@ BEGIN
     /* excel output */
     UPDATE ##BlitzCacheProcs
     SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),' ','<>'),'><',''),'<>',' '), 1, 32000)
+	WHERE SPID = @@SPID
 	OPTION(RECOMPILE);
 
     SET @sql = N'
@@ -7823,7 +7835,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END; 
@@ -7853,7 +7865,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END; 
@@ -7872,7 +7884,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END; 
@@ -7902,7 +7914,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END; 
@@ -8000,7 +8012,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END;  
@@ -8030,7 +8042,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END; 
@@ -8049,7 +8061,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END;  
@@ -8079,7 +8091,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END; 

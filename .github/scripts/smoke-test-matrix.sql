@@ -596,5 +596,45 @@ IF EXISTS(SELECT 1 FROM dbo.ViewModified m JOIN sys.views v ON v.object_id=m.obj
 PRINT 'Multi-server delta values, upgrades, permissions, and repeat behavior passed.';
 USE master;
 DROP DATABASE FRKDeltaSmoke;
+--#STEP: sp_BlitzCache isolates analysis and all Excel export paths
+EXEC FRKSmokeTest.sys.sp_executesql
+     N'SELECT COUNT_BIG(*) FROM dbo.Posts WHERE Id > 10 /* FRK isolation workload */';
+EXEC dbo.sp_BlitzCache @Top=100, @IgnoreSystemDBs=0, @SkipAnalysis=1, @HideSummary=1;
+IF NOT EXISTS(SELECT 1 FROM ##BlitzCacheProcs WHERE SPID=@@SPID AND QueryHash IS NOT NULL)
+    THROW 51000,'Isolation fixture has no cached statement.',1;
+DELETE ##BlitzCacheProcs WHERE SPID=-9876;
+INSERT ##BlitzCacheProcs(SPID,DatabaseName,QueryText,SqlHandle,QueryHash,QueryType,QueryPlanCost)
+SELECT -9876,DatabaseName,N'  SELECT   123 /* FRK other session */  ',SqlHandle,QueryHash,N'Statement',-987
+FROM ##BlitzCacheProcs WHERE SPID=@@SPID AND QueryHash IS NOT NULL;
+DECLARE @OtherCount int=(SELECT COUNT(*) FROM ##BlitzCacheProcs WHERE SPID=-9876);
+BEGIN TRY
+    EXEC dbo.sp_BlitzCache @Top=100, @IgnoreSystemDBs=0, @HideSummary=1;
+    IF NOT EXISTS(SELECT 1 FROM ##BlitzCacheProcs a JOIN ##BlitzCacheProcs b
+                  ON a.SqlHandle=b.SqlHandle AND a.QueryHash=b.QueryHash
+                  WHERE a.SPID=@@SPID AND b.SPID=-9876 AND a.QueryPlanCost>=0)
+        THROW 51000,'Analysis did not exercise the shared plan handles.',1;
+    IF EXISTS(SELECT 1 FROM ##BlitzCacheProcs WHERE SPID=-9876 AND QueryPlanCost<>-987)
+        THROW 51000,'Analysis changed another session.',1;
+    DECLARE @Modes TABLE(SortOrder varchar(20));
+    INSERT @Modes VALUES('cpu'),('all'),('all avg');
+    DECLARE @Sort varchar(20);
+    WHILE EXISTS(SELECT 1 FROM @Modes)
+    BEGIN
+        SELECT TOP(1) @Sort=SortOrder FROM @Modes;
+        EXEC dbo.sp_BlitzCache @Top=1, @DatabaseName=N'FRKSmokeTest',
+             @HideSummary=1, @ExportToExcel=1, @SortOrder=@Sort;
+        IF (SELECT COUNT(*) FROM ##BlitzCacheProcs WHERE SPID=-9876)<>@OtherCount
+           OR EXISTS(SELECT 1 FROM ##BlitzCacheProcs WHERE SPID=-9876
+                     AND (QueryText<>N'  SELECT   123 /* FRK other session */  ' OR QueryPlanCost<>-987))
+            THROW 51000,'Excel export changed another session.',1;
+        DELETE @Modes WHERE SortOrder=@Sort;
+    END;
+    DELETE ##BlitzCacheProcs WHERE SPID=-9876;
+END TRY
+BEGIN CATCH
+    DELETE ##BlitzCacheProcs WHERE SPID=-9876;
+    THROW;
+END CATCH;
+PRINT 'Analysis, direct export, all, and all avg preserved the other session.';
 --#STEP: sp_BlitzAnalysis defaults and isolates output schemas
 /* The runner checks three result sets using analysis-schema-regression.sql. */

@@ -128,10 +128,12 @@ fi
 echo
 echo "=== Clearing procedures left by earlier runs ==="
 run_query "DROP PROCEDURE IF EXISTS dbo.sp_Blitz;
-           DROP PROCEDURE IF EXISTS dbo.sp_ineachdb;" > /dev/null
+           DROP PROCEDURE IF EXISTS dbo.sp_ineachdb;
+           DROP PROCEDURE IF EXISTS dbo.sp_BlitzIndex;" > /dev/null
 
 remaining="$(run_scalar_int "SET NOCOUNT ON;
-SELECT COUNT(*) FROM sys.procedures WHERE name IN ('sp_Blitz', 'sp_ineachdb');")"
+SELECT COUNT(*) FROM sys.procedures WHERE schema_id = SCHEMA_ID(N'dbo')
+AND name IN ('sp_Blitz', 'sp_ineachdb', 'sp_BlitzIndex');")"
 
 # Anything but a definite zero -- including an empty result -- means we cannot
 # prove the database is clean, and a stale procedure could carry the run.
@@ -145,7 +147,7 @@ echo "  database is clean"
 echo
 echo "=== Installing ==="
 # sp_ineachdb first: sp_Blitz calls it to iterate databases.
-for script in sp_ineachdb sp_Blitz; do
+for script in sp_ineachdb sp_Blitz sp_BlitzIndex; do
   echo "  installing $script"
   if ! "$SQLCMD" "${SQLCMD_ARGS[@]}" -i "$REPO_ROOT/$script.sql" > "$WORK_DIR/$script.log" 2>&1; then
     echo "::error::$script failed to install on Azure SQL Database"
@@ -154,6 +156,8 @@ for script in sp_ineachdb sp_Blitz; do
   fi
 done
 
+echo "=== Verifying Azure index output ==="
+"$SQLCMD" "${SQLCMD_ARGS[@]}" -i "$REPO_ROOT/.github/scripts/azure-index-output-regression.sql"
 echo "=== Verifying Azure database include/exclude lists ==="
 "$SQLCMD" "${SQLCMD_ARGS[@]}" -i "$REPO_ROOT/.github/scripts/azure-ineachdb-regression.sql"
 
