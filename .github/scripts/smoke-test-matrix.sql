@@ -857,6 +857,13 @@ BEGIN TRY
       (SELECT 1 FROM #FRKRecoveryProof WHERE log_backup_set_id=@Regular AND log_backups=1 AND log_time_seconds=40)
         THROW 51000,'Equal intervals did not prefer the regular backup.',1;
     DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    ALTER TABLE FRKLogHistory.dbo.backupset ALTER COLUMN is_copy_only bit NULL;
+    UPDATE FRKLogHistory.dbo.backupset SET is_copy_only=NULL WHERE backup_set_id=@Copy;
+    EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
+    IF (SELECT COUNT(*) FROM #FRKRecoveryProof)<>1 OR NOT EXISTS
+      (SELECT 1 FROM #FRKRecoveryProof WHERE log_backup_set_id=@Regular AND log_backups=1 AND log_time_seconds=40)
+        THROW 51000,'Unknown copy-only metadata sorted before a known regular backup.',1;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
     /* Old NULL metadata and newly pushed known metadata still share one estimate. */
     DROP TABLE FRKLogHistory.dbo.backupset;
     SELECT * INTO FRKLogHistory.dbo.backupset FROM FRKLogHistory.dbo.AllBackupSets WHERE backup_set_id<>@Endpoint;
@@ -985,6 +992,23 @@ BEGIN TRY
     IF EXISTS(SELECT 1 FROM #FRKRecoveryProof) OR EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
        OR NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'RTO estimate unavailable')
         THROW 51000,'Pre-window discard log did not suppress the broken chain.',1;
+    /* Exercise the unmodified push path with four-part local-server names.
+       Precreate the destination so this tests insertion/mapping without remote DDL. */
+    DROP TABLE FRKLogHistory.dbo.backupset;
+    SELECT TOP(0) * INTO FRKLogHistory.dbo.backupset FROM msdb.dbo.backupset;
+    DECLARE @LocalServer sysname=@@SERVERNAME;
+    EXEC FRKLogHistory.dbo.sp_BlitzBackups @PushBackupHistoryToListener=1,
+      @WriteBackupsToListenerName=@LocalServer,@WriteBackupsToDatabaseName=N'FRKLogHistory',@WriteBackupsLastHours=1;
+    IF NOT EXISTS(SELECT 1 FROM FRKLogHistory.dbo.backupset WHERE database_name=N'FRKLogSource')
+        THROW 51000,'History push did not insert fixture backups.',1;
+    IF EXISTS(
+      SELECT backup_set_uuid,first_recovery_fork_guid,last_recovery_fork_guid,fork_point_lsn,
+        differential_base_lsn,differential_base_guid,is_copy_only FROM msdb.dbo.backupset
+      WHERE database_name=N'FRKLogSource' AND database_guid=(SELECT database_guid FROM sys.database_recovery_status WHERE database_id=DB_ID(N'FRKLogSource'))
+      EXCEPT
+      SELECT backup_set_uuid,first_recovery_fork_guid,last_recovery_fork_guid,fork_point_lsn,
+        differential_base_lsn,differential_base_guid,is_copy_only FROM FRKLogHistory.dbo.backupset)
+        THROW 51000,'History push lost or mis-mapped recovery metadata.',1;
     DROP DATABASE FRKLogHistory;
     DROP DATABASE FRKLogSource;
     EXEC master.dbo.xp_delete_file 0,@Root,N'bak',@DeleteBefore;

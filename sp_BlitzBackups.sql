@@ -606,6 +606,8 @@ FROM (
     SELECT database_name,database_guid,last_recovery_fork_guid FROM #RTOBackupSets
 ) forks
 GROUP BY database_name,database_guid HAVING COUNT(DISTINCT fork_guid)>1;
+/* Preserve worst-case window semantics: a later full does not repair an
+   earlier gap in this interval. Do not report only its later healthy portion. */
 INSERT #RTOExcluded
 SELECT DISTINCT b.database_name,b.database_guid,N''Backup to a discard device''
 FROM #RTOBackupSets b
@@ -685,7 +687,7 @@ INNER JOIN #RTOBackupSets bLastFull
                                     AND bLog.type = ''L''
                                     AND bLog.last_lsn = rp.log_last_lsn
                                     AND bLog.backup_finish_date>=@StartTime
-                                ORDER BY bLastFull.last_lsn DESC, bLastFull.backup_set_id DESC, bLog.first_lsn ASC, bLog.is_copy_only ASC, bLog.backup_set_id DESC
+                                ORDER BY bLastFull.last_lsn DESC, bLastFull.backup_set_id DESC, bLog.first_lsn ASC, CASE bLog.is_copy_only WHEN 0 THEN 0 WHEN 1 THEN 1 ELSE 2 END ASC, bLog.backup_set_id DESC
                             ) bLasted;
 							 ';
 
@@ -753,7 +755,7 @@ FROM #RTOBackupSets bLog
                                 /* STOPAT can use the first log spanning the next full. */
                                 ORDER BY CASE WHEN bLog.last_lsn>=rpNextFull.full_last_lsn THEN 0 ELSE 1 END,
                                   CASE WHEN bLog.last_lsn>=rpNextFull.full_last_lsn THEN bLog.last_lsn END ASC,
-                                  bLog.last_lsn DESC,bLog.first_lsn ASC,bLog.is_copy_only ASC,bLog.backup_set_id DESC
+                                  bLog.last_lsn DESC,bLog.first_lsn ASC,CASE bLog.is_copy_only WHEN 0 THEN 0 WHEN 1 THEN 1 ELSE 2 END ASC,bLog.backup_set_id DESC
                             ) endpoint
                             WHERE rpEarlierFull.full_backup_set_id IS NULL;
 							';
@@ -822,7 +824,7 @@ RAISERROR('Get time & size totals for logs', 0, 1) WITH NOWAIT;
     SELECT rp.id,bLog.backup_start_date,bLog.backup_finish_date,bLog.backup_size,bLog.last_lsn,
         MAX(bLog.last_lsn) OVER (
             PARTITION BY rp.id
-            ORDER BY bLog.first_lsn,bLog.last_lsn DESC,bLog.is_copy_only,bLog.backup_set_id DESC
+            ORDER BY bLog.first_lsn,bLog.last_lsn DESC,CASE bLog.is_copy_only WHEN 0 THEN 0 WHEN 1 THEN 1 ELSE 2 END,bLog.backup_set_id DESC
             ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS PriorMaxLastLSN
     FROM #RTORecoveryPoints rp
     JOIN #RTOBackupSets bLog ON rp.database_guid=bLog.database_guid AND rp.database_name=bLog.database_name
