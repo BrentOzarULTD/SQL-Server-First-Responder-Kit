@@ -287,5 +287,9 @@ echo "=== Running the matrix ==="
 split_matrix "$WORK_DIR/steps"
 run_matrix
 
+# Uninstall intentionally runs last on this disposable server.
+python3 "$SCRIPT_DIR/build-uninstall-regression.py" > "$WORK_DIR/uninstall.sql"
+run_file "$WORK_DIR/uninstall.sql"
+
 echo
 echo "Smoke tests passed."

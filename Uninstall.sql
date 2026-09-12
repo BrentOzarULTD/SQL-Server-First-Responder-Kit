@@ -38,7 +38,8 @@ BEGIN
 
     SELECT @SQL += N'DROP PROCEDURE ' + QUOTENAME(SCHEMA_NAME(P.schema_id)) + N'.' + QUOTENAME(P.name) + ';' + CHAR(10)
     FROM sys.procedures P
-    JOIN #ToDelete D ON D.ProcedureName = P.name COLLATE DATABASE_DEFAULT;
+    JOIN #ToDelete D ON D.ProcedureName = P.name COLLATE DATABASE_DEFAULT
+    WHERE P.schema_id = 1;
 
     SELECT @SQL += N'DROP TABLE dbo.SqlServerVersions;' + CHAR(10)
     FROM sys.tables 
@@ -67,7 +68,8 @@ BEGIN
         SET @innerSQL = N'    SELECT @SQL += N''USE '' + QUOTENAME(@databaseName) + N'';'' + NCHAR(10) + N''DROP PROCEDURE '' + QUOTENAME(S.name) + N''.'' + QUOTENAME(P.name) + N'';'' + NCHAR(10)
         FROM ' + @dbname + N'.sys.procedures P
         JOIN ' + @dbname + N'.sys.schemas S ON S.schema_id = P.schema_id
-        JOIN #ToDelete D ON D.ProcedureName = P.name COLLATE DATABASE_DEFAULT';
+        JOIN #ToDelete D ON D.ProcedureName = P.name COLLATE DATABASE_DEFAULT
+        WHERE P.schema_id = 1';
 
         EXEC sp_executesql @innerSQL, N'@SQL nvarchar(max) OUTPUT, @databaseName sysname', @SQL = @SQL OUTPUT, @databaseName = @databaseName;
 
