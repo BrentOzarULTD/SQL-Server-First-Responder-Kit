@@ -206,6 +206,57 @@ BEGIN CATCH
     DROP TABLE IF EXISTS ##FRKCacheOutput;
     THROW;
 END CATCH;
+--#STEP: sp_BlitzCache rejects unsupported filters before reanalysis
+/* Populate real results in this session so @Reanalyze cannot silently fall
+   back to a fresh collection. */
+EXEC dbo.sp_BlitzCache @Top = 1;
+IF OBJECT_ID(N'tempdb..##BlitzCacheResults') IS NULL
+    THROW 51000, 'Reanalysis fixture was not created.', 1;
+DECLARE @Cases TABLE (SortOrder varchar(50), QueryFilter varchar(10));
+INSERT @Cases
+SELECT s.SortOrder, f.QueryFilter
+FROM (VALUES ('memory grant'), ('avg memory grant'), ('unused grant'), ('duplicate')) s(SortOrder)
+CROSS JOIN (VALUES ('procedures'), ('functions')) f(QueryFilter);
+INSERT @Cases VALUES ('spills', 'functions'), ('avg spills', 'functions'),
+    ('average memory grants', 'procedures'), ('duplicates', 'functions'),
+    ('query hash, average memory grants', 'procedures');
+DECLARE @Sort varchar(50), @Filter varchar(10), @Reanalyze bit;
+BEGIN TRY
+    WHILE EXISTS (SELECT 1 FROM @Cases)
+    BEGIN
+        SELECT TOP (1) @Sort = SortOrder, @Filter = QueryFilter FROM @Cases;
+        SET @Reanalyze = 0;
+        WHILE @Reanalyze IS NOT NULL
+        BEGIN
+            BEGIN TRY
+                EXEC dbo.sp_BlitzCache @Top = 1, @SortOrder = @Sort,
+                     @QueryFilter = @Filter, @Reanalyze = @Reanalyze;
+                THROW 51000, 'Unsupported sort/filter combination was accepted.', 1;
+            END TRY
+            BEGIN CATCH
+                IF ERROR_NUMBER() <> 50000 OR
+                   (ERROR_MESSAGE() NOT LIKE 'This sort order requires statement statistics.%'
+                    AND ERROR_MESSAGE() NOT LIKE 'Function statistics do not support sorting by spills.%')
+                    THROW;
+            END CATCH;
+            SET @Reanalyze = CASE WHEN @Reanalyze = 0 THEN 1 END;
+        END;
+        DELETE @Cases WHERE SortOrder = @Sort AND QueryFilter = @Filter;
+    END;
+    DROP TABLE ##BlitzCacheResults;
+END TRY
+BEGIN CATCH
+    DROP TABLE IF EXISTS ##BlitzCacheResults;
+    THROW;
+END CATCH;
+
+--#STEP: sp_BlitzCache supported filters and query-hash aliases
+EXEC dbo.sp_BlitzCache @Top = 1, @QueryFilter = 'procedures', @SortOrder = 'cpu';
+EXEC dbo.sp_BlitzCache @Top = 1, @QueryFilter = 'functions', @SortOrder = 'cpu';
+EXEC dbo.sp_BlitzCache @Top = 1, @QueryFilter = 'procedures', @SortOrder = 'spills';
+EXEC dbo.sp_BlitzCache @Top = 1, @QueryFilter = 'statements', @SortOrder = 'average memory grants';
+EXEC dbo.sp_BlitzCache @Top = 1, @QueryFilter = 'statements', @SortOrder = 'query hash, average reads';
+EXEC dbo.sp_BlitzCache @Top = 1, @QueryFilter = 'statements', @SortOrder = 'query hash';
 
 --#STEP: sp_BlitzCache filtered to database
 EXEC dbo.sp_BlitzCache @DatabaseName = 'FRKSmokeTest';
