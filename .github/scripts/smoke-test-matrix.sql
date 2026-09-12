@@ -1116,6 +1116,13 @@ BEGIN TRY
       SELECT backup_set_uuid,first_family_number,last_family_number,first_recovery_fork_guid,last_recovery_fork_guid,fork_point_lsn,
         differential_base_lsn,differential_base_guid,is_copy_only FROM FRKLogHistory.dbo.backupset)
         THROW 51000,'History push lost or mis-mapped recovery metadata.',1;
+    EXEC FRKLogHistory.sys.sp_executesql N'IF EXISTS(SELECT 1 FROM dbo.backupset WHERE frk_media_is_usable IS NULL OR frk_media_has_discard IS NULL) THROW 51000,''Push omitted media facts.'',1;';
+    DROP TABLE FRKLogHistory.dbo.backupmediafamily;
+    DELETE FRKLogHistory.dbo.backupset WHERE database_guid<>(SELECT database_guid FROM sys.database_recovery_status WHERE database_id=DB_ID(N'FRKLogSource'));
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
+    EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
+    IF NOT EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
+        THROW 51000,'Built-in pushed history cannot produce RTO without a media table.',1;
     DROP DATABASE FRKLogHistory;
     DROP DATABASE FRKLogSource;
     EXEC master.dbo.xp_delete_file 0,@Root,N'bak',@DeleteBefore;

@@ -560,40 +560,45 @@ EXEC sys.sp_executesql @StringToExecute,N'@StartTime datetime2',@StartTime;
 RAISERROR('Gathering RTO information', 0, 1) WITH NOWAIT;
 
 /* Centralized history may have backupset without media-family metadata. */
-CREATE TABLE #RTODiscardMedia(media_set_id int,physical_device_name nvarchar(4000));
-CREATE TABLE #RTOKnownMedia(media_set_id int PRIMARY KEY);
-DECLARE @RTOMediaAvailable bit=CASE WHEN OBJECT_ID(QUOTENAME(@MSDBName)+N'.dbo.backupmediafamily') IS NOT NULL THEN 1 ELSE 0 END;
-/* Media IDs copied from multiple instances cannot identify a source's media. */
-DECLARE @RTOMergedSources bit=0;
-IF @MSDBName<>N'msdb'
+CREATE TABLE #RTODiscardMedia(backup_set_id int PRIMARY KEY);
+CREATE TABLE #RTOKnownMedia(backup_set_id int PRIMARY KEY);
+DECLARE @RTOMediaAvailable bit=CASE WHEN OBJECT_ID(QUOTENAME(@MSDBName)+N'.dbo.backupmediafamily') IS NOT NULL THEN 1 ELSE 0 END,
+        @RTOMergedSources bit=0;
+/* Pushed facts are computed against the source instance and belong to a backup
+   UUID, so instance-local media IDs cannot collide in centralized history. */
+IF COL_LENGTH(QUOTENAME(@MSDBName)+N'.dbo.backupset',N'frk_media_is_usable') IS NOT NULL
+   AND COL_LENGTH(QUOTENAME(@MSDBName)+N'.dbo.backupset',N'frk_media_has_discard') IS NOT NULL
 BEGIN
-    SET @StringToExecute=N'SELECT @Merged=CASE WHEN COUNT(*)>1 THEN 1 ELSE 0 END
-      FROM (SELECT DISTINCT server_name,machine_name FROM '+QUOTENAME(@MSDBName)+N'.dbo.backupset) sources;';
-    EXEC sys.sp_executesql @StringToExecute,N'@Merged bit OUTPUT',@Merged=@RTOMergedSources OUTPUT;
-END;
-IF @RTOMediaAvailable=1 AND @RTOMergedSources=0
+    SET @StringToExecute=N'INSERT #RTOKnownMedia SELECT backup_set_id FROM '+QUOTENAME(@MSDBName)+N'.dbo.backupset WHERE frk_media_is_usable=1;
+      INSERT #RTODiscardMedia SELECT backup_set_id FROM '+QUOTENAME(@MSDBName)+N'.dbo.backupset WHERE frk_media_has_discard=1;';
+    EXEC sys.sp_executesql @StringToExecute;
+END
+ELSE
 BEGIN
-    SET @StringToExecute=N'WITH ExpectedFamilies AS (
-        SELECT media_set_id,MIN(first_family_number) AS FirstFamily,MAX(last_family_number) AS LastFamily
-        FROM '+QUOTENAME(@MSDBName)+N'.dbo.backupset
-        GROUP BY media_set_id
-        HAVING MIN(first_family_number)>0 AND MAX(last_family_number)>=MIN(first_family_number)
-          AND COUNT(*)=COUNT(first_family_number) AND COUNT(*)=COUNT(last_family_number)
-    )
-    INSERT #RTOKnownMedia
-    SELECT e.media_set_id FROM ExpectedFamilies e
-    JOIN '+QUOTENAME(@MSDBName)+N'.dbo.backupmediafamily m ON m.media_set_id=e.media_set_id
-      AND m.family_sequence_number BETWEEN e.FirstFamily AND e.LastFamily
-      AND m.physical_device_name IS NOT NULL
-      AND UPPER(m.physical_device_name)<>N''NUL'' AND m.physical_device_name<>N''/dev/null''
-    GROUP BY e.media_set_id,e.FirstFamily,e.LastFamily
-    HAVING COUNT(DISTINCT m.family_sequence_number)=e.LastFamily-e.FirstFamily+1;';
-    EXEC sys.sp_executesql @StringToExecute;
-    SET @StringToExecute=N'INSERT #RTODiscardMedia SELECT media_set_id,physical_device_name FROM '
-        +QUOTENAME(@MSDBName)+N'.dbo.backupmediafamily WHERE UPPER(physical_device_name)=N''NUL'' OR physical_device_name=N''/dev/null'';';
-    EXEC sys.sp_executesql @StringToExecute;
+    IF @MSDBName<>N'msdb'
+    BEGIN
+        SET @StringToExecute=N'SELECT @Merged=CASE WHEN COUNT(*)>1 THEN 1 ELSE 0 END
+          FROM (SELECT DISTINCT server_name,machine_name FROM '+QUOTENAME(@MSDBName)+N'.dbo.backupset) sources;';
+        EXEC sys.sp_executesql @StringToExecute,N'@Merged bit OUTPUT',@Merged=@RTOMergedSources OUTPUT;
+    END;
+    IF @RTOMediaAvailable=1 AND @RTOMergedSources=0
+    BEGIN
+        SET @StringToExecute=N'INSERT #RTOKnownMedia
+        SELECT b.backup_set_id FROM '+QUOTENAME(@MSDBName)+N'.dbo.backupset b
+        JOIN '+QUOTENAME(@MSDBName)+N'.dbo.backupmediafamily m ON m.media_set_id=b.media_set_id
+          AND m.family_sequence_number BETWEEN b.first_family_number AND b.last_family_number
+          AND m.physical_device_name IS NOT NULL
+          AND UPPER(m.physical_device_name)<>N''NUL'' AND m.physical_device_name<>N''/dev/null''
+        WHERE b.first_family_number>0 AND b.last_family_number>=b.first_family_number
+        GROUP BY b.backup_set_id,b.first_family_number,b.last_family_number
+        HAVING COUNT(DISTINCT m.family_sequence_number)=b.last_family_number-b.first_family_number+1;
+        INSERT #RTODiscardMedia SELECT DISTINCT b.backup_set_id
+        FROM '+QUOTENAME(@MSDBName)+N'.dbo.backupset b
+        JOIN '+QUOTENAME(@MSDBName)+N'.dbo.backupmediafamily m ON m.media_set_id=b.media_set_id
+        WHERE UPPER(m.physical_device_name)=N''NUL'' OR m.physical_device_name=N''/dev/null'';';
+        EXEC sys.sp_executesql @StringToExecute;
+    END;
 END;
-CREATE INDEX IX_RTODiscardMedia ON #RTODiscardMedia(media_set_id);
 
 /* Restrict recovery estimates to the requested window plus its preceding full.
    Discarded copy-only backups cannot invalidate or replace a usable chain. */
@@ -611,13 +616,13 @@ SELECT b.database_name,b.database_guid,b.backup_set_id,b.backup_set_uuid,b.type,
 FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset b
 WHERE b.type IN (''D'',''I'',''L'')
  AND (b.is_damaged=0 OR (b.type=''L'' AND (b.is_copy_only=0 OR b.is_copy_only IS NULL)))
- AND (EXISTS(SELECT 1 FROM #RTOKnownMedia km WHERE km.media_set_id=b.media_set_id)
+ AND (EXISTS(SELECT 1 FROM #RTOKnownMedia km WHERE km.backup_set_id=b.backup_set_id)
       OR (b.type=''L'' AND (b.is_copy_only=0 OR b.is_copy_only IS NULL)))
  AND (b.backup_finish_date>=@StartTime OR b.backup_finish_date>=(
     SELECT MAX(anchor.backup_finish_date) FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset anchor
     WHERE anchor.database_name=b.database_name AND anchor.database_guid=b.database_guid
       AND anchor.type=''D'' AND anchor.is_damaged=0 AND anchor.backup_finish_date<=@StartTime
-      AND EXISTS(SELECT 1 FROM #RTOKnownMedia km WHERE km.media_set_id=anchor.media_set_id)
+      AND EXISTS(SELECT 1 FROM #RTOKnownMedia km WHERE km.backup_set_id=anchor.backup_set_id)
  ))
 ;';
 EXEC sys.sp_executesql @StringToExecute,N'@StartTime datetime2',@StartTime;
@@ -640,10 +645,10 @@ GROUP BY database_name,database_guid HAVING COUNT(DISTINCT fork_guid)>1;
 INSERT #RTOExcluded
 SELECT DISTINCT b.database_name,b.database_guid,N''Backup to a discard device''
 FROM #RTOBackupSets b
-JOIN #RTODiscardMedia m ON b.media_set_id=m.media_set_id
-WHERE (UPPER(m.physical_device_name)=N''NUL'' OR m.physical_device_name=N''/dev/null'')
+JOIN #RTODiscardMedia m ON b.backup_set_id=m.backup_set_id
+WHERE 1=1
   AND b.type=''L'' AND (b.is_copy_only=0 OR b.is_copy_only IS NULL)
-  AND NOT EXISTS(SELECT 1 FROM #RTOKnownMedia km WHERE km.media_set_id=b.media_set_id)
+  AND NOT EXISTS(SELECT 1 FROM #RTOKnownMedia km WHERE km.backup_set_id=b.backup_set_id)
   AND NOT EXISTS(SELECT 1 FROM #RTOExcluded x WHERE x.database_name=b.database_name AND x.database_guid=b.database_guid);
 INSERT #RTOExcluded
 SELECT DISTINCT b.database_name,b.database_guid,N''Damaged log backup or unknown integrity metadata''
@@ -661,7 +666,7 @@ EXEC sys.sp_executesql @StringToExecute;
     INSERT #RTOExcluded
     SELECT DISTINCT b.database_name,b.database_guid,CASE WHEN @RTOMergedSources=1 THEN N'Merged history has ambiguous source media IDs' ELSE N'Backup media metadata missing' END
     FROM #RTOBackupSets b
-    WHERE NOT EXISTS(SELECT 1 FROM #RTOKnownMedia m WHERE m.media_set_id=b.media_set_id)
+    WHERE NOT EXISTS(SELECT 1 FROM #RTOKnownMedia m WHERE m.backup_set_id=b.backup_set_id)
       AND NOT EXISTS(SELECT 1 FROM #RTOExcluded x WHERE x.database_name=b.database_name AND x.database_guid=b.database_guid);
 
 INSERT #Warnings(CheckId,Priority,DatabaseName,Finding,Warning)
@@ -1450,8 +1455,8 @@ IF @ProductVersionMajor >= 12
 		''The database '' + QUOTENAME(bs.database_name) + '' has had '' + CONVERT(VARCHAR(10), COUNT(*)) + '' backups to a discard device, the latest one being on ''+
 		CONVERT(NVARCHAR(25),MAX(bs.backup_finish_date),120)+''. These backups do not exist.'' AS [Warning]
 	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS bs
-	INNER JOIN #RTODiscardMedia bmf ON bs.media_set_id = bmf.media_set_id
-	WHERE (UPPER(bmf.physical_device_name)=N''NUL'' OR bmf.physical_device_name=N''/dev/null'')
+	INNER JOIN #RTODiscardMedia bmf ON bs.backup_set_id = bmf.backup_set_id
+	WHERE 1=1
 	AND (bs.is_copy_only = 1 OR bs.recovery_model = N''SIMPLE'')
 	AND bs.backup_finish_date >= @StartTime
 	GROUP BY bs.database_name' + @crlf;
@@ -1463,8 +1468,8 @@ IF @ProductVersionMajor >= 12
 		''The database '' + QUOTENAME(bs.database_name) + '' is not in SIMPLE recovery model and has had '' + CONVERT(VARCHAR(10), COUNT(*)) + '' backups to a discard device, the latest one being on ''+
 		CONVERT(NVARCHAR(25),MAX(bs.backup_finish_date),120)+''. These backups do not exist and they might mess up your current backup chain.'' AS [Warning]
 	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS bs
-	INNER JOIN #RTODiscardMedia bmf ON bs.media_set_id = bmf.media_set_id
-	WHERE (UPPER(bmf.physical_device_name)=N''NUL'' OR bmf.physical_device_name=N''/dev/null'')
+	INNER JOIN #RTODiscardMedia bmf ON bs.backup_set_id = bmf.backup_set_id
+	WHERE 1=1
 	AND bs.is_copy_only = 0 AND bs.recovery_model <> N''SIMPLE''
 	AND bs.backup_finish_date >= @StartTime
 	GROUP BY bs.database_name' + @crlf;
@@ -1778,6 +1783,20 @@ END
 		END
 
 
+        /* Add source-validated media facts to both new and existing destinations. */
+        SET @StringToExecute=N'USE '+QUOTENAME(@WriteBackupsToDatabaseName)+N';
+          IF COL_LENGTH(N''dbo.backupset'',N''frk_media_is_usable'') IS NULL
+            ALTER TABLE dbo.backupset ADD frk_media_is_usable bit NULL;
+          IF COL_LENGTH(N''dbo.backupset'',N''frk_media_has_discard'') IS NULL
+            ALTER TABLE dbo.backupset ADD frk_media_has_discard bit NULL;';
+        IF @WriteBackupsToListenerName=@@SERVERNAME
+            EXEC sys.sp_executesql @StringToExecute;
+        ELSE
+        BEGIN
+            SET @InnerStringToExecute=N'EXEC(N'''+REPLACE(@StringToExecute,N'''',N'''''')+N''') AT '+QUOTENAME(@WriteBackupsToListenerName)+N';';
+            EXEC sys.sp_executesql @InnerStringToExecute;
+        END;
+
 		RAISERROR('Beginning inserts', 0, 1) WITH NOWAIT;
 		RAISERROR(@crlf, 0, 1) WITH NOWAIT;
 
@@ -1893,6 +1912,28 @@ END
 		PRINT @StringToExecute;
 
 	EXEC sp_executesql @StringToExecute, N'@i_WriteBackupsLastHours INT', @i_WriteBackupsLastHours = @WriteBackupsLastHours;
+
+    /* Refresh newly inserted and legacy rows in the requested push window.
+       Evaluate media on the source, never by joining unqualified central media IDs. */
+    SET @StringToExecute=N'UPDATE h SET
+      frk_media_is_usable=CASE WHEN b.first_family_number>0 AND b.last_family_number>=b.first_family_number
+        AND (SELECT COUNT(DISTINCT m.family_sequence_number) FROM msdb.dbo.backupmediafamily m
+             WHERE m.media_set_id=b.media_set_id
+               AND m.family_sequence_number BETWEEN b.first_family_number AND b.last_family_number
+               AND m.physical_device_name IS NOT NULL AND UPPER(m.physical_device_name)<>N''NUL''
+               AND m.physical_device_name<>N''/dev/null'')=b.last_family_number-b.first_family_number+1 THEN 1 ELSE 0 END,
+      frk_media_has_discard=CASE WHEN EXISTS(SELECT 1 FROM msdb.dbo.backupmediafamily m WHERE m.media_set_id=b.media_set_id
+          AND (UPPER(m.physical_device_name)=N''NUL'' OR m.physical_device_name=N''/dev/null'')) THEN 1 ELSE 0 END,
+      first_family_number=b.first_family_number,last_family_number=b.last_family_number,
+      first_recovery_fork_guid=b.first_recovery_fork_guid,last_recovery_fork_guid=b.last_recovery_fork_guid,
+      fork_point_lsn=b.fork_point_lsn,differential_base_lsn=b.differential_base_lsn,
+      differential_base_guid=b.differential_base_guid,is_copy_only=b.is_copy_only
+    FROM '+QUOTENAME(@WriteBackupsToListenerName)+N'.'+QUOTENAME(@WriteBackupsToDatabaseName)+N'.dbo.backupset h
+    JOIN msdb.dbo.backupset b ON b.backup_set_uuid=h.backup_set_uuid
+    WHERE b.backup_start_date>=DATEADD(hour,@Hours,SYSDATETIME())
+      AND (h.frk_media_is_usable IS NULL OR h.frk_media_has_discard IS NULL);';
+    EXEC sys.sp_executesql @StringToExecute,N'@Hours int',@Hours=@WriteBackupsLastHours;
+
 
 END;
 
