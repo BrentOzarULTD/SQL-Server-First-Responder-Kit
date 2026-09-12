@@ -167,7 +167,7 @@ If you want to add a new one, start at 277.
 | 200 | Monitoring | Alerts Disabled | https://www.BrentOzar.com/go/alerts/ | 98 |
 | 200 | Monitoring | Alerts Without Event Descriptions | https://www.brentozar.com/go/alert | 219 |
 | 200 | Monitoring | Extended Events Hyperextension | https://www.BrentOzar.com/go/xe | 176 |
-| 200 | Monitoring | Availability Group Without AlwaysOn\_health | https://straightpathsql.com/check/alwayson-health-extended-event/ | 276 |
+| 200 | Monitoring | Availability Group Without AlwaysOn\_health | https://learn.microsoft.com/en-us/sql/database-engine/availability-groups/windows/always-on-extended-events#the-alwayson_health-session | 276 |
 | 200 | Monitoring | No Alerts for Corruption | https://www.BrentOzar.com/go/alert | 96 |
 | 200 | Monitoring | No Alerts for Sev 19-25 | https://www.BrentOzar.com/go/alert | 61 |
 | 200 | Monitoring | No failsafe operator configured | https://www.BrentOzar.com/go/failsafe | 73 |
