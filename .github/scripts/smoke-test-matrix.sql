@@ -146,7 +146,7 @@ EXEC dbo.sp_BlitzCache
    procedure's comparisons case-sensitive even when master/tempdb are not. */
 IF DB_ID(N'FRKReservedNameTest') IS NOT NULL
     THROW 51000, 'Reserved-name fixture database already exists.', 1;
-CREATE DATABASE FRKReservedNameTest COLLATE Latin1_General_100_CS_AS;
+EXEC(N'CREATE DATABASE FRKReservedNameTest COLLATE Latin1_General_100_CS_AS;');
 BEGIN TRY
     DECLARE @Definition nvarchar(max) = OBJECT_DEFINITION(OBJECT_ID(N'dbo.sp_BlitzCache'));
     SET @Definition = REPLACE(@Definition, N'ALTER PROCEDURE dbo.sp_BlitzCache', N'CREATE PROCEDURE dbo.sp_BlitzCache');
