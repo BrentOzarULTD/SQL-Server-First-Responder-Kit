@@ -569,6 +569,7 @@ BEGIN
     JOIN '+QUOTENAME(@MSDBName)+N'.dbo.backupmediafamily m ON m.media_set_id=e.media_set_id
       AND m.family_sequence_number BETWEEN e.FirstFamily AND e.LastFamily
       AND m.physical_device_name IS NOT NULL
+      AND UPPER(m.physical_device_name)<>N''NUL'' AND m.physical_device_name<>N''/dev/null''
     GROUP BY e.media_set_id,e.FirstFamily,e.LastFamily
     HAVING COUNT(DISTINCT m.family_sequence_number)=e.LastFamily-e.FirstFamily+1;';
     EXEC sys.sp_executesql @StringToExecute;
@@ -601,12 +602,8 @@ WHERE b.type IN (''D'',''I'',''L'')
     WHERE anchor.database_name=b.database_name AND anchor.database_guid=b.database_guid
       AND anchor.type=''D'' AND anchor.is_damaged=0 AND anchor.backup_finish_date<=@StartTime
       AND EXISTS(SELECT 1 FROM #RTOKnownMedia km WHERE km.media_set_id=anchor.media_set_id)
-      AND NOT EXISTS(SELECT 1 FROM #RTODiscardMedia am
-        WHERE am.media_set_id=anchor.media_set_id AND (UPPER(am.physical_device_name)=N''NUL'' OR am.physical_device_name=N''/dev/null''))
  ))
- AND NOT EXISTS(SELECT 1 FROM #RTODiscardMedia m
-     WHERE m.media_set_id=b.media_set_id AND (b.is_copy_only=1 OR b.type IN (''D'',''I''))
-       AND (UPPER(m.physical_device_name)=N''NUL'' OR m.physical_device_name=N''/dev/null''));';
+;';
 EXEC sys.sp_executesql @StringToExecute,N'@StartTime datetime2',@StartTime;
 CREATE INDEX IX_RTOBackupSets ON #RTOBackupSets(database_guid,database_name,type,last_lsn);
 
@@ -630,6 +627,7 @@ FROM #RTOBackupSets b
 JOIN #RTODiscardMedia m ON b.media_set_id=m.media_set_id
 WHERE (UPPER(m.physical_device_name)=N''NUL'' OR m.physical_device_name=N''/dev/null'')
   AND b.type=''L'' AND (b.is_copy_only=0 OR b.is_copy_only IS NULL)
+  AND NOT EXISTS(SELECT 1 FROM #RTOKnownMedia km WHERE km.media_set_id=b.media_set_id)
   AND NOT EXISTS(SELECT 1 FROM #RTOExcluded x WHERE x.database_name=b.database_name AND x.database_guid=b.database_guid);
 INSERT #RTOExcluded
 SELECT DISTINCT b.database_name,b.database_guid,N''Damaged log backup or unknown integrity metadata''

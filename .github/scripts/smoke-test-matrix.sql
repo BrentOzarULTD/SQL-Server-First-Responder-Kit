@@ -1040,21 +1040,39 @@ BEGIN TRY
        OR NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'RTO estimate unavailable')
         THROW 51000,'Damaged regular log received a restore estimate.',1;
     /* A real striped full requires metadata for both media families. */
-    DECLARE @SecondFile nvarchar(512)=@Root+N'striped2.bak';
+    DECLARE @SecondFile nvarchar(512)=@Root+N'striped2.bak',
+      @MirrorFirst nvarchar(512)=@Root+N'mirror1.bak',@MirrorSecond nvarchar(512)=@Root+N'mirror2.bak';
     SET @File=@Root+N'striped1.bak';
-    BACKUP DATABASE FRKLogSource TO DISK=@File,DISK=@SecondFile WITH COPY_ONLY,INIT;
+    BACKUP DATABASE FRKLogSource TO DISK=@File,DISK=@SecondFile
+      MIRROR TO DISK=@MirrorFirst,DISK=@MirrorSecond WITH COPY_ONLY,INIT,FORMAT;
     DECLARE @StripedFull int=(SELECT MAX(backup_set_id) FROM msdb.dbo.backupset WHERE database_name=N'FRKLogSource');
     DROP TABLE FRKLogHistory.dbo.backupset;
     SELECT * INTO FRKLogHistory.dbo.backupset FROM msdb.dbo.backupset WHERE backup_set_id=@StripedFull;
     DROP TABLE FRKLogHistory.dbo.backupmediafamily;
     SELECT * INTO FRKLogHistory.dbo.backupmediafamily FROM msdb.dbo.backupmediafamily
       WHERE media_set_id IN(SELECT media_set_id FROM FRKLogHistory.dbo.backupset);
-    IF (SELECT COUNT(*) FROM FRKLogHistory.dbo.backupmediafamily)<>2
-        THROW 51000,'Striped fixture did not produce two families.',1;
+    IF (SELECT COUNT(*) FROM FRKLogHistory.dbo.backupmediafamily)<>4
+        THROW 51000,'Mirrored fixture did not produce two copies of two families.',1;
     DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
     EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
     IF NOT EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
         THROW 51000,'Complete striped metadata did not permit an estimate.',1;
+    /* SQL Server can restore one family from each different mirror. */
+    DELETE FRKLogHistory.dbo.backupmediafamily WHERE (mirror=0 AND family_sequence_number=2)
+      OR (mirror=1 AND family_sequence_number=1);
+    RESTORE VERIFYONLY FROM DISK=@File,DISK=@MirrorSecond;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
+    IF NOT EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
+        THROW 51000,'Interchangeable families from different mirrors were rejected.',1;
+    DROP TABLE FRKLogHistory.dbo.backupmediafamily;
+    SELECT * INTO FRKLogHistory.dbo.backupmediafamily FROM msdb.dbo.backupmediafamily
+      WHERE media_set_id IN(SELECT media_set_id FROM FRKLogHistory.dbo.backupset);
+    UPDATE FRKLogHistory.dbo.backupmediafamily SET physical_device_name=N'NUL' WHERE mirror=0;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
+    IF NOT EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
+        THROW 51000,'A discard mirror suppressed another usable mirror.',1;
     DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
     DELETE FRKLogHistory.dbo.backupmediafamily WHERE family_sequence_number=2;
     EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
