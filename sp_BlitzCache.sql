@@ -2333,10 +2333,10 @@ BEGIN
                 ELSE CAST((total_worker_time / 1000.0) / COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time)) AS MONEY)
                 END AS AverageCPUPerMinute ,
            CASE WHEN t.t_TotalWorker = 0 THEN 0
-                ELSE CAST(ROUND(100.00 * total_worker_time / t.t_TotalWorker, 2) AS MONEY)
+                ELSE CAST(ROUND(100.00 * (total_worker_time / 1000.0) / t.t_TotalWorker, 2) AS MONEY)
                 END AS PercentCPUByType,
            CASE WHEN t.t_TotalElapsed = 0 THEN 0
-                ELSE CAST(ROUND(100.00 * total_elapsed_time / t.t_TotalElapsed, 2) AS MONEY)
+                ELSE CAST(ROUND(100.00 * (total_elapsed_time / 1000.0) / t.t_TotalElapsed, 2) AS MONEY)
                 END AS PercentDurationByType,
            CASE WHEN t.t_TotalReads = 0 THEN 0
                 ELSE CAST(ROUND(100.00 * total_logical_reads / t.t_TotalReads, 2) AS MONEY)
