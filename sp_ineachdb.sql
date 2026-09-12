@@ -97,12 +97,12 @@ BEGIN
 		RETURN -1;
 	END
 
-  DECLARE @exec   nvarchar(150),
+  DECLARE @exec   nvarchar(276),
           @sx     nvarchar(18) = N'.sys.sp_executesql',
           @db     sysname,
-          @dbq    sysname,
+          @dbq    nvarchar(258),
           @cmd    nvarchar(max),
-          @thisdb sysname,
+          @thisdb nvarchar(258),
           @cr     char(2) = CHAR(13) + CHAR(10),
 		  @SQLVersion	AS tinyint = (@@microsoftversion / 0x1000000) & 0xff,	     -- Stores the SQL Server Version Number(8(2000),9(2005),10(2008 & 2008R2),11(2012),12(2014),13(2016),14(2017),15(2019)
 		  @ServerName	AS sysname = CONVERT(sysname, SERVERPROPERTY('ServerName')), -- Stores the SQL Server Instance name.
