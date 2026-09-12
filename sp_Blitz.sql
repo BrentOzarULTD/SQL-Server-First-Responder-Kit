@@ -3989,7 +3989,7 @@ BEGIN
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 154 )
-                    AND SERVERPROPERTY('EngineEdition') <> 8
+                    AND SERVERPROPERTY('EngineEdition') NOT IN (5, 8) /* Azure SQL DB and Managed Instance */
 					BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 154) WITH NOWAIT;
