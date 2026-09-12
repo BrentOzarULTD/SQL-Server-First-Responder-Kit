@@ -786,6 +786,15 @@ BEGIN TRY
       OR EXISTS(SELECT 1 FROM #FRKWarningProof)
       OR NOT EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
         THROW 51000,'An ancient fork suppressed or contaminated the current recovery chain.',1;
+    /* A media table with missing candidate rows is also incomplete metadata. */
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    DELETE m FROM FRKLogHistory.dbo.backupmediafamily m JOIN FRKLogHistory.dbo.backupset b
+      ON b.media_set_id=m.media_set_id WHERE b.backup_set_id=@CurrentLog;
+    EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory',@HoursBack=1;
+    IF EXISTS(SELECT 1 FROM #FRKRecoveryProof) OR (SELECT COUNT(*) FROM #FRKBackupProof)<>1
+       OR EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
+       OR NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'RTO estimate unavailable')
+        THROW 51000,'Missing candidate media rows were treated as usable backups.',1;
     /* Missing media metadata must produce an explained NULL estimate, not an error. */
     DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
     DROP TABLE FRKLogHistory.dbo.backupmediafamily;

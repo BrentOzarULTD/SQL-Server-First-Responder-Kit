@@ -553,9 +553,13 @@ RAISERROR('Gathering RTO information', 0, 1) WITH NOWAIT;
 
 /* Centralized history may have backupset without media-family metadata. */
 CREATE TABLE #RTODiscardMedia(media_set_id int,physical_device_name nvarchar(4000));
+CREATE TABLE #RTOKnownMedia(media_set_id int PRIMARY KEY);
 DECLARE @RTOMediaAvailable bit=CASE WHEN OBJECT_ID(QUOTENAME(@MSDBName)+N'.dbo.backupmediafamily') IS NOT NULL THEN 1 ELSE 0 END;
 IF @RTOMediaAvailable=1
 BEGIN
+    SET @StringToExecute=N'INSERT #RTOKnownMedia SELECT DISTINCT media_set_id FROM '
+        +QUOTENAME(@MSDBName)+N'.dbo.backupmediafamily WHERE physical_device_name IS NOT NULL;';
+    EXEC sys.sp_executesql @StringToExecute;
     SET @StringToExecute=N'INSERT #RTODiscardMedia SELECT media_set_id,physical_device_name FROM '
         +QUOTENAME(@MSDBName)+N'.dbo.backupmediafamily WHERE UPPER(physical_device_name)=N''NUL'' OR physical_device_name=N''/dev/null'';';
     EXEC sys.sp_executesql @StringToExecute;
@@ -618,11 +622,11 @@ FROM #RTOBackupSets
 WHERE first_recovery_fork_guid IS NULL OR last_recovery_fork_guid IS NULL;';
 EXEC sys.sp_executesql @StringToExecute;
 
-IF @RTOMediaAvailable=0
     INSERT #RTOExcluded
     SELECT DISTINCT b.database_name,b.database_guid,N'Backup media metadata missing'
     FROM #RTOBackupSets b
-    WHERE NOT EXISTS(SELECT 1 FROM #RTOExcluded x WHERE x.database_name=b.database_name AND x.database_guid=b.database_guid);
+    WHERE NOT EXISTS(SELECT 1 FROM #RTOKnownMedia m WHERE m.media_set_id=b.media_set_id)
+      AND NOT EXISTS(SELECT 1 FROM #RTOExcluded x WHERE x.database_name=b.database_name AND x.database_guid=b.database_guid);
 
 /* Keep databases with in-window logs visible even if their full predates the window.
    Leave in-window throughput aggregates NULL when no full was measured there. */
