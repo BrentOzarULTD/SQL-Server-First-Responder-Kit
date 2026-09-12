@@ -157,6 +157,8 @@ done
 
 echo "=== Verifying Azure index output ==="
 "$SQLCMD" "${SQLCMD_ARGS[@]}" -i "$REPO_ROOT/.github/scripts/azure-index-output-regression.sql"
+echo "=== Verifying Azure database include/exclude lists ==="
+"$SQLCMD" "${SQLCMD_ARGS[@]}" -i "$REPO_ROOT/.github/scripts/azure-ineachdb-regression.sql"
 
 # The install "succeeding" is exactly what made #4040 invisible: the CREATE stub
 # is its own batch and always works, while only the ALTER carrying the real body

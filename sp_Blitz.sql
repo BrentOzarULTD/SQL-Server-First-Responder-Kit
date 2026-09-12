@@ -1095,10 +1095,10 @@ BEGIN
 
         DROP TABLE IF EXISTS #Recompile;
         CREATE TABLE #Recompile(
-            DBName varchar(200),
-            ProcName varchar(300),
+            DBName nvarchar(128),
+            ProcName nvarchar(128),
             RecompileFlag varchar(1),
-            SPSchema varchar(50)
+            SPSchema nvarchar(128)
         );
 
 		DROP TABLE IF EXISTS #DatabaseDefaults;
@@ -3989,7 +3989,7 @@ BEGIN
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 154 )
-                    AND SERVERPROPERTY('EngineEdition') <> 8
+                    AND SERVERPROPERTY('EngineEdition') NOT IN (5, 8) /* Azure SQL DB and Managed Instance */
 					BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 154) WITH NOWAIT;
@@ -7981,10 +7981,10 @@ IF NOT EXISTS ( SELECT  1
 								EXECUTE dbo.sp_ineachdb @suppress_quotename = 1, @command = 'USE [?];
                                     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                                     INSERT INTO #Recompile
-                                    SELECT DISTINCT DBName = DB_Name(), SPName = SO.name, SM.is_recompiled, ISR.SPECIFIC_SCHEMA
+                                    SELECT DBName = DB_Name(), SPName = SO.name, SM.is_recompiled, S.name
                                     FROM sys.sql_modules AS SM
-                                    LEFT OUTER JOIN dbo.sysobjects AS SO ON SM.object_id = SO.id and type = ''P''
-                                    LEFT OUTER JOIN INFORMATION_SCHEMA.ROUTINES AS ISR on ISR.Routine_Name = SO.name AND ISR.SPECIFIC_CATALOG = DB_Name()
+                                    INNER JOIN sys.procedures AS SO ON SM.object_id = SO.object_id
+                                    INNER JOIN sys.schemas AS S ON SO.schema_id = S.schema_id
                                     WHERE SM.is_recompiled=1  OPTION (RECOMPILE); /* oh the rich irony of recompile here */
                                     ';
                                 INSERT INTO #BlitzResults
@@ -8242,7 +8242,7 @@ IF NOT EXISTS ( SELECT  1
 
 								DELETE br
 								FROM #BlitzResults br
-								INNER JOIN #SkipChecks sc ON sc.CheckID = 80 AND br.DatabaseName = sc.DatabaseName;
+								INNER JOIN #SkipChecks sc ON sc.CheckID = 80 AND br.CheckID = sc.CheckID AND br.DatabaseName = sc.DatabaseName;
 					        END;
                             
 	
