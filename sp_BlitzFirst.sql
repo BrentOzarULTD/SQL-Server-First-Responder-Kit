@@ -4336,39 +4336,31 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableNameFileStats_View;
 
-        /* If the view exists without the most recently added columns, drop it. See Github #2162. */
-        IF OBJECT_ID(@ObjectFullName) IS NOT NULL
-            BEGIN
-            SET @StringToExecute = N'USE ' + @OutputDatabaseName + N'; IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
-                DROP VIEW ' + @OutputSchemaName + N'.' + @OutputTableNameFileStats_View + N';';
-
-            EXEC(@StringToExecute);
-            END
-
-        /* Create the view */
-        IF OBJECT_ID(@ObjectFullName) IS NULL
-            BEGIN
+        /* Upgrade existing views in place to preserve permissions. */
+        BEGIN
             SET @StringToExecute = 'USE '
                 + @OutputDatabaseName
-                + '; EXEC (''CREATE VIEW '
+                + '; IF NOT EXISTS (SELECT 1 FROM sys.sql_modules'
+                + ' WHERE object_id = OBJECT_ID(@ViewName)'
+                + ' AND CHARINDEX(''FRK_ServerScopedDeltas_v1'', definition) > 0)'
+                + ' EXEC (''CREATE OR ALTER VIEW '
                 + @OutputSchemaName + '.'
-                + @OutputTableNameFileStats_View + ' AS ' + @LineFeed
+                + @OutputTableNameFileStats_View + ' AS /* FRK_ServerScopedDeltas_v1 */ ' + @LineFeed
                 + 'WITH RowDates as' + @LineFeed
                 + '(' + @LineFeed
                 + '        SELECT ' + @LineFeed
-                + '                ROW_NUMBER() OVER (ORDER BY [ServerName], [CheckDate]) ID,' + @LineFeed
-                + '                [CheckDate]' + @LineFeed
+                + '                ROW_NUMBER() OVER (PARTITION BY [ServerName] ORDER BY [CheckDate]) ID,' + @LineFeed
+                + '                [ServerName], [CheckDate]' + @LineFeed
                 + '        FROM ' + @OutputSchemaName + '.' + @OutputTableNameFileStats + '' + @LineFeed
                 + '        GROUP BY [ServerName], [CheckDate]' + @LineFeed
                 + '),' + @LineFeed
                 + 'CheckDates as' + @LineFeed
                 + '(' + @LineFeed
-                + '        SELECT ThisDate.CheckDate,' + @LineFeed
+                + '        SELECT ThisDate.ServerName, ThisDate.CheckDate,' + @LineFeed
                 + '               LastDate.CheckDate as PreviousCheckDate' + @LineFeed
                 + '        FROM RowDates ThisDate' + @LineFeed
                 + '        JOIN RowDates LastDate' + @LineFeed
-                + '        ON ThisDate.ID = LastDate.ID + 1' + @LineFeed
+                + '        ON ThisDate.ID = LastDate.ID + 1 AND ThisDate.ServerName = LastDate.ServerName' + @LineFeed
                 + ')' + @LineFeed
                 + '     SELECT f.ServerName,' + @LineFeed
                 + '            f.CheckDate,' + @LineFeed
@@ -4399,7 +4391,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '            (f.bytes_written - fPrior.bytes_written) / 1024.0 / 1024.0 AS megabytes_written, ' + @LineFeed
                 + '            f.ServerName + CAST(f.CheckDate AS NVARCHAR(50)) AS JoinKey' + @LineFeed
                 + '     FROM   ' + @OutputSchemaName + '.' + @OutputTableNameFileStats + ' f' + @LineFeed
-                + '            INNER HASH JOIN CheckDates DATES ON f.CheckDate = DATES.CheckDate' + @LineFeed
+                + '            INNER HASH JOIN CheckDates DATES ON f.CheckDate = DATES.CheckDate AND f.ServerName = DATES.ServerName' + @LineFeed
                 + '            INNER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameFileStats + ' fPrior ON f.ServerName =                 fPrior.ServerName' + @LineFeed
                 + '                                                              AND f.DatabaseID = fPrior.DatabaseID' +     @LineFeed
                 + '                                                              AND f.FileID = fPrior.FileID' + @LineFeed
@@ -4409,7 +4401,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '            AND f.num_of_writes >= fPrior.num_of_writes' + @LineFeed
                 + '            AND DATEDIFF(MI, fPrior.CheckDate, f.CheckDate) BETWEEN 1 AND 60;'')'
 
-			EXEC(@StringToExecute);
+			EXEC sys.sp_executesql @StringToExecute, N'@ViewName nvarchar(776)', @ViewName = @ObjectFullName;
             END;
 
 
@@ -4520,39 +4512,31 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableNamePerfmonStats_View;
 
-        /* If the view exists without the most recently added columns, drop it. See Github #2162. */
-        IF OBJECT_ID(@ObjectFullName) IS NOT NULL
-            BEGIN
-            SET @StringToExecute = N'USE ' + @OutputDatabaseName + N'; IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
-                DROP VIEW ' + @OutputSchemaName + N'.' + @OutputTableNamePerfmonStats_View + N';';
-
-            EXEC(@StringToExecute);
-            END
-
-        /* Create the view */
-        IF OBJECT_ID(@ObjectFullName) IS NULL
-            BEGIN
+        /* Upgrade existing views in place to preserve permissions. */
+        BEGIN
             SET @StringToExecute = 'USE '
                 + @OutputDatabaseName
-                + '; EXEC (''CREATE VIEW '
+                + '; IF NOT EXISTS (SELECT 1 FROM sys.sql_modules'
+                + ' WHERE object_id = OBJECT_ID(@ViewName)'
+                + ' AND CHARINDEX(''FRK_ServerScopedDeltas_v1'', definition) > 0)'
+                + ' EXEC (''CREATE OR ALTER VIEW '
                 + @OutputSchemaName + '.'
-                + @OutputTableNamePerfmonStats_View + ' AS ' + @LineFeed
+                + @OutputTableNamePerfmonStats_View + ' AS /* FRK_ServerScopedDeltas_v1 */ ' + @LineFeed
                 + 'WITH RowDates as' + @LineFeed
                 + '(' + @LineFeed
                 + '        SELECT ' + @LineFeed
-                + '                ROW_NUMBER() OVER (ORDER BY [ServerName], [CheckDate]) ID,' + @LineFeed
-                + '                [CheckDate]' + @LineFeed
+                + '                ROW_NUMBER() OVER (PARTITION BY [ServerName] ORDER BY [CheckDate]) ID,' + @LineFeed
+                + '                [ServerName], [CheckDate]' + @LineFeed
                 + '        FROM ' + @OutputSchemaName + '.' +@OutputTableNamePerfmonStats + '' + @LineFeed
                 + '        GROUP BY [ServerName], [CheckDate]' + @LineFeed
                 + '),' + @LineFeed
                 + 'CheckDates as' + @LineFeed
                 + '(' + @LineFeed
-                + '        SELECT ThisDate.CheckDate,' + @LineFeed
+                + '        SELECT ThisDate.ServerName, ThisDate.CheckDate,' + @LineFeed
                 + '               LastDate.CheckDate as PreviousCheckDate' + @LineFeed
                 + '        FROM RowDates ThisDate' + @LineFeed
                 + '        JOIN RowDates LastDate' + @LineFeed
-                + '        ON ThisDate.ID = LastDate.ID + 1' + @LineFeed
+                + '        ON ThisDate.ID = LastDate.ID + 1 AND ThisDate.ServerName = LastDate.ServerName' + @LineFeed
                 + ')' + @LineFeed
                 + 'SELECT' + @LineFeed
                 + '       pMon.[ServerName]' + @LineFeed
@@ -4568,7 +4552,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '      ,pMon.ServerName + CAST(pMon.CheckDate AS NVARCHAR(50)) AS JoinKey' + @LineFeed
                 + '  FROM ' + @OutputSchemaName + '.' +@OutputTableNamePerfmonStats + ' pMon' + @LineFeed
                 + '  INNER HASH JOIN CheckDates Dates' + @LineFeed
-                + '  ON Dates.CheckDate = pMon.CheckDate' + @LineFeed
+                + '  ON Dates.CheckDate = pMon.CheckDate AND Dates.ServerName = pMon.ServerName' + @LineFeed
                 + '  JOIN ' + @OutputSchemaName + '.' +@OutputTableNamePerfmonStats + ' pMonPrior' + @LineFeed
                 + '  ON  Dates.PreviousCheckDate = pMonPrior.CheckDate' + @LineFeed
                 + '      AND pMon.[ServerName]    = pMonPrior.[ServerName]   ' + @LineFeed
@@ -4577,7 +4561,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '      AND pMon.[instance_name] = pMonPrior.[instance_name]' + @LineFeed
                 + '    WHERE DATEDIFF(MI, pMonPrior.CheckDate, pMon.CheckDate) BETWEEN 1 AND 60;'')'
 
-			EXEC(@StringToExecute);
+			EXEC sys.sp_executesql @StringToExecute, N'@ViewName nvarchar(776)', @ViewName = @ObjectFullName;
             END
 
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableNamePerfmonStatsActuals_View;
@@ -4850,40 +4834,31 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableNameWaitStats_View;
 
-        /* If the view exists without the most recently added columns, drop it. See Github #2162. */
-        IF OBJECT_ID(@ObjectFullName) IS NOT NULL
-            BEGIN
-            SET @StringToExecute = N'USE ' + @OutputDatabaseName + N'; IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
-                DROP VIEW ' + @OutputSchemaName + N'.' + @OutputTableNameWaitStats_View + N';';
-
-            EXEC(@StringToExecute);
-            END
-
-
-        /* Create the wait stats view */
-        IF OBJECT_ID(@ObjectFullName) IS NULL
-            BEGIN
+        /* Upgrade existing views in place to preserve permissions. */
+        BEGIN
             SET @StringToExecute = 'USE '
                 + @OutputDatabaseName
-                + '; EXEC (''CREATE VIEW '
+                + '; IF NOT EXISTS (SELECT 1 FROM sys.sql_modules'
+                + ' WHERE object_id = OBJECT_ID(@ViewName)'
+                + ' AND CHARINDEX(''FRK_ServerScopedDeltas_v1'', definition) > 0)'
+                + ' EXEC (''CREATE OR ALTER VIEW '
                 + @OutputSchemaName + '.'
-                + @OutputTableNameWaitStats_View + ' AS ' + @LineFeed
+                + @OutputTableNameWaitStats_View + ' AS /* FRK_ServerScopedDeltas_v1 */ ' + @LineFeed
                 + 'WITH RowDates as' + @LineFeed
                 + '(' + @LineFeed
                 + '        SELECT ' + @LineFeed
-                + '                ROW_NUMBER() OVER (ORDER BY [ServerName], [CheckDate]) ID,' + @LineFeed
-                + '                [CheckDate]' + @LineFeed
+                + '                ROW_NUMBER() OVER (PARTITION BY [ServerName] ORDER BY [CheckDate]) ID,' + @LineFeed
+                + '                [ServerName], [CheckDate]' + @LineFeed
                 + '        FROM ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + @LineFeed
                 + '        GROUP BY [ServerName], [CheckDate]' + @LineFeed
                 + '),' + @LineFeed
                 + 'CheckDates as' + @LineFeed
                 + '(' + @LineFeed
-                + '        SELECT ThisDate.CheckDate,' + @LineFeed
+                + '        SELECT ThisDate.ServerName, ThisDate.CheckDate,' + @LineFeed
                 + '               LastDate.CheckDate as PreviousCheckDate' + @LineFeed
                 + '        FROM RowDates ThisDate' + @LineFeed
                 + '        JOIN RowDates LastDate' + @LineFeed
-                + '        ON ThisDate.ID = LastDate.ID + 1' + @LineFeed
+                + '        ON ThisDate.ID = LastDate.ID + 1 AND ThisDate.ServerName = LastDate.ServerName' + @LineFeed
                 + ')' + @LineFeed
                 + 'SELECT w.ServerName, w.CheckDate, w.wait_type, COALESCE(wc.WaitCategory, ''''Other'''') AS WaitCategory, COALESCE(wc.Ignorable,0) AS Ignorable' + @LineFeed
                 + ', DATEDIFF(ss, wPrior.CheckDate, w.CheckDate) AS ElapsedSeconds' + @LineFeed
@@ -4895,13 +4870,13 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + ', w.ServerName + CAST(w.CheckDate AS NVARCHAR(50)) AS JoinKey' + @LineFeed
                 + 'FROM ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + ' w' + @LineFeed
                 + 'INNER HASH JOIN CheckDates Dates' + @LineFeed
-                + 'ON Dates.CheckDate = w.CheckDate' + @LineFeed
+                + 'ON Dates.CheckDate = w.CheckDate AND Dates.ServerName = w.ServerName' + @LineFeed
                 + 'INNER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + ' wPrior ON w.ServerName = wPrior.ServerName AND w.wait_type = wPrior.wait_type AND Dates.PreviousCheckDate = wPrior.CheckDate' + @LineFeed
 			 + 'LEFT OUTER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats_Categories + ' wc ON w.wait_type = wc.WaitType' + @LineFeed
                 + 'WHERE DATEDIFF(MI, wPrior.CheckDate, w.CheckDate) BETWEEN 1 AND 60' + @LineFeed
                 + 'AND [w].[wait_time_ms] >= [wPrior].[wait_time_ms];'')'
 
-			EXEC(@StringToExecute);
+			EXEC sys.sp_executesql @StringToExecute, N'@ViewName nvarchar(776)', @ViewName = @ObjectFullName;
             END;
 
 
