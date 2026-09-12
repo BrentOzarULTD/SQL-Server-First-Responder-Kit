@@ -6216,7 +6216,7 @@ IF NOT EXISTS ( SELECT  1
 													'https://www.brentozar.com/go/xe' AS URL ,
 													'Hey big spender, you have ' + CAST(COUNT_BIG(*) AS VARCHAR(30)) + ' Extended Events sessions running. You sure you meant to do that?' AS Details
 											    FROM sys.dm_xe_sessions
-												WHERE [name] NOT IN
+												WHERE [name] COLLATE SQL_Latin1_General_CP1_CI_AS NOT IN
 												( 'AlwaysOn_health', 
 												  'system_health', 
 												  'telemetry_xevents', 
@@ -6225,6 +6225,45 @@ IF NOT EXISTS ( SELECT  1
 												  'hkenginexesession' )
 												AND name NOT LIKE '%$A%'
 											  HAVING COUNT_BIG(*) >= 2;
+								END;	
+								END;
+			
+/*Check for availability groups existing while AlwaysOn_health is either disabled or missing*/
+			IF NOT EXISTS ( SELECT  1
+											FROM    #SkipChecks
+											WHERE   DatabaseName IS NULL AND CheckID = 276 )
+								BEGIN
+			
+			IF EXISTS ( SELECT  1
+														FROM    sys.all_objects
+														WHERE   name = 'dm_xe_sessions' )
+            AND EXISTS ( SELECT  1
+														FROM    sys.all_objects
+														WHERE   name = 'availability_groups' )
+								
+								BEGIN
+									
+									IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 276) WITH NOWAIT;
+
+                                    IF NOT EXISTS (SELECT 1 FROM sys.dm_xe_sessions WHERE [name] COLLATE SQL_Latin1_General_CP1_CI_AS = 'AlwaysOn_health')
+                                    AND EXISTS (SELECT 1 FROM sys.availability_groups) 
+									INSERT  INTO #BlitzResults
+											( CheckID ,
+											  DatabaseName ,
+											  Priority ,
+											  FindingsGroup ,
+											  Finding ,
+											  URL ,
+											  Details
+											)
+													SELECT
+													276 AS CheckID ,
+													'' AS DatabaseName ,
+													200 AS Priority ,
+													'Monitoring' AS FindingsGroup ,
+													'Availability Group Without AlwaysOn_health' AS Finding ,
+													'https://learn.microsoft.com/en-us/sql/database-engine/availability-groups/windows/always-on-extended-events#the-alwayson_health-session' AS URL ,
+													'This server has availability groups, but the AlwaysOn_health Extended Event is either missing or disabled. Do you have what you need to debug an outage?' AS Details
 								END;	
 								END;
 			
