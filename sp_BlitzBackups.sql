@@ -557,8 +557,20 @@ CREATE TABLE #RTOKnownMedia(media_set_id int PRIMARY KEY);
 DECLARE @RTOMediaAvailable bit=CASE WHEN OBJECT_ID(QUOTENAME(@MSDBName)+N'.dbo.backupmediafamily') IS NOT NULL THEN 1 ELSE 0 END;
 IF @RTOMediaAvailable=1
 BEGIN
-    SET @StringToExecute=N'INSERT #RTOKnownMedia SELECT DISTINCT media_set_id FROM '
-        +QUOTENAME(@MSDBName)+N'.dbo.backupmediafamily WHERE physical_device_name IS NOT NULL;';
+    SET @StringToExecute=N'WITH ExpectedFamilies AS (
+        SELECT media_set_id,MIN(first_family_number) AS FirstFamily,MAX(last_family_number) AS LastFamily
+        FROM '+QUOTENAME(@MSDBName)+N'.dbo.backupset
+        GROUP BY media_set_id
+        HAVING MIN(first_family_number)>0 AND MAX(last_family_number)>=MIN(first_family_number)
+          AND COUNT(*)=COUNT(first_family_number) AND COUNT(*)=COUNT(last_family_number)
+    )
+    INSERT #RTOKnownMedia
+    SELECT e.media_set_id FROM ExpectedFamilies e
+    JOIN '+QUOTENAME(@MSDBName)+N'.dbo.backupmediafamily m ON m.media_set_id=e.media_set_id
+      AND m.family_sequence_number BETWEEN e.FirstFamily AND e.LastFamily
+      AND m.physical_device_name IS NOT NULL
+    GROUP BY e.media_set_id,e.FirstFamily,e.LastFamily
+    HAVING COUNT(DISTINCT m.family_sequence_number)=e.LastFamily-e.FirstFamily+1;';
     EXEC sys.sp_executesql @StringToExecute;
     SET @StringToExecute=N'INSERT #RTODiscardMedia SELECT media_set_id,physical_device_name FROM '
         +QUOTENAME(@MSDBName)+N'.dbo.backupmediafamily WHERE UPPER(physical_device_name)=N''NUL'' OR physical_device_name=N''/dev/null'';';
@@ -1822,7 +1834,7 @@ END
 									' 
 		SET @StringToExecute += N' (database_name, database_guid, backup_set_uuid, type, backup_size, backup_start_date, backup_finish_date, media_set_id, time_zone, 
 									compressed_backup_size, recovery_model, server_name, machine_name, first_lsn, last_lsn, user_name, compatibility_level,
-                                    first_recovery_fork_guid, last_recovery_fork_guid, fork_point_lsn, differential_base_lsn, differential_base_guid, is_copy_only,
+                                    first_family_number, last_family_number, first_recovery_fork_guid, last_recovery_fork_guid, fork_point_lsn, differential_base_lsn, differential_base_guid, is_copy_only,
 									is_password_protected, is_snapshot, is_readonly, is_single_user, has_backup_checksums, is_damaged, ' + CASE WHEN @ProductVersionMajor >= 12 
 																																				THEN + N'encryptor_type, has_bulk_logged_data)' + @crlf
 																																				ELSE + N'has_bulk_logged_data)' + @crlf
@@ -1831,7 +1843,7 @@ END
 		SET @StringToExecute +=N'
 									SELECT database_name, database_guid, backup_set_uuid, type, backup_size, backup_start_date, backup_finish_date, media_set_id, time_zone, 
 									compressed_backup_size, recovery_model, server_name, machine_name, first_lsn, last_lsn, user_name, compatibility_level,
-                                    first_recovery_fork_guid, last_recovery_fork_guid, fork_point_lsn, differential_base_lsn, differential_base_guid, is_copy_only,
+                                    first_family_number, last_family_number, first_recovery_fork_guid, last_recovery_fork_guid, fork_point_lsn, differential_base_lsn, differential_base_guid, is_copy_only,
 									is_password_protected, is_snapshot, is_readonly, is_single_user, has_backup_checksums, is_damaged, ' + CASE WHEN @ProductVersionMajor >= 12 
 																																				THEN + N'encryptor_type, has_bulk_logged_data' + @crlf
 																																				ELSE + N'has_bulk_logged_data' + @crlf

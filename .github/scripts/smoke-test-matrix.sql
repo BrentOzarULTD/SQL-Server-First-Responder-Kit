@@ -1039,6 +1039,28 @@ BEGIN TRY
     IF EXISTS(SELECT 1 FROM #FRKRecoveryProof) OR EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
        OR NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'RTO estimate unavailable')
         THROW 51000,'Damaged regular log received a restore estimate.',1;
+    /* A real striped full requires metadata for both media families. */
+    DECLARE @SecondFile nvarchar(512)=@Root+N'striped2.bak';
+    SET @File=@Root+N'striped1.bak';
+    BACKUP DATABASE FRKLogSource TO DISK=@File,DISK=@SecondFile WITH COPY_ONLY,INIT;
+    DECLARE @StripedFull int=(SELECT MAX(backup_set_id) FROM msdb.dbo.backupset WHERE database_name=N'FRKLogSource');
+    DROP TABLE FRKLogHistory.dbo.backupset;
+    SELECT * INTO FRKLogHistory.dbo.backupset FROM msdb.dbo.backupset WHERE backup_set_id=@StripedFull;
+    DROP TABLE FRKLogHistory.dbo.backupmediafamily;
+    SELECT * INTO FRKLogHistory.dbo.backupmediafamily FROM msdb.dbo.backupmediafamily
+      WHERE media_set_id IN(SELECT media_set_id FROM FRKLogHistory.dbo.backupset);
+    IF (SELECT COUNT(*) FROM FRKLogHistory.dbo.backupmediafamily)<>2
+        THROW 51000,'Striped fixture did not produce two families.',1;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
+    IF NOT EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
+        THROW 51000,'Complete striped metadata did not permit an estimate.',1;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    DELETE FRKLogHistory.dbo.backupmediafamily WHERE family_sequence_number=2;
+    EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
+    IF EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
+       OR NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'RTO estimate unavailable')
+        THROW 51000,'Missing stripe family received a restore estimate.',1;
     /* Exercise the unmodified push path with four-part local-server names.
        Precreate the destination so this tests insertion/mapping without remote DDL. */
     DROP TABLE FRKLogHistory.dbo.backupset;
@@ -1049,11 +1071,11 @@ BEGIN TRY
     IF NOT EXISTS(SELECT 1 FROM FRKLogHistory.dbo.backupset WHERE database_name=N'FRKLogSource')
         THROW 51000,'History push did not insert fixture backups.',1;
     IF EXISTS(
-      SELECT backup_set_uuid,first_recovery_fork_guid,last_recovery_fork_guid,fork_point_lsn,
+      SELECT backup_set_uuid,first_family_number,last_family_number,first_recovery_fork_guid,last_recovery_fork_guid,fork_point_lsn,
         differential_base_lsn,differential_base_guid,is_copy_only FROM msdb.dbo.backupset
       WHERE database_name=N'FRKLogSource' AND database_guid=(SELECT database_guid FROM sys.database_recovery_status WHERE database_id=DB_ID(N'FRKLogSource'))
       EXCEPT
-      SELECT backup_set_uuid,first_recovery_fork_guid,last_recovery_fork_guid,fork_point_lsn,
+      SELECT backup_set_uuid,first_family_number,last_family_number,first_recovery_fork_guid,last_recovery_fork_guid,fork_point_lsn,
         differential_base_lsn,differential_base_guid,is_copy_only FROM FRKLogHistory.dbo.backupset)
         THROW 51000,'History push lost or mis-mapped recovery metadata.',1;
     DROP DATABASE FRKLogHistory;
