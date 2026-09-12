@@ -263,7 +263,7 @@ BEGIN
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
             + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName + ''') SELECT CheckDate, [Priority], [FindingsGroup], [Finding], [URL], CAST([Details] AS [XML]) AS Details,'
+            + @OutputSchemaName + ''') SELECT CheckDate, [Priority], [FindingsGroup], [Finding], [URL], CASE WHEN [Details] IS NULL THEN NULL ELSE (SELECT [Details] AS [text()] FOR XML PATH(''''), TYPE) END AS Details,'
             + '[HowToStopIt], [CheckID], [StartTime], [LoginName], [NTUserName], [OriginalLoginName], [ProgramName], [HostName], [DatabaseID],'
             + '[DatabaseName], [OpenTransactionCount], [QueryPlan], [QueryText] FROM '
             + @OutputDatabaseName + '.'
