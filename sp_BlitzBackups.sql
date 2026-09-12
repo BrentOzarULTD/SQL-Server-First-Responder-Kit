@@ -551,6 +551,17 @@ GOTO PushBackupHistoryToListener
 
 RAISERROR('Gathering RTO information', 0, 1) WITH NOWAIT;
 
+/* Centralized history may have backupset without media-family metadata. */
+CREATE TABLE #RTODiscardMedia(media_set_id int,physical_device_name nvarchar(4000));
+DECLARE @RTOMediaAvailable bit=CASE WHEN OBJECT_ID(QUOTENAME(@MSDBName)+N'.dbo.backupmediafamily') IS NOT NULL THEN 1 ELSE 0 END;
+IF @RTOMediaAvailable=1
+BEGIN
+    SET @StringToExecute=N'INSERT #RTODiscardMedia SELECT media_set_id,physical_device_name FROM '
+        +QUOTENAME(@MSDBName)+N'.dbo.backupmediafamily WHERE UPPER(physical_device_name)=N''NUL'' OR physical_device_name=N''/dev/null'';';
+    EXEC sys.sp_executesql @StringToExecute;
+END;
+CREATE INDEX IX_RTODiscardMedia ON #RTODiscardMedia(media_set_id);
+
 /* Restrict recovery estimates to the requested window plus its preceding full.
    Discarded copy-only backups cannot invalidate or replace a usable chain. */
 CREATE TABLE #RTOBackupSets(
@@ -566,15 +577,15 @@ SELECT b.database_name,b.database_guid,b.backup_set_id,b.backup_set_uuid,b.type,
  b.differential_base_guid,b.media_set_id,b.is_copy_only
 FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset b
 WHERE b.type IN (''D'',''I'',''L'')
- AND b.backup_finish_date>=COALESCE((
+ AND (b.backup_finish_date>=@StartTime OR b.backup_finish_date>=(
     SELECT MAX(anchor.backup_finish_date) FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset anchor
     WHERE anchor.database_name=b.database_name AND anchor.database_guid=b.database_guid
       AND anchor.type=''D'' AND anchor.backup_finish_date<=@StartTime
-      AND NOT EXISTS(SELECT 1 FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupmediafamily am
+      AND NOT EXISTS(SELECT 1 FROM #RTODiscardMedia am
         WHERE am.media_set_id=anchor.media_set_id AND (UPPER(am.physical_device_name)=N''NUL'' OR am.physical_device_name=N''/dev/null''))
- ),@StartTime)
- AND NOT EXISTS(SELECT 1 FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupmediafamily m
-     WHERE m.media_set_id=b.media_set_id AND b.is_copy_only=1
+ ))
+ AND NOT EXISTS(SELECT 1 FROM #RTODiscardMedia m
+     WHERE m.media_set_id=b.media_set_id AND (b.is_copy_only=1 OR b.type IN (''D'',''I''))
        AND (UPPER(m.physical_device_name)=N''NUL'' OR m.physical_device_name=N''/dev/null''));';
 EXEC sys.sp_executesql @StringToExecute,N'@StartTime datetime2',@StartTime;
 CREATE INDEX IX_RTOBackupSets ON #RTOBackupSets(database_guid,database_name,type,last_lsn);
@@ -594,9 +605,9 @@ GROUP BY database_name,database_guid HAVING COUNT(DISTINCT fork_guid)>1;
 INSERT #RTOExcluded
 SELECT DISTINCT b.database_name,b.database_guid,N''Backup to a discard device''
 FROM #RTOBackupSets b
-JOIN ' + QUOTENAME(@MSDBName) + N'.dbo.backupmediafamily m ON b.media_set_id=m.media_set_id
+JOIN #RTODiscardMedia m ON b.media_set_id=m.media_set_id
 WHERE (UPPER(m.physical_device_name)=N''NUL'' OR m.physical_device_name=N''/dev/null'')
-  AND b.backup_finish_date>=@StartTime
+  AND b.type=''L'' AND b.is_copy_only=0
   AND NOT EXISTS(SELECT 1 FROM #RTOExcluded x WHERE x.database_name=b.database_name AND x.database_guid=b.database_guid);';
 EXEC sys.sp_executesql @StringToExecute,N'@StartTime datetime2',@StartTime;
 SET @StringToExecute=N'
@@ -606,6 +617,19 @@ SELECT DISTINCT 16,100,database_name,N''Recovery fork metadata missing'',
 FROM #RTOBackupSets
 WHERE first_recovery_fork_guid IS NULL OR last_recovery_fork_guid IS NULL;';
 EXEC sys.sp_executesql @StringToExecute;
+
+IF @RTOMediaAvailable=0
+    INSERT #RTOExcluded
+    SELECT DISTINCT b.database_name,b.database_guid,N'Backup media metadata missing'
+    FROM #RTOBackupSets b
+    WHERE NOT EXISTS(SELECT 1 FROM #RTOExcluded x WHERE x.database_name=b.database_name AND x.database_guid=b.database_guid);
+
+/* Keep databases with in-window logs visible even if their full predates the window.
+   Leave in-window throughput aggregates NULL when no full was measured there. */
+INSERT #Backups(database_name,database_guid)
+SELECT DISTINCT b.database_name,b.database_guid FROM #RTOBackupSets b
+WHERE b.backup_finish_date>=@StartTime
+AND NOT EXISTS(SELECT 1 FROM #Backups x WHERE x.database_name=b.database_name AND x.database_guid=b.database_guid);
 
 INSERT #Warnings(CheckId,Priority,DatabaseName,Finding,Warning)
 SELECT 15,50,database_name,N'RTO estimate unavailable',
@@ -656,14 +680,26 @@ INNER JOIN #RTOBackupSets bLastFull
 							 					AND rp.database_name = bLog.database_name
                                     AND bLog.type = ''L''
                                     AND bLog.last_lsn = rp.log_last_lsn
-                                ORDER BY bLastFull.last_lsn DESC, bLastFull.backup_set_id DESC, bLog.first_lsn ASC, bLog.backup_set_id ASC
+                                    AND bLog.backup_finish_date>=@StartTime
+                                ORDER BY bLastFull.last_lsn DESC, bLastFull.backup_set_id DESC, bLog.first_lsn ASC, bLog.is_copy_only ASC, bLog.backup_set_id DESC
                             ) bLasted;
 							 ';
 
 	IF @Debug = 1
 		PRINT @StringToExecute;
 
-	EXEC sys.sp_executesql @StringToExecute;
+	EXEC sys.sp_executesql @StringToExecute,N'@StartTime datetime2',@StartTime;
+
+/* A log endpoint without a usable full must explain why no estimate is possible. */
+INSERT #RTOExcluded
+SELECT DISTINCT rp.database_name,rp.database_guid,N'No usable full backup for the log endpoint'
+FROM #RTORecoveryPoints rp WHERE rp.full_backup_set_id IS NULL
+AND NOT EXISTS(SELECT 1 FROM #RTOExcluded x WHERE x.database_name=rp.database_name AND x.database_guid=rp.database_guid);
+INSERT #Warnings(CheckId,Priority,DatabaseName,Finding,Warning)
+SELECT 15,50,x.database_name,N'RTO estimate unavailable',x.Reason
+FROM #RTOExcluded x WHERE NOT EXISTS(SELECT 1 FROM #Warnings w WHERE w.CheckId=15 AND w.DatabaseName=x.database_name);
+DELETE rp FROM #RTORecoveryPoints rp
+JOIN #RTOExcluded x ON x.database_name=rp.database_name AND x.database_guid=rp.database_guid;
 
 /* Add any full backups in the StartDate range that weren't part of the above log backup chain */
 
@@ -713,7 +749,7 @@ FROM #RTOBackupSets bLog
                                 /* STOPAT can use the first log spanning the next full. */
                                 ORDER BY CASE WHEN bLog.last_lsn>=rpNextFull.full_last_lsn THEN 0 ELSE 1 END,
                                   CASE WHEN bLog.last_lsn>=rpNextFull.full_last_lsn THEN bLog.last_lsn END ASC,
-                                  bLog.last_lsn DESC,bLog.first_lsn ASC,bLog.backup_set_id ASC
+                                  bLog.last_lsn DESC,bLog.first_lsn ASC,bLog.is_copy_only ASC,bLog.backup_set_id DESC
                             ) endpoint
                             WHERE rpEarlierFull.full_backup_set_id IS NULL;
 							';
@@ -777,35 +813,25 @@ RAISERROR('Get time & size totals for logs', 0, 1) WITH NOWAIT;
 	SET @StringToExecute = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;' + @crlf;
 
 	SET @StringToExecute += N'
-							WITH LogTotals AS (
-								 SELECT rp.id, log_time_seconds = SUM(DATEDIFF(ss,bLog.backup_start_date, bLog.backup_finish_date))
-								    , log_file_size = SUM(bLog.backup_size)
-								    , SUM(1) AS log_backups
-								        FROM #RTORecoveryPoints rp
-INNER JOIN #RTOBackupSets bLog ON rp.database_guid = bLog.database_guid AND rp.database_name = bLog.database_name AND bLog.type = ''L''
-								            AND bLog.last_lsn > COALESCE(rp.diff_last_lsn, rp.full_last_lsn)
-								            AND bLog.last_lsn <= rp.log_last_lsn
-                                    /* A covering backup makes this interval redundant (for example,
-                                       COPY_ONLY followed by a regular log backup). Keep one copy of
-                                       identical intervals and never cross recovery forks. */
-                                    AND NOT EXISTS (
-                                        SELECT 1
-                                        FROM #RTOBackupSets AS bCover
-                                        WHERE bCover.database_guid = bLog.database_guid
-                                          AND bCover.database_name = bLog.database_name
-                                          AND bCover.type = ''L''
-                                          AND (bCover.first_recovery_fork_guid = bLog.first_recovery_fork_guid OR (bCover.first_recovery_fork_guid IS NULL AND bLog.first_recovery_fork_guid IS NULL))
-                                          AND (bCover.last_recovery_fork_guid = bLog.last_recovery_fork_guid OR (bCover.last_recovery_fork_guid IS NULL AND bLog.last_recovery_fork_guid IS NULL))
-                                          AND bCover.first_lsn <= bLog.first_lsn
-                                          AND bCover.last_lsn >= bLog.last_lsn
-                                          AND bCover.last_lsn <= rp.log_last_lsn
-                                          AND (bCover.first_lsn < bLog.first_lsn
-                                               OR bCover.last_lsn > bLog.last_lsn
-                                               OR bCover.backup_set_id < bLog.backup_set_id)
-                                    )
-								        GROUP BY rp.id
-								)
-								UPDATE #RTORecoveryPoints
+							WITH LogIntervals AS (
+    SELECT rp.id,bLog.backup_start_date,bLog.backup_finish_date,bLog.backup_size,bLog.last_lsn,
+        MAX(bLog.last_lsn) OVER (
+            PARTITION BY rp.id,bLog.first_recovery_fork_guid,bLog.last_recovery_fork_guid
+            ORDER BY bLog.first_lsn,bLog.last_lsn DESC,bLog.is_copy_only,bLog.backup_set_id DESC
+            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS PriorMaxLastLSN
+    FROM #RTORecoveryPoints rp
+    JOIN #RTOBackupSets bLog ON rp.database_guid=bLog.database_guid AND rp.database_name=bLog.database_name
+        AND bLog.type=''L'' AND bLog.last_lsn>COALESCE(rp.diff_last_lsn,rp.full_last_lsn)
+        AND bLog.last_lsn<=rp.log_last_lsn
+), LogTotals AS (
+    /* Ordered running maximum removes contained intervals without a range self-join.
+       Equal intervals prefer regular backups, then the newest backup ID. */
+    SELECT id,SUM(DATEDIFF(second,backup_start_date,backup_finish_date)) AS log_time_seconds,
+        SUM(backup_size) AS log_file_size,COUNT(*) AS log_backups
+    FROM LogIntervals WHERE PriorMaxLastLSN IS NULL OR last_lsn>PriorMaxLastLSN
+    GROUP BY id
+)
+                                UPDATE #RTORecoveryPoints
 								    SET log_time_seconds = lt.log_time_seconds
 								    , log_file_size_mb = lt.log_file_size / 1048576.0
 								    , log_backups = lt.log_backups
@@ -1383,7 +1409,7 @@ IF @ProductVersionMajor >= 12
 		''The database '' + QUOTENAME(bs.database_name) + '' has had '' + CONVERT(VARCHAR(10), COUNT(*)) + '' backups to the NUL device, the latest one being on ''+
 		CONVERT(NVARCHAR(25),MAX(bs.backup_finish_date),120)+''. These backups do not exist.'' AS [Warning]
 	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS bs
-	INNER JOIN ' + QUOTENAME(@MSDBName) + '.dbo.backupmediafamily bmf ON bs.media_set_id = bmf.media_set_id
+	INNER JOIN #RTODiscardMedia bmf ON bs.media_set_id = bmf.media_set_id
 	WHERE UPPER(bmf.physical_device_name)= N''NUL''
 	AND (bs.is_copy_only = 1 OR bs.recovery_model = N''SIMPLE'')
 	AND bs.backup_finish_date >= @StartTime
@@ -1396,7 +1422,7 @@ IF @ProductVersionMajor >= 12
 		''The database '' + QUOTENAME(bs.database_name) + '' is not in SIMPLE recovery model and has had '' + CONVERT(VARCHAR(10), COUNT(*)) + '' backups to the NUL device, the latest one being on ''+
 		CONVERT(NVARCHAR(25),MAX(bs.backup_finish_date),120)+''. These backups do not exist and they might mess up your current backup chain.'' AS [Warning]
 	FROM   ' + QUOTENAME(@MSDBName) + '.dbo.backupset AS bs
-	INNER JOIN ' + QUOTENAME(@MSDBName) + '.dbo.backupmediafamily bmf ON bs.media_set_id = bmf.media_set_id
+	INNER JOIN #RTODiscardMedia bmf ON bs.media_set_id = bmf.media_set_id
 	WHERE UPPER(bmf.physical_device_name)= N''NUL''
 	AND bs.is_copy_only = 0 AND bs.recovery_model <> N''SIMPLE''
 	AND bs.backup_finish_date >= @StartTime
@@ -1774,7 +1800,7 @@ END
 									' 
 		SET @StringToExecute += N' (database_name, database_guid, backup_set_uuid, type, backup_size, backup_start_date, backup_finish_date, media_set_id, time_zone, 
 									compressed_backup_size, recovery_model, server_name, machine_name, first_lsn, last_lsn, user_name, compatibility_level,
-                                    first_recovery_fork_guid, last_recovery_fork_guid, fork_point_lsn, differential_base_guid, is_copy_only,
+                                    first_recovery_fork_guid, last_recovery_fork_guid, fork_point_lsn, differential_base_lsn, differential_base_guid, is_copy_only,
 									is_password_protected, is_snapshot, is_readonly, is_single_user, has_backup_checksums, is_damaged, ' + CASE WHEN @ProductVersionMajor >= 12 
 																																				THEN + N'encryptor_type, has_bulk_logged_data)' + @crlf
 																																				ELSE + N'has_bulk_logged_data)' + @crlf
@@ -1783,7 +1809,7 @@ END
 		SET @StringToExecute +=N'
 									SELECT database_name, database_guid, backup_set_uuid, type, backup_size, backup_start_date, backup_finish_date, media_set_id, time_zone, 
 									compressed_backup_size, recovery_model, server_name, machine_name, first_lsn, last_lsn, user_name, compatibility_level,
-                                    first_recovery_fork_guid, last_recovery_fork_guid, fork_point_lsn, differential_base_guid, is_copy_only,
+                                    first_recovery_fork_guid, last_recovery_fork_guid, fork_point_lsn, differential_base_lsn, differential_base_guid, is_copy_only,
 									is_password_protected, is_snapshot, is_readonly, is_single_user, has_backup_checksums, is_damaged, ' + CASE WHEN @ProductVersionMajor >= 12 
 																																				THEN + N'encryptor_type, has_bulk_logged_data' + @crlf
 																																				ELSE + N'has_bulk_logged_data' + @crlf
