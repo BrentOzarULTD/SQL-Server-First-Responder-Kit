@@ -244,7 +244,10 @@ run_analysis_schema_step() {
 }
 
 run_step() {
-  if [[ "$2" == 'sp_BlitzAnalysis defaults and isolates output schemas' ]]; then
+  if [[ "$2" == 'sp_BlitzLock parses a real system_health ring-buffer deadlock' ]]; then
+    SQLCMDSERVER="$SQLCMDSERVER" SQLCMDUSER="$SQLCMDUSER" SQLCMD="$SQLCMD" \
+      python3 "$SCRIPT_DIR/test-lock-ring-buffer.py"
+  elif [[ "$2" == 'sp_BlitzAnalysis defaults and isolates output schemas' ]]; then
     run_analysis_schema_step
   elif [[ "$2" == 'sp_kill kills a dedicated session' ]]; then
     run_kill_step "$1"

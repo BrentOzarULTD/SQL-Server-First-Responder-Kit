@@ -471,6 +471,8 @@ IF @QueryPlanHash IS NULL
 
 EXEC dbo.sp_BlitzPlanCompare @QueryPlanHash = @QueryPlanHash, @DatabaseName = 'FRKSmokeTest';
 
+--#STEP: sp_BlitzLock parses a real system_health ring-buffer deadlock
+/* The runner creates two concurrent workers and asserts the parsed participants. */
 --#STEP: sp_BlitzCache isolates analysis and all Excel export paths
 EXEC FRKSmokeTest.sys.sp_executesql
      N'SELECT COUNT_BIG(*) FROM dbo.Posts WHERE Id > 10 /* FRK isolation workload */';
