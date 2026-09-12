@@ -635,13 +635,13 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
                     QUOTENAME(@OutputDatabaseName) +
                     N'.sys.objects AS o inner join ' +
                     QUOTENAME(@OutputDatabaseName) +
-                    N'.sys.schemas as s on o.schema_id = s.schema_id WHERE o.type_desc = N''USER_TABLE'' AND o.name = ' +
+                    N'.sys.schemas as s on o.schema_id = s.schema_id WHERE o.type_desc = N''USER_TABLE'' AND o.name = N' +
                     QUOTENAME
                     (
                         @OutputTableName,
                         N''''
                     ) +
-                    N' AND s.name = ' +
+                    N' AND s.name = N' +
                     QUOTENAME
                     (
                         @OutputSchemaName,
@@ -683,8 +683,8 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
                 SET @StringToExecute =
                         N'IF NOT EXISTS (SELECT 1/0 FROM ' +
                         @OutputDatabaseName +
-                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(''' +
-                        @ObjectFullName +
+                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(N''' +
+                        REPLACE(@ObjectFullName, N'''', N'''''') +
                         N''')) AND o.name = N''spid'')
                         /*Add spid column*/
                         ALTER TABLE ' +
@@ -699,8 +699,8 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
                 SET @StringToExecute =
                         N'IF NOT EXISTS (SELECT 1/0 FROM ' +
                         @OutputDatabaseName +
-                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(''' +
-                        @ObjectFullName +
+                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(N''' +
+                        REPLACE(@ObjectFullName, N'''', N'''''') +
                         N''')) AND o.name = N''wait_resource'')
                         /*Add wait_resource column*/
                         ALTER TABLE ' +
@@ -715,8 +715,8 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
                 SET @StringToExecute =
                         N'IF NOT EXISTS (SELECT 1/0 FROM ' +
                         @OutputDatabaseName +
-                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(''' +
-                        @ObjectFullName +
+                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(N''' +
+                        REPLACE(@ObjectFullName, N'''', N'''''') +
                         N''')) AND o.name = N''client_option_1'')
                         /*Add client_option_1 column*/
                         ALTER TABLE ' +
@@ -731,8 +731,8 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
                 SET @StringToExecute =
                         N'IF NOT EXISTS (SELECT 1/0 FROM ' +
                         @OutputDatabaseName +
-                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(''' +
-                        @ObjectFullName +
+                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(N''' +
+                        REPLACE(@ObjectFullName, N'''', N'''''') +
                         N''')) AND o.name = N''client_option_2'')
                         /*Add client_option_2 column*/
                         ALTER TABLE ' +
@@ -747,8 +747,8 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
                 SET @StringToExecute =
                         N'IF NOT EXISTS (SELECT 1/0 FROM ' +
                         @OutputDatabaseName +
-                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(''' +
-                        @ObjectFullName +
+                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(N''' +
+                        REPLACE(@ObjectFullName, N'''', N'''''') +
                         N''')) AND o.name = N''lock_mode'')
                         /*Add lock_mode column*/
                         ALTER TABLE ' +
@@ -763,8 +763,8 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
                 SET @StringToExecute =
                         N'IF NOT EXISTS (SELECT 1/0 FROM ' +
                         @OutputDatabaseName +
-                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(''' +
-                        @ObjectFullName +
+                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(N''' +
+                        REPLACE(@ObjectFullName, N'''', N'''''') +
                         N''')) AND o.name = N''status'')
                         /*Add status column*/
                         ALTER TABLE ' +
@@ -855,7 +855,7 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
                     WHERE o.type_desc = N''USER_TABLE''
                     AND o.name = N''BlitzLockFindings''
                     AND s.name = N''' +
-                    PARSENAME(@OutputSchemaName, 1) +
+                    REPLACE(PARSENAME(@OutputSchemaName, 1), N'''', N'''''') +
                     N'''',
                 @StringToExecuteParams =
                     N'@r sysname OUTPUT';

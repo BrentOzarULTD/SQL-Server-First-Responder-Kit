@@ -10726,7 +10726,7 @@ IF NOT EXISTS ( SELECT  1
 
 						IF EXISTS (SELECT server_id FROM sys.servers WHERE QUOTENAME([name]) = @OutputServerName)
 							BEGIN
-								SET @LinkedServerDBCheck = 'SELECT 1 WHERE EXISTS (SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = '''+@OutputDatabaseName+''')';
+								SET @LinkedServerDBCheck = 'SELECT 1 WHERE EXISTS (SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = N'''+REPLACE(@OutputDatabaseName, N'''', N'''''')+''')';
 								INSERT INTO @tmpdbchk EXEC sys.sp_executesql @LinkedServerDBCheck;
 								SET @ValidLinkedServerDB = (SELECT COUNT(*) FROM @tmpdbchk);
 								IF (@ValidLinkedServerDB > 0)
@@ -10775,13 +10775,13 @@ IF NOT EXISTS ( SELECT  1
 							+ @OutputDatabaseName
 							+ '; IF EXISTS(SELECT * FROM '
 							+ @OutputDatabaseName
-							+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-							+ @OutputSchemaName
+							+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+							+ REPLACE(@OutputSchemaName, N'''', N'''''')
 							+ ''') AND NOT EXISTS (SELECT * FROM '
 							+ @OutputDatabaseName
-							+ '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-							+ @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
-							+ @OutputTableName + ''') CREATE TABLE '
+							+ '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N'''
+							+ REPLACE(@OutputSchemaName, N'''', N'''''') + ''' AND QUOTENAME(TABLE_NAME) = N'''
+							+ REPLACE(@OutputTableName, N'''', N'''''') + ''') CREATE TABLE '
 							+ @OutputSchemaName + '.'
 							+ @OutputTableName
 							+ ' (ID INT IDENTITY(1,1) NOT NULL,
@@ -10799,10 +10799,9 @@ IF NOT EXISTS ( SELECT  1
 								CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));';
 						IF @ValidOutputServer = 1
 							BEGIN
-								SET @StringToExecute = REPLACE(@StringToExecute,''''+@OutputSchemaName+'''',''''''+@OutputSchemaName+'''''');
-								SET @StringToExecute = REPLACE(@StringToExecute,''''+@OutputTableName+'''',''''''+@OutputTableName+'''''');
+								SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
 								SET @StringToExecute = REPLACE(@StringToExecute,'[XML]','[NVARCHAR](MAX)');
-								EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+								EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
 							END;
 						ELSE
 							BEGIN
@@ -10817,8 +10816,8 @@ IF NOT EXISTS ( SELECT  1
 								SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
 								+ @OutputServerName + '.'
 								+ @OutputDatabaseName
-								+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-								+ @OutputSchemaName + ''') INSERT '
+								+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+								+ REPLACE(@OutputSchemaName, N'''', N'''''') + ''') INSERT '
 								+ @OutputServerName + '.'
 								+ @OutputDatabaseName + '.'
 								+ @OutputSchemaName + '.'
@@ -10835,8 +10834,8 @@ IF NOT EXISTS ( SELECT  1
 								BEGIN
 									SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
 								+ @OutputDatabaseName
-								+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-								+ @OutputSchemaName + ''') INSERT '
+								+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+								+ REPLACE(@OutputSchemaName, N'''', N'''''') + ''') INSERT '
 								+ @OutputDatabaseName + '.'
 								+ @OutputSchemaName + '.'
 								+ @OutputTableName
@@ -10848,8 +10847,8 @@ IF NOT EXISTS ( SELECT  1
                                 begin
 								SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
 								+ @OutputDatabaseName
-								+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-								+ @OutputSchemaName + ''') INSERT '
+								+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+								+ REPLACE(@OutputSchemaName, N'''', N'''''') + ''') INSERT '
 								+ @OutputDatabaseName + '.'
 								+ @OutputSchemaName + '.'
 								+ @OutputTableName
@@ -10869,8 +10868,8 @@ IF NOT EXISTS ( SELECT  1
 							END;
 						ELSE
 							BEGIN
-								SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
-									+ @OutputTableName
+								SET @StringToExecute = N' IF (OBJECT_ID(N''tempdb..'
+									+ REPLACE(@OutputTableName, N'''', N'''''')
 									+ ''') IS NOT NULL) DROP TABLE ' + @OutputTableName + ';'
 									+ 'CREATE TABLE '
 									+ @OutputTableName

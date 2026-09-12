@@ -8117,7 +8117,7 @@ IF @OutputServerName IS NOT NULL
 					
 		IF EXISTS (SELECT server_id FROM sys.servers WHERE QUOTENAME([name]) = @OutputServerName)
 		    BEGIN
-		        SET @LinkedServerDBCheck = 'SELECT 1 WHERE EXISTS (SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = '''+@OutputDatabaseName+''')';
+		        SET @LinkedServerDBCheck = 'SELECT 1 WHERE EXISTS (SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = N'''+REPLACE(@OutputDatabaseName, N'''', N'''''')+''')';
 		        INSERT INTO @tmpdbchk EXEC sys.sp_executesql @LinkedServerDBCheck;
 		        SET @ValidLinkedServerDB = (SELECT COUNT(*) FROM @tmpdbchk);
 		        IF (@ValidLinkedServerDB > 0)
@@ -8168,13 +8168,13 @@ ELSE
 				+ @OutputDatabaseName
 				+ N'; IF EXISTS(SELECT * FROM '
 				+ @OutputDatabaseName
-				+ N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-				+ @OutputSchemaName
+				+ N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+				+ REPLACE(@OutputSchemaName, N'''', N'''''')
 				+ N''') AND NOT EXISTS (SELECT * FROM '
 				+ @OutputDatabaseName
-				+ N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-				+ @OutputSchemaName + N''' AND QUOTENAME(TABLE_NAME) = '''
-				+ @OutputTableName + N''') CREATE TABLE '
+				+ N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N'''
+				+ REPLACE(@OutputSchemaName, N'''', N'''''') + N''' AND QUOTENAME(TABLE_NAME) = N'''
+				+ REPLACE(@OutputTableName, N'''', N'''''') + N''') CREATE TABLE '
 				+ @OutputSchemaName + N'.'
 				+ @OutputTableName
 				+ CONVERT
@@ -8266,18 +8266,18 @@ ELSE
 
 			SET @StringToExecute += N'IF EXISTS(SELECT * FROM '
 					+@OutputDatabaseName
-					+N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-					+@OutputSchemaName
+					+N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+					+REPLACE(@OutputSchemaName, N'''', N'''''')
 					+N''') AND EXISTS (SELECT * FROM '
 					+@OutputDatabaseName+
-					N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-					+@OutputSchemaName
-					+N''' AND QUOTENAME(TABLE_NAME) = '''
-					+@OutputTableName
+					N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N'''
+					+REPLACE(@OutputSchemaName, N'''', N'''''')
+					+N''' AND QUOTENAME(TABLE_NAME) = N'''
+					+REPLACE(@OutputTableName, N'''', N'''''')
 					+N''') AND EXISTS (SELECT * FROM '
 					+@OutputDatabaseName+
 					N'.sys.computed_columns WHERE [name] = N''PlanCreationTimeHours'' AND QUOTENAME(OBJECT_NAME(object_id)) = N'''
-					+@OutputTableName
+					+REPLACE(@OutputTableName, N'''', N'''''')
 					+N''' AND [definition] = N''(datediff(hour,[PlanCreationTime],sysdatetime()))'')
 BEGIN 
 	RAISERROR(''We noticed that you are running an old computed column definition for PlanCreationTimeHours, fixing that now'',0,0) WITH NOWAIT;
@@ -8287,14 +8287,8 @@ END ';
 
             IF @ValidOutputServer = 1
 				BEGIN
-					SET @StringToExecute = REPLACE(@StringToExecute,''''+@OutputSchemaName+'''',''''''+@OutputSchemaName+'''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,''''+@OutputTableName+'''',''''''+@OutputTableName+'''''');
+					SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
 					SET @StringToExecute = REPLACE(@StringToExecute,'xml','nvarchar(max)');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [PlanHandle], 1) + '');''','''''DBCC FREEPROCCACHE ('''' + CONVERT(VARCHAR(128), [PlanHandle], 1) + '''');''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '');''','''''DBCC FREEPROCCACHE ('''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '''');''''');
-                    SET @StringToExecute = REPLACE(@StringToExecute,'''EXEC sp_BlitzCache @OnlySqlHandles = '''''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ''''''; ''','''''EXEC sp_BlitzCache @OnlySqlHandles = '''''''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ''''''''; ''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''EXEC sp_BlitzCache @OnlyQueryHashes = '''''' + CONVERT(VARCHAR(32), [QueryHash], 1) + ''''''; ''','''''EXEC sp_BlitzCache @OnlyQueryHashes = '''''''' + CONVERT(VARCHAR(32), [QueryHash], 1) + ''''''''; ''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''N/A''','''''N/A''''');
 					
                     IF @Debug = 1
                     BEGIN
@@ -8309,7 +8303,7 @@ END ';
                         PRINT SUBSTRING(@StringToExecute, 32000, 36000);
                         PRINT SUBSTRING(@StringToExecute, 36000, 40000);
                     END;
-                    EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+                    EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
                 END;
             ELSE
                 BEGIN
@@ -8332,13 +8326,12 @@ END ';
             /* If the table doesn't have the new LastCompletionTime column, add it. See Github #2377. */
             SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
             SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''LastCompletionTime'')
+                WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + ''')) AND name = ''LastCompletionTime'')
                 ALTER TABLE ' + @ObjectFullName + N' ADD LastCompletionTime DATETIME NULL;';
             IF @ValidOutputServer = 1
 				BEGIN
-					SET @StringToExecute = REPLACE(@StringToExecute,'''LastCompletionTime''','''''LastCompletionTime''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
-					EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
+					EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
                 END;
             ELSE
                 BEGIN
@@ -8348,13 +8341,12 @@ END ';
             /* If the table doesn't have the new PlanGenerationNum column, add it. See Github #2514. */
             SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
             SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''PlanGenerationNum'')
+                WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''PlanGenerationNum'')
                 ALTER TABLE ' + @ObjectFullName + N' ADD PlanGenerationNum BIGINT NULL;';
 			IF @ValidOutputServer = 1
 				BEGIN
-					SET @StringToExecute = REPLACE(@StringToExecute,'''PlanGenerationNum''','''''PlanGenerationNum''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
-                    EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
+                    EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
                 END;
             ELSE
                 BEGIN
@@ -8364,13 +8356,12 @@ END ';
 			/* If the table doesn't have the new Pattern column, add it */
             SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
             SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''Pattern'')
+                WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''Pattern'')
                 ALTER TABLE ' + @ObjectFullName + N' ADD Pattern NVARCHAR(20) NULL;';
 			IF @ValidOutputServer = 1
 				BEGIN
-					SET @StringToExecute = REPLACE(@StringToExecute,'''Pattern''','''''Pattern''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
-                    EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
+                    EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
                 END;
             ELSE
                 BEGIN
@@ -8380,13 +8371,12 @@ END ';
             /* If the table doesn't have the new ai_prompt column, add it. See Github #3669. */
             SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
             SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''ai_prompt'')
+                WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + ''')) AND name = ''ai_prompt'')
                 ALTER TABLE ' + @ObjectFullName + N' ADD ai_prompt NVARCHAR(MAX) NULL;';
             IF @ValidOutputServer = 1
 				BEGIN
-					SET @StringToExecute = REPLACE(@StringToExecute,'''ai_prompt''','''''ai_prompt''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
-					EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
+					EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
                 END;
             ELSE
                 BEGIN
@@ -8396,13 +8386,12 @@ END ';
             /* If the table doesn't have the new ai_advice column, add it. See Github #3669. */
             SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
             SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''ai_advice'')
+                WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + ''')) AND name = ''ai_advice'')
                 ALTER TABLE ' + @ObjectFullName + N' ADD ai_advice NVARCHAR(MAX) NULL;';
             IF @ValidOutputServer = 1
 				BEGIN
-					SET @StringToExecute = REPLACE(@StringToExecute,'''ai_advice''','''''ai_advice''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
-					EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
+					EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
                 END;
             ELSE
                 BEGIN
@@ -8412,13 +8401,12 @@ END ';
             /* If the table doesn't have the new ai_payload column, add it. See Github #3669. */
             SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
             SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''ai_payload'')
+                WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + ''')) AND name = ''ai_payload'')
                 ALTER TABLE ' + @ObjectFullName + N' ADD ai_payload NVARCHAR(MAX) NULL;';
             IF @ValidOutputServer = 1
 				BEGIN
-					SET @StringToExecute = REPLACE(@StringToExecute,'''ai_payload''','''''ai_payload''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
-					EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
+					EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
                 END;
             ELSE
                 BEGIN
@@ -8428,13 +8416,12 @@ END ';
             /* If the table doesn't have the new ai_raw_response column, add it. See Github #3669. */
             SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
             SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''ai_raw_response'')
+                WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + ''')) AND name = ''ai_raw_response'')
                 ALTER TABLE ' + @ObjectFullName + N' ADD ai_raw_response NVARCHAR(MAX) NULL;';
             IF @ValidOutputServer = 1
 				BEGIN
-					SET @StringToExecute = REPLACE(@StringToExecute,'''ai_raw_response''','''''ai_raw_response''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
-					EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
+					EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
                 END;
             ELSE
                 BEGIN
@@ -8451,8 +8438,8 @@ END ';
 					SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
 					+ @OutputServerName + '.'
 					+ @OutputDatabaseName
-					+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-					+ @OutputSchemaName + ''') INSERT '
+					+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+					+ REPLACE(@OutputSchemaName, N'''', N'''''') + ''') INSERT '
 					+ @OutputServerName + '.'
 					+ @OutputDatabaseName + '.'
 					+ @OutputSchemaName + '.'
@@ -8520,8 +8507,8 @@ END ';
 				BEGIN
 					SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
 					+ @OutputDatabaseName
-					+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-					+ @OutputSchemaName + ''') INSERT '
+					+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+					+ REPLACE(@OutputSchemaName, N'''', N'''''') + ''') INSERT '
 					+ @OutputDatabaseName + '.'
 					+ @OutputSchemaName + '.'
 					+ @OutputTableName
@@ -8597,8 +8584,8 @@ END ';
 				END;
 			ELSE
 				BEGIN				
-					SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
-						+ @OutputTableName
+					SET @StringToExecute = N' IF (OBJECT_ID(N''tempdb..'
+						+ REPLACE(@OutputTableName, N'''', N'''''')
 						+ ''') IS NOT NULL) DROP TABLE ' + @OutputTableName + ';'
 						+ 'CREATE TABLE '
 						+ @OutputTableName
