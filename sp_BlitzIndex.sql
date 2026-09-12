@@ -1903,6 +1903,7 @@ BEGIN TRY
 				, reserved_row_overflow_MB NUMERIC(29,2)
 				, lock_escalation_desc nvarchar(60)
 				, data_compression_desc nvarchar(60)
+                , reserved_dictionary_MB NUMERIC(29,2)
 			)
 
 			-- get relevant info from sys.dm_db_index_operational_stats
@@ -1944,7 +1945,7 @@ BEGIN TRY
                         SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                         INSERT INTO #dm_db_partition_stats_etc
                         (
-                            database_id, object_id, sname, index_id, partition_number, partition_id, row_count, reserved_MB, reserved_LOB_MB, reserved_row_overflow_MB, lock_escalation_desc, data_compression_desc
+                            database_id, object_id, sname, index_id, partition_number, partition_id, row_count, reserved_MB, reserved_LOB_MB, reserved_row_overflow_MB, lock_escalation_desc, data_compression_desc, reserved_dictionary_MB
                         )
                         SELECT  ' + CAST(@DatabaseID AS NVARCHAR(10)) + N' AS database_id,
                                 ps.object_id, 
@@ -1957,7 +1958,10 @@ BEGIN TRY
                                 ps.lob_reserved_page_count * 8. / 1024. AS reserved_LOB_MB,
                                 ps.row_overflow_reserved_page_count * 8. / 1024. AS reserved_row_overflow_MB,
 								le.lock_escalation_desc,
-                            par.data_compression_desc
+                            par.data_compression_desc,
+                            COALESCE((SELECT SUM(dict.on_disk_size / 1024.0 / 1024)
+                                      FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_dictionaries AS dict
+                                      WHERE dict.partition_id = ps.partition_id), 0) AS reserved_dictionary_MB
 ';
 
             SET @dsql = @dsql + N'
@@ -2210,11 +2214,11 @@ BEGIN TRY
 								SUM(os.page_latch_wait_in_ms),
 								SUM(os.page_io_latch_wait_count),								
 								SUM(os.page_io_latch_wait_in_ms)
-                                ,COALESCE((SELECT SUM (dict.on_disk_size / 1024.0 / 1024) FROM sys.column_store_dictionaries dict WHERE dict.partition_id = h.partition_id),0) AS reserved_dictionary_MB 
+                                ,h.reserved_dictionary_MB
                     from #dm_db_partition_stats_etc h
                     left JOIN #dm_db_index_operational_stats as os ON
                         h.object_id=os.object_id and h.index_id=os.index_id and h.partition_number=os.partition_number 
-                    group by h.database_id, h.object_id, h.sname, h.index_id, h.partition_number, h.partition_id, h.row_count, h.reserved_MB, h.reserved_LOB_MB, h.reserved_row_overflow_MB, h.lock_escalation_desc, h.data_compression_desc                          
+                    group by h.database_id, h.object_id, h.sname, h.index_id, h.partition_number, h.partition_id, h.row_count, h.reserved_MB, h.reserved_LOB_MB, h.reserved_row_overflow_MB, h.lock_escalation_desc, h.data_compression_desc, h.reserved_dictionary_MB
                 
 		END; --End Check For @SkipPartitions = 0
 
