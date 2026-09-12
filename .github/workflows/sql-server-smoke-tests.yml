@@ -61,15 +61,6 @@ jobs:
           sudo env ACCEPT_EULA=Y apt-get install -y mssql-tools18 unixodbc-dev
           echo "/opt/mssql-tools18/bin" >> "$GITHUB_PATH"
 
-      # sp_DatabaseRestore's dependencies (Ola Hallengren's CommandLog and
-      # CommandExecute) are not fetched here. The only invocation left in the
-      # matrix is @Help = 1, which returns before the procedure's CommandExecute
-      # check, so downloading them would add two network dependencies and two
-      # checksums that can redden every PR without exercising anything. Restore
-      # this step together with the execute-path test when #4049 lands:
-      #
-      #   OLA_BASE_URL: https://raw.githubusercontent.com/olahallengren/sql-server-maintenance-solution/master
-      #   CommandExecute.sql sha256 80e65a63e0dd81a8073c69b538ba222381354bd3435ba6141e6fb8eb6acbb070
-      #   CommandLog.sql     sha256 7a508fa7ed562ec5ee09d4f587f7f2a87f7a4eb3c57450602ee99cdeb4e18b31
+      # The runner installs pinned Ola dependencies for real restore coverage.
       - name: Run SQL Server smoke tests
         run: bash .github/scripts/run-sql-server-smoke-tests.sh
