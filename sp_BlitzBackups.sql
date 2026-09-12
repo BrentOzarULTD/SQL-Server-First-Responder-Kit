@@ -752,6 +752,12 @@ RAISERROR('Add any full backups in the StartDate range that weren''t part of the
 							 LEFT OUTER JOIN #RTORecoveryPoints rp ON bFull.backup_set_uuid = rp.full_backup_set_uuid
 							 WHERE bFull.type = ''D''
 							     AND bFull.backup_finish_date IS NOT NULL
+                                 AND (bFull.backup_finish_date>=@StartTime OR EXISTS (
+                                     SELECT 1 FROM #RTOBackupSets endpoint
+                                     WHERE endpoint.database_guid=bFull.database_guid AND endpoint.database_name=bFull.database_name
+                                       AND endpoint.backup_finish_date>=@StartTime
+                                       AND ((endpoint.type=''I'' AND endpoint.differential_base_guid=bFull.backup_set_uuid)
+                                         OR (endpoint.type=''L'' AND endpoint.last_lsn>bFull.last_lsn))))
 							     AND rp.full_backup_set_uuid IS NULL
                                  AND NOT EXISTS (SELECT 1 FROM #RTOExcluded x WHERE x.database_name=bFull.database_name AND x.database_guid=bFull.database_guid);
 							';
@@ -1783,6 +1789,22 @@ END
 		END
 
 
+        /* Preserve distributed-DML-only listeners when remote RPC is disabled. */
+        DECLARE @PushMediaFacts bit=1;
+        IF @WriteBackupsToListenerName<>@@SERVERNAME
+           AND EXISTS(SELECT 1 FROM sys.servers WHERE name=@WriteBackupsToListenerName AND is_rpc_out_enabled=0)
+        BEGIN
+            SET @StringToExecute=N'SELECT @Available=CASE WHEN COUNT(*)=2 THEN 1 ELSE 0 END
+              FROM '+QUOTENAME(@WriteBackupsToListenerName)+N'.'+QUOTENAME(@WriteBackupsToDatabaseName)+N'.sys.columns c
+              JOIN '+QUOTENAME(@WriteBackupsToListenerName)+N'.'+QUOTENAME(@WriteBackupsToDatabaseName)+N'.sys.tables t ON c.object_id=t.object_id
+              JOIN '+QUOTENAME(@WriteBackupsToListenerName)+N'.'+QUOTENAME(@WriteBackupsToDatabaseName)+N'.sys.schemas s ON t.schema_id=s.schema_id
+              WHERE s.name=N''dbo'' AND t.name=N''backupset'' AND c.name IN(N''frk_media_is_usable'',N''frk_media_has_discard'');';
+            EXEC sys.sp_executesql @StringToExecute,N'@Available bit OUTPUT',@Available=@PushMediaFacts OUTPUT;
+            IF @PushMediaFacts=0
+                RAISERROR('History push continues without media facts. Add nullable bit columns frk_media_is_usable and frk_media_has_discard to the destination dbo.backupset to enable centralized RTO metadata.',0,1) WITH NOWAIT;
+        END
+        ELSE
+        BEGIN
         /* Add source-validated media facts to both new and existing destinations. */
         SET @StringToExecute=N'USE '+QUOTENAME(@WriteBackupsToDatabaseName)+N';
           IF COL_LENGTH(N''dbo.backupset'',N''frk_media_is_usable'') IS NULL
@@ -1795,6 +1817,8 @@ END
         BEGIN
             SET @InnerStringToExecute=N'EXEC(N'''+REPLACE(@StringToExecute,N'''',N'''''')+N''') AT '+QUOTENAME(@WriteBackupsToListenerName)+N';';
             EXEC sys.sp_executesql @InnerStringToExecute;
+        END;
+
         END;
 
 		RAISERROR('Beginning inserts', 0, 1) WITH NOWAIT;
@@ -1913,7 +1937,9 @@ END
 
 	EXEC sp_executesql @StringToExecute, N'@i_WriteBackupsLastHours INT', @i_WriteBackupsLastHours = @WriteBackupsLastHours;
 
-    /* Refresh newly inserted and legacy rows in the requested push window.
+    IF @PushMediaFacts=1
+    BEGIN
+    /* Refresh the push window and retained full anchors with missing facts.
        Evaluate media on the source, never by joining unqualified central media IDs. */
     SET @StringToExecute=N'UPDATE h SET
       frk_media_is_usable=CASE WHEN b.first_family_number>0 AND b.last_family_number>=b.first_family_number
@@ -1930,9 +1956,10 @@ END
       differential_base_guid=b.differential_base_guid,is_copy_only=b.is_copy_only
     FROM '+QUOTENAME(@WriteBackupsToListenerName)+N'.'+QUOTENAME(@WriteBackupsToDatabaseName)+N'.dbo.backupset h
     JOIN msdb.dbo.backupset b ON b.backup_set_uuid=h.backup_set_uuid
-    WHERE b.backup_start_date>=DATEADD(hour,@Hours,SYSDATETIME())
+    WHERE (b.backup_start_date>=DATEADD(hour,@Hours,SYSDATETIME()) OR b.type=''D'')
       AND (h.frk_media_is_usable IS NULL OR h.frk_media_has_discard IS NULL);';
     EXEC sys.sp_executesql @StringToExecute,N'@Hours int',@Hours=@WriteBackupsLastHours;
+    END;
 
 
 END;

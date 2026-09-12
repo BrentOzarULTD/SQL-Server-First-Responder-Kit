@@ -969,6 +969,15 @@ BEGIN TRY
         THROW 51000,'An ancient fork suppressed or contaminated the current recovery chain.',1;
     IF NOT EXISTS(SELECT 1 FROM #FRKRPOProof WHERE Minutes IS NOT NULL AND Endpoint=@CurrentLog AND PriorBackup=@CurrentFull)
         THROW 51000,'Newly visible old-full history omitted its RPO fields.',1;
+    SELECT * INTO #FRKEndpointSave FROM FRKLogHistory.dbo.backupset WHERE backup_set_id=@CurrentLog;
+    UPDATE FRKLogHistory.dbo.backupset SET type='I',is_damaged=1 WHERE backup_set_id=@CurrentLog;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
+    EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory',@HoursBack=1;
+    IF EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL)
+       OR NOT EXISTS(SELECT 1 FROM #FRKWarningProof WHERE Finding=N'RTO estimate unavailable')
+        THROW 51000,'Old full became an out-of-window standalone endpoint.',1;
+    UPDATE b SET type=s.type,is_damaged=s.is_damaged FROM FRKLogHistory.dbo.backupset b JOIN #FRKEndpointSave s ON b.backup_set_id=s.backup_set_id;
+    DROP TABLE #FRKEndpointSave;
     /* Merged sources cannot share an unqualified media_set_id mapping safely. */
     DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
     UPDATE FRKLogHistory.dbo.backupset SET server_name=N'OtherSource' WHERE backup_set_id=@CurrentLog;
@@ -1117,6 +1126,11 @@ BEGIN TRY
         differential_base_lsn,differential_base_guid,is_copy_only FROM FRKLogHistory.dbo.backupset)
         THROW 51000,'History push lost or mis-mapped recovery metadata.',1;
     EXEC FRKLogHistory.sys.sp_executesql N'IF EXISTS(SELECT 1 FROM dbo.backupset WHERE frk_media_is_usable IS NULL OR frk_media_has_discard IS NULL) THROW 51000,''Push omitted media facts.'',1;';
+    /* No current push rows: retained full facts must still be backfilled. */
+    EXEC FRKLogHistory.sys.sp_executesql N'UPDATE dbo.backupset SET frk_media_is_usable=NULL,frk_media_has_discard=NULL WHERE type=''D'';';
+    EXEC FRKLogHistory.dbo.sp_BlitzBackups @PushBackupHistoryToListener=1,
+      @WriteBackupsToListenerName=@LocalServer,@WriteBackupsToDatabaseName=N'FRKLogHistory',@WriteBackupsLastHours=0;
+    EXEC FRKLogHistory.sys.sp_executesql N'IF EXISTS(SELECT 1 FROM dbo.backupset WHERE type=''D'' AND (frk_media_is_usable IS NULL OR frk_media_has_discard IS NULL)) THROW 51000,''Retained full media facts were not refreshed.'',1;';
     DROP TABLE FRKLogHistory.dbo.backupmediafamily;
     DELETE FRKLogHistory.dbo.backupset WHERE database_guid<>(SELECT database_guid FROM sys.database_recovery_status WHERE database_id=DB_ID(N'FRKLogSource'));
     DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKRPOProof; DELETE #FRKWarningProof;
