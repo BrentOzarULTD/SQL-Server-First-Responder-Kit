@@ -529,6 +529,150 @@ IF @QueryPlanHash IS NULL
 
 EXEC dbo.sp_BlitzPlanCompare @QueryPlanHash = @QueryPlanHash, @DatabaseName = 'FRKSmokeTest';
 
+--#STEP: sp_BlitzFirst multi-server deltas and in-place upgrades
+IF DB_ID(N'FRKDeltaSmoke') IS NOT NULL THROW 51000,'Delta fixture already exists.',1;
+EXEC(N'CREATE DATABASE FRKDeltaSmoke;');
+GO
+EXEC master.dbo.sp_BlitzFirst @Seconds=1,@OutputDatabaseName=N'FRKDeltaSmoke',@OutputSchemaName=N'dbo',@OutputTableNameFileStats=N'Files',@OutputTableNamePerfmonStats=N'Perfmon',@OutputTableNameWaitStats=N'Waits';
+GO
+USE FRKDeltaSmoke;
+
+DELETE dbo.Files; DELETE dbo.Perfmon; DELETE dbo.Waits;
+CREATE TABLE dbo.Expected(ServerName nvarchar(128),CheckDate datetimeoffset,CounterValue bigint,ElapsedSeconds int);
+DECLARE @Base datetimeoffset=DATEADD(hour,-1,SYSDATETIMEOFFSET()),
+ @ServerA nvarchar(128)=N'FRKDeltaA_'+CONVERT(nvarchar(36),NEWID()),
+ @ServerB nvarchar(128)=N'FRKDeltaB_'+CONVERT(nvarchar(36),NEWID());
+INSERT dbo.Expected VALUES
+(@ServerA,DATEADD(minute,0,@Base),1000,NULL),
+(@ServerA,DATEADD(minute,5,@Base),2000,300),
+(@ServerA,DATEADD(minute,10,@Base),3000,300),
+(@ServerB,DATEADD(minute,0,@Base),4000,NULL),
+(@ServerB,DATEADD(minute,5,@Base),5000,300),
+(@ServerB,DATEADD(minute,12,@Base),6000,420);
+INSERT dbo.Files(ServerName,CheckDate,DatabaseID,FileID,num_of_reads,num_of_writes,io_stall_read_ms,io_stall_write_ms,bytes_read,bytes_written)
+SELECT ServerName,CheckDate,1,1,CounterValue,CounterValue,CounterValue,CounterValue,CounterValue,CounterValue FROM dbo.Expected;
+INSERT dbo.Perfmon(ServerName,CheckDate,object_name,counter_name,instance_name,cntr_type,cntr_value)
+SELECT ServerName,CheckDate,N'Object',N'Counter',N'Instance',272696576,CounterValue FROM dbo.Expected;
+INSERT dbo.Waits(ServerName,CheckDate,wait_type,wait_time_ms,signal_wait_time_ms,waiting_tasks_count)
+SELECT ServerName,CheckDate,N'LCK_M_X',CounterValue,0,CounterValue FROM dbo.Expected;
+CREATE USER CodexDeltaReader WITHOUT LOGIN;
+GRANT SELECT ON dbo.Files_Deltas TO CodexDeltaReader;
+GRANT SELECT ON dbo.Perfmon_Deltas TO CodexDeltaReader;
+GRANT SELECT ON dbo.Waits_Deltas TO CodexDeltaReader;
+SELECT object_id,name INTO dbo.OriginalViewIds FROM sys.views WHERE name IN('Files_Deltas','Perfmon_Deltas','Waits_Deltas');
+
+DELETE d FROM dbo.Files d WHERE NOT EXISTS(SELECT 1 FROM dbo.Expected e WHERE e.ServerName=d.ServerName);
+DELETE d FROM dbo.Perfmon d WHERE NOT EXISTS(SELECT 1 FROM dbo.Expected e WHERE e.ServerName=d.ServerName);
+DELETE d FROM dbo.Waits d WHERE NOT EXISTS(SELECT 1 FROM dbo.Expected e WHERE e.ServerName=d.ServerName);
+IF (SELECT COUNT(*) FROM dbo.Files_Deltas)<>4 OR (SELECT COUNT(*) FROM dbo.Perfmon_Deltas)<>4 OR (SELECT COUNT(*) FROM dbo.Waits_Deltas)<>4 THROW 51000,'Incorrect view row counts',1;
+IF EXISTS(
+    SELECT 1 FROM (SELECT ServerName,CheckDate FROM dbo.Expected WHERE ElapsedSeconds IS NOT NULL) e
+    FULL OUTER JOIN (SELECT ServerName,CheckDate,COUNT(*) AS Copies FROM dbo.Files_Deltas GROUP BY ServerName,CheckDate) d
+    ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate
+    WHERE e.ServerName IS NULL OR d.ServerName IS NULL OR d.Copies<>1)
+    THROW 51000,'Missing, extra, or duplicate Files delta key.',1;
+IF EXISTS(
+    SELECT 1 FROM (SELECT ServerName,CheckDate FROM dbo.Expected WHERE ElapsedSeconds IS NOT NULL) e
+    FULL OUTER JOIN (SELECT ServerName,CheckDate,COUNT(*) AS Copies FROM dbo.Perfmon_Deltas GROUP BY ServerName,CheckDate) d
+    ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate
+    WHERE e.ServerName IS NULL OR d.ServerName IS NULL OR d.Copies<>1)
+    THROW 51000,'Missing, extra, or duplicate Perfmon delta key.',1;
+IF EXISTS(
+    SELECT 1 FROM (SELECT ServerName,CheckDate FROM dbo.Expected WHERE ElapsedSeconds IS NOT NULL) e
+    FULL OUTER JOIN (SELECT ServerName,CheckDate,COUNT(*) AS Copies FROM dbo.Waits_Deltas GROUP BY ServerName,CheckDate) d
+    ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate
+    WHERE e.ServerName IS NULL OR d.ServerName IS NULL OR d.Copies<>1)
+    THROW 51000,'Missing, extra, or duplicate Waits delta key.',1;
+IF EXISTS(SELECT 1 FROM dbo.Files_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.num_of_reads IS NULL OR d.num_of_reads<>1000 OR d.ElapsedSeconds IS NULL OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect file delta',1;
+IF EXISTS(SELECT 1 FROM dbo.Perfmon_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.cntr_delta IS NULL OR d.cntr_delta<>1000 OR d.ElapsedSeconds IS NULL OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect perfmon delta',1;
+IF EXISTS(SELECT 1 FROM dbo.Waits_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.wait_time_ms_delta IS NULL OR d.wait_time_ms_delta<>1000 OR d.ElapsedSeconds IS NULL OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect wait delta',1;
+IF EXISTS(SELECT 1 FROM dbo.OriginalViewIds i LEFT JOIN sys.views v ON i.object_id=v.object_id AND i.name=v.name WHERE v.object_id IS NULL) THROW 51000,'View object ID changed',1;
+IF (SELECT COUNT(*) FROM sys.database_permissions WHERE grantee_principal_id=DATABASE_PRINCIPAL_ID('CodexDeltaReader') AND permission_name='SELECT')<>3 THROW 51000,'View permissions lost',1;
+PRINT 'SERVER DELTAS AND UPGRADE PASS';
+
+GO
+ALTER VIEW dbo.Files_Deltas AS SELECT CAST(1 AS int) AS JoinKey, CAST(1 AS int) AS FRK_ServerScopedDeltas_v1;
+GO
+ALTER VIEW dbo.Perfmon_Deltas AS SELECT CAST(1 AS int) AS JoinKey, CAST(1 AS int) AS FRK_ServerScopedDeltas_v1;
+GO
+ALTER VIEW dbo.Waits_Deltas AS SELECT CAST(1 AS int) AS JoinKey, CAST(1 AS int) AS FRK_ServerScopedDeltas_v1;
+GO
+/* A bare identifier is deliberately present to reproduce the old collision.
+   The complete comment marker must be absent before the migration call. */
+IF EXISTS(SELECT 1 FROM sys.sql_modules WHERE object_id IN
+    (OBJECT_ID(N'dbo.Files_Deltas'),OBJECT_ID(N'dbo.Perfmon_Deltas'),OBJECT_ID(N'dbo.Waits_Deltas'))
+    AND CHARINDEX(N'/* FRK_ServerScopedDeltas_v1 */',definition)>0)
+    THROW 51000,'Legacy fixture unexpectedly contains the complete migration marker.',1;
+GO
+EXEC master.dbo.sp_BlitzFirst @Seconds=1,@OutputDatabaseName=N'FRKDeltaSmoke',@OutputSchemaName=N'dbo',@OutputTableNameFileStats=N'Files',@OutputTableNamePerfmonStats=N'Perfmon',@OutputTableNameWaitStats=N'Waits';
+GO
+
+DELETE d FROM dbo.Files d WHERE NOT EXISTS(SELECT 1 FROM dbo.Expected e WHERE e.ServerName=d.ServerName);
+DELETE d FROM dbo.Perfmon d WHERE NOT EXISTS(SELECT 1 FROM dbo.Expected e WHERE e.ServerName=d.ServerName);
+DELETE d FROM dbo.Waits d WHERE NOT EXISTS(SELECT 1 FROM dbo.Expected e WHERE e.ServerName=d.ServerName);
+IF (SELECT COUNT(*) FROM dbo.Files_Deltas)<>4 OR (SELECT COUNT(*) FROM dbo.Perfmon_Deltas)<>4 OR (SELECT COUNT(*) FROM dbo.Waits_Deltas)<>4 THROW 51000,'Incorrect view row counts',1;
+IF EXISTS(
+    SELECT 1 FROM (SELECT ServerName,CheckDate FROM dbo.Expected WHERE ElapsedSeconds IS NOT NULL) e
+    FULL OUTER JOIN (SELECT ServerName,CheckDate,COUNT(*) AS Copies FROM dbo.Files_Deltas GROUP BY ServerName,CheckDate) d
+    ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate
+    WHERE e.ServerName IS NULL OR d.ServerName IS NULL OR d.Copies<>1)
+    THROW 51000,'Missing, extra, or duplicate Files delta key.',1;
+IF EXISTS(
+    SELECT 1 FROM (SELECT ServerName,CheckDate FROM dbo.Expected WHERE ElapsedSeconds IS NOT NULL) e
+    FULL OUTER JOIN (SELECT ServerName,CheckDate,COUNT(*) AS Copies FROM dbo.Perfmon_Deltas GROUP BY ServerName,CheckDate) d
+    ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate
+    WHERE e.ServerName IS NULL OR d.ServerName IS NULL OR d.Copies<>1)
+    THROW 51000,'Missing, extra, or duplicate Perfmon delta key.',1;
+IF EXISTS(
+    SELECT 1 FROM (SELECT ServerName,CheckDate FROM dbo.Expected WHERE ElapsedSeconds IS NOT NULL) e
+    FULL OUTER JOIN (SELECT ServerName,CheckDate,COUNT(*) AS Copies FROM dbo.Waits_Deltas GROUP BY ServerName,CheckDate) d
+    ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate
+    WHERE e.ServerName IS NULL OR d.ServerName IS NULL OR d.Copies<>1)
+    THROW 51000,'Missing, extra, or duplicate Waits delta key.',1;
+IF EXISTS(SELECT 1 FROM dbo.Files_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.num_of_reads IS NULL OR d.num_of_reads<>1000 OR d.ElapsedSeconds IS NULL OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect file delta',1;
+IF EXISTS(SELECT 1 FROM dbo.Perfmon_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.cntr_delta IS NULL OR d.cntr_delta<>1000 OR d.ElapsedSeconds IS NULL OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect perfmon delta',1;
+IF EXISTS(SELECT 1 FROM dbo.Waits_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.wait_time_ms_delta IS NULL OR d.wait_time_ms_delta<>1000 OR d.ElapsedSeconds IS NULL OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect wait delta',1;
+IF EXISTS(SELECT 1 FROM dbo.OriginalViewIds i LEFT JOIN sys.views v ON i.object_id=v.object_id AND i.name=v.name WHERE v.object_id IS NULL) THROW 51000,'View object ID changed',1;
+IF (SELECT COUNT(*) FROM sys.database_permissions WHERE grantee_principal_id=DATABASE_PRINCIPAL_ID('CodexDeltaReader') AND permission_name='SELECT')<>3 THROW 51000,'View permissions lost',1;
+PRINT 'SERVER DELTAS AND UPGRADE PASS';
+
+GRANT VIEW DEFINITION ON dbo.Files_Deltas TO CodexDeltaReader;
+GRANT VIEW DEFINITION ON dbo.Perfmon_Deltas TO CodexDeltaReader;
+GRANT VIEW DEFINITION ON dbo.Waits_Deltas TO CodexDeltaReader;
+EXECUTE AS USER=N'CodexDeltaReader';
+BEGIN TRY
+    IF (SELECT COUNT(*) FROM sys.sql_modules WHERE definition LIKE '%FRK_ServerScopedDeltas_v1%') <> 3
+        THROW 51000,'Collector cannot recognize the migrated views.',1;
+    IF HAS_PERMS_BY_NAME(N'dbo.Files_Deltas', N'OBJECT', N'ALTER') <> 0
+        THROW 51000,'Metadata visibility test unexpectedly has ALTER permission.',1;
+    REVERT;
+END TRY
+BEGIN CATCH
+    REVERT;
+    THROW;
+END CATCH;
+SELECT object_id,modify_date INTO dbo.ViewModified FROM sys.views
+WHERE name IN(N'Files_Deltas',N'Perfmon_Deltas',N'Waits_Deltas');
+WAITFOR DELAY '00:00:01';
+GO
+EXEC master.dbo.sp_BlitzFirst @Seconds=1,@OutputDatabaseName=N'FRKDeltaSmoke',@OutputSchemaName=N'dbo',@OutputTableNameFileStats=N'Files',@OutputTableNamePerfmonStats=N'Perfmon',@OutputTableNameWaitStats=N'Waits';
+GO
+IF EXISTS(SELECT 1 FROM dbo.OriginalViewIds i LEFT JOIN sys.views v ON i.object_id=v.object_id AND i.name=v.name WHERE v.object_id IS NULL) THROW 51000,'Repeated collection changed a view object ID',1;
+IF (SELECT COUNT(*) FROM sys.database_permissions WHERE grantee_principal_id=DATABASE_PRINCIPAL_ID('CodexDeltaReader') AND permission_name='SELECT')<>3 THROW 51000,'Repeated collection lost view permissions',1;
+IF EXISTS(SELECT 1 FROM dbo.ViewModified m JOIN sys.views v ON v.object_id=m.object_id
+          WHERE v.modify_date<>m.modify_date)
+    THROW 51000,'Repeated collection unnecessarily altered a migrated view.',1;
+
+DECLARE @LongSchema sysname=REPLICATE(N'S',128), @LongTable sysname=REPLICATE(N'F',120), @LongSQL nvarchar(max);
+SET @LongSQL=N'CREATE SCHEMA '+QUOTENAME(@LongSchema)+N';';
+EXEC(@LongSQL);
+EXEC master.dbo.sp_BlitzFirst @Seconds=1,@OutputDatabaseName=N'FRKDeltaSmoke',@OutputSchemaName=@LongSchema,@OutputTableNameFileStats=@LongTable;
+IF NOT EXISTS(SELECT 1 FROM sys.views v JOIN sys.sql_modules m ON m.object_id=v.object_id
+ WHERE v.schema_id=SCHEMA_ID(@LongSchema) AND v.name=@LongTable+N'_Deltas' AND LEN(m.definition)>4000)
+ THROW 51000,'Long-identifier view was truncated or the fixture did not exceed 4000 characters.',1;
+PRINT 'Multi-server delta values, upgrades, permissions, and repeat behavior passed.';
+USE master;
+DROP DATABASE FRKDeltaSmoke;
 --#STEP: sp_BlitzLock parses a real system_health ring-buffer deadlock
 /* The runner creates two concurrent workers and asserts the parsed participants. */
 --#STEP: sp_BlitzCache isolates analysis and all Excel export paths
@@ -854,3 +998,140 @@ BEGIN CATCH
     THROW;
 END CATCH;
 PRINT 'PASS: overlapping copy-only logs, copy-only endpoint, and full/diff boundaries';
+--#STEP: output identifiers preserve quotes Unicode and brackets
+IF DB_ID(N'FRK''雪]Output') IS NOT NULL THROW 51000,'Quoted output fixture exists.',1;
+EXEC(N'CREATE DATABASE [FRK''雪]]Output];');
+GO
+EXEC [FRK'雪]]Output].sys.sp_executesql N'CREATE SCHEMA [Schema''雪]]];';
+EXEC [FRK'雪]]Output].sys.sp_executesql N'CREATE TABLE dbo.DeadlockInput(EventData xml);';
+INSERT [FRK'雪]]Output].dbo.DeadlockInput VALUES(N'<event name="xml_deadlock_report" package="sqlserver" timestamp="2026-09-12T00:45:02.719Z"><data name="xml_report"><type name="xml" package="package0" /><value><deadlock><victim-list><victimProcess id="processc959084e8" /></victim-list><process-list><process id="processc959084e8" taskpriority="0" logused="240" waitresource="KEY: 5:72057594047496192 (8194443284a0)" waittime="4236" ownerId="557637" transactionname="user_transaction" lasttranstarted="2026-09-12T00:44:56.473" XDES="0xca8500470" lockMode="X" schedulerid="7" kpid="920" status="suspended" spid="68" sbid="0" ecid="0" priority="0" trancount="2" lastbatchstarted="2026-09-12T00:44:56.470" lastbatchcompleted="2026-09-12T00:44:56.473" lastattention="1900-01-01T00:00:00.473" clientapp="sqlcmd" hostname="FRKSmokeHost" hostpid="1" loginname="FRKSmokeLogin" isolationlevel="read committed (2)" xactid="557637" currentdb="5" currentdbname="FRKSmokeTest" lockTimeout="4294967295" clientoption1="671088672" clientoption2="128056"><executionStack><frame>UPDATE dbo.FRKFixture SET Value=1;</frame><frame>UPDATE dbo.FRKFixture SET Value=1;</frame></executionStack><inputbuf>UPDATE dbo.FRKFixture SET Value=1;</inputbuf></process><process id="processc80078ca8" taskpriority="0" logused="240" waitresource="KEY: 5:72057594047496192 (61a06abd401c)" waittime="4240" ownerId="557640" transactionname="user_transaction" lasttranstarted="2026-09-12T00:44:56.473" XDES="0xca2604470" lockMode="X" schedulerid="1" kpid="620" status="suspended" spid="69" sbid="0" ecid="0" priority="0" trancount="2" lastbatchstarted="2026-09-12T00:44:56.470" lastbatchcompleted="2026-09-12T00:44:56.473" lastattention="1900-01-01T00:00:00.473" clientapp="sqlcmd" hostname="FRKSmokeHost" hostpid="1" loginname="FRKSmokeLogin" isolationlevel="read committed (2)" xactid="557640" currentdb="5" currentdbname="FRKSmokeTest" lockTimeout="4294967295" clientoption1="671088672" clientoption2="128056"><executionStack><frame>UPDATE dbo.FRKFixture SET Value=1;</frame><frame>UPDATE dbo.FRKFixture SET Value=1;</frame></executionStack><inputbuf>UPDATE dbo.FRKFixture SET Value=1;</inputbuf></process></process-list><resource-list><keylock hobtid="72057594047496192" dbid="5" objectname="FRKSmokeTest.dbo.CodexLockFixture" indexname="PK__CodexLoc__3214EC0793D77C34" id="lockc88628c00" mode="X" associatedObjectId="72057594047496192"><owner-list><owner id="processc80078ca8" mode="X" /></owner-list><waiter-list><waiter id="processc959084e8" mode="X" requestType="wait" /></waiter-list></keylock><keylock hobtid="72057594047496192" dbid="5" objectname="FRKSmokeTest.dbo.CodexLockFixture" indexname="PK__CodexLoc__3214EC0793D77C34" id="lockc9f6c9f00" mode="X" associatedObjectId="72057594047496192"><owner-list><owner id="processc959084e8" mode="X" /></owner-list><waiter-list><waiter id="processc80078ca8" mode="X" requestType="wait" /></waiter-list></keylock></resource-list></deadlock></value></data></event>');
+GO
+/* sp_Blitz: create, reuse, and append. */
+EXEC master.dbo.sp_Blitz @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_Blitz''雪]',@CheckUserDatabaseObjects=0;
+DECLARE @OriginalID int=OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_Blitz''雪]]]'), @Rows bigint=(SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_Blitz'雪]]]);
+IF @OriginalID IS NULL THROW 51000,'Quoted output table was not created.',1;
+IF @Rows=0 THROW 51000,'Quoted output is unexpectedly empty.',1;
+EXEC master.dbo.sp_Blitz @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_Blitz''雪]',@CheckUserDatabaseObjects=0;
+IF OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_Blitz''雪]]]')<>@OriginalID THROW 51000,'Quoted output table was replaced.',1;
+IF (SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_Blitz'雪]]])<=@Rows THROW 51000,'Quoted output did not append.',1;
+PRINT 'sp_Blitz quoted output passed';
+GO
+/* sp_BlitzCache: create, reuse, and append. */
+EXEC master.dbo.sp_BlitzCache @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_BlitzCache''雪]',@Top=1,@SkipAnalysis=1,@IgnoreSystemDBs=0;
+DECLARE @OriginalID int=OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzCache''雪]]]'), @Rows bigint=(SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_BlitzCache'雪]]]);
+IF @OriginalID IS NULL THROW 51000,'Quoted output table was not created.',1;
+IF @Rows=0 THROW 51000,'Quoted output is unexpectedly empty.',1;
+EXEC master.dbo.sp_BlitzCache @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_BlitzCache''雪]',@Top=1,@SkipAnalysis=1,@IgnoreSystemDBs=0;
+IF OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzCache''雪]]]')<>@OriginalID THROW 51000,'Quoted output table was replaced.',1;
+IF (SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_BlitzCache'雪]]])<=@Rows THROW 51000,'Quoted output did not append.',1;
+PRINT 'sp_BlitzCache quoted output passed';
+GO
+/* sp_BlitzFirst: create, reuse, and append. */
+EXEC master.dbo.sp_BlitzFirst @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_BlitzFirst''雪]',@Seconds=1,@OutputTableNameFileStats=N'Files''雪]',@OutputTableNamePerfmonStats=N'Perfmon''雪]',@OutputTableNameWaitStats=N'Waits''雪]';
+DECLARE @OriginalID int=OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzFirst''雪]]]'), @Rows bigint=(SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_BlitzFirst'雪]]]);
+IF @OriginalID IS NULL THROW 51000,'Quoted output table was not created.',1;
+EXEC master.dbo.sp_BlitzFirst @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_BlitzFirst''雪]',@Seconds=1,@OutputTableNameFileStats=N'Files''雪]',@OutputTableNamePerfmonStats=N'Perfmon''雪]',@OutputTableNameWaitStats=N'Waits''雪]';
+IF OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzFirst''雪]]]')<>@OriginalID THROW 51000,'Quoted output table was replaced.',1;
+IF OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[Files''雪]]_Deltas]') IS NULL OR NOT EXISTS(SELECT 1 FROM [FRK'雪]]Output].[Schema'雪]]].[Files'雪]]]) THROW 51000,'Quoted history output or delta view missing.',1;
+IF OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[Perfmon''雪]]_Deltas]') IS NULL OR NOT EXISTS(SELECT 1 FROM [FRK'雪]]Output].[Schema'雪]]].[Perfmon'雪]]]) THROW 51000,'Quoted history output or delta view missing.',1;
+IF OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[Waits''雪]]_Deltas]') IS NULL OR NOT EXISTS(SELECT 1 FROM [FRK'雪]]Output].[Schema'雪]]].[Waits'雪]]]) THROW 51000,'Quoted history output or delta view missing.',1;
+EXEC master.dbo.sp_BlitzFirst @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_BlitzFirst''雪]',@LogMessage=N'quoted history & <plain text>';
+DECLARE @AsOf datetimeoffset=SYSDATETIMEOFFSET();
+EXEC master.dbo.sp_BlitzFirst @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_BlitzFirst''雪]',@AsOf=@AsOf;
+PRINT 'sp_BlitzFirst quoted output passed';
+GO
+/* sp_BlitzIndex: create, reuse, and append.
+   Its initial PARSENAME normalization removes delimiters before the later
+   QUOTENAME call. Delimiters are required here to preserve the literal ]. */
+EXEC master.dbo.sp_BlitzIndex @OutputDatabaseName=N'[FRK''雪]]Output]',@OutputSchemaName=N'[Schema''雪]]]',@OutputTableName=N'[sp_BlitzIndex''雪]]]',@DatabaseName=N'FRKSmokeTest',@Mode=2;
+DECLARE @OriginalID int=OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzIndex''雪]]]'), @Rows bigint=(SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_BlitzIndex'雪]]]);
+IF @OriginalID IS NULL THROW 51000,'Quoted output table was not created.',1;
+IF @Rows=0 THROW 51000,'Quoted output is unexpectedly empty.',1;
+EXEC master.dbo.sp_BlitzIndex @OutputDatabaseName=N'[FRK''雪]]Output]',@OutputSchemaName=N'[Schema''雪]]]',@OutputTableName=N'[sp_BlitzIndex''雪]]]',@DatabaseName=N'FRKSmokeTest',@Mode=2;
+IF OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzIndex''雪]]]')<>@OriginalID THROW 51000,'Quoted output table was replaced.',1;
+IF (SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_BlitzIndex'雪]]])<=@Rows THROW 51000,'Quoted output did not append.',1;
+PRINT 'sp_BlitzIndex quoted output passed';
+GO
+/* sp_BlitzWho: create, reuse, and append. */
+EXEC master.dbo.sp_BlitzWho @OutputDatabaseName=N'[FRK''雪]]Output]',@OutputSchemaName=N'[Schema''雪]]]',@OutputTableName=N'[sp_BlitzWho''雪]]]',@ShowSleepingSPIDs=1;
+DECLARE @OriginalID int=OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzWho''雪]]]'), @Rows bigint=(SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_BlitzWho'雪]]]);
+IF @OriginalID IS NULL THROW 51000,'Quoted output table was not created.',1;
+EXEC master.dbo.sp_BlitzWho @OutputDatabaseName=N'[FRK''雪]]Output]',@OutputSchemaName=N'[Schema''雪]]]',@OutputTableName=N'[sp_BlitzWho''雪]]]',@ShowSleepingSPIDs=1;
+IF OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzWho''雪]]]')<>@OriginalID THROW 51000,'Quoted output table was replaced.',1;
+PRINT 'sp_BlitzWho quoted output passed';
+GO
+/* sp_kill: create, reuse, and append. */
+EXEC master.dbo.sp_kill @OutputDatabaseName=N'[FRK''雪]]Output]',@OutputSchemaName=N'[Schema''雪]]]',@OutputTableName=N'[sp_kill''雪]]]',@ExecuteKills='N';
+DECLARE @OriginalID int=OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_kill''雪]]]'), @Rows bigint=(SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_kill'雪]]]);
+IF @OriginalID IS NULL THROW 51000,'Quoted output table was not created.',1;
+EXEC master.dbo.sp_kill @OutputDatabaseName=N'[FRK''雪]]Output]',@OutputSchemaName=N'[Schema''雪]]]',@OutputTableName=N'[sp_kill''雪]]]',@ExecuteKills='N';
+IF OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_kill''雪]]]')<>@OriginalID THROW 51000,'Quoted output table was replaced.',1;
+PRINT 'sp_kill quoted output passed';
+GO
+/* sp_BlitzLock: create, reuse, and append. */
+EXEC master.dbo.sp_BlitzLock @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_BlitzLock''雪]',@TargetDatabaseName=N'FRK''雪]Output',@TargetTableName=N'DeadlockInput',@TargetColumnName=N'EventData';
+DECLARE @OriginalID int=OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzLock''雪]]]'), @Rows bigint=(SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_BlitzLock'雪]]]);
+IF @OriginalID IS NULL THROW 51000,'Quoted output table was not created.',1;
+IF @Rows=0 THROW 51000,'Quoted output is unexpectedly empty.',1;
+IF (SELECT COUNT(DISTINCT spid) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_BlitzLock'雪]]])<>2 THROW 51000,'Quoted deadlock output lost a participant.',1;
+EXEC master.dbo.sp_BlitzLock @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_BlitzLock''雪]',@TargetDatabaseName=N'FRK''雪]Output',@TargetTableName=N'DeadlockInput',@TargetColumnName=N'EventData';
+IF OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzLock''雪]]]')<>@OriginalID THROW 51000,'Quoted output table was replaced.',1;
+IF (SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_BlitzLock'雪]]])<=@Rows THROW 51000,'Quoted output did not append.',1;
+PRINT 'sp_BlitzLock quoted output passed';
+GO
+/* Remove only the synonyms created for this fixture. */
+DECLARE @Cleanup nvarchar(max)=N'';
+SELECT @Cleanup+=N'DROP SYNONYM '+QUOTENAME(SCHEMA_NAME(schema_id))+N'.'+QUOTENAME(name)+N';' FROM sys.synonyms WHERE PARSENAME(base_object_name,3)=N'FRK''雪]Output' AND schema_id=SCHEMA_ID(N'dbo') AND name IN(N'DeadLockTbl',N'DeadlockFindings');
+EXEC(@Cleanup);
+DROP DATABASE [FRK'雪]]Output];
+PRINT 'All seven quoted output create/reuse cases passed';
+
+--#STEP: quoted Unicode global temporary outputs
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]sp_Blitz]') IS NOT NULL THROW 51000,'Global fixture already exists.',1;
+EXEC master.dbo.sp_Blitz @OutputTableName=N'##FRK''雪]sp_Blitz',@CheckUserDatabaseObjects=0;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]sp_Blitz]') IS NULL THROW 51000,'Quoted global output missing.',1;
+EXEC master.dbo.sp_Blitz @OutputTableName=N'##FRK''雪]sp_Blitz',@CheckUserDatabaseObjects=0;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]sp_Blitz]') IS NULL THROW 51000,'Quoted global output missing.',1;
+DROP TABLE [##FRK'雪]]sp_Blitz];
+PRINT 'sp_Blitz quoted global outputs passed';
+GO
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]sp_BlitzCache]') IS NOT NULL THROW 51000,'Global fixture already exists.',1;
+EXEC master.dbo.sp_BlitzCache @OutputTableName=N'##FRK''雪]sp_BlitzCache',@Top=1,@SkipAnalysis=1,@IgnoreSystemDBs=0;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]sp_BlitzCache]') IS NULL THROW 51000,'Quoted global output missing.',1;
+IF NOT EXISTS(SELECT 1 FROM [##FRK'雪]]sp_BlitzCache]) THROW 51000,'Quoted global output is empty.',1;
+EXEC master.dbo.sp_BlitzCache @OutputTableName=N'##FRK''雪]sp_BlitzCache',@Top=1,@SkipAnalysis=1,@IgnoreSystemDBs=0;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]sp_BlitzCache]') IS NULL THROW 51000,'Quoted global output missing.',1;
+IF NOT EXISTS(SELECT 1 FROM [##FRK'雪]]sp_BlitzCache]) THROW 51000,'Quoted global output is empty.',1;
+DROP TABLE [##FRK'雪]]sp_BlitzCache];
+PRINT 'sp_BlitzCache quoted global outputs passed';
+GO
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]sp_BlitzIndex]') IS NOT NULL THROW 51000,'Global fixture already exists.',1;
+EXEC master.dbo.sp_BlitzIndex @OutputTableName=N'[##FRK''雪]]sp_BlitzIndex]',@DatabaseName=N'FRKSmokeTest',@Mode=2,@OutputDatabaseName=N'tempdb',@OutputSchemaName=N'dbo';
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]sp_BlitzIndex]') IS NULL THROW 51000,'Quoted global output missing.',1;
+IF NOT EXISTS(SELECT 1 FROM [##FRK'雪]]sp_BlitzIndex]) THROW 51000,'Quoted global output is empty.',1;
+EXEC master.dbo.sp_BlitzIndex @OutputTableName=N'[##FRK''雪]]sp_BlitzIndex]',@DatabaseName=N'FRKSmokeTest',@Mode=2,@OutputDatabaseName=N'tempdb',@OutputSchemaName=N'dbo';
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]sp_BlitzIndex]') IS NULL THROW 51000,'Quoted global output missing.',1;
+IF NOT EXISTS(SELECT 1 FROM [##FRK'雪]]sp_BlitzIndex]) THROW 51000,'Quoted global output is empty.',1;
+DROP TABLE [##FRK'雪]]sp_BlitzIndex];
+PRINT 'sp_BlitzIndex quoted global outputs passed';
+GO
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]sp_BlitzFirst]') IS NOT NULL THROW 51000,'Global fixture already exists.',1;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]FileStats]') IS NOT NULL THROW 51000,'Global fixture already exists.',1;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]PerfmonStats]') IS NOT NULL THROW 51000,'Global fixture already exists.',1;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]WaitStats]') IS NOT NULL THROW 51000,'Global fixture already exists.',1;
+EXEC master.dbo.sp_BlitzFirst @OutputTableName=N'##FRK''雪]sp_BlitzFirst',@Seconds=1,@OutputTableNameFileStats=N'##FRK''雪]FileStats',@OutputTableNamePerfmonStats=N'##FRK''雪]PerfmonStats',@OutputTableNameWaitStats=N'##FRK''雪]WaitStats';
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]sp_BlitzFirst]') IS NULL THROW 51000,'Quoted global output missing.',1;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]FileStats]') IS NULL THROW 51000,'Quoted global output missing.',1;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]PerfmonStats]') IS NULL THROW 51000,'Quoted global output missing.',1;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]WaitStats]') IS NULL THROW 51000,'Quoted global output missing.',1;
+EXEC master.dbo.sp_BlitzFirst @OutputTableName=N'##FRK''雪]sp_BlitzFirst',@Seconds=1,@OutputTableNameFileStats=N'##FRK''雪]FileStats',@OutputTableNamePerfmonStats=N'##FRK''雪]PerfmonStats',@OutputTableNameWaitStats=N'##FRK''雪]WaitStats';
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]sp_BlitzFirst]') IS NULL THROW 51000,'Quoted global output missing.',1;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]FileStats]') IS NULL THROW 51000,'Quoted global output missing.',1;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]PerfmonStats]') IS NULL THROW 51000,'Quoted global output missing.',1;
+IF OBJECT_ID(N'tempdb..[##FRK''雪]]WaitStats]') IS NULL THROW 51000,'Quoted global output missing.',1;
+DROP TABLE [##FRK'雪]]sp_BlitzFirst];
+DROP TABLE [##FRK'雪]]FileStats];
+DROP TABLE [##FRK'雪]]PerfmonStats];
+DROP TABLE [##FRK'雪]]WaitStats];
+PRINT 'sp_BlitzFirst quoted global outputs passed';
+GO

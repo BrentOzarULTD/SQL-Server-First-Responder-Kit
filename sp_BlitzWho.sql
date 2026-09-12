@@ -195,13 +195,13 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	  + @OutputDatabaseName
 	  + N'; IF EXISTS(SELECT * FROM '
 	  + @OutputDatabaseName
-	  + N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-	  + @OutputSchemaName
+	  + N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+	  + REPLACE(@OutputSchemaName, N'''', N'''''')
 	  + N''') AND NOT EXISTS (SELECT * FROM '
 	  + @OutputDatabaseName
-	  + N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-	  + @OutputSchemaName + N''' AND QUOTENAME(TABLE_NAME) = '''
-	  + @OutputTableName + N''') CREATE TABLE '
+	  + N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N'''
+	  + REPLACE(@OutputSchemaName, N'''', N'''''') + N''' AND QUOTENAME(TABLE_NAME) = N'''
+	  + REPLACE(@OutputTableName, N'''', N'''''') + N''') CREATE TABLE '
 	  + @OutputSchemaName + N'.'
 	  + @OutputTableName
 	  + N'(';
@@ -313,31 +313,31 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	/* If the table doesn't have the new JoinKey computed column, add it. See Github #2162. */
 	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
+		WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''JoinKey'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD JoinKey AS ServerName + CAST(CheckDate AS NVARCHAR(50));';
 	EXEC(@StringToExecute);
 
 	/* If the table doesn't have the new cached_parameter_info computed column, add it. See Github #2842. */
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''cached_parameter_info'')
+		WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''cached_parameter_info'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD cached_parameter_info NVARCHAR(MAX) NULL;';
 	EXEC(@StringToExecute);
 
 	/* If the table doesn't have the new live_parameter_info computed column, add it. See Github #2842. */
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''live_parameter_info'')
+		WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''live_parameter_info'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD live_parameter_info NVARCHAR(MAX) NULL;';
 	EXEC(@StringToExecute);
 
 	/* If the table doesn't have the new outer_command column, add it. See Github #2887. */
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''outer_command'')
+		WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''outer_command'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD outer_command NVARCHAR(4000) NULL;';
 	EXEC(@StringToExecute);
 
 	/* If the table doesn't have the new wait_resource column, add it. See Github #2970. */
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''wait_resource'')
+		WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''wait_resource'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD wait_resource NVARCHAR(MAX) NULL;';
 	EXEC(@StringToExecute);
 
@@ -345,8 +345,8 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	SET @OutputTableCleanupDate = CAST( (DATEADD(DAY, -1 * @OutputTableRetentionDays, GETDATE() ) ) AS DATE);
 	SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
 		+ @OutputDatabaseName
-		+ N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-		+ @OutputSchemaName + N''') DELETE '
+		+ N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+		+ REPLACE(@OutputSchemaName, N'''', N'''''') + N''') DELETE '
 		+ @OutputDatabaseName + '.'
 		+ @OutputSchemaName + '.'
 		+ @OutputTableName
@@ -367,15 +367,15 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
             BEGIN
             SET @StringToExecute = N'USE '
                 + @OutputDatabaseName
-                + N'; EXEC (''CREATE VIEW '
-                + @OutputSchemaName + '.'
-                + @OutputTableNameQueryStats_View + N' AS ' + @LineFeed
+                + N'; EXEC (N''CREATE VIEW '
+                + REPLACE(@OutputSchemaName, N'''', N'''''') + '.'
+                + REPLACE(@OutputTableNameQueryStats_View, N'''', N'''''') + N' AS ' + @LineFeed
 				+ N'WITH MaxQueryDuration AS ' + @LineFeed
 				+ N'( ' + @LineFeed
 				+ N'    SELECT ' + @LineFeed
 				+ N'        MIN([ID]) AS [MinID], ' + @LineFeed
 				+ N'		MAX([ID]) AS [MaxID] ' + @LineFeed
-				+ N'    FROM ' + @OutputSchemaName + '.' + @OutputTableName + '' + @LineFeed
+				+ N'    FROM ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableName, N'''', N'''''') + '' + @LineFeed
 				+ N'    GROUP BY [ServerName], ' + @LineFeed
 				+ N'    [session_id], ' + @LineFeed
 				+ N'    [database_name], ' + @LineFeed
@@ -584,7 +584,7 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 				+ N'			       [plan_handle], ' + @LineFeed 
 				+ N'			       [statement_start_offset], ' + @LineFeed 
 				+ N'			       [statement_end_offset] ' + @LineFeed
-				+ N'            FROM ' + @OutputSchemaName + '.' + @OutputTableName + '' + @LineFeed 
+				+ N'            FROM ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableName, N'''', N'''''') + '' + @LineFeed
 				+ N'        ) AS [BlitzWho] ' + @LineFeed
 				+ N'INNER JOIN [MaxQueryDuration] ON [BlitzWho].[ID] = [MaxQueryDuration].[MaxID]; ' + @LineFeed
 				+ N''');'
