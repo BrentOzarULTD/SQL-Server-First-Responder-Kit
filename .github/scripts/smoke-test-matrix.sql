@@ -290,7 +290,7 @@ IF DB_ID(N'FRKMultiLogSource') IS NOT NULL OR DB_ID(N'FRKMultiLogRestored') IS N
     THROW 51000, 'Restore fixture already exists.', 1;
 DECLARE @Root nvarchar(512) = CONVERT(nvarchar(400), SERVERPROPERTY('InstanceDefaultDataPath')),
         @Separator nchar(1), @Full nvarchar(512), @LogA nvarchar(512), @LogB nvarchar(512),
-        @Empty nvarchar(512), @Missing nvarchar(512), @File nvarchar(512), @Paths nvarchar(max);
+        @Empty nvarchar(512), @Missing nvarchar(512), @File nvarchar(512), @Paths nvarchar(max), @DeleteBefore datetime = DATEADD(day,1,GETDATE());
 SET @Separator = CASE WHEN CHARINDEX(N'/', @Root) > 0 THEN N'/' ELSE N'\' END;
 IF RIGHT(@Root, 1) <> @Separator SET @Root += @Separator;
 SET @Root += N'FRKMultiLog_' + REPLACE(CONVERT(nvarchar(36), NEWID()), N'-', N'');
@@ -362,16 +362,16 @@ BEGIN TRY
 
     DROP DATABASE FRKMultiLogSource;
     /* xp_delete_file removes only backup files in these unique owned directories. */
-    EXEC master.dbo.xp_delete_file 0, @Full, N'bak';
-    EXEC master.dbo.xp_delete_file 0, @LogA, N'trn';
-    EXEC master.dbo.xp_delete_file 0, @LogB, N'trn';
+    EXEC master.dbo.xp_delete_file 0, @Full, N'bak', @DeleteBefore;
+    EXEC master.dbo.xp_delete_file 0, @LogA, N'trn', @DeleteBefore;
+    EXEC master.dbo.xp_delete_file 0, @LogB, N'trn', @DeleteBefore;
 END TRY
 BEGIN CATCH
     IF DB_ID(N'FRKMultiLogRestored') IS NOT NULL DROP DATABASE FRKMultiLogRestored;
     IF DB_ID(N'FRKMultiLogSource') IS NOT NULL DROP DATABASE FRKMultiLogSource;
-    EXEC master.dbo.xp_delete_file 0, @Full, N'bak';
-    EXEC master.dbo.xp_delete_file 0, @LogA, N'trn';
-    EXEC master.dbo.xp_delete_file 0, @LogB, N'trn';
+    EXEC master.dbo.xp_delete_file 0, @Full, N'bak', @DeleteBefore;
+    EXEC master.dbo.xp_delete_file 0, @LogA, N'trn', @DeleteBefore;
+    EXEC master.dbo.xp_delete_file 0, @LogB, N'trn', @DeleteBefore;
     THROW;
 END CATCH;
 PRINT 'PASS: single/multiple log directories and empty/missing later paths';
