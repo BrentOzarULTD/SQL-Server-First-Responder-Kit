@@ -662,7 +662,7 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
                 RAISERROR('@r is set to: %s for schema name %s  and table name %s', 0, 1, @r, @OutputSchemaName, @OutputTableName) WITH NOWAIT;
             END;
 
-            /*protection spells*/
+            /* Quote identifiers once before BOTH the existing-table and first-create branches. */
             SELECT
                 @ObjectFullName =
                     QUOTENAME(@OutputDatabaseName) +

@@ -243,10 +243,25 @@ run_analysis_schema_step() {
   done
 }
 
+run_delta_step() {
+  local existing status=0
+  existing="$(run_scalar "SET NOCOUNT ON; SELECT COUNT(*) FROM sys.databases WHERE name=N'FRKDeltaSmoke';")" || return 1
+  if [[ "$existing" != "0" ]]; then
+    echo "Delta fixture already exists; refusing to overwrite it."
+    return 1
+  fi
+  run_file "$1" || status=$?
+  # The matrix continues after failures, so clean our database on both paths.
+  run_query "IF DB_ID(N'FRKDeltaSmoke') IS NOT NULL DROP DATABASE FRKDeltaSmoke;" || status=1
+  return "$status"
+}
+
 run_step() {
   if [[ "$2" == 'sp_BlitzLock parses a real system_health ring-buffer deadlock' ]]; then
     SQLCMDSERVER="$SQLCMDSERVER" SQLCMDUSER="$SQLCMDUSER" SQLCMD="$SQLCMD" \
       python3 "$SCRIPT_DIR/test-lock-ring-buffer.py"
+  elif [[ "$2" == 'sp_BlitzFirst multi-server deltas and in-place upgrades' ]]; then
+    run_delta_step "$1"
   elif [[ "$2" == 'sp_BlitzAnalysis defaults and isolates output schemas' ]]; then
     run_analysis_schema_step
   elif [[ "$2" == 'sp_kill kills a dedicated session' ]]; then
