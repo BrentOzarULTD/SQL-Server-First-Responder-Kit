@@ -1156,6 +1156,12 @@ BEGIN
     RETURN;
 END;
 
+IF @OutputTableName IN ('##BlitzCacheProcs', '##BlitzCacheResults')
+BEGIN
+    RAISERROR('OutputTableName is a reserved name for this procedure. We only use ##BlitzCacheProcs and ##BlitzCacheResults, please choose another table name.', 16, 1);
+    RETURN;
+END;
+
 IF @MinutesBack IS NOT NULL
     BEGIN
         RAISERROR(N'Checking @MinutesBack validity.', 0, 1) WITH NOWAIT;
@@ -8590,10 +8596,6 @@ END ';
 			IF @ValidOutputServer = 1
 				BEGIN
 					RAISERROR('Due to the nature of temporary tables, outputting to a linked server requires a permanent table.', 16, 0);
-				END;
-			ELSE IF @OutputTableName IN ('##BlitzCacheProcs','##BlitzCacheResults')
-				BEGIN
-					RAISERROR('OutputTableName is a reserved name for this procedure. We only use ##BlitzCacheProcs and ##BlitzCacheResults, please choose another table name.', 16, 0);
 				END;
 			ELSE
 				BEGIN				
