@@ -4345,7 +4345,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '; IF NOT EXISTS (SELECT 1 FROM sys.sql_modules'
                 + ' WHERE object_id = OBJECT_ID(@ViewName)'
                 + ' AND CHARINDEX(''FRK_ServerScopedDeltas_v1'', definition) > 0)'
-                + ' EXEC (''CREATE OR ALTER VIEW '
+                + ' EXEC (N''CREATE OR ALTER VIEW '
                 + @OutputSchemaName + '.'
                 + @OutputTableNameFileStats_View + ' AS /* FRK_ServerScopedDeltas_v1 */ ' + @LineFeed
                 + 'WITH RowDates as' + @LineFeed
@@ -4521,7 +4521,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '; IF NOT EXISTS (SELECT 1 FROM sys.sql_modules'
                 + ' WHERE object_id = OBJECT_ID(@ViewName)'
                 + ' AND CHARINDEX(''FRK_ServerScopedDeltas_v1'', definition) > 0)'
-                + ' EXEC (''CREATE OR ALTER VIEW '
+                + ' EXEC (N''CREATE OR ALTER VIEW '
                 + @OutputSchemaName + '.'
                 + @OutputTableNamePerfmonStats_View + ' AS /* FRK_ServerScopedDeltas_v1 */ ' + @LineFeed
                 + 'WITH RowDates as' + @LineFeed
@@ -4842,7 +4842,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '; IF NOT EXISTS (SELECT 1 FROM sys.sql_modules'
                 + ' WHERE object_id = OBJECT_ID(@ViewName)'
                 + ' AND CHARINDEX(''FRK_ServerScopedDeltas_v1'', definition) > 0)'
-                + ' EXEC (''CREATE OR ALTER VIEW '
+                + ' EXEC (N''CREATE OR ALTER VIEW '
                 + @OutputSchemaName + '.'
                 + @OutputTableNameWaitStats_View + ' AS /* FRK_ServerScopedDeltas_v1 */ ' + @LineFeed
                 + 'WITH RowDates as' + @LineFeed

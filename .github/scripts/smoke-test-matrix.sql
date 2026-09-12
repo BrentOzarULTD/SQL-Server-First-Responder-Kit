@@ -505,6 +505,24 @@ DELETE dbo.Files WHERE ServerName NOT IN(N'ServerA',N'ServerB');
 DELETE dbo.Perfmon WHERE ServerName NOT IN(N'ServerA',N'ServerB');
 DELETE dbo.Waits WHERE ServerName NOT IN(N'ServerA',N'ServerB');
 IF (SELECT COUNT(*) FROM dbo.Files_Deltas)<>4 OR (SELECT COUNT(*) FROM dbo.Perfmon_Deltas)<>4 OR (SELECT COUNT(*) FROM dbo.Waits_Deltas)<>4 THROW 51000,'Incorrect view row counts',1;
+IF EXISTS(
+    SELECT 1 FROM (SELECT ServerName,CheckDate FROM dbo.Expected WHERE ElapsedSeconds IS NOT NULL) e
+    FULL OUTER JOIN (SELECT ServerName,CheckDate,COUNT(*) AS Copies FROM dbo.Files_Deltas GROUP BY ServerName,CheckDate) d
+    ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate
+    WHERE e.ServerName IS NULL OR d.ServerName IS NULL OR d.Copies<>1)
+    THROW 51000,'Missing, extra, or duplicate Files delta key.',1;
+IF EXISTS(
+    SELECT 1 FROM (SELECT ServerName,CheckDate FROM dbo.Expected WHERE ElapsedSeconds IS NOT NULL) e
+    FULL OUTER JOIN (SELECT ServerName,CheckDate,COUNT(*) AS Copies FROM dbo.Perfmon_Deltas GROUP BY ServerName,CheckDate) d
+    ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate
+    WHERE e.ServerName IS NULL OR d.ServerName IS NULL OR d.Copies<>1)
+    THROW 51000,'Missing, extra, or duplicate Perfmon delta key.',1;
+IF EXISTS(
+    SELECT 1 FROM (SELECT ServerName,CheckDate FROM dbo.Expected WHERE ElapsedSeconds IS NOT NULL) e
+    FULL OUTER JOIN (SELECT ServerName,CheckDate,COUNT(*) AS Copies FROM dbo.Waits_Deltas GROUP BY ServerName,CheckDate) d
+    ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate
+    WHERE e.ServerName IS NULL OR d.ServerName IS NULL OR d.Copies<>1)
+    THROW 51000,'Missing, extra, or duplicate Waits delta key.',1;
 IF EXISTS(SELECT 1 FROM dbo.Files_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.num_of_reads<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect file delta',1;
 IF EXISTS(SELECT 1 FROM dbo.Perfmon_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.cntr_delta<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect perfmon delta',1;
 IF EXISTS(SELECT 1 FROM dbo.Waits_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.wait_time_ms_delta<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect wait delta',1;
@@ -526,6 +544,24 @@ DELETE dbo.Files WHERE ServerName NOT IN(N'ServerA',N'ServerB');
 DELETE dbo.Perfmon WHERE ServerName NOT IN(N'ServerA',N'ServerB');
 DELETE dbo.Waits WHERE ServerName NOT IN(N'ServerA',N'ServerB');
 IF (SELECT COUNT(*) FROM dbo.Files_Deltas)<>4 OR (SELECT COUNT(*) FROM dbo.Perfmon_Deltas)<>4 OR (SELECT COUNT(*) FROM dbo.Waits_Deltas)<>4 THROW 51000,'Incorrect view row counts',1;
+IF EXISTS(
+    SELECT 1 FROM (SELECT ServerName,CheckDate FROM dbo.Expected WHERE ElapsedSeconds IS NOT NULL) e
+    FULL OUTER JOIN (SELECT ServerName,CheckDate,COUNT(*) AS Copies FROM dbo.Files_Deltas GROUP BY ServerName,CheckDate) d
+    ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate
+    WHERE e.ServerName IS NULL OR d.ServerName IS NULL OR d.Copies<>1)
+    THROW 51000,'Missing, extra, or duplicate Files delta key.',1;
+IF EXISTS(
+    SELECT 1 FROM (SELECT ServerName,CheckDate FROM dbo.Expected WHERE ElapsedSeconds IS NOT NULL) e
+    FULL OUTER JOIN (SELECT ServerName,CheckDate,COUNT(*) AS Copies FROM dbo.Perfmon_Deltas GROUP BY ServerName,CheckDate) d
+    ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate
+    WHERE e.ServerName IS NULL OR d.ServerName IS NULL OR d.Copies<>1)
+    THROW 51000,'Missing, extra, or duplicate Perfmon delta key.',1;
+IF EXISTS(
+    SELECT 1 FROM (SELECT ServerName,CheckDate FROM dbo.Expected WHERE ElapsedSeconds IS NOT NULL) e
+    FULL OUTER JOIN (SELECT ServerName,CheckDate,COUNT(*) AS Copies FROM dbo.Waits_Deltas GROUP BY ServerName,CheckDate) d
+    ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate
+    WHERE e.ServerName IS NULL OR d.ServerName IS NULL OR d.Copies<>1)
+    THROW 51000,'Missing, extra, or duplicate Waits delta key.',1;
 IF EXISTS(SELECT 1 FROM dbo.Files_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.num_of_reads<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect file delta',1;
 IF EXISTS(SELECT 1 FROM dbo.Perfmon_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.cntr_delta<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect perfmon delta',1;
 IF EXISTS(SELECT 1 FROM dbo.Waits_Deltas d JOIN dbo.Expected e ON e.ServerName=d.ServerName AND e.CheckDate=d.CheckDate WHERE d.wait_time_ms_delta<>1000 OR d.ElapsedSeconds<>e.ElapsedSeconds OR e.ElapsedSeconds IS NULL) THROW 51000,'Incorrect wait delta',1;
