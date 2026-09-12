@@ -847,8 +847,8 @@ BEGIN
     SET @HideSummary = 1;
 END;
 
-/* Reject internal global-table names before any plan-cache preprocessing. */
-IF @OutputTableName COLLATE Latin1_General_100_CI_AS IN ('##BlitzCacheProcs', '##BlitzCacheResults')
+/* Reserve case/accent/kana/width-equivalent internal names before preprocessing. */
+IF @OutputTableName COLLATE Latin1_General_100_CI_AI IN ('##BlitzCacheProcs', '##BlitzCacheResults')
 BEGIN
     RAISERROR('OutputTableName is a reserved name for this procedure. We only use ##BlitzCacheProcs and ##BlitzCacheResults, please choose another table name.', 16, 1);
     RETURN;

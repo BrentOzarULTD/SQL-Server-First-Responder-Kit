@@ -152,12 +152,14 @@ BEGIN TRY
     SET @Definition = REPLACE(@Definition, N'ALTER PROCEDURE dbo.sp_BlitzCache', N'CREATE PROCEDURE dbo.sp_BlitzCache');
     EXEC FRKReservedNameTest.sys.sp_executesql @Definition;
 
-    DECLARE @Names TABLE (Name sysname, SortOrder varchar(50), Qualified bit);
+    DECLARE @Names TABLE (Name sysname COLLATE Latin1_General_100_BIN2, SortOrder varchar(50), Qualified bit);
     INSERT @Names VALUES
         (N'##BlitzCacheProcs', 'cpu', 0),
         (N'##BlitzCacheResults', 'cpu', 0),
         (N'##blitzcacheprocs', 'duplicate', 0),
         (N'##BLITZCACHERESULTS', 'query hash', 0),
+        (N'##BlitzCachéProcs', 'cpu', 0),
+        (N'##ＢlitzCacheResults', 'cpu', 0),
         (N'##BlitzCacheProcs', 'cpu', 1),
         (N'##BlitzCacheResults', 'cpu', 1);
     DECLARE @Name sysname, @Sort varchar(50), @Qualified bit,
