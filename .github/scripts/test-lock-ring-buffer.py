@@ -25,8 +25,18 @@ def run(sql, database='FRKSmokeTest', check=True):
         raise RuntimeError(result.stdout + result.stderr)
     return result
 
+# This instance is disposable. Reset stale/truncated ring contents and shorten
+# dispatch while generating the fixture; restore the configured latency below.
+latency_result = subprocess.run(args + ['-d', 'master', '-h', '-1', '-W', '-Q',
+    "SET NOCOUNT ON; SELECT max_dispatch_latency FROM sys.server_event_sessions WHERE name=N'system_health';"],
+    capture_output=True, text=True, timeout=120, env=client_env, check=True)
+latency = int(latency_result.stdout.strip())
+original_latency = "INFINITE" if latency == 0 else f"{latency // 1000} SECONDS"
 run(f"CREATE SCHEMA [{schema}];")
 try:
+    run("ALTER EVENT SESSION system_health ON SERVER STATE=STOP; "
+        "ALTER EVENT SESSION system_health ON SERVER WITH (MAX_DISPATCH_LATENCY=1 SECONDS); "
+        "ALTER EVENT SESSION system_health ON SERVER STATE=START;", database='master')
     run(f"CREATE TABLE [{schema}].[{table}](ID int PRIMARY KEY, V int); "
         f"INSERT [{schema}].[{table}] VALUES(1,0),(2,0);")
     def worker(own):
@@ -70,6 +80,9 @@ IF (SELECT COUNT(DISTINCT spid) FROM [{schema}].Deadlocks
 """)
     print('PASS system_health ring buffer contains and parses both real deadlock participants')
 finally:
+    run("ALTER EVENT SESSION system_health ON SERVER STATE=STOP; "
+        f"ALTER EVENT SESSION system_health ON SERVER WITH (MAX_DISPATCH_LATENCY={original_latency}); "
+        "ALTER EVENT SESSION system_health ON SERVER STATE=START;", database='master')
     # The procedure normally removes its synonyms; clean owned leftovers if it
     # returned early or a test failed. Never remove another target's synonym.
     run(f"""IF EXISTS(SELECT 1 FROM sys.synonyms WHERE name=N'DeadLockTbl' AND base_object_name LIKE N'%{schema}%')

@@ -256,10 +256,28 @@ run_delta_step() {
   return "$status"
 }
 
+run_quoted_output_step() {
+  local existing status=0
+  existing="$(run_scalar "SET NOCOUNT ON; SELECT COUNT(*) FROM sys.databases WHERE name=N'FRK''雪]Output';")" || return 1
+  if [[ "$existing" != "0" ]]; then
+    echo "Quoted output fixture already exists; refusing to overwrite it."
+    return 1
+  fi
+  run_file "$1" || status=$?
+  run_query "DECLARE @Cleanup nvarchar(max)=N'';
+    SELECT @Cleanup+=N'DROP SYNONYM '+QUOTENAME(SCHEMA_NAME(schema_id))+N'.'+QUOTENAME(name)+N';'
+    FROM sys.synonyms WHERE PARSENAME(base_object_name,3)=N'FRK''雪]Output' AND schema_id=SCHEMA_ID(N'dbo') AND name IN(N'DeadLockTbl',N'DeadlockFindings');
+    EXEC(@Cleanup);
+    IF DB_ID(N'FRK''雪]Output') IS NOT NULL DROP DATABASE [FRK'雪]]Output];" || status=1
+  return "$status"
+}
+
 run_step() {
   if [[ "$2" == 'sp_BlitzLock parses a real system_health ring-buffer deadlock' ]]; then
     SQLCMDSERVER="$SQLCMDSERVER" SQLCMDUSER="$SQLCMDUSER" SQLCMD="$SQLCMD" \
       python3 "$SCRIPT_DIR/test-lock-ring-buffer.py"
+  elif [[ "$2" == 'output identifiers preserve quotes Unicode and brackets' ]]; then
+    run_quoted_output_step "$1"
   elif [[ "$2" == 'sp_BlitzFirst multi-server deltas and in-place upgrades' ]]; then
     run_delta_step "$1"
   elif [[ "$2" == 'sp_BlitzAnalysis defaults and isolates output schemas' ]]; then

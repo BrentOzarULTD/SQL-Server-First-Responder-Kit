@@ -4347,7 +4347,7 @@ BEGIN
 					END;
 				ELSE IF EXISTS (SELECT server_id FROM sys.servers WHERE QUOTENAME([name]) = @OutputServerName)
 					BEGIN
-						SET @LinkedServerDBCheck = 'SELECT 1 WHERE EXISTS (SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = '''+@OutputDatabaseName+''')';
+						SET @LinkedServerDBCheck = 'SELECT 1 WHERE EXISTS (SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = N'''+REPLACE(@OutputDatabaseName, N'''', N'''''')+''')';
 						INSERT INTO @tmpdbchk EXEC sys.sp_executesql @LinkedServerDBCheck;
 						SET @ValidLinkedServerDB = (SELECT COUNT(*) FROM @tmpdbchk);
 						IF (@ValidLinkedServerDB > 0)
@@ -4367,7 +4367,8 @@ BEGIN
 			BEGIN
 				IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
 					BEGIN
-						SET @StringToExecute = N' IF (OBJECT_ID(''[tempdb].[dbo].@@@OutputTableName@@@'') IS NOT NULL) DROP TABLE @@@OutputTableName@@@';
+						SET @StringToExecute = N' IF (OBJECT_ID(N''[tempdb].[dbo].@@@OutputTableNameLiteral@@@'') IS NOT NULL) DROP TABLE @@@OutputTableName@@@';
+						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableNameLiteral@@@', REPLACE(@OutputTableName, N'''', N''''''));
 						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
 						EXEC(@StringToExecute);
 						
@@ -4425,35 +4426,35 @@ BEGIN
 				SET @StringToExecute = 
 					N'SET @SchemaExists = 0;
 					SET @TableExists = 0;
-					IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = ''@@@OutputSchemaName@@@'') 
+					IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N''@@@OutputSchemaName@@@'')
 						SET @SchemaExists = 1
-					IF EXISTS (SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = ''@@@OutputSchemaName@@@'' AND QUOTENAME(TABLE_NAME) = ''@@@OutputTableName@@@'')
+					IF EXISTS (SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N''@@@OutputSchemaName@@@'' AND QUOTENAME(TABLE_NAME) = N''@@@OutputTableName@@@'')
 					BEGIN
 						SET @TableExists = 1
-						IF NOT EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.COLUMNS WHERE QUOTENAME(TABLE_SCHEMA) = ''@@@OutputSchemaName@@@''
-										AND QUOTENAME(TABLE_NAME) = ''@@@OutputTableName@@@'' AND QUOTENAME(COLUMN_NAME) = ''[total_forwarded_fetch_count]'')
+						IF NOT EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.COLUMNS WHERE QUOTENAME(TABLE_SCHEMA) = N''@@@OutputSchemaName@@@''
+										AND QUOTENAME(TABLE_NAME) = N''@@@OutputTableName@@@'' AND QUOTENAME(COLUMN_NAME) = ''[total_forwarded_fetch_count]'')
 							EXEC @@@OutputServerName@@@.@@@OutputDatabaseName@@@.dbo.sp_executesql N''ALTER TABLE @@@OutputSchemaName@@@.@@@OutputTableName@@@ ADD [total_forwarded_fetch_count] BIGINT''
 					END';
 	
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
-				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
-				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName);
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', REPLACE(@OutputSchemaName, N'''', N''''''));
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', REPLACE(@OutputTableName, N'''', N''''''));
 	
 				EXEC sp_executesql @StringToExecute, N'@TableExists BIT OUTPUT, @SchemaExists BIT OUTPUT', @TableExists OUTPUT, @SchemaExists OUTPUT;
 
 
 				SET @TableExistsSql = 
-					N'IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = ''@@@OutputSchemaName@@@'') 
-						AND NOT EXISTS (SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = ''@@@OutputSchemaName@@@'' AND QUOTENAME(TABLE_NAME) = ''@@@OutputTableName@@@'')
+					N'IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N''@@@OutputSchemaName@@@'')
+						AND NOT EXISTS (SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N''@@@OutputSchemaName@@@'' AND QUOTENAME(TABLE_NAME) = N''@@@OutputTableName@@@'')
 						SET @TableExists = 0
 					ELSE
 						SET @TableExists = 1';
 				
 				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
-				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputSchemaName@@@', @OutputSchemaName); 
-				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputTableName@@@', @OutputTableName); 
+				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputSchemaName@@@', REPLACE(@OutputSchemaName, N'''', N''''''));
+				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputTableName@@@', REPLACE(@OutputTableName, N'''', N''''''));
 
 			END
 
@@ -6769,7 +6770,7 @@ BEGIN
 						IF @ValidOutputServer = 1
 							BEGIN
 								SET @StringToExecute = REPLACE(@StringToExecute,'''','''''');
-								EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+								EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
 							END;   
 						ELSE
 							BEGIN
@@ -6942,7 +6943,7 @@ BEGIN
 						IF @ValidOutputServer = 1
 							BEGIN
 								SET @StringToExecute = REPLACE(@StringToExecute,'''','''''');
-								EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+								EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
 							END;   
 						ELSE
 							BEGIN
@@ -7240,7 +7241,7 @@ BEGIN
 								IF @ValidOutputServer = 1
 									BEGIN
 										SET @StringToExecute = REPLACE(@StringToExecute,'''','''''');
-										EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+										EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
 									END;   
 								ELSE
 									BEGIN
@@ -7665,7 +7666,7 @@ BEGIN
 						IF @ValidOutputServer = 1
 							BEGIN
 								SET @StringToExecute = REPLACE(@StringToExecute,'''','''''');
-								EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+								EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
 							END;   
 						ELSE
 							BEGIN
