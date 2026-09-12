@@ -638,3 +638,88 @@ END CATCH;
 PRINT 'Analysis, direct export, all, and all avg preserved the other session.';
 --#STEP: sp_BlitzAnalysis defaults and isolates output schemas
 /* The runner checks three result sets using analysis-schema-regression.sql. */
+
+--#STEP: output identifiers preserve quotes Unicode and brackets
+IF DB_ID(N'FRK''雪]Output') IS NOT NULL THROW 51000,'Quoted output fixture exists.',1;
+EXEC(N'CREATE DATABASE [FRK''雪]]Output];');
+GO
+EXEC [FRK'雪]]Output].sys.sp_executesql N'CREATE SCHEMA [Schema''雪]]];';
+EXEC [FRK'雪]]Output].sys.sp_executesql N'CREATE TABLE dbo.DeadlockInput(EventData xml);';
+INSERT [FRK'雪]]Output].dbo.DeadlockInput VALUES(N'<event name="xml_deadlock_report" package="sqlserver" timestamp="2026-09-12T00:45:02.719Z"><data name="xml_report"><type name="xml" package="package0" /><value><deadlock><victim-list><victimProcess id="processc959084e8" /></victim-list><process-list><process id="processc959084e8" taskpriority="0" logused="240" waitresource="KEY: 5:72057594047496192 (8194443284a0)" waittime="4236" ownerId="557637" transactionname="user_transaction" lasttranstarted="2026-09-12T00:44:56.473" XDES="0xca8500470" lockMode="X" schedulerid="7" kpid="920" status="suspended" spid="68" sbid="0" ecid="0" priority="0" trancount="2" lastbatchstarted="2026-09-12T00:44:56.470" lastbatchcompleted="2026-09-12T00:44:56.473" lastattention="1900-01-01T00:00:00.473" clientapp="sqlcmd" hostname="FRKSmokeHost" hostpid="1" loginname="FRKSmokeLogin" isolationlevel="read committed (2)" xactid="557637" currentdb="5" currentdbname="FRKSmokeTest" lockTimeout="4294967295" clientoption1="671088672" clientoption2="128056"><executionStack><frame>UPDATE dbo.FRKFixture SET Value=1;</frame><frame>UPDATE dbo.FRKFixture SET Value=1;</frame></executionStack><inputbuf>UPDATE dbo.FRKFixture SET Value=1;</inputbuf></process><process id="processc80078ca8" taskpriority="0" logused="240" waitresource="KEY: 5:72057594047496192 (61a06abd401c)" waittime="4240" ownerId="557640" transactionname="user_transaction" lasttranstarted="2026-09-12T00:44:56.473" XDES="0xca2604470" lockMode="X" schedulerid="1" kpid="620" status="suspended" spid="69" sbid="0" ecid="0" priority="0" trancount="2" lastbatchstarted="2026-09-12T00:44:56.470" lastbatchcompleted="2026-09-12T00:44:56.473" lastattention="1900-01-01T00:00:00.473" clientapp="sqlcmd" hostname="FRKSmokeHost" hostpid="1" loginname="FRKSmokeLogin" isolationlevel="read committed (2)" xactid="557640" currentdb="5" currentdbname="FRKSmokeTest" lockTimeout="4294967295" clientoption1="671088672" clientoption2="128056"><executionStack><frame>UPDATE dbo.FRKFixture SET Value=1;</frame><frame>UPDATE dbo.FRKFixture SET Value=1;</frame></executionStack><inputbuf>UPDATE dbo.FRKFixture SET Value=1;</inputbuf></process></process-list><resource-list><keylock hobtid="72057594047496192" dbid="5" objectname="FRKSmokeTest.dbo.CodexLockFixture" indexname="PK__CodexLoc__3214EC0793D77C34" id="lockc88628c00" mode="X" associatedObjectId="72057594047496192"><owner-list><owner id="processc80078ca8" mode="X" /></owner-list><waiter-list><waiter id="processc959084e8" mode="X" requestType="wait" /></waiter-list></keylock><keylock hobtid="72057594047496192" dbid="5" objectname="FRKSmokeTest.dbo.CodexLockFixture" indexname="PK__CodexLoc__3214EC0793D77C34" id="lockc9f6c9f00" mode="X" associatedObjectId="72057594047496192"><owner-list><owner id="processc959084e8" mode="X" /></owner-list><waiter-list><waiter id="processc80078ca8" mode="X" requestType="wait" /></waiter-list></keylock></resource-list></deadlock></value></data></event>');
+GO
+/* sp_Blitz: create, reuse, and append. */
+EXEC master.dbo.sp_Blitz @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_Blitz''雪]',@CheckUserDatabaseObjects=0;
+DECLARE @OriginalID int=OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_Blitz''雪]]]'), @Rows bigint=(SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_Blitz'雪]]]);
+IF @OriginalID IS NULL THROW 51000,'Quoted output table was not created.',1;
+IF @Rows=0 THROW 51000,'Quoted output is unexpectedly empty.',1;
+EXEC master.dbo.sp_Blitz @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_Blitz''雪]',@CheckUserDatabaseObjects=0;
+IF OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_Blitz''雪]]]')<>@OriginalID THROW 51000,'Quoted output table was replaced.',1;
+IF (SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_Blitz'雪]]])<=@Rows THROW 51000,'Quoted output did not append.',1;
+PRINT 'sp_Blitz quoted output passed';
+GO
+/* sp_BlitzCache: create, reuse, and append. */
+EXEC master.dbo.sp_BlitzCache @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_BlitzCache''雪]',@Top=1,@SkipAnalysis=1,@IgnoreSystemDBs=0;
+DECLARE @OriginalID int=OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzCache''雪]]]'), @Rows bigint=(SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_BlitzCache'雪]]]);
+IF @OriginalID IS NULL THROW 51000,'Quoted output table was not created.',1;
+IF @Rows=0 THROW 51000,'Quoted output is unexpectedly empty.',1;
+EXEC master.dbo.sp_BlitzCache @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_BlitzCache''雪]',@Top=1,@SkipAnalysis=1,@IgnoreSystemDBs=0;
+IF OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzCache''雪]]]')<>@OriginalID THROW 51000,'Quoted output table was replaced.',1;
+IF (SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_BlitzCache'雪]]])<=@Rows THROW 51000,'Quoted output did not append.',1;
+PRINT 'sp_BlitzCache quoted output passed';
+GO
+/* sp_BlitzFirst: create, reuse, and append. */
+EXEC master.dbo.sp_BlitzFirst @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_BlitzFirst''雪]',@Seconds=1,@OutputTableNameFileStats=N'Files''雪]',@OutputTableNamePerfmonStats=N'Perfmon''雪]',@OutputTableNameWaitStats=N'Waits''雪]';
+DECLARE @OriginalID int=OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzFirst''雪]]]'), @Rows bigint=(SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_BlitzFirst'雪]]]);
+IF @OriginalID IS NULL THROW 51000,'Quoted output table was not created.',1;
+EXEC master.dbo.sp_BlitzFirst @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_BlitzFirst''雪]',@Seconds=1,@OutputTableNameFileStats=N'Files''雪]',@OutputTableNamePerfmonStats=N'Perfmon''雪]',@OutputTableNameWaitStats=N'Waits''雪]';
+IF OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzFirst''雪]]]')<>@OriginalID THROW 51000,'Quoted output table was replaced.',1;
+IF OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[Files''雪]]_Deltas]') IS NULL OR NOT EXISTS(SELECT 1 FROM [FRK'雪]]Output].[Schema'雪]]].[Files'雪]]]) THROW 51000,'Quoted history output or delta view missing.',1;
+IF OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[Perfmon''雪]]_Deltas]') IS NULL OR NOT EXISTS(SELECT 1 FROM [FRK'雪]]Output].[Schema'雪]]].[Perfmon'雪]]]) THROW 51000,'Quoted history output or delta view missing.',1;
+IF OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[Waits''雪]]_Deltas]') IS NULL OR NOT EXISTS(SELECT 1 FROM [FRK'雪]]Output].[Schema'雪]]].[Waits'雪]]]) THROW 51000,'Quoted history output or delta view missing.',1;
+EXEC master.dbo.sp_BlitzFirst @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_BlitzFirst''雪]',@LogMessage=N'quoted history & <plain text>';
+DECLARE @AsOf datetimeoffset=SYSDATETIMEOFFSET();
+EXEC master.dbo.sp_BlitzFirst @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_BlitzFirst''雪]',@AsOf=@AsOf;
+PRINT 'sp_BlitzFirst quoted output passed';
+GO
+/* sp_BlitzIndex: create, reuse, and append. */
+EXEC master.dbo.sp_BlitzIndex @OutputDatabaseName=N'[FRK''雪]]Output]',@OutputSchemaName=N'[Schema''雪]]]',@OutputTableName=N'[sp_BlitzIndex''雪]]]',@DatabaseName=N'FRKSmokeTest',@Mode=2;
+DECLARE @OriginalID int=OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzIndex''雪]]]'), @Rows bigint=(SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_BlitzIndex'雪]]]);
+IF @OriginalID IS NULL THROW 51000,'Quoted output table was not created.',1;
+IF @Rows=0 THROW 51000,'Quoted output is unexpectedly empty.',1;
+EXEC master.dbo.sp_BlitzIndex @OutputDatabaseName=N'[FRK''雪]]Output]',@OutputSchemaName=N'[Schema''雪]]]',@OutputTableName=N'[sp_BlitzIndex''雪]]]',@DatabaseName=N'FRKSmokeTest',@Mode=2;
+IF OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzIndex''雪]]]')<>@OriginalID THROW 51000,'Quoted output table was replaced.',1;
+IF (SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_BlitzIndex'雪]]])<=@Rows THROW 51000,'Quoted output did not append.',1;
+PRINT 'sp_BlitzIndex quoted output passed';
+GO
+/* sp_BlitzWho: create, reuse, and append. */
+EXEC master.dbo.sp_BlitzWho @OutputDatabaseName=N'[FRK''雪]]Output]',@OutputSchemaName=N'[Schema''雪]]]',@OutputTableName=N'[sp_BlitzWho''雪]]]',@ShowSleepingSPIDs=1;
+DECLARE @OriginalID int=OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzWho''雪]]]'), @Rows bigint=(SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_BlitzWho'雪]]]);
+IF @OriginalID IS NULL THROW 51000,'Quoted output table was not created.',1;
+EXEC master.dbo.sp_BlitzWho @OutputDatabaseName=N'[FRK''雪]]Output]',@OutputSchemaName=N'[Schema''雪]]]',@OutputTableName=N'[sp_BlitzWho''雪]]]',@ShowSleepingSPIDs=1;
+IF OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzWho''雪]]]')<>@OriginalID THROW 51000,'Quoted output table was replaced.',1;
+PRINT 'sp_BlitzWho quoted output passed';
+GO
+/* sp_kill: create, reuse, and append. */
+EXEC master.dbo.sp_kill @OutputDatabaseName=N'[FRK''雪]]Output]',@OutputSchemaName=N'[Schema''雪]]]',@OutputTableName=N'[sp_kill''雪]]]',@ExecuteKills='N';
+DECLARE @OriginalID int=OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_kill''雪]]]'), @Rows bigint=(SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_kill'雪]]]);
+IF @OriginalID IS NULL THROW 51000,'Quoted output table was not created.',1;
+EXEC master.dbo.sp_kill @OutputDatabaseName=N'[FRK''雪]]Output]',@OutputSchemaName=N'[Schema''雪]]]',@OutputTableName=N'[sp_kill''雪]]]',@ExecuteKills='N';
+IF OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_kill''雪]]]')<>@OriginalID THROW 51000,'Quoted output table was replaced.',1;
+PRINT 'sp_kill quoted output passed';
+GO
+/* sp_BlitzLock: create, reuse, and append. */
+EXEC master.dbo.sp_BlitzLock @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_BlitzLock''雪]',@TargetDatabaseName=N'FRK''雪]Output',@TargetTableName=N'DeadlockInput',@TargetColumnName=N'EventData';
+DECLARE @OriginalID int=OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzLock''雪]]]'), @Rows bigint=(SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_BlitzLock'雪]]]);
+IF @OriginalID IS NULL THROW 51000,'Quoted output table was not created.',1;
+IF @Rows=0 THROW 51000,'Quoted output is unexpectedly empty.',1;
+EXEC master.dbo.sp_BlitzLock @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_BlitzLock''雪]',@TargetDatabaseName=N'FRK''雪]Output',@TargetTableName=N'DeadlockInput',@TargetColumnName=N'EventData';
+IF OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzLock''雪]]]')<>@OriginalID THROW 51000,'Quoted output table was replaced.',1;
+IF (SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_BlitzLock'雪]]])<=@Rows THROW 51000,'Quoted output did not append.',1;
+PRINT 'sp_BlitzLock quoted output passed';
+GO
+/* Remove only the synonyms created for this fixture. */
+DECLARE @Cleanup nvarchar(max)=N'';
+SELECT @Cleanup+=N'DROP SYNONYM '+QUOTENAME(SCHEMA_NAME(schema_id))+N'.'+QUOTENAME(name)+N';' FROM sys.synonyms WHERE PARSENAME(base_object_name,3)=N'FRK''雪]Output';
+EXEC(@Cleanup);
+DROP DATABASE [FRK'雪]]Output];
+PRINT 'All seven quoted output create/reuse cases passed';
