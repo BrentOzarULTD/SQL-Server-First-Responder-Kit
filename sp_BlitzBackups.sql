@@ -1939,7 +1939,9 @@ END
 
     IF @PushMediaFacts=1
     BEGIN
-    /* Refresh the push window and retained full anchors with missing facts.
+    /* Refresh media facts for the push window and retained full anchors.
+       Recompute existing values so corrected source metadata is reflected; missing
+       source rows are left unchanged. Widen @WriteBackupsLastHours for older logs.
        Evaluate media on the source, never by joining unqualified central media IDs. */
     SET @StringToExecute=N'UPDATE h SET
       frk_media_is_usable=CASE WHEN b.first_family_number>0 AND b.last_family_number>=b.first_family_number
@@ -1956,8 +1958,7 @@ END
       differential_base_guid=b.differential_base_guid,is_copy_only=b.is_copy_only
     FROM '+QUOTENAME(@WriteBackupsToListenerName)+N'.'+QUOTENAME(@WriteBackupsToDatabaseName)+N'.dbo.backupset h
     JOIN msdb.dbo.backupset b ON b.backup_set_uuid=h.backup_set_uuid
-    WHERE (b.backup_start_date>=DATEADD(hour,@Hours,SYSDATETIME()) OR b.type=''D'')
-      AND (h.frk_media_is_usable IS NULL OR h.frk_media_has_discard IS NULL);';
+    WHERE (b.backup_start_date>=DATEADD(hour,@Hours,SYSDATETIME()) OR b.type=''D'');';
     EXEC sys.sp_executesql @StringToExecute,N'@Hours int',@Hours=@WriteBackupsLastHours;
     END;
 
