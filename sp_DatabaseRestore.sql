@@ -1293,7 +1293,7 @@ BEGIN
 
 		IF @SimpleFolderEnumeration = 1
 		BEGIN    -- Get list of files
-			INSERT INTO @FileListSimple (BackupFile, depth, [file]) EXEC master.sys.xp_dirtree @BackupPathLog, 1, 1;
+			INSERT INTO @FileListSimple (BackupFile, depth, [file]) EXEC master.sys.xp_dirtree @CurrentBackupPathLog, 1, 1;
 			INSERT @FileList (BackupPath, BackupFile) SELECT @CurrentBackupPathLog, BackupFile FROM @FileListSimple;
 			DELETE FROM @FileListSimple;
 		END
