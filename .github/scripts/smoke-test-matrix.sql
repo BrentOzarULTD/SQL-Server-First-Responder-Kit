@@ -577,7 +577,7 @@ BEGIN TRY
           DROP TABLE #Backups, #Warnings, #Recoverability, #RTORecoveryPoints');
     EXEC FRKLogHistory.sys.sp_executesql @Definition;
     DECLARE @Case int=1, @ExpectedCount int, @ExpectedSeconds int, @ExpectedRTO decimal(18,2), @ExpectedMB decimal(18,2);
-    WHILE @Case<=7
+    WHILE @Case<=8
     BEGIN
         IF @Case=2 DELETE FRKLogHistory.dbo.backupset WHERE backup_set_id=@Endpoint;
         IF @Case=3 DELETE FRKLogHistory.dbo.backupset WHERE backup_set_id=@Regular;
@@ -600,25 +600,27 @@ BEGIN TRY
             UPDATE FRKLogHistory.dbo.backupmediafamily SET physical_device_name=N'NUL'
               WHERE media_set_id=(SELECT media_set_id FROM FRKLogHistory.dbo.backupset WHERE backup_set_id=@Copy);
         END;
+        IF @Case=8 UPDATE FRKLogHistory.dbo.backupmediafamily SET physical_device_name=N'NUL'
+          WHERE media_set_id=(SELECT media_set_id FROM FRKLogHistory.dbo.backupset WHERE backup_set_id=@Regular);
         SET @ExpectedCount=CASE WHEN @Case=1 THEN 2 ELSE 1 END;
-        SET @ExpectedSeconds=CASE @Case WHEN 1 THEN 90 WHEN 2 THEN 40 WHEN 5 THEN 40 ELSE 30 END;
-        SET @ExpectedRTO=CASE @Case WHEN 1 THEN 2.00 WHEN 2 THEN 1.20 WHEN 3 THEN 1.00 WHEN 5 THEN 1.20 ELSE 0.70 END;
+        SET @ExpectedSeconds=CASE @Case WHEN 1 THEN 90 WHEN 2 THEN 40 WHEN 5 THEN 40 WHEN 7 THEN 40 ELSE 30 END;
+        SET @ExpectedRTO=CASE @Case WHEN 1 THEN 2.00 WHEN 2 THEN 1.20 WHEN 3 THEN 1.00 WHEN 5 THEN 1.20 WHEN 7 THEN 1.20 ELSE 0.70 END;
         SELECT @ExpectedMB=CONVERT(decimal(18,2),SUM(backup_size)/1048576.0)
           FROM FRKLogHistory.dbo.backupset WHERE backup_set_id IN
-            (CASE WHEN @Case<=2 OR @Case=5 THEN @Regular ELSE @Copy END,CASE WHEN @Case=1 THEN @Endpoint ELSE NULL END);
+            (CASE WHEN @Case<=2 OR @Case IN(5,7) THEN @Regular ELSE @Copy END,CASE WHEN @Case=1 THEN @Endpoint ELSE NULL END);
         EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory';
-        IF @Case<=5 AND ((SELECT COUNT(*) FROM #FRKRecoveryProof)<>1 OR NOT EXISTS
-            (SELECT 1 FROM #FRKRecoveryProof WHERE log_backup_set_id=CASE WHEN @Case=1 THEN @Endpoint WHEN @Case IN(2,5) THEN @Regular ELSE @Copy END AND full_backup_set_id<>log_backup_set_id AND log_backups=@ExpectedCount
+        IF (@Case<=5 OR @Case=7) AND ((SELECT COUNT(*) FROM #FRKRecoveryProof)<>1 OR NOT EXISTS
+            (SELECT 1 FROM #FRKRecoveryProof WHERE log_backup_set_id=CASE WHEN @Case=1 THEN @Endpoint WHEN @Case IN(2,5,7) THEN @Regular ELSE @Copy END AND full_backup_set_id<>log_backup_set_id AND log_backups=@ExpectedCount
              AND log_time_seconds=@ExpectedSeconds AND log_file_size_mb=@ExpectedMB))
             THROW 51000, 'Incorrect log count, size, or duration for the actual backup chain.', 1;
         SELECT @Case AS TestCase, @ExpectedRTO AS ExpectedRTO, * FROM #FRKBackupProof;
-        IF @Case<=5 AND ((SELECT COUNT(*) FROM #FRKBackupProof)<>1 OR NOT EXISTS
+        IF (@Case<=5 OR @Case=7) AND ((SELECT COUNT(*) FROM #FRKBackupProof)<>1 OR NOT EXISTS
             (SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes=@ExpectedRTO))
             THROW 51000, 'Incorrect user-visible RTO for the actual backup chain.', 1;
-        IF @Case>=6 AND (EXISTS(SELECT 1 FROM #FRKRecoveryProof) OR
+        IF @Case IN(6,8) AND (EXISTS(SELECT 1 FROM #FRKRecoveryProof) OR
             (SELECT COUNT(*) FROM #FRKBackupProof)<>1 OR EXISTS(SELECT 1 FROM #FRKBackupProof WHERE RTOWorstCaseMinutes IS NOT NULL))
             THROW 51000,'Ambiguous or discarded backup history reported an RTO estimate.',1;
-        IF @Case>=6 AND NOT EXISTS(SELECT 1 FROM #FRKWarningProof) THROW 51000,'Unavailable RTO did not explain the limitation.',1;
+        IF @Case IN(6,8) AND NOT EXISTS(SELECT 1 FROM #FRKWarningProof) THROW 51000,'Unavailable RTO did not explain the limitation.',1;
         DELETE #FRKWarningProof;
         DELETE #FRKRecoveryProof;
         DELETE #FRKBackupProof;
@@ -642,6 +644,29 @@ BEGIN TRY
       (SELECT 1 FROM #FRKRecoveryProof WHERE log_backup_set_id=@Endpoint AND log_backups=2 AND log_time_seconds=90
        AND full_backup_set_id=(SELECT MIN(backup_set_id) FROM FRKLogHistory.dbo.backupset WHERE type='D'))
         THROW 51000,'Older full lost its overlapping log endpoint or selected a different database.',1;
+    DELETE #FRKRecoveryProof; DELETE #FRKBackupProof; DELETE #FRKWarningProof;
+    INSERT FRKLogSource.dbo.Proof VALUES(7);
+    EXEC FRKLogSource.sys.sp_executesql N'CHECKPOINT;';
+    SET @File=@Root+N'current.trn';
+    BACKUP LOG FRKLogSource TO DISK=@File WITH INIT;
+    DROP TABLE FRKLogHistory.dbo.backupset;
+    SELECT * INTO FRKLogHistory.dbo.backupset FROM msdb.dbo.backupset
+      WHERE database_name=N'FRKLogSource' AND database_guid=(SELECT database_guid FROM sys.database_recovery_status WHERE database_id=DB_ID(N'FRKLogSource'));
+    DECLARE @CurrentFull int=(SELECT MAX(backup_set_id) FROM FRKLogHistory.dbo.backupset WHERE type='D'),
+            @CurrentLog int=(SELECT MAX(backup_set_id) FROM FRKLogHistory.dbo.backupset WHERE type='L');
+    UPDATE FRKLogHistory.dbo.backupset SET backup_start_date=DATEADD(day,-10,GETDATE()),
+       backup_finish_date=DATEADD(second,10,DATEADD(day,-10,GETDATE())),first_recovery_fork_guid=@ForkB,last_recovery_fork_guid=@ForkB
+       WHERE backup_set_id<@CurrentFull;
+    UPDATE FRKLogHistory.dbo.backupset SET backup_start_date=DATEADD(hour,-2,GETDATE()),
+       backup_finish_date=DATEADD(second,10,DATEADD(hour,-2,GETDATE())),first_recovery_fork_guid=@ForkA,last_recovery_fork_guid=@ForkA
+       WHERE backup_set_id=@CurrentFull;
+    UPDATE FRKLogHistory.dbo.backupset SET first_recovery_fork_guid=@ForkA,last_recovery_fork_guid=@ForkA WHERE backup_set_id=@CurrentLog;
+    EXEC FRKLogHistory.dbo.sp_BlitzBackups @MSDBName=N'FRKLogHistory',@HoursBack=1;
+    SELECT @CurrentFull AS CurrentFull,@CurrentLog AS CurrentLog; SELECT * FROM #FRKRecoveryProof; SELECT * FROM #FRKWarningProof;
+    IF (SELECT COUNT(*) FROM #FRKRecoveryProof)<>1 OR NOT EXISTS
+      (SELECT 1 FROM #FRKRecoveryProof WHERE full_backup_set_id=@CurrentFull AND log_backup_set_id=@CurrentLog AND log_backups=1)
+      OR EXISTS(SELECT 1 FROM #FRKWarningProof)
+        THROW 51000,'An ancient fork suppressed or contaminated the current recovery chain.',1;
     DROP DATABASE FRKLogHistory;
     DROP DATABASE FRKLogSource;
     EXEC master.dbo.xp_delete_file 0,@Root,N'bak',@DeleteBefore;

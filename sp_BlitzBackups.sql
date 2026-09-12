@@ -551,6 +551,34 @@ GOTO PushBackupHistoryToListener
 
 RAISERROR('Gathering RTO information', 0, 1) WITH NOWAIT;
 
+/* Restrict recovery estimates to the requested window plus its preceding full.
+   Discarded copy-only backups cannot invalidate or replace a usable chain. */
+CREATE TABLE #RTOBackupSets(
+ database_name nvarchar(128),database_guid uniqueidentifier,backup_set_id int,
+ backup_set_uuid uniqueidentifier,type char(1),first_lsn numeric(25,0),last_lsn numeric(25,0),
+ backup_start_date datetime,backup_finish_date datetime,backup_size numeric(20,0),
+ first_recovery_fork_guid uniqueidentifier,last_recovery_fork_guid uniqueidentifier,
+ differential_base_guid uniqueidentifier,media_set_id int,is_copy_only bit);
+SET @StringToExecute=N'
+INSERT #RTOBackupSets
+SELECT b.database_name,b.database_guid,b.backup_set_id,b.backup_set_uuid,b.type,b.first_lsn,b.last_lsn,
+ b.backup_start_date,b.backup_finish_date,b.backup_size,b.first_recovery_fork_guid,b.last_recovery_fork_guid,
+ b.differential_base_guid,b.media_set_id,b.is_copy_only
+FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset b
+WHERE b.type IN (''D'',''I'',''L'')
+ AND b.backup_finish_date>=COALESCE((
+    SELECT MAX(anchor.backup_finish_date) FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset anchor
+    WHERE anchor.database_name=b.database_name AND anchor.database_guid=b.database_guid
+      AND anchor.type=''D'' AND anchor.backup_finish_date<=@StartTime
+      AND NOT EXISTS(SELECT 1 FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupmediafamily am
+        WHERE am.media_set_id=anchor.media_set_id AND (UPPER(am.physical_device_name)=N''NUL'' OR am.physical_device_name=N''/dev/null''))
+ ),@StartTime)
+ AND NOT EXISTS(SELECT 1 FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupmediafamily m
+     WHERE m.media_set_id=b.media_set_id AND b.is_copy_only=1
+       AND (UPPER(m.physical_device_name)=N''NUL'' OR m.physical_device_name=N''/dev/null''));';
+EXEC sys.sp_executesql @StringToExecute,N'@StartTime datetime2',@StartTime;
+CREATE INDEX IX_RTOBackupSets ON #RTOBackupSets(database_guid,database_name,type,last_lsn);
+
 /* LSN ordering alone cannot establish a path across recovery forks, or restore
    a backup written to a discard device. Leave RTO unknown for these histories. */
 CREATE TABLE #RTOExcluded(database_name nvarchar(128), database_guid uniqueidentifier, Reason nvarchar(200));
@@ -558,23 +586,24 @@ SET @StringToExecute = N'
 INSERT #RTOExcluded
 SELECT database_name,database_guid,N''Multiple recovery forks''
 FROM (
-    SELECT database_name,database_guid,first_recovery_fork_guid AS fork_guid FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset
+    SELECT database_name,database_guid,first_recovery_fork_guid AS fork_guid FROM #RTOBackupSets
     UNION
-    SELECT database_name,database_guid,last_recovery_fork_guid FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset
+    SELECT database_name,database_guid,last_recovery_fork_guid FROM #RTOBackupSets
 ) forks
 GROUP BY database_name,database_guid HAVING COUNT(DISTINCT fork_guid)>1;
 INSERT #RTOExcluded
 SELECT DISTINCT b.database_name,b.database_guid,N''Backup to a discard device''
-FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset b
+FROM #RTOBackupSets b
 JOIN ' + QUOTENAME(@MSDBName) + N'.dbo.backupmediafamily m ON b.media_set_id=m.media_set_id
 WHERE (UPPER(m.physical_device_name)=N''NUL'' OR m.physical_device_name=N''/dev/null'')
-  AND b.backup_finish_date>=@StartTime;';
+  AND b.backup_finish_date>=@StartTime
+  AND NOT EXISTS(SELECT 1 FROM #RTOExcluded x WHERE x.database_name=b.database_name AND x.database_guid=b.database_guid);';
 EXEC sys.sp_executesql @StringToExecute,N'@StartTime datetime2',@StartTime;
 SET @StringToExecute=N'
 INSERT #Warnings(CheckId,Priority,DatabaseName,Finding,Warning)
 SELECT DISTINCT 16,100,database_name,N''Recovery fork metadata missing'',
  N''Some backup history lacks recovery fork identifiers. RTO uses the available LSN history and cannot verify fork compatibility. Refresh centralized history with fork metadata and validate restores separately.''
-FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset
+FROM #RTOBackupSets
 WHERE first_recovery_fork_guid IS NULL OR last_recovery_fork_guid IS NULL;';
 EXEC sys.sp_executesql @StringToExecute;
 
@@ -590,7 +619,7 @@ FROM #RTOExcluded;
 	SET @StringToExecute += N'
 							 INSERT INTO #RTORecoveryPoints(database_name, database_guid, log_last_lsn)
 							 SELECT database_name, database_guid, MAX(last_lsn) AS log_last_lsn
-							 FROM ' + QUOTENAME(@MSDBName) + '.dbo.backupset bLastLog
+							 FROM #RTOBackupSets bLastLog
 							 WHERE type = ''L''
 							 AND bLastLog.backup_finish_date >= @StartTime
                              AND NOT EXISTS (SELECT 1 FROM #RTOExcluded x WHERE x.database_name=bLastLog.database_name AND x.database_guid=bLastLog.database_guid)
@@ -617,8 +646,8 @@ RAISERROR('Updating #RTORecoveryPoints', 0, 1) WITH NOWAIT;
 							 FROM #RTORecoveryPoints rp
 							 		CROSS APPLY (
 							 				SELECT TOP 1 bLog.backup_set_id AS backup_set_id_log, bLastFull.backup_set_id, bLastFull.last_lsn, bLastFull.backup_set_uuid, bLastFull.database_guid, bLastFull.database_name
-							 				FROM  ' + QUOTENAME(@MSDBName) + N'.dbo.backupset bLog 
-							 				INNER JOIN ' + QUOTENAME(@MSDBName) + N'.dbo.backupset bLastFull 
+FROM  #RTOBackupSets bLog
+INNER JOIN #RTOBackupSets bLastFull
 							 					ON bLog.database_guid = bLastFull.database_guid 
 							 					AND bLog.database_name = bLastFull.database_name
                                     AND bLog.last_lsn > bLastFull.last_lsn
@@ -627,7 +656,7 @@ RAISERROR('Updating #RTORecoveryPoints', 0, 1) WITH NOWAIT;
 							 					AND rp.database_name = bLog.database_name
                                     AND bLog.type = ''L''
                                     AND bLog.last_lsn = rp.log_last_lsn
-                                ORDER BY bLastFull.last_lsn DESC, bLastFull.backup_set_id DESC
+                                ORDER BY bLastFull.last_lsn DESC, bLastFull.backup_set_id DESC, bLog.first_lsn ASC, bLog.backup_set_id ASC
                             ) bLasted;
 							 ';
 
@@ -645,7 +674,7 @@ RAISERROR('Add any full backups in the StartDate range that weren''t part of the
 	SET @StringToExecute += N'
 							 INSERT INTO #RTORecoveryPoints(database_name, database_guid, full_backup_set_id, full_last_lsn, full_backup_set_uuid)
 							 SELECT bFull.database_name, bFull.database_guid, bFull.backup_set_id, bFull.last_lsn, bFull.backup_set_uuid
-							 FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset bFull
+							 FROM #RTOBackupSets bFull
 							 LEFT OUTER JOIN #RTORecoveryPoints rp ON bFull.backup_set_uuid = rp.full_backup_set_uuid
 							 WHERE bFull.type = ''D''
 							     AND bFull.backup_finish_date IS NOT NULL
@@ -677,11 +706,11 @@ RAISERROR('Fill out the most recent log for that full, but before the next full'
 						        AND rpNextFull.full_last_lsn > rpEarlierFull.full_last_lsn
                             OUTER APPLY (
                                 SELECT TOP (1) bLog.last_lsn,bLog.backup_set_id
-                                FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset bLog
+FROM #RTOBackupSets bLog
                                 WHERE bLog.database_guid=rp.database_guid AND bLog.database_name=rp.database_name
                                   AND bLog.type=''L'' AND bLog.last_lsn>rp.full_last_lsn
                                   AND bLog.last_lsn<=rpNextFull.full_last_lsn
-                                ORDER BY bLog.last_lsn DESC,bLog.backup_set_id DESC
+                                ORDER BY bLog.last_lsn DESC,bLog.first_lsn ASC,bLog.backup_set_id ASC
                             ) endpoint
                             WHERE rpEarlierFull.full_backup_set_id IS NULL;
 							';
@@ -699,7 +728,7 @@ RAISERROR('Fill out a diff in that range', 0, 1) WITH NOWAIT;
 
 	SET @StringToExecute += N'
 							UPDATE #RTORecoveryPoints
-							SET diff_last_lsn = (SELECT TOP 1 bDiff.last_lsn FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset bDiff
+							SET diff_last_lsn = (SELECT TOP 1 bDiff.last_lsn FROM #RTOBackupSets bDiff
 							                        WHERE rp.database_guid = bDiff.database_guid AND rp.database_name = bDiff.database_name
 							                            AND bDiff.type = ''I''
 							                            AND bDiff.last_lsn < rp.log_last_lsn
@@ -728,8 +757,8 @@ RAISERROR('Get time & size totals for full & diff', 0, 1) WITH NOWAIT;
 							    , diff_time_seconds = DATEDIFF(ss,bDiff.backup_start_date, bDiff.backup_finish_date)
 							    , diff_file_size_mb = bDiff.backup_size / 1048576.0
 							FROM #RTORecoveryPoints rp
-							INNER JOIN ' + QUOTENAME(@MSDBName) + N'.dbo.backupset bFull ON rp.database_guid = bFull.database_guid AND rp.database_name = bFull.database_name AND rp.full_backup_set_id = bFull.backup_set_id
-							LEFT OUTER JOIN ' + QUOTENAME(@MSDBName) + N'.dbo.backupset bDiff ON rp.database_guid = bDiff.database_guid AND rp.database_name = bDiff.database_name AND rp.diff_last_lsn = bDiff.last_lsn AND bDiff.type = ''I'' AND bDiff.differential_base_guid=rp.full_backup_set_uuid;
+							INNER JOIN #RTOBackupSets bFull ON rp.database_guid = bFull.database_guid AND rp.database_name = bFull.database_name AND rp.full_backup_set_id = bFull.backup_set_id
+							LEFT OUTER JOIN #RTOBackupSets bDiff ON rp.database_guid = bDiff.database_guid AND rp.database_name = bDiff.database_name AND rp.diff_last_lsn = bDiff.last_lsn AND bDiff.type = ''I'' AND bDiff.differential_base_guid=rp.full_backup_set_uuid;
 							';
 
 	IF @Debug = 1
@@ -750,7 +779,7 @@ RAISERROR('Get time & size totals for logs', 0, 1) WITH NOWAIT;
 								    , log_file_size = SUM(bLog.backup_size)
 								    , SUM(1) AS log_backups
 								        FROM #RTORecoveryPoints rp
-								            INNER JOIN ' + QUOTENAME(@MSDBName) + N'.dbo.backupset bLog ON rp.database_guid = bLog.database_guid AND rp.database_name = bLog.database_name AND bLog.type = ''L''
+INNER JOIN #RTOBackupSets bLog ON rp.database_guid = bLog.database_guid AND rp.database_name = bLog.database_name AND bLog.type = ''L''
 								            AND bLog.last_lsn > COALESCE(rp.diff_last_lsn, rp.full_last_lsn)
 								            AND bLog.last_lsn <= rp.log_last_lsn
                                     /* A covering backup makes this interval redundant (for example,
@@ -758,7 +787,7 @@ RAISERROR('Get time & size totals for logs', 0, 1) WITH NOWAIT;
                                        identical intervals and never cross recovery forks. */
                                     AND NOT EXISTS (
                                         SELECT 1
-                                        FROM ' + QUOTENAME(@MSDBName) + N'.dbo.backupset AS bCover
+                                        FROM #RTOBackupSets AS bCover
                                         WHERE bCover.database_guid = bLog.database_guid
                                           AND bCover.database_name = bLog.database_name
                                           AND bCover.type = ''L''
@@ -1416,7 +1445,7 @@ SELECT w.CheckId, w.Priority, w.DatabaseName, w.Finding, w.Warning
 FROM #Warnings AS w
 ORDER BY w.Priority, w.CheckId;
 
-DROP TABLE #Backups, #Warnings, #Recoverability, #RTORecoveryPoints, #RTOExcluded
+DROP TABLE #Backups, #Warnings, #Recoverability, #RTORecoveryPoints, #RTOExcluded, #RTOBackupSets
 
 
 RETURN;
