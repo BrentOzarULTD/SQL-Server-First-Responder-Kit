@@ -11,7 +11,7 @@ IF EXISTS(SELECT 1 FROM FRKPushRemote.master.sys.databases WHERE name=N'FRKPushH
 CREATE DATABASE FRKPushSource;
 GO
 DECLARE @File nvarchar(512)=CONVERT(nvarchar(400),SERVERPROPERTY('InstanceDefaultDataPath'))+N'FRKPushSource.bak',
-        @Definition nvarchar(max),@UUID uniqueidentifier;
+        @Definition nvarchar(max),@UUID uniqueidentifier,@RemoteCreated bit=0;
 BEGIN TRY
     BACKUP DATABASE FRKPushSource TO DISK=@File WITH INIT;
     SELECT @UUID=backup_set_uuid FROM msdb.dbo.backupset WHERE database_name=N'FRKPushSource'
@@ -20,6 +20,7 @@ BEGIN TRY
     SET @Definition=REPLACE(@Definition,N'ALTER PROCEDURE',N'CREATE PROCEDURE');
     EXEC FRKPushSource.sys.sp_executesql @Definition;
     EXEC(N'CREATE DATABASE FRKPushHistory;') AT FRKPushRemote;
+    SET @RemoteCreated=1;
     EXEC(N'SELECT TOP(0) * INTO FRKPushHistory.dbo.backupset FROM msdb.dbo.backupset;') AT FRKPushRemote;
     /* Existing legacy table: remote DDL adds media columns, then four-part DML fills them. */
     EXEC FRKPushSource.dbo.sp_BlitzBackups @PushBackupHistoryToListener=1,
@@ -36,6 +37,12 @@ BEGIN TRY
       AND frk_media_is_usable=1 AND frk_media_has_discard=0)
         THROW 51000,''Remote existing media facts were not refreshed without RPC.'',1;',N'@UUID uniqueidentifier',@UUID;
     EXEC master.dbo.sp_serveroption N'FRKPushRemote',N'rpc out',N'true';
+    EXEC(N'USE FRKPushHistory; CREATE TABLE dbo.UpdateAudit(RowsUpdated int);') AT FRKPushRemote;
+    EXEC(N'USE FRKPushHistory; EXEC(N''CREATE TRIGGER dbo.TrackUpdates ON dbo.backupset AFTER UPDATE AS INSERT dbo.UpdateAudit SELECT COUNT(*) FROM inserted;'');') AT FRKPushRemote;
+    EXEC FRKPushSource.dbo.sp_BlitzBackups @PushBackupHistoryToListener=1,
+      @WriteBackupsToListenerName=N'FRKPushRemote',@WriteBackupsToDatabaseName=N'FRKPushHistory',@WriteBackupsLastHours=0;
+    EXEC(N'IF EXISTS(SELECT 1 FROM FRKPushHistory.dbo.UpdateAudit WHERE RowsUpdated>0) THROW 51000,''Unchanged history rows were rewritten.'',1;') AT FRKPushRemote;
+    EXEC(N'USE FRKPushHistory; DROP TRIGGER dbo.TrackUpdates;') AT FRKPushRemote;
     EXEC(N'ALTER TABLE FRKPushHistory.dbo.backupset DROP COLUMN frk_media_is_usable,frk_media_has_discard; DELETE FRKPushHistory.dbo.backupset;') AT FRKPushRemote;
     EXEC master.dbo.sp_serveroption N'FRKPushRemote',N'rpc out',N'false';
     /* Legacy destinations without RPC retain the supported history-only push. */
@@ -46,8 +53,8 @@ BEGIN TRY
 END TRY
 BEGIN CATCH
     EXEC master.dbo.sp_serveroption N'FRKPushRemote',N'rpc out',N'true';
-    EXEC(N'DROP DATABASE FRKPushHistory;') AT FRKPushRemote;
-    DROP DATABASE FRKPushSource;
+    IF @RemoteCreated=1 EXEC(N'DROP DATABASE FRKPushHistory;') AT FRKPushRemote;
+    IF DB_ID(N'FRKPushSource') IS NOT NULL DROP DATABASE FRKPushSource;
     THROW;
 END CATCH;
 EXEC master.dbo.sp_serveroption N'FRKPushRemote',N'rpc out',N'true';

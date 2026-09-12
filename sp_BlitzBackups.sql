@@ -1944,6 +1944,14 @@ END
        source rows are left unchanged. Widen @WriteBackupsLastHours for older logs.
        Evaluate media on the source, never by joining unqualified central media IDs. */
     SET @StringToExecute=N'UPDATE h SET
+      frk_media_is_usable=f.frk_media_is_usable,frk_media_has_discard=f.frk_media_has_discard,
+      first_family_number=b.first_family_number,last_family_number=b.last_family_number,
+      first_recovery_fork_guid=b.first_recovery_fork_guid,last_recovery_fork_guid=b.last_recovery_fork_guid,
+      fork_point_lsn=b.fork_point_lsn,differential_base_lsn=b.differential_base_lsn,
+      differential_base_guid=b.differential_base_guid,is_copy_only=b.is_copy_only
+    FROM '+QUOTENAME(@WriteBackupsToListenerName)+N'.'+QUOTENAME(@WriteBackupsToDatabaseName)+N'.dbo.backupset h
+    JOIN msdb.dbo.backupset b ON b.backup_set_uuid=h.backup_set_uuid
+    CROSS APPLY (SELECT
       frk_media_is_usable=CASE WHEN b.first_family_number>0 AND b.last_family_number>=b.first_family_number
         AND (SELECT COUNT(DISTINCT m.family_sequence_number) FROM msdb.dbo.backupmediafamily m
              WHERE m.media_set_id=b.media_set_id
@@ -1951,14 +1959,10 @@ END
                AND m.physical_device_name IS NOT NULL AND UPPER(m.physical_device_name)<>N''NUL''
                AND m.physical_device_name<>N''/dev/null'')=b.last_family_number-b.first_family_number+1 THEN 1 ELSE 0 END,
       frk_media_has_discard=CASE WHEN EXISTS(SELECT 1 FROM msdb.dbo.backupmediafamily m WHERE m.media_set_id=b.media_set_id
-          AND (UPPER(m.physical_device_name)=N''NUL'' OR m.physical_device_name=N''/dev/null'')) THEN 1 ELSE 0 END,
-      first_family_number=b.first_family_number,last_family_number=b.last_family_number,
-      first_recovery_fork_guid=b.first_recovery_fork_guid,last_recovery_fork_guid=b.last_recovery_fork_guid,
-      fork_point_lsn=b.fork_point_lsn,differential_base_lsn=b.differential_base_lsn,
-      differential_base_guid=b.differential_base_guid,is_copy_only=b.is_copy_only
-    FROM '+QUOTENAME(@WriteBackupsToListenerName)+N'.'+QUOTENAME(@WriteBackupsToDatabaseName)+N'.dbo.backupset h
-    JOIN msdb.dbo.backupset b ON b.backup_set_uuid=h.backup_set_uuid
-    WHERE (b.backup_start_date>=DATEADD(hour,@Hours,SYSDATETIME()) OR b.type=''D'');';
+          AND (UPPER(m.physical_device_name)=N''NUL'' OR m.physical_device_name=N''/dev/null'')) THEN 1 ELSE 0 END) f
+    WHERE (b.backup_start_date>=DATEADD(hour,@Hours,SYSDATETIME()) OR b.type=''D'')
+      AND EXISTS(SELECT f.frk_media_is_usable,f.frk_media_has_discard,b.first_family_number,b.last_family_number,b.first_recovery_fork_guid,b.last_recovery_fork_guid,b.fork_point_lsn,b.differential_base_lsn,b.differential_base_guid,b.is_copy_only
+                 EXCEPT SELECT h.frk_media_is_usable,h.frk_media_has_discard,h.first_family_number,h.last_family_number,h.first_recovery_fork_guid,h.last_recovery_fork_guid,h.fork_point_lsn,h.differential_base_lsn,h.differential_base_guid,h.is_copy_only);';
     EXEC sys.sp_executesql @StringToExecute,N'@Hours int',@Hours=@WriteBackupsLastHours;
     END;
 
