@@ -1041,14 +1041,13 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
     END;
 
 
-    /*The system health stuff gets handled different from user extended events.*/
-    /*These next sections deal with user events, dependent on target.*/
+    /*Event files use separate paths for system_health and user sessions.*/
+    /*Ring buffers share collection and parsing for system and user sessions.*/
 
     /*If ring buffers*/
     IF
     (
            LOWER(@TargetSessionType) LIKE N'ring%'
-       AND @EventSessionName NOT LIKE N'system_health%'
     )
     BEGIN
         IF @Azure = 0
@@ -1204,7 +1203,6 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
     IF
     (
            LOWER(@TargetSessionType) LIKE N'ring%'
-       AND @EventSessionName NOT LIKE N'system_health%'
     )
     BEGIN
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
