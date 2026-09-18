@@ -5826,7 +5826,7 @@ BEGIN
                     'Version Check Failed (unexpectedly modified checks ordering)' AS Finding ,
                     'http://FirstResponderKit.org' AS URL ,
                     'Download an updated First Responder Kit. Version check failed because "Mandatory" check has not been completed before for current component' + @crlf +
-                    'Error: version check mode happenned before "Mandatory" check for component called "' + @CurrentComponentFullName + '"'
+                    'Error: version check mode happened before "Mandatory" check for component called "' + @CurrentComponentFullName + '"'
                 ;
                 
                 -- we will stop the test because it's possible to get the same message for other components
@@ -5909,7 +5909,7 @@ BEGIN
                     'Version Check Failed (unexpectedly modified checks ordering)' AS Finding ,
                     'http://FirstResponderKit.org' AS URL ,
                     'Download an updated First Responder Kit. Version check failed because "VersionCheckMode" check has not been completed before for component called "' + @CurrentComponentFullName + '"' + @crlf +
-                    'Error: VersionCheck happenned before "VersionCheckMode" check for component called "' + @CurrentComponentFullName + '"'
+                    'Error: VersionCheck happened before "VersionCheckMode" check for component called "' + @CurrentComponentFullName + '"'
                 ;
                 
                 -- we will stop the test because it's possible to get the same message for other components
@@ -6360,7 +6360,7 @@ IF NOT EXISTS ( SELECT  1
 						WITH XMLNAMESPACES (''www.microsoft.com/SqlServer/Dts'' AS [dts])
 						,[maintenance_plan_steps] AS (
 							SELECT [name]
-								, [id] -- ID required to link maintenace plan with jobs and jobhistory (sp_Blitz Issue #776)							
+								, [id] -- ID required to link maintenance plan with jobs and jobhistory (sp_Blitz Issue #776)									
 								, CAST(CAST([packagedata] AS VARBINARY(MAX)) AS XML) AS [maintenance_plan_xml]
 							FROM [msdb].[dbo].[sysssispackages]
 							WHERE [packagetype] = 6
@@ -7414,7 +7414,7 @@ IF NOT EXISTS ( SELECT  1
 		                              ''AI'',
 		                              ''Constitution.md Present'',
 		                              ''https://www.brentozar.com/go/constitution'',
-		                              ''The instructions in the Consitution.md extended property will influence the behavior of AI agents like Copilot, and change the advice they give to end users querying this database. To see the instructions, run the query in the URL.''
+		                              ''The instructions in the Constitution.md extended property will influence the behavior of AI agents like Copilot, and change the advice they give to end users querying this database. To see the instructions, run the query in the URL.''
 		                              FROM [?].sys.extended_properties
 									  WHERE class = 0 AND class_desc = ''DATABASE'' AND UPPER(name) = ''CONSTITUTION.MD''
 									  OPTION (RECOMPILE)';
@@ -8018,7 +8018,7 @@ IF NOT EXISTS ( SELECT  1
 								EXEC dbo.sp_ineachdb @suppress_quotename = 1, @command = 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 86, DB_NAME(), 230, ''Security'', ''Elevated Permissions on a Database'', ''https://www.brentozar.com/go/elevated'', (''In ['' + DB_NAME() + ''], user ['' + u.name + '']  has the role ['' + g.name + ''].  This user can perform tasks beyond just reading and writing data.'') FROM (SELECT memberuid = convert(int, member_principal_id), groupuid = convert(int, role_principal_id) FROM [?].sys.database_role_members) m inner join [?].dbo.sysusers u on m.memberuid = u.uid inner join sysusers g on m.groupuid = g.uid where u.name <> ''dbo'' and g.name in (''db_owner'' , ''db_accessadmin'' , ''db_securityadmin'' , ''db_ddladmin'') OPTION (RECOMPILE);';
 							END;
 
-							/*Check for non-aligned indexes in partioned databases*/
+							/*Check for non-aligned indexes in partitioned databases*/
 
 										IF NOT EXISTS ( SELECT  1
 														FROM    #SkipChecks
@@ -10555,7 +10555,7 @@ IF NOT EXISTS ( SELECT  1
 					END; /* IF @CheckServerInfo = 1 */
 			END; /* IF ( ( SERVERPROPERTY('ServerName') NOT IN ( SELECT ServerName */
 
-				/* Delete priorites they wanted to skip. */
+				/* Delete priorities they wanted to skip. */
 				IF @IgnorePrioritiesAbove IS NOT NULL
 					DELETE  #BlitzResults
 					WHERE   [Priority] > @IgnorePrioritiesAbove AND CheckID <> -1;
@@ -10897,7 +10897,7 @@ IF NOT EXISTS ( SELECT  1
 					END;
 				ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
 					BEGIN
-						RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
+						RAISERROR('Due to the nature of Dynamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
 					END;
 
 				DECLARE @separator AS VARCHAR(1);
