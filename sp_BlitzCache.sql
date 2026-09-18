@@ -8776,7 +8776,7 @@ END ';
 		END;
 	ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
 		BEGIN
-			RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
+			RAISERROR('Due to the nature of Dynamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
 END; /* End of writing results to table */
 
 END; /*Final End*/
