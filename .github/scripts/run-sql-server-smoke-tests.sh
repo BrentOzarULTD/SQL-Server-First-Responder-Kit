@@ -343,7 +343,13 @@ echo
 echo "=== Installing pinned restore-test dependencies ==="
 OLA_REVISION=41617578643e722b790ea4d57ef80f8de38ae747
 for dependency in CommandLog CommandExecute; do
-  curl -fsSL "https://raw.githubusercontent.com/olahallengren/sql-server-maintenance-solution/$OLA_REVISION/$dependency.sql" -o "$WORK_DIR/$dependency.sql"
+  # Retry rate limits and transient failures with curl's exponential backoff
+  # (or Retry-After when supplied). Bound both retries and individual transfers.
+  curl --fail --silent --show-error --location \
+    --retry 5 --retry-connrefused --retry-max-time 180 \
+    --connect-timeout 10 --max-time 30 \
+    "https://raw.githubusercontent.com/olahallengren/sql-server-maintenance-solution/$OLA_REVISION/$dependency.sql" \
+    --output "$WORK_DIR/$dependency.sql"
 done
 (
   cd "$WORK_DIR"

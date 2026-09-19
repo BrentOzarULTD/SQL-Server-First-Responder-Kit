@@ -1243,13 +1243,15 @@ EXEC master.dbo.sp_kill @OutputDatabaseName=N'[FRK''雪]]Output]',@OutputSchemaN
 IF OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_kill''雪]]]')<>@OriginalID THROW 51000,'Quoted output table was replaced.',1;
 PRINT 'sp_kill quoted output passed';
 GO
-/* sp_BlitzLock: create, reuse, and append. */
-EXEC master.dbo.sp_BlitzLock @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_BlitzLock''雪]',@TargetDatabaseName=N'FRK''雪]Output',@TargetTableName=N'DeadlockInput',@TargetColumnName=N'EventData';
+/* sp_BlitzLock: create, reuse, and append.
+   The XML fixture is dated 2026-09-12. Use a fixed window with timezone
+   margin so it cannot age out of the default last-seven-days filter. */
+EXEC master.dbo.sp_BlitzLock @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_BlitzLock''雪]',@TargetDatabaseName=N'FRK''雪]Output',@TargetTableName=N'DeadlockInput',@TargetColumnName=N'EventData',@StartDate='20260911',@EndDate='20260914';
 DECLARE @OriginalID int=OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzLock''雪]]]'), @Rows bigint=(SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_BlitzLock'雪]]]);
 IF @OriginalID IS NULL THROW 51000,'Quoted output table was not created.',1;
 IF @Rows=0 THROW 51000,'Quoted output is unexpectedly empty.',1;
 IF (SELECT COUNT(DISTINCT spid) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_BlitzLock'雪]]])<>2 THROW 51000,'Quoted deadlock output lost a participant.',1;
-EXEC master.dbo.sp_BlitzLock @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_BlitzLock''雪]',@TargetDatabaseName=N'FRK''雪]Output',@TargetTableName=N'DeadlockInput',@TargetColumnName=N'EventData';
+EXEC master.dbo.sp_BlitzLock @OutputDatabaseName=N'FRK''雪]Output',@OutputSchemaName=N'Schema''雪]',@OutputTableName=N'sp_BlitzLock''雪]',@TargetDatabaseName=N'FRK''雪]Output',@TargetTableName=N'DeadlockInput',@TargetColumnName=N'EventData',@StartDate='20260911',@EndDate='20260914';
 IF OBJECT_ID(N'[FRK''雪]]Output].[Schema''雪]]].[sp_BlitzLock''雪]]]')<>@OriginalID THROW 51000,'Quoted output table was replaced.',1;
 IF (SELECT COUNT_BIG(*) FROM [FRK'雪]]Output].[Schema'雪]]].[sp_BlitzLock'雪]]])<=@Rows THROW 51000,'Quoted output did not append.',1;
 PRINT 'sp_BlitzLock quoted output passed';
