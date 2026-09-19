@@ -149,7 +149,7 @@ BEGIN
         RETURN;
     END; /* @Help = 1 */
 
-    /*Declare local variables used in the procudure*/
+    /*Declare local variables used in the procedure*/
     DECLARE
         @DatabaseId int =
             DB_ID(@DatabaseName),

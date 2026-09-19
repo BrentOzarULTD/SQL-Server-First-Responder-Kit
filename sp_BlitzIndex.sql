@@ -4379,7 +4379,7 @@ BEGIN
 					END;
 				ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
 					BEGIN
-						RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
+						RAISERROR('Due to the nature of Dynamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
 					END;
 				ELSE IF @OutputDatabaseName IS NOT NULL
 					AND @OutputSchemaName IS NOT NULL
@@ -7004,7 +7004,7 @@ BEGIN
 							-- Below should be a copy/paste of the real query
 							-- Make sure all quotes are escaped
 							-- NOTE! information line is skipped from output and the query below
-							-- NOTE! initial columns are not casted to nvarchar due to not outputing informational line
+							-- NOTE! initial columns are not casted to nvarchar due to not outputting informational line
 							DB_NAME(i.database_id) AS [Database Name],
 								COUNT(*) AS [Number Objects],
 								CAST(SUM(sz.total_reserved_MB)/
