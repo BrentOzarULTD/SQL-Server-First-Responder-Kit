@@ -157,6 +157,9 @@ DECLARE @collation NVARCHAR(256);
 DECLARE @NumDatabases INT;
 DECLARE @LineFeed NVARCHAR(5);
 DECLARE @DaysUptimeInsertValue NVARCHAR(256);
+DECLARE @AGName NVARCHAR(128);
+DECLARE @AGRole NVARCHAR(9);
+DECLARE @AGUptimeContext NVARCHAR(80) = N'';
 DECLARE @DatabaseToIgnore NVARCHAR(MAX);
 DECLARE @ColumnList NVARCHAR(MAX);
 DECLARE @ColumnListWithApostrophes NVARCHAR(MAX);
@@ -1523,6 +1526,45 @@ FROM     sys.databases
          WHERE [name] = @DatabaseName
          AND user_access_desc='MULTI_USER'
          AND state_desc = 'ONLINE';
+
+/* Current AG roles provide context, not a counter reset or failover timestamp.
+   Keep HADR references dynamic so Azure SQL Database does not bind them. */
+IF @AzureSQLDB = 0 AND SERVERPROPERTY('IsHadrEnabled') = 1
+BEGIN
+    SELECT @AGName = NULL, @AGRole = NULL;
+    BEGIN TRY
+        SET @dsql = N'SELECT @AGNameOUT = ag.name,
+                            @AGRoleOUT = CASE WHEN rs.role_desc IN (N''PRIMARY'', N''SECONDARY'', N''RESOLVING'')
+                                             THEN rs.role_desc ELSE N''UNKNOWN'' END
+                     FROM sys.databases AS d
+                     LEFT JOIN sys.dm_hadr_availability_replica_states AS rs
+                         ON rs.replica_id = d.replica_id AND rs.is_local = 1
+                     LEFT JOIN sys.availability_groups AS ag ON ag.group_id = rs.group_id
+                     WHERE d.database_id = @DatabaseID_IN
+                       AND d.name = @DatabaseName_IN
+                       AND (d.replica_id IS NOT NULL OR d.group_database_id IS NOT NULL);';
+        EXEC sp_executesql @dsql,
+             N'@DatabaseID_IN INT, @DatabaseName_IN NVARCHAR(128), @AGNameOUT NVARCHAR(128) OUTPUT, @AGRoleOUT NVARCHAR(9) OUTPUT',
+             @DatabaseID_IN = @DatabaseID, @DatabaseName_IN = @DatabaseName,
+             @AGNameOUT = @AGName OUTPUT, @AGRoleOUT = @AGRole OUTPUT;
+
+        IF @AGRole IS NOT NULL
+        BEGIN
+            SET @AGName = COALESCE(@AGName, N'UNKNOWN');
+            SET @AGUptimeContext = CASE WHEN @GetAllDatabases = 1 THEN N' | AG: per database'
+                                       ELSE N' | AG role: ' + @AGRole END;
+            RAISERROR(N'Database %s: AG %s, current local role %s. Local index usage history may differ from SQL Server uptime; counters do not combine activity across replicas. Role changes and counter resets can limit the observation period. Failover history was not collected.',
+                      0, 1, @DatabaseName, @AGName, @AGRole) WITH NOWAIT;
+        END;
+    END TRY
+    BEGIN CATCH
+        /* AG context is optional: do not fail index analysis if it is unavailable. */
+        SET @AGUptimeContext = CASE WHEN @GetAllDatabases = 1 THEN N' | AG: per database'
+                                   ELSE N' | AG context: UNKNOWN' END;
+        RAISERROR(N'Database %s: unable to collect AG context. Local index usage history may differ from SQL Server uptime; AG membership, role and failover history are not established by this check.',
+                  0, 1, @DatabaseName) WITH NOWAIT;
+    END CATCH;
+END;
 
 ----------------------------------------
 --STEP 1: OBSERVE THE PATIENT
@@ -3099,6 +3141,13 @@ END CATCH;
  FETCH NEXT FROM c1 INTO @DatabaseName;
 END;
 DEALLOCATE c1;
+
+/* This banner covers the requested databases, not the last database in the loop.
+   Leave @DaysUptime and all benefit calculations unchanged. The longest suffix
+   fits NVARCHAR(256), including a 128-character server name and NUMERIC(23,2). */
+IF @AGUptimeContext <> N''
+    SET @DaysUptimeInsertValue = @DaysUptimeInsertValue + @AGUptimeContext
+                              + N' | Local usage history may differ from uptime';
 
 
 
