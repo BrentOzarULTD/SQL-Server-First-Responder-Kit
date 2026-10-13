@@ -10139,34 +10139,34 @@ IF NOT EXISTS ( SELECT  1
 								   which we can't reach from T-SQL, so we read the policy values plus the secure kernel status flag. */
 
 								/* VBS turned on by policy (Group Policy / Intune / manual) */
-								EXEC master.sys.xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+								EXEC xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
 															@key		= N'SYSTEM\CurrentControlSet\Control\DeviceGuard',
 															@value_name	= N'EnableVirtualizationBasedSecurity',
 															@value		= @vbs_policy_enabled OUTPUT,
 															@no_output	= N'no_output';
 
 								/* Memory Integrity (HVCI) - on by default on new installs of Windows Server 2022+ and Windows 11 */
-								EXEC master.sys.xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+								EXEC xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
 															@key		= N'SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity',
 															@value_name	= N'Enabled',
 															@value		= @vbs_hvci_enabled OUTPUT,
 															@no_output	= N'no_output';
 
 								/* The secure kernel only runs when VBS is actually running (Windows Server 2025+) */
-								EXEC master.sys.xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+								EXEC xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
 															@key		= N'SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\KeyGuard\Status',
 															@value_name	= N'IsSecureKernelRunning',
 															@value		= @vbs_secure_kernel_running OUTPUT,
 															@no_output	= N'no_output';
 
 								/* Credential Guard, both the DeviceGuard scenario flag and the LSA flag (1 = on with UEFI lock, 2 = on without lock) */
-								EXEC master.sys.xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+								EXEC xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
 															@key		= N'SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\CredentialGuard',
 															@value_name	= N'Enabled',
 															@value		= @vbs_credguard_enabled OUTPUT,
 															@no_output	= N'no_output';
 
-								EXEC master.sys.xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+								EXEC xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
 															@key		= N'SYSTEM\CurrentControlSet\Control\Lsa',
 															@value_name	= N'LsaCfgFlags',
 															@value		= @vbs_lsa_cfg_flags OUTPUT,
