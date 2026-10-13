@@ -10131,6 +10131,9 @@ IF NOT EXISTS ( SELECT  1
 									,@vbs_secure_kernel_running int
 									,@vbs_credguard_enabled int
 									,@vbs_lsa_cfg_flags int
+									,@vbs_gpo_enabled int
+									,@vbs_gpo_hvci int
+									,@vbs_gpo_lsa_cfg_flags int
 									,@vbs_features nvarchar(400);
 
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 277) WITH NOWAIT;
@@ -10173,16 +10176,39 @@ IF NOT EXISTS ( SELECT  1
 															@value		= @vbs_lsa_cfg_flags OUTPUT,
 															@no_output	= N'no_output';
 
+								/* The same settings as pushed by Group Policy / Intune live under the Policies hive, which the power plan check also reads first.
+								   HypervisorEnforcedCodeIntegrity and LsaCfgFlags there are 0 = off, 1 = on with UEFI lock, 2 = on without lock. */
+								EXEC xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+															@key		= N'SOFTWARE\Policies\Microsoft\Windows\DeviceGuard',
+															@value_name	= N'EnableVirtualizationBasedSecurity',
+															@value		= @vbs_gpo_enabled OUTPUT,
+															@no_output	= N'no_output';
+
+								EXEC xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+															@key		= N'SOFTWARE\Policies\Microsoft\Windows\DeviceGuard',
+															@value_name	= N'HypervisorEnforcedCodeIntegrity',
+															@value		= @vbs_gpo_hvci OUTPUT,
+															@no_output	= N'no_output';
+
+								EXEC xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+															@key		= N'SOFTWARE\Policies\Microsoft\Windows\DeviceGuard',
+															@value_name	= N'LsaCfgFlags',
+															@value		= @vbs_gpo_lsa_cfg_flags OUTPUT,
+															@no_output	= N'no_output';
+
 								IF @vbs_policy_enabled = 1
 									OR @vbs_hvci_enabled = 1
 									OR @vbs_secure_kernel_running = 1
 									OR @vbs_credguard_enabled = 1
 									OR @vbs_lsa_cfg_flags IN (1, 2)
+									OR @vbs_gpo_enabled = 1
+									OR @vbs_gpo_hvci IN (1, 2)
+									OR @vbs_gpo_lsa_cfg_flags IN (1, 2)
 									BEGIN
 										SET @vbs_features = STUFF(
-											  CASE WHEN @vbs_policy_enabled = 1 THEN N', VBS enabled by policy' ELSE N'' END
-											+ CASE WHEN @vbs_hvci_enabled = 1 THEN N', Memory Integrity (HVCI)' ELSE N'' END
-											+ CASE WHEN @vbs_credguard_enabled = 1 OR @vbs_lsa_cfg_flags IN (1, 2) THEN N', Credential Guard' ELSE N'' END
+											  CASE WHEN @vbs_policy_enabled = 1 OR @vbs_gpo_enabled = 1 THEN N', VBS enabled by policy' ELSE N'' END
+											+ CASE WHEN @vbs_hvci_enabled = 1 OR @vbs_gpo_hvci IN (1, 2) THEN N', Memory Integrity (HVCI)' ELSE N'' END
+											+ CASE WHEN @vbs_credguard_enabled = 1 OR @vbs_lsa_cfg_flags IN (1, 2) OR @vbs_gpo_lsa_cfg_flags IN (1, 2) THEN N', Credential Guard' ELSE N'' END
 											+ CASE WHEN @vbs_secure_kernel_running = 1 THEN N', secure kernel running' ELSE N'' END
 											, 1, 2, N'');
 
