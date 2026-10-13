@@ -703,7 +703,7 @@ BEGIN
 		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
 		SELECT
 		    v.*
-		FROM (VALUES(NULL, 211, NULL)) AS v (DatabaseName, CheckID, ServerName) /*xp_regread*/
+		FROM (VALUES(NULL, 211, NULL), (NULL, 277, NULL)) AS v (DatabaseName, CheckID, ServerName) /*xp_regread*/
 		WHERE @sa = 0;
 
 		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
@@ -860,6 +860,7 @@ BEGIN
 
 						INSERT INTO #SkipChecks (CheckID) VALUES (211); /* xp_regread not allowed - checking for power saving */
 						INSERT INTO #SkipChecks (CheckID) VALUES (212); /* xp_regread not allowed - checking for additional instances */
+						INSERT INTO #SkipChecks (CheckID) VALUES (277); /* xp_regread not allowed - checking for Virtualization-Based Security */
 						INSERT INTO #SkipChecks (CheckID) VALUES (2301); /* sp_validatelogins called by Invalid login defined with Windows Authentication */
 
 						-- Following are skipped due to limited permissions in msdb/SQLAgent in RDS
@@ -935,6 +936,7 @@ BEGIN
 						INSERT INTO #SkipChecks (CheckID) VALUES (192);  /* IFI can not be set for data files and is always used for log files in MI */
 						INSERT INTO #SkipChecks (CheckID) VALUES (199);  /* Default trace, details here: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1481 */
 						INSERT INTO #SkipChecks (CheckID) VALUES (211);  /*Power Plan */
+						INSERT INTO #SkipChecks (CheckID) VALUES (277);  /* Virtualization-Based Security - xp_regread not available */
 						INSERT INTO #SkipChecks (CheckID, DatabaseName) VALUES (80, 'master');  /* Max file size set */
 						INSERT INTO #SkipChecks (CheckID, DatabaseName) VALUES (80, 'model');  /* Max file size set */
 						INSERT INTO #SkipChecks (CheckID, DatabaseName) VALUES (80, 'msdb');  /* Max file size set */
@@ -1053,6 +1055,7 @@ BEGIN
 						INSERT INTO #SkipChecks (CheckID) VALUES (199); /* Default trace */
 						INSERT INTO #SkipChecks (CheckID) VALUES (211); /* Power plan - xp_regread */
 						INSERT INTO #SkipChecks (CheckID) VALUES (212); /* Additional instances - xp_regread */
+						INSERT INTO #SkipChecks (CheckID) VALUES (277); /* Virtualization-Based Security - xp_regread */
 						INSERT INTO #SkipChecks (CheckID) VALUES (224); /* SSRS/SSAS/SSIS Installed */
 						INSERT INTO #SkipChecks (CheckID) VALUES (258); /* SQL Server service running as LocalSystem */
 						INSERT INTO #SkipChecks (CheckID) VALUES (259); /* Agent service running as LocalSystem */
@@ -10114,6 +10117,124 @@ IF NOT EXISTS ( SELECT  1
 										 ELSE 'an unknown power mode.'
 							        END AS Details
 								
+								END;
+
+						/* CheckID 277 - Server Info - Virtualization-Based Security (VBS). #4136 */
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 277 )
+								BEGIN
+
+								DECLARE
+									@vbs_policy_enabled int
+									,@vbs_hvci_enabled int
+									,@vbs_secure_kernel_running int
+									,@vbs_credguard_enabled int
+									,@vbs_lsa_cfg_flags int
+									,@vbs_gpo_enabled int
+									,@vbs_gpo_hvci int
+									,@vbs_gpo_lsa_cfg_flags int
+									,@vbs_features nvarchar(400);
+
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 277) WITH NOWAIT;
+
+								/* With @no_output passed, xp_regread returns 0 and leaves @value NULL when the key or value is missing,
+								   so test the outputs rather than the return code. Windows only exposes the running state via WMI,
+								   which we can't reach from T-SQL, so we read the policy values plus the secure kernel status flag. */
+
+								/* VBS turned on by policy (Group Policy / Intune / manual) */
+								EXEC xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+															@key		= N'SYSTEM\CurrentControlSet\Control\DeviceGuard',
+															@value_name	= N'EnableVirtualizationBasedSecurity',
+															@value		= @vbs_policy_enabled OUTPUT,
+															@no_output	= N'no_output';
+
+								/* Memory Integrity (HVCI) - on by default on new installs of Windows Server 2022+ and Windows 11 */
+								EXEC xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+															@key		= N'SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity',
+															@value_name	= N'Enabled',
+															@value		= @vbs_hvci_enabled OUTPUT,
+															@no_output	= N'no_output';
+
+								/* The secure kernel only runs when VBS is actually running (Windows Server 2025+) */
+								EXEC xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+															@key		= N'SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\KeyGuard\Status',
+															@value_name	= N'IsSecureKernelRunning',
+															@value		= @vbs_secure_kernel_running OUTPUT,
+															@no_output	= N'no_output';
+
+								/* Credential Guard, both the DeviceGuard scenario flag and the LSA flag (1 = on with UEFI lock, 2 = on without lock) */
+								EXEC xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+															@key		= N'SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\CredentialGuard',
+															@value_name	= N'Enabled',
+															@value		= @vbs_credguard_enabled OUTPUT,
+															@no_output	= N'no_output';
+
+								EXEC xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+															@key		= N'SYSTEM\CurrentControlSet\Control\Lsa',
+															@value_name	= N'LsaCfgFlags',
+															@value		= @vbs_lsa_cfg_flags OUTPUT,
+															@no_output	= N'no_output';
+
+								/* The same settings as pushed by Group Policy / Intune live under the Policies hive, which the power plan check also reads first.
+								   HypervisorEnforcedCodeIntegrity and LsaCfgFlags there are 0 = off, 1 = on with UEFI lock, 2 = on without lock. */
+								EXEC xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+															@key		= N'SOFTWARE\Policies\Microsoft\Windows\DeviceGuard',
+															@value_name	= N'EnableVirtualizationBasedSecurity',
+															@value		= @vbs_gpo_enabled OUTPUT,
+															@no_output	= N'no_output';
+
+								EXEC xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+															@key		= N'SOFTWARE\Policies\Microsoft\Windows\DeviceGuard',
+															@value_name	= N'HypervisorEnforcedCodeIntegrity',
+															@value		= @vbs_gpo_hvci OUTPUT,
+															@no_output	= N'no_output';
+
+								EXEC xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+															@key		= N'SOFTWARE\Policies\Microsoft\Windows\DeviceGuard',
+															@value_name	= N'LsaCfgFlags',
+															@value		= @vbs_gpo_lsa_cfg_flags OUTPUT,
+															@no_output	= N'no_output';
+
+								IF @vbs_policy_enabled = 1
+									OR @vbs_hvci_enabled = 1
+									OR @vbs_secure_kernel_running = 1
+									OR @vbs_credguard_enabled = 1
+									OR @vbs_lsa_cfg_flags IN (1, 2)
+									OR @vbs_gpo_enabled = 1
+									OR @vbs_gpo_hvci IN (1, 2)
+									OR @vbs_gpo_lsa_cfg_flags IN (1, 2)
+									BEGIN
+										SET @vbs_features = STUFF(
+											  CASE WHEN @vbs_policy_enabled = 1 OR @vbs_gpo_enabled = 1 THEN N', VBS enabled by policy' ELSE N'' END
+											+ CASE WHEN @vbs_hvci_enabled = 1 OR @vbs_gpo_hvci IN (1, 2) THEN N', Memory Integrity (HVCI)' ELSE N'' END
+											+ CASE WHEN @vbs_credguard_enabled = 1 OR @vbs_lsa_cfg_flags IN (1, 2) OR @vbs_gpo_lsa_cfg_flags IN (1, 2) THEN N', Credential Guard' ELSE N'' END
+											+ CASE WHEN @vbs_secure_kernel_running = 1 THEN N', secure kernel running' ELSE N'' END
+											, 1, 2, N'');
+
+										INSERT  INTO #BlitzResults
+											( CheckID ,
+											  Priority ,
+											  FindingsGroup ,
+											  Finding ,
+											  URL ,
+											  Details
+											)
+										SELECT  277 AS CheckId,
+												250 AS Priority,
+												'Server Info' AS FindingsGroup,
+												'Virtualization-Based Security (VBS) Enabled' AS Finding,
+												'https://www.brentozar.com/go/vbs' AS URL,
+												N'Windows Virtualization-Based Security is '
+												+ CASE WHEN @vbs_secure_kernel_running = 1 THEN N'running' ELSE N'configured' END
+												+ N' on this server ('
+												+ @vbs_features
+												+ N'). '
+												+ CASE WHEN @vbs_secure_kernel_running = 1 THEN N''
+													   ELSE N'The registry only shows configuration, so confirm it is actually running: msinfo32 should say Virtualization-based security: Running. ' END
+												+ N'VBS runs Windows itself under Hyper-V, and the extra layer can cost SQL Server noticeable CPU throughput. Benchmark with it off before deciding whether the security tradeoff is worth it.' AS Details;
+									END;
+
 								END;
 
 						IF NOT EXISTS ( SELECT  1
