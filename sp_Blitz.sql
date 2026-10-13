@@ -936,6 +936,7 @@ BEGIN
 						INSERT INTO #SkipChecks (CheckID) VALUES (192);  /* IFI can not be set for data files and is always used for log files in MI */
 						INSERT INTO #SkipChecks (CheckID) VALUES (199);  /* Default trace, details here: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1481 */
 						INSERT INTO #SkipChecks (CheckID) VALUES (211);  /*Power Plan */
+						INSERT INTO #SkipChecks (CheckID) VALUES (277);  /* Virtualization-Based Security - xp_regread not available */
 						INSERT INTO #SkipChecks (CheckID, DatabaseName) VALUES (80, 'master');  /* Max file size set */
 						INSERT INTO #SkipChecks (CheckID, DatabaseName) VALUES (80, 'model');  /* Max file size set */
 						INSERT INTO #SkipChecks (CheckID, DatabaseName) VALUES (80, 'msdb');  /* Max file size set */
@@ -10198,9 +10199,14 @@ IF NOT EXISTS ( SELECT  1
 												'Server Info' AS FindingsGroup,
 												'Virtualization-Based Security (VBS) Enabled' AS Finding,
 												'https://www.brentozar.com/go/vbs' AS URL,
-												N'Windows Virtualization-Based Security is turned on ('
+												N'Windows Virtualization-Based Security is '
+												+ CASE WHEN @vbs_secure_kernel_running = 1 THEN N'running' ELSE N'configured' END
+												+ N' on this server ('
 												+ @vbs_features
-												+ N'). VBS runs Windows itself under Hyper-V, and the extra layer can cost SQL Server noticeable CPU throughput. Benchmark with it off before deciding whether the security tradeoff is worth it.' AS Details;
+												+ N'). '
+												+ CASE WHEN @vbs_secure_kernel_running = 1 THEN N''
+													   ELSE N'The registry only shows configuration, so confirm it is actually running: msinfo32 should say Virtualization-based security: Running. ' END
+												+ N'VBS runs Windows itself under Hyper-V, and the extra layer can cost SQL Server noticeable CPU throughput. Benchmark with it off before deciding whether the security tradeoff is worth it.' AS Details;
 									END;
 
 								END;
