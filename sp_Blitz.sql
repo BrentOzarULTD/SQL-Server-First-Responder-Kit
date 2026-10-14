@@ -7319,7 +7319,23 @@ IF NOT EXISTS ( SELECT  1
 		                              ''Performance'',
 		                              ''Query Store Effectively Disabled'',
 		                              ''https://learn.microsoft.com/en-us/sql/relational-databases/performance/best-practice-with-the-query-store#Verify'',
-		                              (''Query Store is not in a state where it is writing, so it is effectively disabled. Check your Query Store settings.'')
+		                              (''Query Store is not in a state where it is writing, so it is effectively disabled. Check your Query Store settings.'' + CASE WHEN actual_state = 1 THEN
+                                        '' Read-only reasons (readonly_reason = '' + CONVERT(NVARCHAR(20), readonly_reason) + ''): ''
+                                        + CASE WHEN readonly_reason = 0 THEN
+                                            CASE WHEN desired_state = 1 THEN ''Query Store is configured READ_ONLY.''
+                                                 ELSE ''No automatic read-only reason is reported.'' END
+                                          ELSE STUFF(
+                                              CASE WHEN (readonly_reason & 1) = 1 THEN ''; Database is read-only'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 2) = 2 THEN ''; Database is in single-user mode'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 4) = 4 THEN ''; Database is in emergency mode'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 8) = 8 THEN ''; Database is a secondary replica'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 65536) = 65536 THEN ''; Query Store reached MAX_STORAGE_SIZE_MB'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 131072) = 131072 THEN ''; Distinct statements reached the internal memory limit'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 262144) = 262144 THEN ''; In-memory items awaiting persistence reached the internal memory limit (temporary)'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 524288) = 524288 THEN ''; Database reached its disk size limit'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & ~983055) <> 0 THEN ''; Unrecognized read-only reason bits (see readonly_reason)'' ELSE '''' END,
+                                            1, 2, '''') END
+                                    ELSE '''' END)
 		                              FROM [?].sys.database_query_store_options
 									  WHERE desired_state <> 0
 									  AND actual_state <> 2
@@ -7351,7 +7367,23 @@ IF NOT EXISTS ( SELECT  1
 		                              ''Performance'',
 		                              ''Undesired Query Store State'',
 		                              ''https://learn.microsoft.com/en-us/sql/relational-databases/performance/best-practice-with-the-query-store#Verify'',
-		                              (''You have asked for Query Store to be in '' + desired_state_desc + '' mode, but it is in '' + actual_state_desc + '' mode.'')
+		                              (''You have asked for Query Store to be in '' + desired_state_desc + '' mode, but it is in '' + actual_state_desc + '' mode.'' + CASE WHEN actual_state = 1 THEN
+                                        '' Read-only reasons (readonly_reason = '' + CONVERT(NVARCHAR(20), readonly_reason) + ''): ''
+                                        + CASE WHEN readonly_reason = 0 THEN
+                                            CASE WHEN desired_state = 1 THEN ''Query Store is configured READ_ONLY.''
+                                                 ELSE ''No automatic read-only reason is reported.'' END
+                                          ELSE STUFF(
+                                              CASE WHEN (readonly_reason & 1) = 1 THEN ''; Database is read-only'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 2) = 2 THEN ''; Database is in single-user mode'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 4) = 4 THEN ''; Database is in emergency mode'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 8) = 8 THEN ''; Database is a secondary replica'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 65536) = 65536 THEN ''; Query Store reached MAX_STORAGE_SIZE_MB'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 131072) = 131072 THEN ''; Distinct statements reached the internal memory limit'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 262144) = 262144 THEN ''; In-memory items awaiting persistence reached the internal memory limit (temporary)'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 524288) = 524288 THEN ''; Database reached its disk size limit'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & ~983055) <> 0 THEN ''; Unrecognized read-only reason bits (see readonly_reason)'' ELSE '''' END,
+                                            1, 2, '''') END
+                                    ELSE '''' END)
 		                              FROM [?].sys.database_query_store_options
 									  WHERE desired_state <> 0
 									  AND desired_state <> actual_state 
