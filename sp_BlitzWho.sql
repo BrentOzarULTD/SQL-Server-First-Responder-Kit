@@ -1008,7 +1008,7 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	BEGIN
 	SET @StringToExecute = N'USE '
 	  + @OutputDatabaseName + N'; '
-	  + @BlockingCheck + 
+	  + @BlockingCheck + N' DECLARE @DmvNow DATETIME = CASE WHEN @AzureSQLDB = 1 THEN GETUTCDATE() ELSE GETDATE() END; '
 	  + ' INSERT INTO '
 	  + @OutputSchemaName + N'.'
 	  + @OutputTableName
