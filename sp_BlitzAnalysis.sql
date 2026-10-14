@@ -754,10 +754,7 @@ END
 IF @BlitzWhoStartTimeUtc IS NULL
     SET @BlitzWhoStartTimeUtc = CASE WHEN SERVERPROPERTY('EngineEdition') = 5
                                       AND @Servername = @@SERVERNAME THEN 1 ELSE 0 END;
-DECLARE @BlitzWhoStartDate DATETIME = CAST(CASE WHEN @BlitzWhoStartTimeUtc = 1
-    THEN SWITCHOFFSET(@StartDate, '+00:00') ELSE @StartDate END AS DATETIME);
-DECLARE @BlitzWhoEndDate DATETIME = CAST(CASE WHEN @BlitzWhoStartTimeUtc = 1
-    THEN SWITCHOFFSET(@EndDate, '+00:00') ELSE @EndDate END AS DATETIME);
+DECLARE @BlitzWhoStartDate DATETIME, @BlitzWhoEndDate DATETIME;
 
 SET @Sql = N'
 SELECT [ServerName]
@@ -890,6 +887,11 @@ BEGIN
 END
 ELSE
 BEGIN 
+	/* Only convert boundaries when BlitzWho data will actually be queried. */
+	SET @BlitzWhoStartDate = CAST(CASE WHEN @BlitzWhoStartTimeUtc = 1
+	    THEN SWITCHOFFSET(@StartDate, '+00:00') ELSE @StartDate END AS DATETIME);
+	SET @BlitzWhoEndDate = CAST(CASE WHEN @BlitzWhoStartTimeUtc = 1
+	    THEN SWITCHOFFSET(@EndDate, '+00:00') ELSE @EndDate END AS DATETIME);
 	EXEC sp_executesql @Sql,
 	N'@StartDate DATETIMEOFFSET(7),
 	@EndDate DATETIMEOFFSET(7),
