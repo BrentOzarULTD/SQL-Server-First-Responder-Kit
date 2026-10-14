@@ -492,6 +492,9 @@ For more info, visit http://FirstResponderKit.org
 		RAISERROR(@msg, 0, 1) WITH NOWAIT;
 	END;
 
+	/* Azure DMV timestamps stay UTC even when the session uses a local time zone. */
+	DECLARE @DmvNow DATETIME = CASE WHEN @AzureSQLDB = 1 THEN GETUTCDATE() ELSE GETDATE() END;
+
 	/*-------------------------------------------------------
 	  Section 7: Kill Recommendation Logic
 	-------------------------------------------------------*/
@@ -562,7 +565,7 @@ For more info, visit http://FirstResponderKit.org
 			AND (@ReadOnly IS NULL OR is_read_only = 1)
 			AND (@SPIDState IS NULL OR (@SPIDState = 'S' AND [status] = 'sleeping') OR (@SPIDState = 'R' AND [status] = 'running'))
 			AND (@HasOpenTran IS NULL OR ISNULL(open_transaction_count, 0) > 0)
-			AND (@RequestsOlderThanSeconds IS NULL OR last_request_start_time <= DATEADD(SECOND, -@RequestsOlderThanSeconds, GETDATE()))
+			AND (@RequestsOlderThanSeconds IS NULL OR last_request_start_time <= DATEADD(SECOND, -@RequestsOlderThanSeconds, @DmvNow))
 			AND (@OmitLogin IS NULL OR login_name <> @OmitLogin)
 			AND (@LeadBlockers IS NULL OR (
 				EXISTS (SELECT 1 FROM #hitlist blocked WHERE blocked.blocking_session_id = h.session_id)
@@ -597,7 +600,7 @@ For more info, visit http://FirstResponderKit.org
 	SET Reason = N'Sleeping session with '
 		+ CAST(open_transaction_count AS NVARCHAR(10))
 		+ N' open transaction(s), idle for '
-		+ CAST(ISNULL(DATEDIFF(SECOND, last_request_end_time, GETDATE()), 0) AS NVARCHAR(10))
+		+ CAST(ISNULL(DATEDIFF(SECOND, last_request_end_time, @DmvNow), 0) AS NVARCHAR(10))
 		+ N' seconds.'
 	WHERE KillRecommended = 1
 	AND [status] = 'sleeping'
@@ -607,7 +610,7 @@ For more info, visit http://FirstResponderKit.org
 	/* Long-running read-only */
 	UPDATE #hitlist
 	SET Reason = N'Long-running read-only query: running for '
-		+ CAST(ISNULL(DATEDIFF(SECOND, COALESCE(start_time, last_request_start_time), GETDATE()), 0) AS NVARCHAR(10))
+		+ CAST(ISNULL(DATEDIFF(SECOND, COALESCE(start_time, last_request_start_time), @DmvNow), 0) AS NVARCHAR(10))
 		+ N' seconds'
 		+ CASE WHEN memory_grant_mb IS NOT NULL AND memory_grant_mb > 0
 			THEN N', using ' + CAST(memory_grant_mb AS NVARCHAR(20)) + N' MB memory grant'
@@ -621,7 +624,7 @@ For more info, visit http://FirstResponderKit.org
 	/* Long-running write queries */
 	UPDATE #hitlist
 	SET Reason = N'Long-running query: running for '
-		+ CAST(ISNULL(DATEDIFF(SECOND, COALESCE(start_time, last_request_start_time), GETDATE()), 0) AS NVARCHAR(10))
+		+ CAST(ISNULL(DATEDIFF(SECOND, COALESCE(start_time, last_request_start_time), @DmvNow), 0) AS NVARCHAR(10))
 		+ N' seconds, writes: ' + CAST(ISNULL(writes, 0) AS NVARCHAR(20))
 		+ CASE WHEN memory_grant_mb IS NOT NULL AND memory_grant_mb > 0
 			THEN N', memory: ' + CAST(memory_grant_mb AS NVARCHAR(20)) + N' MB'
@@ -650,7 +653,7 @@ For more info, visit http://FirstResponderKit.org
 	;WITH cte AS (
 		SELECT Id, OrderByNum,
 			ROW_NUMBER() OVER (ORDER BY
-				CASE WHEN @OrderBy = 'duration' THEN CAST(ISNULL(DATEDIFF(SECOND, COALESCE(start_time, last_request_start_time), GETDATE()), 0) AS BIGINT) END DESC,
+				CASE WHEN @OrderBy = 'duration' THEN CAST(ISNULL(DATEDIFF(SECOND, COALESCE(start_time, last_request_start_time), @DmvNow), 0) AS BIGINT) END DESC,
 				CASE WHEN @OrderBy = 'cpu' THEN ISNULL(cpu_time_ms, 0) END DESC,
 				CASE WHEN @OrderBy = 'reads' THEN ISNULL(reads, 0) + ISNULL(logical_reads, 0) END DESC,
 				CASE WHEN @OrderBy = 'writes' THEN ISNULL(writes, 0) END DESC,
