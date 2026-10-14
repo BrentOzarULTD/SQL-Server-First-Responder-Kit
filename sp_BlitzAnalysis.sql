@@ -31,7 +31,8 @@ ALTER PROCEDURE [dbo].[sp_BlitzAnalysis] (
 @VersionCheckMode BIT = 0,
 @BringThePain BIT = 0,
 @Maxdop INT = 1,
-@Debug BIT = 0
+@Debug BIT = 0,
+@BlitzWhoStartTimeUtc BIT = NULL
 )
 AS 
 BEGIN
@@ -67,6 +68,7 @@ BEGIN
 
 /*
 Additional parameters:
+@BlitzWhoStartTimeUtc BIT /* NULL: infer UTC for this Azure database''s own logs only; 1: UTC source (including centralized Azure logs); 0: local SQL Server/MI start_time */
 @ReadLatencyThreshold INT		/* Default: 100 - Sets the threshold in ms to compare against io_stall_read_average_ms in your filestats table */
 @WriteLatencyThreshold INT		/* Default: 100 - Sets the threshold in ms to compare against io_stall_write_average_ms in your filestats table */
 @BringThePain BIT		/* Default: 0 - If you are getting more than 4 hours of data with blitzcachesortorder set to ''all'' you will need to set BringThePain to 1 */
@@ -746,6 +748,17 @@ END
 
 
 /* BlitzWho data */
+/* The source server determines start_time's convention, not the logging host.
+   NULL infers UTC only for this Azure database's own logs. Centralized Azure
+   logs require @BlitzWhoStartTimeUtc = 1; SQL Server/MI local logs use 0. */
+IF @BlitzWhoStartTimeUtc IS NULL
+    SET @BlitzWhoStartTimeUtc = CASE WHEN SERVERPROPERTY('EngineEdition') = 5
+                                      AND @Servername = @@SERVERNAME THEN 1 ELSE 0 END;
+DECLARE @BlitzWhoStartDate DATETIME = CAST(CASE WHEN @BlitzWhoStartTimeUtc = 1
+    THEN SWITCHOFFSET(@StartDate, '+00:00') ELSE @StartDate END AS DATETIME);
+DECLARE @BlitzWhoEndDate DATETIME = CAST(CASE WHEN @BlitzWhoStartTimeUtc = 1
+    THEN SWITCHOFFSET(@EndDate, '+00:00') ELSE @EndDate END AS DATETIME);
+
 SET @Sql = N'
 SELECT [ServerName]
       ,[CheckDate]
@@ -845,7 +858,7 @@ SELECT [ServerName]
       ,[statement_end_offset]
   FROM '+@FullOutputTableNameBlitzWho+N'
   WHERE [ServerName] = @Servername
-  AND ([CheckDate] BETWEEN @StartDate AND @EndDate OR [start_time] BETWEEN CAST(@StartDate AS DATETIME) AND CAST(@EndDate AS DATETIME))
+  AND ([CheckDate] BETWEEN @StartDate AND @EndDate OR [start_time] BETWEEN @BlitzWhoStartDate AND @BlitzWhoEndDate)
   '
   +CASE
 	WHEN @Databasename IS NOT NULL THEN N'AND [database_name] = @Databasename
@@ -880,10 +893,14 @@ BEGIN
 	EXEC sp_executesql @Sql,
 	N'@StartDate DATETIMEOFFSET(7),
 	@EndDate DATETIMEOFFSET(7),
+	@BlitzWhoStartDate DATETIME,
+	@BlitzWhoEndDate DATETIME,
 	@Servername NVARCHAR(128),
 	@Databasename NVARCHAR(128)',
 	@StartDate=@StartDate, 
 	@EndDate=@EndDate,
+	@BlitzWhoStartDate=@BlitzWhoStartDate,
+	@BlitzWhoEndDate=@BlitzWhoEndDate,
 	@Servername=@Servername,
 	@Databasename = @Databasename;
 END
