@@ -1114,7 +1114,8 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	+ @StringToExecute;
 	END
 ELSE
-	SET @StringToExecute = @BlockingCheck + N' SELECT  GETDATE() AS run_date , ' + @StringToExecute;
+	/* Capture after the live-plan preamble so newly sleeping requests cannot precede the clock. */
+	SET @StringToExecute = @BlockingCheck + N' DECLARE @DmvNow DATETIME = CASE WHEN @AzureSQLDB = 1 THEN GETUTCDATE() ELSE GETDATE() END; SELECT GETDATE() AS run_date , ' + @StringToExecute;
 
 /* If the server has > 50GB of memory, add a max grant hint to avoid getting a giant grant */
 IF 50000000 < (SELECT cntr_value
@@ -1139,12 +1140,9 @@ IF @Debug = 1
 		PRINT CONVERT(VARCHAR(8000), SUBSTRING(@StringToExecute, 8000, 16000))
 	END
 
-/* Use the clock matching the DMV timestamps; keep display and logging offsets. */
-DECLARE @DmvNow DATETIME = CASE WHEN @AzureSQLDB = 1 THEN GETUTCDATE() ELSE GETDATE() END;
-
 EXEC sp_executesql @StringToExecute,
-	N'@CheckDateOverride DATETIMEOFFSET, @DmvNow DATETIME',
-	@CheckDateOverride = @CheckDateOverride, @DmvNow = @DmvNow;
+	N'@CheckDateOverride DATETIMEOFFSET, @AzureSQLDB BIT',
+	@CheckDateOverride = @CheckDateOverride, @AzureSQLDB = @AzureSQLDB;
 
 END
 GO 
