@@ -494,7 +494,7 @@ BEGIN
 		SET @ResultText = 'sp_Blitz Results: ' + @crlf;
 
 		/* Last startup */
-		SELECT @DaysUptime = CAST(DATEDIFF(HOUR, create_date, GETDATE()) / 24. AS NUMERIC(23, 2))
+		SELECT @DaysUptime = CAST(DATEDIFF(HOUR, create_date, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) / 24. AS NUMERIC(23, 2))
 		FROM   sys.databases
 		WHERE  database_id = 2;
 		
@@ -1323,7 +1323,7 @@ BEGIN
 
 		IF @Debug IN (1, 2) RAISERROR('Setting @MsSinceWaitsCleared', 0, 1) WITH NOWAIT;
 
-        SELECT @MsSinceWaitsCleared = DATEDIFF(MINUTE, create_date, CURRENT_TIMESTAMP) * 60000.0
+        SELECT @MsSinceWaitsCleared = DATEDIFF(MINUTE, create_date, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE CURRENT_TIMESTAMP END)) * 60000.0
             FROM    sys.databases
             WHERE   name = 'tempdb';
 
@@ -1814,7 +1814,7 @@ BEGIN
 								''https://www.brentozar.com/go/tde'' AS URL,
 								''The certificate '' + c.name + '' is used to encrypt database '' + db_name(dek.database_id) + ''. Last backup date: '' + COALESCE(CAST(c.pvt_key_last_backup_date AS VARCHAR(100)), ''Never'') AS Details
 								FROM master.sys.certificates c INNER JOIN sys.dm_database_encryption_keys dek ON c.thumbprint = dek.encryptor_thumbprint
-								WHERE pvt_key_last_backup_date IS NULL OR pvt_key_last_backup_date <= DATEADD(dd, -30, GETDATE())  OPTION (RECOMPILE);';
+								WHERE pvt_key_last_backup_date IS NULL OR pvt_key_last_backup_date <= DATEADD(dd, -30, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END))  OPTION (RECOMPILE);';
 							
 							IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
 							IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
@@ -1855,7 +1855,7 @@ BEGIN
 								''The certificate '' + c.name + '' is used to encrypt database backups. Last backup date: '' + COALESCE(CAST(c.pvt_key_last_backup_date AS VARCHAR(100)), ''Never'') AS Details
 								FROM sys.certificates c
                                 INNER JOIN msdb.dbo.backupset bs ON c.thumbprint = bs.encryptor_thumbprint
-                                WHERE pvt_key_last_backup_date IS NULL OR pvt_key_last_backup_date <= DATEADD(dd, -30, GETDATE()) OPTION (RECOMPILE);';
+                                WHERE pvt_key_last_backup_date IS NULL OR pvt_key_last_backup_date <= DATEADD(dd, -30, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) OPTION (RECOMPILE);';
 							
 							IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
 							IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
@@ -3340,7 +3340,7 @@ BEGIN
 			WHERE db2.[state] = 1
 			) ) as rp
 		  INNER JOIN master.sys.databases db ON rp.database_id = db.database_id
-		  WHERE   rp.modification_time >= DATEADD(dd, -30, GETDATE())  OPTION (RECOMPILE);';
+		  WHERE   rp.modification_time >= DATEADD(dd, -30, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END))  OPTION (RECOMPILE);';
 
 								IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
 								IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
@@ -3378,7 +3378,7 @@ BEGIN
 		  ( ''Availability Groups has automatically repaired at least one corrupt page in the last 30 days. For more information, query the DMV sys.dm_hadr_auto_page_repair.'' ) AS Details
 		  FROM    sys.dm_hadr_auto_page_repair rp
 		  INNER JOIN master.sys.databases db ON rp.database_id = db.database_id
-		  WHERE   rp.modification_time >= DATEADD(dd, -30, GETDATE()) OPTION (RECOMPILE) ;';
+		  WHERE   rp.modification_time >= DATEADD(dd, -30, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) OPTION (RECOMPILE) ;';
 								
 								IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
 								IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
@@ -3424,7 +3424,7 @@ BEGIN
 		  ( ''SQL Server has detected at least one corrupt page in the last 30 days. For more information, query the system table msdb.dbo.suspect_pages.'' ) AS Details
 		  FROM    msdb.dbo.suspect_pages sp
 		  INNER JOIN master.sys.databases db ON sp.database_id = db.database_id
-		  WHERE   sp.last_update_date >= DATEADD(dd, -30, GETDATE())  OPTION (RECOMPILE);';
+		  WHERE   sp.last_update_date >= DATEADD(dd, -30, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END))  OPTION (RECOMPILE);';
 
 								IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
 								IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
@@ -4300,7 +4300,7 @@ END; /* Exclude SSRS category */
 									FROM sys.[dm_os_wait_stats]
 									WHERE wait_type IN('IO_QUEUE_LIMIT', 'IO_RETRY', 'LOG_RATE_GOVERNOR', 'POOL_LOG_RATE_GOVERNOR', 'PREEMPTIVE_DEBUG', 'RESMGR_THROTTLED', 'RESOURCE_SEMAPHORE', 'RESOURCE_SEMAPHORE_QUERY_COMPILE','SE_REPL_CATCHUP_THROTTLE','SE_REPL_COMMIT_ACK','SE_REPL_COMMIT_TURN','SE_REPL_ROLLBACK_ACK','SE_REPL_SLOW_SECONDARY_THROTTLE','THREADPOOL')
 									GROUP BY wait_type
-								    HAVING SUM([wait_time_ms]) > (SELECT 5000 * datediff(HH,create_date,CURRENT_TIMESTAMP) AS hours_since_startup FROM sys.databases WHERE name='tempdb')
+								    HAVING SUM([wait_time_ms]) > (SELECT 5000 * datediff(HH,create_date,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE CURRENT_TIMESTAMP END)) AS hours_since_startup FROM sys.databases WHERE name='tempdb')
 									AND SUM([wait_time_ms]) > 60000;
 						END;
 
@@ -4329,7 +4329,7 @@ END; /* Exclude SSRS category */
 											+ N' severity level memory issues reported in the last 4 hours in sys.dm_os_memory_health_history.'
 									FROM sys.dm_os_memory_health_history
 									WHERE severity_level > 1
-									AND snapshot_time >= DATEADD(HOUR, -4, GETDATE())
+									AND snapshot_time >= DATEADD(HOUR, -4, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
 									GROUP BY severity_level, severity_level_desc;
 						END;
 
@@ -4360,7 +4360,7 @@ END; /* Exclude SSRS category */
 											CONVERT(VARCHAR(10), (SUM([wait_time_ms]) / 1000) / 86400) + ':' + CONVERT(VARCHAR(20), DATEADD(s, (SUM([wait_time_ms]) / 1000), 0), 108) + ' of LCK_M_R% waits have been recorded. This wait often indicates killer performance problems.'
 									FROM sys.[dm_os_wait_stats]
 									WHERE wait_type IN ('LCK_M_RS_S', 'LCK_M_RS_U', 'LCK_M_RIn_NL','LCK_M_RIn_S', 'LCK_M_RIn_U','LCK_M_RIn_X', 'LCK_M_RX_S', 'LCK_M_RX_U','LCK_M_RX_X')
-								    HAVING SUM([wait_time_ms]) > (SELECT 5000 * datediff(HH,create_date,CURRENT_TIMESTAMP) AS hours_since_startup FROM sys.databases WHERE name='tempdb')
+								    HAVING SUM([wait_time_ms]) > (SELECT 5000 * datediff(HH,create_date,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE CURRENT_TIMESTAMP END)) AS hours_since_startup FROM sys.databases WHERE name='tempdb')
 									AND SUM([wait_time_ms]) > 60000;
 						END;
 
@@ -4533,10 +4533,10 @@ END; /* Exclude SSRS category */
 								WHERE RTRIM(p.counter_name) = 'Number of Deadlocks/sec'
 									AND RTRIM(p.instance_name) = '_Total'
 									AND p.cntr_value > 0
-									AND (1.0 * p.cntr_value / NULLIF(datediff(DD,create_date,CURRENT_TIMESTAMP),0)) > 10;
+									AND (1.0 * p.cntr_value / NULLIF(datediff(DD,create_date,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE CURRENT_TIMESTAMP END)),0)) > 10;
 							END;
 
-						IF DATEADD(mi, -15, GETDATE()) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
+						IF DATEADD(mi, -15, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
 						AND NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 125 )
@@ -8129,7 +8129,7 @@ IF NOT EXISTS ( SELECT  1
 							  ''Full Text Indexes Not Updating'',
 							  ''https://www.brentozar.com/go/fulltext'',
 							  (''At least one full text index in this database has not been crawled in the last week.'')
-							  from [?].sys.fulltext_indexes i WHERE change_tracking_state_desc <> ''AUTO'' AND i.is_enabled = 1 AND i.crawl_end_date < DATEADD(dd, -7, GETDATE())  OPTION (RECOMPILE);';
+							  from [?].sys.fulltext_indexes i WHERE change_tracking_state_desc <> ''AUTO'' AND i.is_enabled = 1 AND i.crawl_end_date < DATEADD(dd, -7, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END))  OPTION (RECOMPILE);';
 												END;
 
 						IF NOT EXISTS ( SELECT  1
@@ -8539,7 +8539,7 @@ EXEC dbo.sp_ineachdb @suppress_quotename = 1, @command = 'USE [?]; SET TRANSACTI
 								FROM     #DBCCs
 								INNER JOIN sys.databases d ON #DBCCs.DbName = d.name
 								WHERE    Field = 'dbi_dbccLastKnownGood'
-									AND d.create_date < DATEADD(dd, -14, GETDATE())
+									AND d.create_date < DATEADD(dd, -14, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
 								)
 					INSERT  INTO #BlitzResults
 							( CheckID ,
@@ -8574,7 +8574,7 @@ EXEC dbo.sp_ineachdb @suppress_quotename = 1, @command = 'USE [?]; SET TRANSACTI
 															WHERE   is_read_only = 1)
 									AND CONVERT(DATETIME, DB2.Value, 121) < DATEADD(DD,
 															-14,
-															CURRENT_TIMESTAMP);
+															(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE CURRENT_TIMESTAMP END));
 			END;
 
 		END; /* IF @CheckUserDatabaseObjects = 1 */
@@ -9169,7 +9169,7 @@ EXEC dbo.sp_ineachdb @suppress_quotename = 1, @command = 'USE [?]; SET TRANSACTI
 							WHERE n.node_id = 0 AND n.online_scheduler_count >= 8
 								AND EXISTS (SELECT * FROM sys.dm_os_nodes WHERE node_id > 0 AND node_state_desc NOT LIKE '%DAC')
 							GROUP BY w.wait_type, ts.status
-							HAVING SUM([wait_time_ms]) > (SELECT 5000 * datediff(HH,create_date,CURRENT_TIMESTAMP) AS hours_since_startup FROM sys.databases WHERE name='tempdb')
+							HAVING SUM([wait_time_ms]) > (SELECT 5000 * datediff(HH,create_date,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE CURRENT_TIMESTAMP END)) AS hours_since_startup FROM sys.databases WHERE name='tempdb')
 							AND SUM([wait_time_ms]) > 60000;
 				END;
 
