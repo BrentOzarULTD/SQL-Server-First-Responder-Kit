@@ -1482,12 +1482,12 @@ FROM #Ignore_Databases i;
 /* Last startup */
 IF COLUMNPROPERTY(OBJECT_ID('sys.dm_os_sys_info'),'sqlserver_start_time','ColumnID') IS NOT NULL
 BEGIN
-	SELECT @DaysUptime = CAST(DATEDIFF(HOUR, sqlserver_start_time, GETDATE()) / 24. AS NUMERIC (23,2))
+	SELECT @DaysUptime = CAST(DATEDIFF(HOUR, sqlserver_start_time, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) / 24. AS NUMERIC (23,2))
 	FROM sys.dm_os_sys_info;
 END
 ELSE
 BEGIN
-	SELECT  @DaysUptime = CAST(DATEDIFF(HOUR, create_date, GETDATE()) / 24. AS NUMERIC (23,2))
+	SELECT  @DaysUptime = CAST(DATEDIFF(HOUR, create_date, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) / 24. AS NUMERIC (23,2))
 	FROM    sys.databases
 	WHERE   database_id = 2;
 END
@@ -2764,7 +2764,7 @@ OPTION (RECOMPILE);';
 			        ca.column_names AS column_names,
 			        s.name AS statistics_name,
 			        CONVERT(DATETIME, ddsp.last_updated) AS last_statistics_update,
-			        DATEDIFF(DAY, ddsp.last_updated, GETDATE()) AS days_since_last_stats_update,
+			        DATEDIFF(DAY, ddsp.last_updated, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) AS days_since_last_stats_update,
 			        ddsp.rows,
 			        ddsp.rows_sampled,
 			        CAST(ddsp.rows_sampled / ( 1. * NULLIF(ddsp.rows, 0) ) * 100 AS DECIMAL(18, 1)) AS percent_sampled,
@@ -3730,7 +3730,7 @@ BEGIN
 						SELECT i.database_id,
 							   i.schema_name,
 							   i.[object_id], 
-							   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, SYSDATETIME())), 0), 1) AS create_days
+							   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END))), 0), 1) AS create_days
 						FROM #IndexSanity AS i
 						GROUP BY i.database_id, i.schema_name, i.object_id
 						)
@@ -5207,7 +5207,7 @@ BEGIN
 									i.schema_name,
 									i.[object_id], 
                                     MAX(i.index_sanity_id) AS index_sanity_id,
-									ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, SYSDATETIME())), 0), 1) AS create_days,
+									ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END))), 0), 1) AS create_days,
                                 ISNULL (
                                     CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN 1 ELSE 0 END)
                                          AS NVARCHAR(30))+ N' NC indexes exist (' + 
@@ -5424,7 +5424,7 @@ BEGIN
 				'N/A' AS index_usage_summary,
 				'N/A' AS index_size_summary
 		FROM #Statistics AS s
-		WHERE s.last_statistics_update <= CONVERT(DATETIME, GETDATE() - 30) 
+		WHERE s.last_statistics_update <= CONVERT(DATETIME, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END) - 30) 
 		AND s.percent_modifications >= 10. 
 		AND s.rows >= 10000
 		OPTION    ( RECOMPILE );
@@ -5590,16 +5590,16 @@ BEGIN
                                 WHERE   i.index_id NOT IN ( 0, 1 )
                                         AND i.is_unique = 0
                                         /*Skipping tables created in the last week, or modified in past 2 days*/
-                                        AND i.create_date < DATEADD(dd,-7,GETDATE())
-                                        AND i.modify_date < DATEADD(dd,-2,GETDATE())
+                                        AND i.create_date < DATEADD(dd,-7,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
+                                        AND i.modify_date < DATEADD(dd,-2,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                                 GROUP BY i.database_name
                              ) AS perc ON i.database_name = perc.database_name
                         WHERE    i.index_id NOT IN ( 0, 1 )
                                 AND i.is_unique = 0
                                 AND i.total_reads = 0
                                 /*Skipping tables created in the last week, or modified in past 2 days*/
-                                AND	i.create_date < DATEADD(dd,-7,GETDATE())
-                                AND i.modify_date < DATEADD(dd,-2,GETDATE())
+                                AND	i.create_date < DATEADD(dd,-7,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
+                                AND i.modify_date < DATEADD(dd,-2,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                                 AND perc.percent_NC_indexes_unused >= 5
                                 AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                         GROUP BY i.database_name
@@ -5860,8 +5860,8 @@ BEGIN
                         AND i.is_unique = 0
                         AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                         /*Skipping tables created in the last week, or modified in past 2 days*/
-                        AND	i.create_date < DATEADD(dd,-7,GETDATE()) 
-                        AND i.modify_date < DATEADD(dd,-2,GETDATE())
+                        AND	i.create_date < DATEADD(dd,-7,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) 
+                        AND i.modify_date < DATEADD(dd,-2,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                 ORDER BY i.db_schema_object_indexid
                 OPTION    ( RECOMPILE );
 
@@ -6234,7 +6234,7 @@ BEGIN
                             ISNULL(sz.index_size_summary,'') AS index_size_summary
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
-                    WHERE i.create_date >= DATEADD(dd,-7,GETDATE())
+                    WHERE i.create_date >= DATEADD(dd,-7,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                     AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                     OPTION    ( RECOMPILE );
 
@@ -6258,9 +6258,9 @@ BEGIN
                             ISNULL(sz.index_size_summary,'') AS index_size_summary
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
-                    WHERE i.modify_date > DATEADD(dd,-2,GETDATE())
+                    WHERE i.modify_date > DATEADD(dd,-2,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                     AND /*Exclude recently created tables.*/
-                    i.create_date < DATEADD(dd,-7,GETDATE())
+                    i.create_date < DATEADD(dd,-7,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                     AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                     OPTION    ( RECOMPILE );
 
@@ -7737,7 +7737,7 @@ BEGIN
 									SELECT i.database_id,
 										   i.schema_name,
 										   i.[object_id], 
-										   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, SYSDATETIME())), 0), 1) AS create_days
+										   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END))), 0), 1) AS create_days
 									FROM #IndexSanity AS i
 									GROUP BY i.database_id, i.schema_name, i.object_id
 									)
@@ -7822,7 +7822,7 @@ BEGIN
 						SELECT i.database_id,
 							   i.schema_name,
 							   i.[object_id], 
-							   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, SYSDATETIME())), 0), 1) AS create_days
+							   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END))), 0), 1) AS create_days
 						FROM #IndexSanity AS i
 						GROUP BY i.database_id, i.schema_name, i.object_id
 						)
