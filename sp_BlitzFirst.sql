@@ -300,7 +300,7 @@ BEGIN
 		BEGIN
 		/* Use the most accurate (but undocumented) DMV if it's available: */
 		IF EXISTS(SELECT * FROM sys.all_columns ac WHERE ac.object_id = OBJECT_ID('sys.dm_cloud_database_epoch') AND ac.name = 'last_role_transition_time')
-			SELECT @StartSampleTime = DATEADD(MINUTE,DATEDIFF(MINUTE, GETDATE(), GETUTCDATE()),last_role_transition_time) , @FinishSampleTime = SYSDATETIMEOFFSET()
+			SELECT @StartSampleTime = TODATETIMEOFFSET(last_role_transition_time, '+00:00') , @FinishSampleTime = SYSDATETIMEOFFSET()
 				FROM sys.dm_cloud_database_epoch;
 		ELSE
 			WITH WaitTimes AS (
@@ -321,7 +321,7 @@ BEGIN
     ELSE
         SELECT @StartSampleTime = SYSDATETIMEOFFSET(),
                 @FinishSampleTime = DATEADD(ss, @Seconds, SYSDATETIMEOFFSET()),
-                @FinishSampleTimeWaitFor = DATEADD(ss, @Seconds, GETDATE());
+                @FinishSampleTimeWaitFor = DATEADD(ss, @Seconds, CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END);
 
 
 	SELECT @logical_processors = COUNT(*)
@@ -1763,7 +1763,7 @@ BEGIN
     END;
 	
     /* Query Problems - Plan Cache Erased Recently - CheckID 7 */
-    IF DATEADD(mi, -15, SYSDATETIME()) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
+    IF DATEADD(mi, -15, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END)) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
     BEGIN
 		IF (@Debug = 1)
 		BEGIN
@@ -1831,7 +1831,7 @@ BEGIN
             INNER JOIN #BlitzFirstTmpSession AS db ON s.spid = db.request_session_id
             WHERE s.status = 'sleeping'
             AND s.open_tran > 0
-            AND s.last_batch < DATEADD(ss, -10, SYSDATETIME())
+            AND s.last_batch < DATEADD(ss, -10, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END))
             AND EXISTS(SELECT * FROM sys.dm_tran_locks WHERE request_session_id = s.spid
             AND NOT (resource_type = N'DATABASE' AND request_mode = N'S' AND request_status = N'GRANT' AND request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'));
 	END
@@ -2098,7 +2098,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		+ 'Total WorkSpace(MB): ' + CAST(ISNULL(@MaxWorkspace, 0) AS NVARCHAR(50)) + @LineFeed  
 		+ 'Granted workspace: ' + CAST(ISNULL((CAST(SUM(Grants.granted_memory_kb) / 1024 AS MONEY)
 		                              / CAST(@MaxWorkspace AS MONEY)) * 100, 0) AS NVARCHAR(50)) + '%' + @LineFeed
-		+ 'Oldest Grant in seconds: ' + CAST(ISNULL(DATEDIFF(SECOND, MIN(Grants.request_time), GETDATE()), 0) AS NVARCHAR(50)) AS Details,
+		+ 'Oldest Grant in seconds: ' + CAST(ISNULL(DATEDIFF(SECOND, MIN(Grants.request_time), (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)), 0) AS NVARCHAR(50)) AS Details,
 		(SELECT COUNT(*) FROM sys.dm_exec_query_memory_grants WHERE queue_id IS NULL) AS DetailsInt,
 		'https://www.brentozar.com/askbrent/' AS URL
 	FROM sys.dm_exec_query_memory_grants AS Grants;
@@ -2565,7 +2565,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                                     '    FROM sys.objects AS obj WITH (NOLOCK)' + @LineFeed +
                                     '    INNER JOIN sys.stats AS stat WITH (NOLOCK) ON stat.object_id = obj.object_id  ' + @LineFeed +
                                     '    CROSS APPLY sys.dm_db_stats_properties(stat.object_id, stat.stats_id) AS sp  ' + @LineFeed +
-                                    '    WHERE sp.last_updated > DATEADD(MI, -15, GETDATE())' + @LineFeed +
+                                    '    WHERE sp.last_updated > DATEADD(MI, -15, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END))' + @LineFeed +
                                     '    AND obj.is_ms_shipped = 0' + @LineFeed +
                                     '    AND ''[?]'' <> ''[tempdb]'';' + @LineFeed +
                                     'END TRY' + @LineFeed +
@@ -2736,8 +2736,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 							SELECT TOP (5)
 								ConnectionGroup = HostName,
 								ConnectionCount = COUNT(*),
-								MostRecentSec   = DATEDIFF(SECOND, MAX(LastFinish), GETDATE()),
-								OldestSec       = DATEDIFF(SECOND, MIN(LastFinish), GETDATE())
+								MostRecentSec   = DATEDIFF(SECOND, MAX(LastFinish), (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)),
+								OldestSec       = DATEDIFF(SECOND, MIN(LastFinish), (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
 							FROM @ConnSessions
 							GROUP BY HostName
 							ORDER BY COUNT(*) DESC, HostName
@@ -2773,8 +2773,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 							SELECT TOP (5)
 								ConnectionGroup = LoginName,
 								ConnectionCount = COUNT(*),
-								MostRecentSec   = DATEDIFF(SECOND, MAX(LastFinish), GETDATE()),
-								OldestSec       = DATEDIFF(SECOND, MIN(LastFinish), GETDATE())
+								MostRecentSec   = DATEDIFF(SECOND, MAX(LastFinish), (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)),
+								OldestSec       = DATEDIFF(SECOND, MIN(LastFinish), (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
 							FROM @ConnSessions
 							GROUP BY LoginName
 							ORDER BY COUNT(*) DESC, LoginName
@@ -2810,8 +2810,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 							SELECT TOP (5)
 								ConnectionGroup = AppName,
 								ConnectionCount = COUNT(*),
-								MostRecentSec   = DATEDIFF(SECOND, MAX(LastFinish), GETDATE()),
-								OldestSec       = DATEDIFF(SECOND, MIN(LastFinish), GETDATE())
+								MostRecentSec   = DATEDIFF(SECOND, MAX(LastFinish), (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)),
+								OldestSec       = DATEDIFF(SECOND, MIN(LastFinish), (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
 							FROM @ConnSessions
 							GROUP BY AppName
 							ORDER BY COUNT(*) DESC, AppName
@@ -3085,7 +3085,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                                         WHERE qs.last_execution_time >= @StartSampleTimeText;';
 		*/
         SET @ParmDefinitions = N'@StartSampleTimeText NVARCHAR(100)';
-        SET @Parm1 = CONVERT(NVARCHAR(100), CAST(@StartSampleTime AS DATETIME), 127);
+        SET @Parm1 = CONVERT(NVARCHAR(100), CAST(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SWITCHOFFSET(@StartSampleTime, '+00:00') ELSE @StartSampleTime END AS DATETIME), 127);
 
         EXECUTE sp_executesql @StringToExecute, @ParmDefinitions, @StartSampleTimeText = @Parm1;
 
@@ -3610,7 +3610,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + N'Max session percent: ' + CAST(max_session_percent AS NVARCHAR(50)) AS Details,
             'Tune your queries or indexes with sp_BlitzCache or sp_BlitzIndex, or consider upgrading to a higher DTU level.' AS HowToStopIt
         FROM sys.dm_db_resource_stats s
-        WHERE s.end_time >= DATEADD(MI, -5, GETDATE())
+        WHERE s.end_time >= DATEADD(MI, -5, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
           AND (avg_cpu_percent > 90
                OR avg_data_io_percent >= 90
                OR avg_log_write_percent >=90
