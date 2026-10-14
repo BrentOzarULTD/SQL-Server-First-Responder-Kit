@@ -5424,7 +5424,7 @@ BEGIN
 				'N/A' AS index_usage_summary,
 				'N/A' AS index_size_summary
 		FROM #Statistics AS s
-		WHERE s.last_statistics_update <= CONVERT(DATETIME, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END) - 30) 
+		WHERE s.last_statistics_update <= CONVERT(DATETIME, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END) - 30)
 		AND s.percent_modifications >= 10. 
 		AND s.rows >= 10000
 		OPTION    ( RECOMPILE );
@@ -5860,7 +5860,7 @@ BEGIN
                         AND i.is_unique = 0
                         AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                         /*Skipping tables created in the last week, or modified in past 2 days*/
-                        AND	i.create_date < DATEADD(dd,-7,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) 
+                        AND	i.create_date < DATEADD(dd,-7,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                         AND i.modify_date < DATEADD(dd,-2,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                 ORDER BY i.db_schema_object_indexid
                 OPTION    ( RECOMPILE );
