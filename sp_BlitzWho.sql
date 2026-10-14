@@ -672,7 +672,7 @@ END
 /* Think of the StringToExecute as starting with this, but we'll set this up later depending on whether we're doing an insert or a select:
 SELECT @StringToExecute = N'SELECT  GETDATE() AS run_date ,
 */
-SELECT @StringToExecute = N' CASE WHEN YEAR(s.last_request_start_time) = 1900 THEN NULL ELSE COALESCE( RIGHT(''00'' + CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), RIGHT(''00'' + CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114) ) END AS [elapsed_time] ,
+SELECT @StringToExecute = N' CASE WHEN YEAR(s.last_request_start_time) = 1900 THEN NULL ELSE COALESCE( RIGHT(''00'' + CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), RIGHT(''00'' + CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, @DmvNow) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, @DmvNow), 0), 114) ) END AS [elapsed_time] ,
 			       s.session_id ,
 					CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL 
 					THEN r.blocking_session_id
@@ -1008,7 +1008,7 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	BEGIN
 	SET @StringToExecute = N'USE '
 	  + @OutputDatabaseName + N'; '
-	  + @BlockingCheck + 
+	  + @BlockingCheck + N' DECLARE @DmvNow DATETIME = CASE WHEN @AzureSQLDB = 1 THEN GETUTCDATE() ELSE GETDATE() END; '
 	  + ' INSERT INTO '
 	  + @OutputSchemaName + N'.'
 	  + @OutputTableName
@@ -1114,7 +1114,8 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	+ @StringToExecute;
 	END
 ELSE
-	SET @StringToExecute = @BlockingCheck + N' SELECT  GETDATE() AS run_date , ' + @StringToExecute;
+	/* Capture after the live-plan preamble so newly sleeping requests cannot precede the clock. */
+	SET @StringToExecute = @BlockingCheck + N' DECLARE @DmvNow DATETIME = CASE WHEN @AzureSQLDB = 1 THEN GETUTCDATE() ELSE GETDATE() END; SELECT GETDATE() AS run_date , ' + @StringToExecute;
 
 /* If the server has > 50GB of memory, add a max grant hint to avoid getting a giant grant */
 IF 50000000 < (SELECT cntr_value
@@ -1140,8 +1141,8 @@ IF @Debug = 1
 	END
 
 EXEC sp_executesql @StringToExecute,
-	N'@CheckDateOverride DATETIMEOFFSET',
-	@CheckDateOverride;
+	N'@CheckDateOverride DATETIMEOFFSET, @AzureSQLDB BIT',
+	@CheckDateOverride = @CheckDateOverride, @AzureSQLDB = @AzureSQLDB;
 
 END
 GO 
