@@ -77,7 +77,7 @@ CREATE TABLE ##BlitzCacheProcs (
         PercentWritesByType MONEY,
         WritesPerMinute MONEY,
         PlanCreationTime DATETIME,
-		PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, SYSDATETIME()),
+		PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END)),
         LastExecutionTime DATETIME,
 		LastCompletionTime DATETIME,
         PlanHandle VARBINARY(64),
@@ -1730,11 +1730,11 @@ OPTION (RECOMPILE);
 
 RAISERROR(N'Checking plan cache age', 0, 1) WITH NOWAIT;
 INSERT INTO #plan_creation ( percent_24, percent_4, percent_1, total_plans, SPID )
-SELECT CONVERT(DECIMAL(5,2), NULLIF(SUM(CASE WHEN DATEDIFF(HOUR, pc.creation_time, SYSDATETIME()) <= 24 THEN 1 ELSE 0 END), 0)
+SELECT CONVERT(DECIMAL(5,2), NULLIF(SUM(CASE WHEN DATEDIFF(HOUR, pc.creation_time, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END)) <= 24 THEN 1 ELSE 0 END), 0)
            / (1. * NULLIF(COUNT_BIG(*), 0))) * 100,
-       CONVERT(DECIMAL(5,2), NULLIF(SUM(CASE WHEN DATEDIFF(HOUR, pc.creation_time, SYSDATETIME()) <= 4 THEN 1 ELSE 0 END), 0)
+       CONVERT(DECIMAL(5,2), NULLIF(SUM(CASE WHEN DATEDIFF(HOUR, pc.creation_time, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END)) <= 4 THEN 1 ELSE 0 END), 0)
            / (1. * NULLIF(COUNT_BIG(*), 0))) * 100,
-       CONVERT(DECIMAL(5,2), NULLIF(SUM(CASE WHEN DATEDIFF(HOUR, pc.creation_time, SYSDATETIME()) <= 1 THEN 1 ELSE 0 END), 0)
+       CONVERT(DECIMAL(5,2), NULLIF(SUM(CASE WHEN DATEDIFF(HOUR, pc.creation_time, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END)) <= 1 THEN 1 ELSE 0 END), 0)
            / (1. * NULLIF(COUNT_BIG(*), 0))) * 100,
        COUNT_BIG(*),
        @@SPID
@@ -2067,8 +2067,8 @@ INSERT INTO ##BlitzCacheProcs (SPID, QueryType, DatabaseName, AverageCPU, TotalC
 
 SET @body += N'
 FROM   (SELECT TOP (@Top) x.*, xpa.*,
-               CAST((CASE WHEN DATEDIFF(mi, cached_time, GETDATE()) > 0 AND execution_count > 1
-                          THEN DATEDIFF(mi, cached_time, GETDATE()) 
+               CAST((CASE WHEN DATEDIFF(mi, cached_time, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) > 0 AND execution_count > 1
+                          THEN DATEDIFF(mi, cached_time, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                           ELSE NULL END) as MONEY) as age_minutes,
                CAST((CASE WHEN DATEDIFF(mi, cached_time, last_execution_time) > 0 AND execution_count > 1
                           THEN DATEDIFF(mi, cached_time, last_execution_time) 
@@ -2150,7 +2150,7 @@ IF @DurationFilter IS NOT NULL
 IF @MinutesBack IS NOT NULL
 	BEGIN
 	RAISERROR(N'Setting minutes back filter', 0, 1) WITH NOWAIT;
-	SET @body += N'       AND DATEADD(SECOND, (x.last_elapsed_time / 1000000.), x.last_execution_time) >= DATEADD(MINUTE, @min_back, GETDATE()) ' + @nl ;
+	SET @body += N'       AND DATEADD(SECOND, (x.last_elapsed_time / 1000000.), x.last_execution_time) >= DATEADD(MINUTE, @min_back, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) ' + @nl ;
 	END;
 
 IF @SlowlySearchPlansFor IS NOT NULL
@@ -2188,13 +2188,13 @@ SELECT @body += N'        ORDER BY ' +
 								 WHEN N'avg memory grant' THEN N'CASE WHEN max_grant_kb = 0 THEN 0 ELSE max_grant_kb / execution_count END'
                                  WHEN N'avg spills' THEN N'CASE WHEN total_spills = 0 THEN 0 ELSE total_spills / execution_count END'
 								 WHEN N'avg executions' THEN 'CASE WHEN execution_count = 0 THEN 0
-            WHEN COALESCE(CAST((CASE WHEN DATEDIFF(mi, cached_time, GETDATE()) > 0 AND execution_count > 1
-                          THEN DATEDIFF(mi, cached_time, GETDATE())
+            WHEN COALESCE(CAST((CASE WHEN DATEDIFF(mi, cached_time, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) > 0 AND execution_count > 1
+                          THEN DATEDIFF(mi, cached_time, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                           ELSE NULL END) as MONEY), CAST((CASE WHEN DATEDIFF(mi, cached_time, last_execution_time) > 0 AND execution_count > 1
                           THEN DATEDIFF(mi, cached_time, last_execution_time)
                           ELSE Null END) as MONEY), 0) = 0 THEN 0
-            ELSE CAST((1.00 * execution_count / COALESCE(CAST((CASE WHEN DATEDIFF(mi, cached_time, GETDATE()) > 0 AND execution_count > 1
-                          THEN DATEDIFF(mi, cached_time, GETDATE())
+            ELSE CAST((1.00 * execution_count / COALESCE(CAST((CASE WHEN DATEDIFF(mi, cached_time, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) > 0 AND execution_count > 1
+                          THEN DATEDIFF(mi, cached_time, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                           ELSE NULL END) as MONEY), CAST((CASE WHEN DATEDIFF(mi, cached_time, last_execution_time) > 0 AND execution_count > 1
                           THEN DATEDIFF(mi, cached_time, last_execution_time)
                           ELSE Null END) as MONEY))) AS money)
@@ -2755,7 +2755,7 @@ BEGIN
         PercentWritesByType MONEY,
         WritesPerMinute MONEY,
         PlanCreationTime DATETIME,
-		PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, SYSDATETIME()),
+		PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END)),
         LastExecutionTime DATETIME,
 		LastCompletionTime DATETIME,
         PlanHandle VARBINARY(64),
@@ -4010,7 +4010,7 @@ WITH  stale_stats AS (
 	SELECT sa.SqlHandle
 	FROM #stats_agg AS sa
 	GROUP BY sa.SqlHandle
-	HAVING MAX(sa.LastUpdate) <= DATEADD(DAY, -7, SYSDATETIME())
+	HAVING MAX(sa.LastUpdate) <= DATEADD(DAY, -7, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END))
 	AND AVG(sa.ModificationCount) >= 100000
 )
 UPDATE b
@@ -6062,7 +6062,7 @@ BEGIN
 	
    IF @MinutesBack IS NOT NULL
       BEGIN
-		SET @sql += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ';
+		SET @sql += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END) ) ';
 	  END;
 
 	SELECT @sql += N' ORDER BY ' + CASE @SortOrder WHEN N'cpu' THEN N' TotalCPU '
@@ -6337,7 +6337,7 @@ IF @MinimumExecutionCount IS NOT NULL
 
 IF @MinutesBack IS NOT NULL
     BEGIN
-		SET @sql += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ' + @nl;
+		SET @sql += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END) ) ' + @nl;
     END;
 
 SELECT @sql += N' ORDER BY ' + CASE @SortOrder WHEN  N'cpu' THEN N' TotalCPU '
@@ -7206,7 +7206,7 @@ BEGIN
 				'Consider updating statistics more frequently,' AS [Details]
 				FROM #stats_agg AS sa
 				GROUP BY sa.[Database]
-				HAVING MAX(sa.LastUpdate) <= DATEADD(DAY, -7, SYSDATETIME())
+				HAVING MAX(sa.LastUpdate) <= DATEADD(DAY, -7, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END))
 				AND AVG(sa.ModificationCount) >= 100000;
 
         IF EXISTS (SELECT 1/0
@@ -8505,7 +8505,7 @@ END ';
                     END;
                 IF @MinutesBack IS NOT NULL
                     BEGIN
-                        SET @StringToExecute += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ';
+                        SET @StringToExecute += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END) ) ';
                     END;
                     SET @StringToExecute += N' AND SPID = @@SPID ';
                     SELECT @StringToExecute += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
@@ -8573,7 +8573,7 @@ END ';
                     END;
                 IF @MinutesBack IS NOT NULL
                     BEGIN
-                        SET @StringToExecute += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ';
+                        SET @StringToExecute += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END) ) ';
                     END;
                     SET @StringToExecute += N' AND SPID = @@SPID ';
                     SELECT @StringToExecute += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
@@ -8656,7 +8656,7 @@ END ';
 						PercentExecutionsByType money,
 						ExecutionsPerMinute money,
 						PlanCreationTime datetime,' + N'
-						PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, SYSDATETIME()),
+						PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END)),
 						LastExecutionTime datetime,
 						LastCompletionTime datetime, 
 						PlanHandle varbinary(64),
@@ -8731,7 +8731,7 @@ END ';
 
                     IF @MinutesBack IS NOT NULL
                         BEGIN
-                            SET @StringToExecute += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ';
+                            SET @StringToExecute += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END) ) ';
                         END;
 
                         SET @StringToExecute += N' AND SPID = @@SPID ';
