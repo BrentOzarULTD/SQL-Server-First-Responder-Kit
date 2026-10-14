@@ -607,7 +607,9 @@ CREATE TABLE #WhoReadableDBs
 database_id INT
 );
 
-IF EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
+/* HADR views exist on standalone instances too; avoid invoking them unless HADR is enabled. */
+IF @AzureSQLDB = 0 AND SERVERPROPERTY('IsHadrEnabled') = 1
+    AND EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
 BEGIN
 	RAISERROR('Checking for Read intent databases to exclude',0,0) WITH NOWAIT;
 

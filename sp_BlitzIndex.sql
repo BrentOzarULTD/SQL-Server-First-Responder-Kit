@@ -1454,7 +1454,7 @@ IF @BringThePain = 0 AND @SkipPartitions = 0 AND @TableName IS NULL
         BEGIN
             /* Count the total number of partitions */
             SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-                    SELECT @RowcountOUT = SUM(1) FROM ' + QUOTENAME(@DatabaseName) + '.sys.partitions WHERE partition_number > 1 OPTION    ( RECOMPILE );';
+                    SELECT @RowcountOUT = SUM(1) FROM ' + CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE QUOTENAME(@DatabaseName) + N'.' END + N'sys.partitions WHERE partition_number > 1 OPTION    ( RECOMPILE );';
             EXEC sp_executesql @dsql, N'@RowcountOUT BIGINT OUTPUT', @RowcountOUT = @Rowcount OUTPUT;
             IF @Rowcount > 100
                 BEGIN
@@ -1906,7 +1906,7 @@ BEGIN TRY
             BEGIN
                 /* Count the total number of partitions */
                 SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-                        SELECT @RowcountOUT = SUM(1) FROM ' + QUOTENAME(@DatabaseName) + '.sys.partitions WHERE partition_number > 1 OPTION    ( RECOMPILE );';
+                        SELECT @RowcountOUT = SUM(1) FROM ' + CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE QUOTENAME(@DatabaseName) + N'.' END + N'sys.partitions WHERE partition_number > 1 OPTION    ( RECOMPILE );';
                 EXEC sp_executesql @dsql, N'@RowcountOUT BIGINT OUTPUT', @RowcountOUT = @Rowcount OUTPUT;
                 IF @Rowcount > 100
                     BEGIN
