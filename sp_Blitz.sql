@@ -1349,7 +1349,7 @@ BEGIN
 								'https://www.brentozar.com/go/waits',
 								'Someone ran DBCC SQLPERF to clear sys.dm_os_wait_stats at approximately: ' 
 									+ CONVERT(NVARCHAR(100), 
-										DATEADD(MINUTE, (-1. * (@MsSinceWaitsCleared) / 1000. / 60.), (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)), 120));
+										DATEADD(MINUTE, (-1. * (@MsSinceWaitsCleared) / 1000. / 60.), GETDATE()), 120));
 			END;
 
 		/* Uptime can round down to zero during the first minute after startup. */
