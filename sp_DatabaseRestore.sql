@@ -347,6 +347,8 @@ DECLARE @S3Backups TABLE (
 	FinishDate DATETIME NULL,
 	IsCopyOnly BIT NOT NULL,
 	LastLSN NUMERIC(25, 0) NULL, --last_lsn of the backup, used to skip logs that are older than the restored database
+	BackupSetUuid UNIQUEIDENTIFIER NULL, --identifies a full backup
+	DiffBaseGuid UNIQUEIDENTIFIER NULL, --for a differential: the BackupSetUuid of the full it is based on
 	FolderUrl NVARCHAR(260) NOT NULL, --s3://bucket/.../FULL/
 	BackupFile NVARCHAR(260) NOT NULL --SERVER_DB_FULL_yyyymmdd_hhmmss.bak
 );
@@ -471,8 +473,8 @@ END;
 IF @RestoreFromS3 = 1 OR @AutoDetectS3 = 1
 BEGIN
 	-- S3 can't be listed from T-SQL, so the backup history in msdb is our "directory listing"
-	INSERT INTO @S3Backups (BackupType, FinishDate, IsCopyOnly, LastLSN, FolderUrl, BackupFile)
-	SELECT bs.type, bs.backup_finish_date, bs.is_copy_only, bs.last_lsn,
+	INSERT INTO @S3Backups (BackupType, FinishDate, IsCopyOnly, LastLSN, BackupSetUuid, DiffBaseGuid, FolderUrl, BackupFile)
+	SELECT bs.type, bs.backup_finish_date, bs.is_copy_only, bs.last_lsn, bs.backup_set_uuid, bs.differential_base_guid,
 		LEFT(bmf.physical_device_name, LEN(bmf.physical_device_name) - CHARINDEX('/', REVERSE(bmf.physical_device_name)) + 1),
 		RIGHT(bmf.physical_device_name, CHARINDEX('/', REVERSE(bmf.physical_device_name)) - 1)
 	FROM msdb.dbo.backupset AS bs
@@ -480,6 +482,14 @@ BEGIN
 	WHERE bs.database_name = @Database
 	AND bmf.physical_device_name LIKE N's3://%'
 	AND bs.type IN ('D', 'I', 'L');
+
+	-- A differential can only be applied on top of its own base full. If that full was written somewhere else (for example a regular
+	-- full to another device), the differential can't be used with the S3 fulls, so leave it out.
+	IF @RestoreDiff = 1
+		DELETE d
+		FROM @S3Backups AS d
+		WHERE d.BackupType = 'I'
+		AND NOT EXISTS (SELECT 1 FROM @S3Backups AS f WHERE f.BackupType = 'D' AND f.BackupSetUuid = d.DiffBaseGuid);
 
 	-- Auto-detect: only treat this as an S3 restore if msdb actually knows a full S3 backup
 	IF @RestoreFromS3 IS NULL AND EXISTS (SELECT 1 FROM @S3Backups WHERE BackupType = 'D')
