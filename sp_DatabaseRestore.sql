@@ -337,12 +337,15 @@ DECLARE @PathItem TABLE (
 -- S3: variables for S3 (RESTORE ... FROM URL) support
 DECLARE @IsS3 BIT = 0, --1 when the backups live in S3 and RESTORE ... FROM URL has to be used
 		@DeviceType NVARCHAR(10) = N'DISK', --DISK for file/UNC backups, URL for S3 backups
-		@AutoDetectS3 BIT = 0; --1 when no paths were given and we have to look in msdb for S3 backups
+		@AutoDetectS3 BIT = 0, --1 when no paths were given and we have to look in msdb for S3 backups
+		@S3AllFolders BIT = 0, --1 when the paths were derived from msdb: then every folder in the history is a candidate, not just the newest one
+		@S3SkipCopyOnlyFull BIT = 0; --1 when a differential will be restored: a copy-only full can not be its base
 
 -- S3: S3 has no directory listing we can call from T-SQL, so the msdb backup history is our "directory listing"
 DECLARE @S3Backups TABLE (
 	BackupType CHAR(1) NOT NULL, --D = full, I = diff, L = log
 	FinishDate DATETIME NULL,
+	IsCopyOnly BIT NOT NULL,
 	FolderUrl NVARCHAR(260) NOT NULL, --s3://bucket/.../FULL/
 	BackupFile NVARCHAR(260) NOT NULL --SERVER_DB_FULL_yyyymmdd_hhmmss.bak
 );
@@ -466,16 +469,15 @@ END;
 IF @RestoreFromS3 = 1 OR @AutoDetectS3 = 1
 BEGIN
 	-- S3 can't be listed from T-SQL, so the backup history in msdb is our "directory listing"
-	INSERT INTO @S3Backups (BackupType, FinishDate, FolderUrl, BackupFile)
-	SELECT bs.type, bs.backup_finish_date,
+	INSERT INTO @S3Backups (BackupType, FinishDate, IsCopyOnly, FolderUrl, BackupFile)
+	SELECT bs.type, bs.backup_finish_date, bs.is_copy_only,
 		LEFT(bmf.physical_device_name, LEN(bmf.physical_device_name) - CHARINDEX('/', REVERSE(bmf.physical_device_name)) + 1),
 		RIGHT(bmf.physical_device_name, CHARINDEX('/', REVERSE(bmf.physical_device_name)) - 1)
 	FROM msdb.dbo.backupset AS bs
 	INNER JOIN msdb.dbo.backupmediafamily AS bmf ON bmf.media_set_id = bs.media_set_id
 	WHERE bs.database_name = @Database
 	AND bmf.physical_device_name LIKE N's3://%'
-	AND bs.type IN ('D', 'I', 'L')
-	AND NOT (bs.type = 'D' AND bs.is_copy_only = 1); -- a copy-only full can not be the base of a differential
+	AND bs.type IN ('D', 'I', 'L');
 
 	-- Auto-detect: only treat this as an S3 restore if msdb actually knows a full S3 backup
 	IF @RestoreFromS3 IS NULL AND EXISTS (SELECT 1 FROM @S3Backups WHERE BackupType = 'D')
@@ -495,26 +497,32 @@ BEGIN
 	SET @SimpleFolderEnumeration = 1; -- no xp_cmdshell/DIR for S3, the file list comes from @S3Backups
 	IF @Execute = 'Y' OR @Debug = 1 RAISERROR('Backups are in S3, restoring with RESTORE ... FROM URL', 0, 1) WITH NOWAIT;
 
-	-- No paths given: derive them from the most recent FULL / DIFF / LOG backup in the backup history
+	-- No paths given: derive them from the backup history in msdb
 	IF @BackupPathFull IS NULL AND @BackupPathDiff IS NULL AND @BackupPathLog IS NULL
 	BEGIN
-		SELECT TOP 1 @BackupPathFull = FolderUrl FROM @S3Backups WHERE BackupType = 'D' ORDER BY FinishDate DESC;
+		-- Backups can live in several folders (for example date-partitioned ones), so every folder in the history is a candidate.
+		-- The paths below only mark which backup types exist, the folders themselves are enumerated from msdb later on.
+		SET @S3AllFolders = 1;
+
+		IF @RestoreDiff = 1 AND NOT EXISTS (SELECT 1 FROM @S3Backups WHERE BackupType = 'I')
+		BEGIN
+			IF @Execute = 'Y' OR @Debug = 1 RAISERROR('@RestoreDiff = 1, but no S3 DIFF backup found in msdb. Setting @RestoreDiff to 0', 0, 1) WITH NOWAIT;
+			SET @RestoreDiff = 0;
+		END;
+
+		-- A copy-only full can not be the base of a differential, but it can be restored on its own (followed by logs)
+		SELECT TOP 1 @BackupPathFull = FolderUrl FROM @S3Backups
+		WHERE BackupType = 'D' AND (@RestoreDiff = 0 OR IsCopyOnly = 0)
+		ORDER BY FinishDate DESC;
 
 		IF @BackupPathFull IS NULL
 		BEGIN
-			RAISERROR('No S3 FULL backup for "%s" found in the backup history in msdb', 16, 1, @Database) WITH NOWAIT;
+			RAISERROR('No usable S3 FULL backup for "%s" found in the backup history in msdb (a copy-only full can not be combined with @RestoreDiff = 1)', 16, 1, @Database) WITH NOWAIT;
 			RETURN;
 		END;
 
 		IF @RestoreDiff = 1
-		BEGIN
 			SELECT TOP 1 @BackupPathDiff = FolderUrl FROM @S3Backups WHERE BackupType = 'I' ORDER BY FinishDate DESC;
-			IF @BackupPathDiff IS NULL
-			BEGIN
-				IF @Execute = 'Y' OR @Debug = 1 RAISERROR('@RestoreDiff = 1, but no S3 DIFF backup found in msdb. Setting @RestoreDiff to 0', 0, 1) WITH NOWAIT;
-				SET @RestoreDiff = 0;
-			END;
-		END;
 
 		SELECT TOP 1 @BackupPathLog = FolderUrl FROM @S3Backups WHERE BackupType = 'L' ORDER BY FinishDate DESC;
 
@@ -525,6 +533,9 @@ BEGIN
 			IF @BackupPathLog IS NOT NULL RAISERROR('S3 LOG path derived from msdb: %s', 0, 1, @BackupPathLog) WITH NOWAIT;
 		END;
 	END;
+
+	IF @RestoreDiff = 1 AND @BackupPathDiff IS NOT NULL
+		SET @S3SkipCopyOnlyFull = 1;
 END;
 
 /*
@@ -791,11 +802,12 @@ BEGIN
 		IF @@rowcount = 0 BREAK;
 
 		IF @IsS3 = 1
-		BEGIN    -- S3: "list" the folder via the backup history (type D = full)
+		BEGIN    -- S3: "list" the folder(s) via the backup history (type D = full)
 			INSERT @FileList (BackupPath, BackupFile)
 			SELECT DISTINCT FolderUrl, BackupFile FROM @S3Backups
 			WHERE BackupType = 'D'
-			AND LEFT( FolderUrl, LEN( @CurrentBackupPathFull ) ) = @CurrentBackupPathFull;
+			AND (@S3SkipCopyOnlyFull = 0 OR IsCopyOnly = 0) -- a copy-only full can not be the base of a differential
+			AND (@S3AllFolders = 1 OR LEFT( FolderUrl, LEN( @CurrentBackupPathFull ) ) = @CurrentBackupPathFull);
 		END
 		ELSE IF @SimpleFolderEnumeration = 1
 		BEGIN    -- Get list of files
@@ -1240,11 +1252,11 @@ BEGIN
 		IF @@rowcount = 0 BREAK;
 
 		IF @IsS3 = 1
-		BEGIN    -- S3: "list" the folder via the backup history (type I = differential)
+		BEGIN    -- S3: "list" the folder(s) via the backup history (type I = differential)
 			INSERT @FileList (BackupPath, BackupFile)
 			SELECT DISTINCT FolderUrl, BackupFile FROM @S3Backups
 			WHERE BackupType = 'I'
-			AND LEFT( FolderUrl, LEN( @CurrentBackupPathDiff ) ) = @CurrentBackupPathDiff;
+			AND (@S3AllFolders = 1 OR LEFT( FolderUrl, LEN( @CurrentBackupPathDiff ) ) = @CurrentBackupPathDiff);
 		END
 		ELSE IF @SimpleFolderEnumeration = 1
 		BEGIN    -- Get list of files
@@ -1434,11 +1446,11 @@ BEGIN
 		IF @@rowcount = 0 BREAK;
 
 		IF @IsS3 = 1
-		BEGIN    -- S3: "list" the folder via the backup history (type L = log)
+		BEGIN    -- S3: "list" the folder(s) via the backup history (type L = log)
 			INSERT @FileList (BackupPath, BackupFile)
 			SELECT DISTINCT FolderUrl, BackupFile FROM @S3Backups
 			WHERE BackupType = 'L'
-			AND LEFT( FolderUrl, LEN( @CurrentBackupPathLog ) ) = @CurrentBackupPathLog;
+			AND (@S3AllFolders = 1 OR LEFT( FolderUrl, LEN( @CurrentBackupPathLog ) ) = @CurrentBackupPathLog);
 		END
 		ELSE IF @SimpleFolderEnumeration = 1
 		BEGIN    -- Get list of files
