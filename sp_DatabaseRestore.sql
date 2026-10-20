@@ -452,8 +452,8 @@ S3 support: decide whether the backups live in S3.
   @RestoreFromS3 = 0    -> never S3 (original behaviour)
   @RestoreFromS3 = NULL -> S3 when one of the paths starts with s3://, or when no paths were given at all
                            and the backup history in msdb shows S3 backups for @Database.
-                           (Never auto-detected for @ContinueLogs = 1, or when the target is already in RESTORING state,
-                           so that "just recover this database" calls keep working as before.)
+                           (Never auto-detected for @ContinueLogs = 1, or when the target is already in RESTORING or
+                           STANDBY state, so that "just recover this database" calls keep working as before.)
 */
 IF @RestoreFromS3 IS NULL
 BEGIN
@@ -463,6 +463,7 @@ BEGIN
 		AND @ContinueLogs = 0
 		AND @Database IS NOT NULL
 		AND ISNULL(CAST(DATABASEPROPERTYEX(ISNULL(NULLIF(@RestoreDatabaseName, N''), @Database), 'Status') AS NVARCHAR(128)), N'') <> N'RESTORING'
+		AND NOT EXISTS (SELECT 1 FROM sys.databases WHERE name = ISNULL(NULLIF(@RestoreDatabaseName, N''), @Database) AND is_in_standby = 1) -- a standby copy reports ONLINE
 		SET @AutoDetectS3 = 1;
 END;
 
@@ -808,6 +809,12 @@ BEGIN
 			WHERE BackupType = 'D'
 			AND (@S3SkipCopyOnlyFull = 0 OR IsCopyOnly = 0) -- a copy-only full can not be the base of a differential
 			AND (@S3AllFolders = 1 OR LEFT( FolderUrl, LEN( @CurrentBackupPathFull ) ) = @CurrentBackupPathFull);
+			/* Validate every path on its own: rows from an earlier path must not hide a path without history (typo, missing history) */
+			IF @@ROWCOUNT = 0
+			BEGIN
+				RAISERROR('(FULL) No S3 backups for database %s found in the msdb backup history for path %s', 16, 1, @Database, @CurrentBackupPathFull) WITH NOWAIT;
+				RETURN;
+			END;
 		END
 		ELSE IF @SimpleFolderEnumeration = 1
 		BEGIN    -- Get list of files
@@ -1257,6 +1264,12 @@ BEGIN
 			SELECT DISTINCT FolderUrl, BackupFile FROM @S3Backups
 			WHERE BackupType = 'I'
 			AND (@S3AllFolders = 1 OR LEFT( FolderUrl, LEN( @CurrentBackupPathDiff ) ) = @CurrentBackupPathDiff);
+			/* Validate every path on its own: rows from an earlier path must not hide a path without history (typo, missing history) */
+			IF @@ROWCOUNT = 0 AND @RestoreDiff = 1
+			BEGIN
+				RAISERROR('(DIFF) No S3 backups for database %s found in the msdb backup history for path %s', 16, 1, @Database, @CurrentBackupPathDiff) WITH NOWAIT;
+				RETURN;
+			END;
 		END
 		ELSE IF @SimpleFolderEnumeration = 1
 		BEGIN    -- Get list of files
@@ -1451,6 +1464,12 @@ BEGIN
 			SELECT DISTINCT FolderUrl, BackupFile FROM @S3Backups
 			WHERE BackupType = 'L'
 			AND (@S3AllFolders = 1 OR LEFT( FolderUrl, LEN( @CurrentBackupPathLog ) ) = @CurrentBackupPathLog);
+			/* Validate every path on its own: rows from an earlier path must not hide a path without history (typo, missing history) */
+			IF @@ROWCOUNT = 0
+			BEGIN
+				RAISERROR('(LOG) No S3 backups for database %s found in the msdb backup history for path %s', 16, 1, @Database, @CurrentBackupPathLog) WITH NOWAIT;
+				RETURN;
+			END;
 		END
 		ELSE IF @SimpleFolderEnumeration = 1
 		BEGIN    -- Get list of files
