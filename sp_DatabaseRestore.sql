@@ -346,6 +346,7 @@ DECLARE @S3Backups TABLE (
 	BackupType CHAR(1) NOT NULL, --D = full, I = diff, L = log
 	FinishDate DATETIME NULL,
 	IsCopyOnly BIT NOT NULL,
+	LastLSN NUMERIC(25, 0) NULL, --last_lsn of the backup, used to skip logs that are older than the restored database
 	FolderUrl NVARCHAR(260) NOT NULL, --s3://bucket/.../FULL/
 	BackupFile NVARCHAR(260) NOT NULL --SERVER_DB_FULL_yyyymmdd_hhmmss.bak
 );
@@ -470,8 +471,8 @@ END;
 IF @RestoreFromS3 = 1 OR @AutoDetectS3 = 1
 BEGIN
 	-- S3 can't be listed from T-SQL, so the backup history in msdb is our "directory listing"
-	INSERT INTO @S3Backups (BackupType, FinishDate, IsCopyOnly, FolderUrl, BackupFile)
-	SELECT bs.type, bs.backup_finish_date, bs.is_copy_only,
+	INSERT INTO @S3Backups (BackupType, FinishDate, IsCopyOnly, LastLSN, FolderUrl, BackupFile)
+	SELECT bs.type, bs.backup_finish_date, bs.is_copy_only, bs.last_lsn,
 		LEFT(bmf.physical_device_name, LEN(bmf.physical_device_name) - CHARINDEX('/', REVERSE(bmf.physical_device_name)) + 1),
 		RIGHT(bmf.physical_device_name, CHARINDEX('/', REVERSE(bmf.physical_device_name)) - 1)
 	FROM msdb.dbo.backupset AS bs
@@ -493,6 +494,12 @@ BEGIN
 		RETURN;
 	END;
 
+	IF @MaxTransferSize > 20971520 -- checked here, before anything is changed on the target
+	BEGIN
+		RAISERROR('@MaxTransferSize can not be greater than 20971520 for S3', 16, 1) WITH NOWAIT;
+		RETURN;
+	END;
+
 	SET @IsS3 = 1;
 	SET @DeviceType = N'URL';
 	SET @SimpleFolderEnumeration = 1; -- no xp_cmdshell/DIR for S3, the file list comes from @S3Backups
@@ -505,31 +512,40 @@ BEGIN
 		-- The paths below only mark which backup types exist, the folders themselves are enumerated from msdb later on.
 		SET @S3AllFolders = 1;
 
-		IF @RestoreDiff = 1 AND NOT EXISTS (SELECT 1 FROM @S3Backups WHERE BackupType = 'I')
+		IF @ContinueLogs = 0 -- continuing logs on a RESTORING database needs the log backups only, the full may be gone from the history
 		BEGIN
-			IF @Execute = 'Y' OR @Debug = 1 RAISERROR('@RestoreDiff = 1, but no S3 DIFF backup found in msdb. Setting @RestoreDiff to 0', 0, 1) WITH NOWAIT;
-			SET @RestoreDiff = 0;
+			IF @RestoreDiff = 1 AND NOT EXISTS (SELECT 1 FROM @S3Backups WHERE BackupType = 'I')
+			BEGIN
+				IF @Execute = 'Y' OR @Debug = 1 RAISERROR('@RestoreDiff = 1, but no S3 DIFF backup found in msdb. Setting @RestoreDiff to 0', 0, 1) WITH NOWAIT;
+				SET @RestoreDiff = 0;
+			END;
+
+			-- A copy-only full can not be the base of a differential, but it can be restored on its own (followed by logs)
+			SELECT TOP 1 @BackupPathFull = FolderUrl FROM @S3Backups
+			WHERE BackupType = 'D' AND (@RestoreDiff = 0 OR IsCopyOnly = 0)
+			ORDER BY FinishDate DESC;
+
+			IF @BackupPathFull IS NULL
+			BEGIN
+				RAISERROR('No usable S3 FULL backup for "%s" found in the backup history in msdb (a copy-only full can not be combined with @RestoreDiff = 1)', 16, 1, @Database) WITH NOWAIT;
+				RETURN;
+			END;
+
+			IF @RestoreDiff = 1
+				SELECT TOP 1 @BackupPathDiff = FolderUrl FROM @S3Backups WHERE BackupType = 'I' ORDER BY FinishDate DESC;
 		END;
-
-		-- A copy-only full can not be the base of a differential, but it can be restored on its own (followed by logs)
-		SELECT TOP 1 @BackupPathFull = FolderUrl FROM @S3Backups
-		WHERE BackupType = 'D' AND (@RestoreDiff = 0 OR IsCopyOnly = 0)
-		ORDER BY FinishDate DESC;
-
-		IF @BackupPathFull IS NULL
-		BEGIN
-			RAISERROR('No usable S3 FULL backup for "%s" found in the backup history in msdb (a copy-only full can not be combined with @RestoreDiff = 1)', 16, 1, @Database) WITH NOWAIT;
-			RETURN;
-		END;
-
-		IF @RestoreDiff = 1
-			SELECT TOP 1 @BackupPathDiff = FolderUrl FROM @S3Backups WHERE BackupType = 'I' ORDER BY FinishDate DESC;
 
 		SELECT TOP 1 @BackupPathLog = FolderUrl FROM @S3Backups WHERE BackupType = 'L' ORDER BY FinishDate DESC;
 
+		IF @ContinueLogs = 1 AND @BackupPathLog IS NULL
+		BEGIN
+			RAISERROR('@ContinueLogs = 1, but no S3 LOG backup for "%s" found in the backup history in msdb', 16, 1, @Database) WITH NOWAIT;
+			RETURN;
+		END;
+
 		IF @Execute = 'Y' OR @Debug = 1
 		BEGIN
-			RAISERROR('S3 FULL path derived from msdb: %s', 0, 1, @BackupPathFull) WITH NOWAIT;
+			IF @BackupPathFull IS NOT NULL RAISERROR('S3 FULL path derived from msdb: %s', 0, 1, @BackupPathFull) WITH NOWAIT;
 			IF @BackupPathDiff IS NOT NULL RAISERROR('S3 DIFF path derived from msdb: %s', 0, 1, @BackupPathDiff) WITH NOWAIT;
 			IF @BackupPathLog IS NOT NULL RAISERROR('S3 LOG path derived from msdb: %s', 0, 1, @BackupPathLog) WITH NOWAIT;
 		END;
@@ -659,7 +675,7 @@ END;
 /*check input parameters*/
 IF NOT @MaxTransferSize IS NULL
 BEGIN
-	IF @MaxTransferSize > 4194304 AND @IsS3 = 0 -- S3: S3 allows up to 20971520
+	IF @MaxTransferSize > 4194304 AND @IsS3 = 0 -- S3: S3 has its own ceiling, checked in the S3 block above
 	BEGIN
 		RAISERROR('@MaxTransferSize can not be greater then 4194304', 0, 1) WITH NOWAIT;
 	END
@@ -808,7 +824,7 @@ BEGIN
 			SELECT DISTINCT FolderUrl, BackupFile FROM @S3Backups
 			WHERE BackupType = 'D'
 			AND (@S3SkipCopyOnlyFull = 0 OR IsCopyOnly = 0) -- a copy-only full can not be the base of a differential
-			AND (@S3AllFolders = 1 OR LEFT( FolderUrl, LEN( @CurrentBackupPathFull ) ) = @CurrentBackupPathFull);
+			AND (@S3AllFolders = 1 OR LEFT( FolderUrl, LEN( @CurrentBackupPathFull ) ) = @CurrentBackupPathFull COLLATE Latin1_General_BIN2); -- S3 object keys are case-sensitive
 			/* Validate every path on its own: rows from an earlier path must not hide a path without history (typo, missing history) */
 			IF @@ROWCOUNT = 0
 			BEGIN
@@ -1263,7 +1279,7 @@ BEGIN
 			INSERT @FileList (BackupPath, BackupFile)
 			SELECT DISTINCT FolderUrl, BackupFile FROM @S3Backups
 			WHERE BackupType = 'I'
-			AND (@S3AllFolders = 1 OR LEFT( FolderUrl, LEN( @CurrentBackupPathDiff ) ) = @CurrentBackupPathDiff);
+			AND (@S3AllFolders = 1 OR LEFT( FolderUrl, LEN( @CurrentBackupPathDiff ) ) = @CurrentBackupPathDiff COLLATE Latin1_General_BIN2); -- S3 object keys are case-sensitive
 			/* Validate every path on its own: rows from an earlier path must not hide a path without history (typo, missing history) */
 			IF @@ROWCOUNT = 0 AND @RestoreDiff = 1
 			BEGIN
@@ -1463,7 +1479,7 @@ BEGIN
 			INSERT @FileList (BackupPath, BackupFile)
 			SELECT DISTINCT FolderUrl, BackupFile FROM @S3Backups
 			WHERE BackupType = 'L'
-			AND (@S3AllFolders = 1 OR LEFT( FolderUrl, LEN( @CurrentBackupPathLog ) ) = @CurrentBackupPathLog);
+			AND (@S3AllFolders = 1 OR LEFT( FolderUrl, LEN( @CurrentBackupPathLog ) ) = @CurrentBackupPathLog COLLATE Latin1_General_BIN2); -- S3 object keys are case-sensitive
 			/* Validate every path on its own: rows from an earlier path must not hide a path without history (typo, missing history) */
 			IF @@ROWCOUNT = 0
 			BEGIN
@@ -1561,6 +1577,16 @@ IF @Debug = 1
 BEGIN
 	SELECT * FROM @FileList WHERE BackupFile IS NOT NULL;
 END
+
+-- S3: when continuing logs, skip log backups that end before the restored database's LSN. They can't be applied, and their files
+-- may already be cleaned up on the storage while msdb still lists them.
+IF @IsS3 = 1 AND @ContinueLogs = 1 AND @DatabaseLastLSN IS NOT NULL
+	DELETE fl
+	FROM @FileList AS fl
+	INNER JOIN @S3Backups AS s3 ON s3.FolderUrl = fl.BackupPath COLLATE Latin1_General_BIN2
+		AND s3.BackupFile = fl.BackupFile COLLATE Latin1_General_BIN2
+		AND s3.BackupType = 'L'
+	WHERE s3.LastLSN <= @DatabaseLastLSN;
 
 IF @SkipBackupsAlreadyInMsdb = 1
 BEGIN
