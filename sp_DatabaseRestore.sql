@@ -53,7 +53,7 @@ ALTER PROCEDURE [dbo].[sp_DatabaseRestore]
     @FileNamePrefix NVARCHAR(260) = NULL,
     @RunStoredProcAfterRestore NVARCHAR(260) = NULL,
     @EnableBroker BIT = 0,
-    @RestoreFromS3 BIT = NULL -- S3: NULL = auto-detect, 1 = force S3 (URL) restore, 0 = never use S3
+    @RestoreFromS3 BIT = NULL -- S3: NULL = S3 when a path starts with s3://, 1 = S3 (paths derived from msdb when none are given), 0 = never use S3
 AS
 BEGIN
 SET NOCOUNT ON;
@@ -236,13 +236,14 @@ BEGIN
 	';
 	PRINT '
 	/*
-	-- S3 (SQL Server 2022+): no paths needed. The procedure looks up the S3 backups of @Database in the backup history
-	-- in msdb, derives the FULL/DIFF/LOG locations from it, and restores them with RESTORE ... FROM URL.
+	-- S3 (SQL Server 2022+): with @RestoreFromS3 = 1 no paths are needed. The procedure looks up the S3 backups of @Database
+	-- in the backup history in msdb, derives the FULL/DIFF/LOG locations from it, and restores them with RESTORE ... FROM URL.
 	-- Prerequisite: a credential named after the bucket URL, e.g.
 	--   CREATE CREDENTIAL [s3://s3.example.com:443/my-bucket] WITH IDENTITY = ''S3 Access Key'', SECRET = ''<AccessKeyID>:<SecretKeyID>'';
 	EXEC dbo.sp_DatabaseRestore
 		@Database = ''LogShipMe'',
 		@RestoreDatabaseName = ''LogShipMe_Restored'',
+		@RestoreFromS3 = 1,
 		@RestoreDiff = 1,
 		@ContinueLogs = 0,
 		@RunRecovery = 1;
@@ -250,12 +251,13 @@ BEGIN
 	-- S3, point in time, print the commands only
 	EXEC dbo.sp_DatabaseRestore
 		@Database = ''LogShipMe'',
+		@RestoreFromS3 = 1,
 		@RestoreDiff = 1,
 		@StopAt = ''20170508201501'',
 		@RunRecovery = 1,
 		@Execute = ''N'';
 
-	-- S3, limited to specific locations (acts as a filter on the backup history in msdb)
+	-- S3, limited to specific locations (acts as a filter on the backup history in msdb). s3:// paths switch to S3 on their own.
 	EXEC dbo.sp_DatabaseRestore
 		@Database = ''LogShipMe'',
 		@BackupPathFull = ''s3://s3.example.com/my-bucket/LogShipMe/FULL/'',
@@ -337,7 +339,6 @@ DECLARE @PathItem TABLE (
 -- S3: variables for S3 (RESTORE ... FROM URL) support
 DECLARE @IsS3 BIT = 0, --1 when the backups live in S3 and RESTORE ... FROM URL has to be used
 		@DeviceType NVARCHAR(10) = N'DISK', --DISK for file/UNC backups, URL for S3 backups
-		@AutoDetectS3 BIT = 0, --1 when no paths were given and we have to look in msdb for S3 backups
 		@S3AllFolders BIT = 0, --1 when the paths were derived from msdb: then every folder in the history is a candidate, not just the newest one
 		@S3SkipCopyOnlyFull BIT = 0; --1 when a differential will be restored: a copy-only full can not be its base
 
@@ -451,26 +452,15 @@ CREATE TABLE #Headers
 
 /*
 S3 support: decide whether the backups live in S3.
-  @RestoreFromS3 = 1    -> force S3
+  @RestoreFromS3 = 1    -> S3. With no paths given, the FULL/DIFF/LOG locations are derived from the backup history in msdb.
   @RestoreFromS3 = 0    -> never S3 (original behaviour)
-  @RestoreFromS3 = NULL -> S3 when one of the paths starts with s3://, or when no paths were given at all
-                           and the backup history in msdb shows S3 backups for @Database.
-                           (Never auto-detected for @ContinueLogs = 1, or when the target is already in RESTORING or
-                           STANDBY state, so that "just recover this database" calls keep working as before.)
+  @RestoreFromS3 = NULL -> S3 only when one of the paths starts with s3://. The msdb history is never consulted on its own,
+                           so a call without paths behaves exactly as before unless @RestoreFromS3 = 1 is passed explicitly.
 */
 IF @RestoreFromS3 IS NULL
-BEGIN
-	IF @BackupPathFull LIKE N's3://%' OR @BackupPathDiff LIKE N's3://%' OR @BackupPathLog LIKE N's3://%'
-		SET @RestoreFromS3 = 1;
-	ELSE IF @BackupPathFull IS NULL AND @BackupPathDiff IS NULL AND @BackupPathLog IS NULL
-		AND @ContinueLogs = 0
-		AND @Database IS NOT NULL
-		AND ISNULL(CAST(DATABASEPROPERTYEX(ISNULL(NULLIF(@RestoreDatabaseName, N''), @Database), 'Status') AS NVARCHAR(128)), N'') <> N'RESTORING'
-		AND NOT EXISTS (SELECT 1 FROM sys.databases WHERE name = ISNULL(NULLIF(@RestoreDatabaseName, N''), @Database) AND is_in_standby = 1) -- a standby copy reports ONLINE
-		SET @AutoDetectS3 = 1;
-END;
+	SET @RestoreFromS3 = CASE WHEN @BackupPathFull LIKE N's3://%' OR @BackupPathDiff LIKE N's3://%' OR @BackupPathLog LIKE N's3://%' THEN 1 ELSE 0 END;
 
-IF @RestoreFromS3 = 1 OR @AutoDetectS3 = 1
+IF @RestoreFromS3 = 1
 BEGIN
 	-- S3 can't be listed from T-SQL, so the backup history in msdb is our "directory listing"
 	INSERT INTO @S3Backups (BackupType, FinishDate, IsCopyOnly, LastLSN, BackupSetUuid, DiffBaseGuid, FolderUrl, BackupFile)
@@ -490,10 +480,6 @@ BEGIN
 		FROM @S3Backups AS d
 		WHERE d.BackupType = 'I'
 		AND NOT EXISTS (SELECT 1 FROM @S3Backups AS f WHERE f.BackupType = 'D' AND f.BackupSetUuid = d.DiffBaseGuid);
-
-	-- Auto-detect: only treat this as an S3 restore if msdb actually knows a full S3 backup
-	IF @RestoreFromS3 IS NULL AND EXISTS (SELECT 1 FROM @S3Backups WHERE BackupType = 'D')
-		SET @RestoreFromS3 = 1;
 END;
 
 IF @RestoreFromS3 = 1
