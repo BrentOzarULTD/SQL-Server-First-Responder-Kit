@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 54
-If you want to add a new check, start at 55.
+CURRENT HIGH CHECKID: 55
+If you want to add a new check, start at 56.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|---------------------------------|---------------------------------------|-------------------------------------------------|----------|
@@ -27,6 +27,7 @@ If you want to add a new check, start at 55.
 | 10 | Server Performance | Memory Dangerously Low Recently | https://www.brentozar.com/go/memhist | 52 |
 | 10 | Server Performance | Poison Wait Detected | https://www.brentozar.com/go/poison | 30 |
 | 10 | Server Performance | Target Memory Lower Than Max | https://www.brentozar.com/go/target | 35 |
+| 10 | Server Performance | TempDB Over Half Full | https://www.brentozar.com/archive/2025/10/tempdb-filling-up-try-resource-governor/ | 55 |
 | 10 | Azure Performance | Database is Maxed Out | https://www.brentozar.com/go/maxedout | 41 |
 | 40 | Table Problems | Forwarded Fetches/Sec High | https://www.brentozar.com/go/fetch | 29 |
 | 50 | In-Memory OLTP | Garbage Collection in Progress | https://www.brentozar.com/go/garbage | 31 |

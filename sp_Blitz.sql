@@ -6156,6 +6156,44 @@ IF NOT EXISTS ( SELECT  1
 
 					END;
 
+/* CheckID 278 - Performance - TempDB Over Half Full. #4150 */
+			IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 278 )
+					BEGIN
+
+						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 278) WITH NOWAIT;
+
+						INSERT  INTO #BlitzResults
+								( CheckID ,
+								  DatabaseName ,
+								  Priority ,
+								  FindingsGroup ,
+								  Finding ,
+								  URL ,
+								  Details
+								)
+								SELECT  278 AS CheckID ,
+										'tempdb' AS DatabaseName ,
+										1 AS Priority ,
+										'Performance' AS FindingsGroup ,
+										'TempDB Over Half Full' AS Finding ,
+										'https://www.brentozar.com/archive/2025/10/tempdb-filling-up-try-resource-governor/' AS URL ,
+										CAST(CAST(u.used_pct AS DECIMAL(5,1)) AS VARCHAR(10)) + '% of TempDB''s ' + CAST(u.total_mb AS VARCHAR(30)) + ' MB of data file space is in use right now: '
+											+ CAST(u.user_mb AS VARCHAR(30)) + ' MB user objects (temp tables, table variables), '
+											+ CAST(u.internal_mb AS VARCHAR(30)) + ' MB internal objects (sorts, hashes, spools), '
+											+ CAST(u.version_mb AS VARCHAR(30)) + ' MB version store. '
+											+ 'Run sp_BlitzWho to find the sessions allocating TempDB space before it fills up. SQL Server 2025 and newer can cap TempDB usage per workload group with Resource Governor - see the URL.' AS Details
+								FROM    ( SELECT  SUM(fsu.total_page_count) * 8 / 1024 AS total_mb ,
+													SUM(fsu.user_object_reserved_page_count) * 8 / 1024 AS user_mb ,
+													SUM(fsu.internal_object_reserved_page_count) * 8 / 1024 AS internal_mb ,
+													SUM(fsu.version_store_reserved_page_count) * 8 / 1024 AS version_mb ,
+													100.0 * (SUM(fsu.total_page_count) - SUM(fsu.unallocated_extent_page_count)) / NULLIF(SUM(fsu.total_page_count), 0) AS used_pct
+										  FROM    tempdb.sys.dm_db_file_space_usage fsu
+										) u
+								WHERE   u.used_pct > 50;
+					END;
+
 /*Check for too many tempdb files*/
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
