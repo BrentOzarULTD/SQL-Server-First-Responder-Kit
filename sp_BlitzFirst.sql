@@ -3927,6 +3927,33 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
 	END; /* IF @Seconds >= 30 */
 
+    /* Server Performance - TempDB Over Half Full - CheckID 55 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 55',10,1) WITH NOWAIT;
+	END
+
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    SELECT 55 AS CheckID,
+        10 AS Priority,
+        'Server Performance' AS FindingGroup,
+        'TempDB Over Half Full' AS Finding,
+        'https://www.brentozar.com/archive/2025/10/tempdb-filling-up-try-resource-governor/' AS URL,
+        CAST(CAST(u.used_pct AS DECIMAL(5,1)) AS NVARCHAR(10)) + N'% of TempDB''s ' + CAST(u.total_mb AS NVARCHAR(30)) + N' MB of data file space is in use: ' + @LineFeed
+            + CAST(u.user_mb AS NVARCHAR(30)) + N' MB user objects (temp tables, table variables), ' + @LineFeed
+            + CAST(u.internal_mb AS NVARCHAR(30)) + N' MB internal objects (sorts, hashes, spools), ' + @LineFeed
+            + CAST(u.version_mb AS NVARCHAR(30)) + N' MB version store.' + @LineFeed AS Details,
+        N'Run sp_BlitzWho and look at tempdb_allocations_mb to find the sessions using TempDB, then tune or kill the offending query. On SQL Server 2025 and newer, Resource Governor can cap TempDB usage per workload group - see the URL.' AS HowToStopIt
+    FROM (
+        SELECT SUM(fsu.total_page_count) * 8 / 1024 AS total_mb,
+            SUM(fsu.user_object_reserved_page_count) * 8 / 1024 AS user_mb,
+            SUM(fsu.internal_object_reserved_page_count) * 8 / 1024 AS internal_mb,
+            SUM(fsu.version_store_reserved_page_count) * 8 / 1024 AS version_mb,
+            100.0 * (SUM(fsu.total_page_count) - SUM(fsu.unallocated_extent_page_count)) / NULLIF(SUM(fsu.total_page_count), 0) AS used_pct
+        FROM tempdb.sys.dm_db_file_space_usage fsu
+        ) u
+    WHERE u.used_pct > 50;
+
 	IF /* Let people on <2016 know about the thread time column */
 	(
 	    @Seconds > 0
