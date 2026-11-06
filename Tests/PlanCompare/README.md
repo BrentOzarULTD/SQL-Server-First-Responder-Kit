@@ -13,3 +13,14 @@ SQLCMD connection to a non-test server.
 Tests include fixtures exercising extracted production SQL as well as real cached
 query plans. EngineEdition checks inject engine IDs on SQL Server; they are not
 live Azure SQL Managed Instance tests.
+
+Run all single-instance tests with:
+
+~~~sh
+for test in Tests/PlanCompare/plancompare-[0-9]*-regression.py Tests/PlanCompare/plancompare-statistics-compatibility-regression.py; do
+    python "$test" || exit 1
+done
+~~~
+
+The linked-server and database-scope regressions require two disposable SQL Server
+2022 instances. Their module docstrings list the remote connection variables.

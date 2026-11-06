@@ -821,7 +821,7 @@ SELECT DISTINCT
        PARSENAME(s.n.value('@Statistics', 'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
        s.n.value('@ModificationCount', 'BIGINT'),
        s.n.value('@SamplingPercent',   'DECIMAL(9,4)')
-FROM   @PlanXml.nodes('//p:StatsUsed/p:Stats') AS s(n)
+FROM   @PlanXml.nodes('//p:OptimizerStatsUsage/p:StatisticsInfo') AS s(n)
 WHERE  s.n.value('@Database', 'NVARCHAR(258)') LIKE '[[]%';
 
 /* Make sure the StatsUsed objects are in #PlanObjects too */
@@ -1095,6 +1095,14 @@ BEGIN
     DELETE FROM #PlanObjects WHERE DatabaseName = 'tempdb';
 END;
 
+/* Preserve usage independently of catalog enumeration: a missing index on the
+   other server must still be recognized as used by this captured plan. */
+INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText, ValueNumeric)
+SELECT DISTINCT 'Index', 'UsedByPlan',
+       DatabaseName + N'.' + SchemaName + N'.' + TableName + N'.' + IndexName, N'1', 1
+FROM #PlanIndexesRef
+WHERE IndexName IS NOT NULL AND DatabaseName <> N'tempdb';
+
 DECLARE @CurrentDb SYSNAME;
 DECLARE @SelectedStatementSqlHandle VARBINARY(64);
 SELECT @SelectedStatementSqlHandle = qs.statement_sql_handle
@@ -1247,27 +1255,51 @@ BEGIN
                                 AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name];';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
 
-            /* Statistics: header data only */
+            /* Keep current headers for all statistics on referenced tables so a
+               statistic used only by the OTHER plan still has a comparison row.
+               UsedByPlan controls which headers the diff reports. Timestamps are
+               informational; histogram content is not compared. */
             SET @sql = N'
             USE ' + QUOTENAME(@CurrentDb) + N';
             SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+            ;WITH stats AS (
+                SELECT @db + ''.'' + s.[name] + ''.'' + t.[name] + ''.''
+                     + CASE WHEN st.auto_created = 1 THEN ''auto:'' + c.[name]
+                            ELSE ''named:'' + st.[name] END AS SubjectKey,
+                       sp.last_updated, sp.[rows], sp.rows_sampled, sp.modification_counter,
+                       st.auto_created, st.has_filter, st.filter_definition,
+                       CASE WHEN EXISTS (
+                         SELECT 1 FROM #PlanStatsUsed su
+                         WHERE su.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
+                           AND su.SchemaName COLLATE DATABASE_DEFAULT = s.[name]
+                           AND su.TableName COLLATE DATABASE_DEFAULT = t.[name]
+                           AND su.StatisticsName COLLATE DATABASE_DEFAULT = st.[name])
+                         THEN 1 ELSE 0 END AS UsedByPlan
+                FROM sys.stats st
+                JOIN sys.tables t ON t.object_id = st.object_id
+                JOIN sys.schemas s ON s.schema_id = t.schema_id
+                LEFT JOIN sys.stats_columns sc ON sc.object_id = st.object_id
+                                             AND sc.stats_id = st.stats_id AND sc.stats_column_id = 1
+                LEFT JOIN sys.columns c ON c.object_id = sc.object_id AND c.column_id = sc.column_id
+                OUTER APPLY sys.dm_db_stats_properties(st.object_id, st.stats_id) sp
+                WHERE EXISTS (SELECT 1 FROM #PlanObjects po
+                    WHERE po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
+                      AND po.SchemaName COLLATE DATABASE_DEFAULT = s.[name]
+                      AND po.TableName COLLATE DATABASE_DEFAULT = t.[name])
+            )
             INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText, ValueNumeric)
-            SELECT ''Statistics'', ''Header'',
-                   @db + ''.'' + s.[name] + ''.'' + t.[name] + ''.'' + st.[name],
-                   ''lastUpdated='' + ISNULL(CONVERT(VARCHAR(33), sp.last_updated, 126), ''(null)'')
-                     + ''|rows='' + ISNULL(CAST(sp.[rows] AS VARCHAR(20)), ''(null)'')
-                     + ''|sampled='' + ISNULL(CAST(sp.rows_sampled AS VARCHAR(20)), ''(null)'')
-                     + ''|modCounter='' + ISNULL(CAST(sp.modification_counter AS VARCHAR(20)), ''(null)'')
-                     + ''|autoCreated='' + CASE WHEN st.auto_created = 1 THEN ''Y'' ELSE ''N'' END
-                     + ''|hasFilter='' + CASE WHEN st.has_filter = 1 THEN ''Y'' ELSE ''N'' END,
-                   sp.modification_counter
-            FROM sys.stats st
-            JOIN sys.tables t  ON t.object_id  = st.object_id
-            JOIN sys.schemas s ON s.schema_id  = t.schema_id
-            CROSS APPLY sys.dm_db_stats_properties(st.object_id, st.stats_id) sp
-            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
-                                AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
-                                AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name];';
+            SELECT ''Statistics'', v.Setting, st.SubjectKey, v.ValueText, v.ValueNumeric
+            FROM stats st
+            CROSS APPLY (VALUES
+              (''UsedByPlan'', CONVERT(NVARCHAR(40), st.UsedByPlan), CONVERT(DECIMAL(38,4), st.UsedByPlan)),
+              (''LastUpdated'', ISNULL(CONVERT(NVARCHAR(33), st.last_updated, 126), ''(null)''), NULL),
+              (''Rows'', CONVERT(NVARCHAR(40), st.[rows]), CONVERT(DECIMAL(38,4), st.[rows])),
+              (''RowsSampled'', CONVERT(NVARCHAR(40), st.rows_sampled), CONVERT(DECIMAL(38,4), st.rows_sampled)),
+              (''ModificationCounter'', CONVERT(NVARCHAR(40), st.modification_counter), CONVERT(DECIMAL(38,4), st.modification_counter)),
+              (''Definition'', CONVERT(NVARCHAR(MAX), ''autoCreated='') + CONVERT(NVARCHAR(1), st.auto_created)
+                   + ''|hasFilter='' + CONVERT(NVARCHAR(1), st.has_filter)
+                   + ''|filter='' + ISNULL(st.filter_definition, ''(none)''), NULL)
+            ) v(Setting, ValueText, ValueNumeric);';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
 
             /* Row counts and page counts */
@@ -1571,6 +1603,7 @@ BEGIN
 
     SET @SnapshotXml = (
         SELECT '0.01'                                              AS [@Version],
+               2                                                   AS [@StatisticsFormatVersion],
                CONVERT(NVARCHAR(33), SYSUTCDATETIME(), 126)        AS [@GeneratedUTC],
                CONVERT(NVARCHAR(50), @QueryHashBin, 1)             AS [@QueryHash],
                CONVERT(NVARCHAR(50), @QueryPlanHash, 1)            AS [@QueryPlanHash],
@@ -1839,6 +1872,25 @@ END;
 /* =====================================================================
    Rubric: priority + finding text + URL per (Category, Setting)
    ===================================================================== */
+/* Statistics format 2 uses separate fields and normalized auto-stat keys.
+   A shipped-format Header cannot be safely mapped to those keys. Preserve the
+   rest of the comparison, but disclose that statistics were not compared.
+   UsedByPlan recognizes format-2 snapshots emitted before the explicit marker. */
+IF @RemoteXml.exist('/BlitzPlanCompareSnapshot[@StatisticsFormatVersion="2"]') = 0
+   AND NOT (
+       @RemoteXml.exist('/BlitzPlanCompareSnapshot/@StatisticsFormatVersion') = 0
+       AND EXISTS (SELECT 1 FROM #RemoteSnapshot
+                   WHERE Category = 'Statistics' AND Setting = 'UsedByPlan'))
+BEGIN
+    DELETE FROM #LocalSnapshot WHERE Category = 'Statistics';
+    DELETE FROM #RemoteSnapshot WHERE Category = 'Statistics';
+    INSERT INTO #Diff (Priority, Category, Setting, Finding, [URL], Details)
+    VALUES (100, 'Setup', 'StatisticsNotCompared',
+            'Statistics were not compared because the remote snapshot uses an older or unsupported statistics format. Update sp_BlitzPlanCompare on the source server and capture a new snapshot.',
+            'http://FirstResponderKit.org',
+            'Other snapshot categories are still compared. Legacy Statistics.Header rows are not reported as missing statistics.');
+END;
+
 /* Normalize legacy per-session grants. Their numeric field contains granted
    KB; ideal/used values were only embedded in display text and cannot be
    compared reliably. An old idle snapshot had no grant rows at all. */
@@ -1884,7 +1936,8 @@ INSERT INTO #Rubric (Category, Setting, Priority, Finding, [URL]) VALUES
     ('Parameter',            '*',                    10, 'A plan parameter differs.', 'http://FirstResponderKit.org'),
 
     /* Cardinality estimator drift */
-    ('Statistics',           'Header',               15, 'A statistic the optimizer relied on differs between servers (last update, row count, sampling, or modification counter).', 'http://FirstResponderKit.org'),
+    ('Statistics',           '*',                    15, 'Current metadata differs for a statistic used by at least one captured plan. Histogram contents are not compared.', 'http://FirstResponderKit.org'),
+    ('Statistics',           'LastUpdated',          100, 'Last-update timestamps differ for a statistic used by a captured plan. Different timestamps alone do not prove different statistics contents.', 'http://FirstResponderKit.org'),
     ('Database',             'CompatLevel',          15, 'Database compatibility level differs. This changes the cardinality estimator and can change every plan.', 'http://FirstResponderKit.org'),
     ('PlanAttribute',        'CardinalityEstimationModelVersion', 15, 'The cardinality estimator model version baked into this plan differs across servers.', 'http://FirstResponderKit.org'),
 
@@ -1974,7 +2027,14 @@ INSERT INTO #Rubric (Category, Setting, Priority, Finding, [URL]) VALUES
 /* =====================================================================
    Diff engine: FULL OUTER JOIN local vs remote, classify, prioritize
    ===================================================================== */
-;WITH local_values AS (
+;WITH used_metadata AS (
+    SELECT Category, SubjectKey FROM #LocalSnapshot
+    WHERE Category IN ('Index', 'Statistics') AND Setting = 'UsedByPlan' AND ValueNumeric = 1
+    UNION
+    SELECT Category, SubjectKey FROM #RemoteSnapshot
+    WHERE Category IN ('Index', 'Statistics') AND Setting = 'UsedByPlan' AND ValueNumeric = 1
+),
+local_values AS (
     SELECT *, ROW_NUMBER() OVER (
         PARTITION BY Category, Setting, ISNULL(SubjectKey, N''), ISNULL(ValueText, N'') COLLATE Latin1_General_100_BIN2
         ORDER BY ValueNumeric) AS ValueOccurrence
@@ -2043,13 +2103,18 @@ index_gaps AS (
     WHERE  Category = 'Index' AND Setting = 'Present' AND DiffKind LIKE 'Missing%'
 )
 INSERT INTO #Diff (Priority, Category, Setting, [Object], LocalValue, RemoteValue, Finding, [URL], Details)
-SELECT  COALESCE(rb.Priority, rbDefault.Priority, 200)                                           AS Priority,
+SELECT  CASE WHEN p.Category = 'Index' AND p.Setting = 'Present'
+                     AND NOT EXISTS (SELECT 1 FROM used_metadata u WHERE u.Category = p.Category AND u.SubjectKey = p.SubjectKey)
+                     THEN 25 ELSE COALESCE(rb.Priority, rbDefault.Priority, 200) END                                           AS Priority,
         p.Category,
         p.Setting,
         p.SubjectKey                                                                             AS [Object],
         p.LocalValue,
         p.RemoteValue,
-        COALESCE(rb.Finding, rbDefault.Finding, 'Difference detected.')                          AS Finding,
+        CASE WHEN p.Category = 'Index' AND p.Setting = 'Present'
+                  AND NOT EXISTS (SELECT 1 FROM used_metadata u WHERE u.Category = p.Category AND u.SubjectKey = p.SubjectKey)
+             THEN 'An index not referenced by either captured plan is missing on one side.'
+             ELSE COALESCE(rb.Finding, rbDefault.Finding, 'Difference detected.') END                          AS Finding,
         COALESCE(rb.[URL],   rbDefault.[URL],   'http://FirstResponderKit.org')                  AS [URL],
         p.DiffKind + ': ' + p.Category + '.' + p.Setting
             + ISNULL(' (' + p.SubjectKey + ')', '')                                              AS Details
@@ -2057,6 +2122,9 @@ FROM    paired p
 LEFT JOIN #Rubric rb         ON rb.Category = p.Category AND rb.Setting  = p.Setting
 LEFT JOIN #Rubric rbDefault  ON rbDefault.Category = p.Category AND rbDefault.Setting = '*'
 WHERE   p.DiffKind <> 'Same'
+  AND   NOT (p.Category IN ('Index', 'Statistics') AND p.Setting = 'UsedByPlan')
+  AND   (p.Category <> 'Statistics'
+         OR EXISTS (SELECT 1 FROM used_metadata u WHERE u.Category = p.Category AND u.SubjectKey = p.SubjectKey))
   AND   NOT (p.Category = 'Index'
              AND p.Setting IN ('Definition', 'KeyColumns', 'InclColumns')
              AND p.SubjectKey IN (SELECT SubjectKey FROM index_gaps))
@@ -2077,9 +2145,11 @@ WHERE   p.DiffKind <> 'Same'
                         behavior), even though it happens to be numeric.
        - Hardware.CommittedTargetKB: a moving memory-manager target, not capacity.
          Other hardware capacity metrics retain exact comparison.
+       - Statistics: current row, sample, and modification counts for used statistics.
+         Last-update timestamps are informational and bypass this numeric filter.
      Rows present on only one side bypass this check since LocalValueNumeric or
      RemoteValueNumeric is NULL - a missing wait type / attribute is still signal. */
-  AND   NOT ((p.Category IN ('LiveState', 'PlanRuntime', 'PlanWait', 'LiveWait', 'PlanAttribute')
+  AND   NOT ((p.Category IN ('LiveState', 'PlanRuntime', 'PlanWait', 'LiveWait', 'PlanAttribute', 'Statistics')
                OR (p.Category = 'Hardware' AND p.Setting = 'CommittedTargetKB'))
              AND NOT (p.Category = 'PlanRuntime'   AND p.Setting = 'SpillCount')
              AND NOT (p.Category = 'PlanAttribute' AND p.Setting IN ('CardinalityEstimationModelVersion', 'DegreeOfParallelism'))
