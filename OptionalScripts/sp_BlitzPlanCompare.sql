@@ -1109,7 +1109,7 @@ DECLARE db_cur CURSOR LOCAL FAST_FORWARD READ_ONLY FOR
     UNION
     /* Query Store and plan guides live in the compilation database, which may
        differ from every database referenced by the selected statement. */
-    SELECT database_name FROM #PlanMatches
+    SELECT database_name COLLATE Latin1_General_100_BIN2 FROM #PlanMatches
     WHERE database_name IS NOT NULL AND database_name <> N'tempdb'
       AND (@EngineEdition NOT IN (5, 6, 11) OR database_name = DB_NAME());
 
