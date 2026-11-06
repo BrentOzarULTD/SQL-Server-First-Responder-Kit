@@ -463,7 +463,9 @@ BEGIN
     SELECT DISTINCT qs.plan_handle
     FROM sys.dm_exec_query_stats qs
     CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st
-    WHERE st.objectid = @ResolvedProcObjectId AND st.dbid = DB_ID(@DatabaseName);
+    WHERE st.objectid = @ResolvedProcObjectId AND st.dbid = DB_ID(@DatabaseName)
+      AND (@QueryPlanHash IS NULL OR qs.query_plan_hash = @QueryPlanHash)
+      AND (@QueryHash IS NULL OR qs.query_hash = @QueryHash);
 END;
 
 /* Build the WHERE clause from whichever identifiers the user supplied. AND-combined.
@@ -965,7 +967,7 @@ IF OBJECT_ID('tempdb..#LocalSnapshot') IS NOT NULL DROP TABLE #LocalSnapshot;
 CREATE TABLE #LocalSnapshot (
     Category     VARCHAR(50)    NOT NULL,
     Setting      VARCHAR(200)   NOT NULL,
-    SubjectKey   NVARCHAR(776)  NULL,
+    SubjectKey   NVARCHAR(776) COLLATE Latin1_General_100_BIN2 NULL,
     ValueText    NVARCHAR(MAX)  NULL,
     ValueNumeric DECIMAL(38,4)  NULL
 );
@@ -1168,7 +1170,7 @@ BEGIN
                    CASE WHEN OBJECT_ID(QUOTENAME(po.SchemaName) + ''.'' + QUOTENAME(po.TableName)) IS NULL
                         THEN ''missing'' ELSE ''present'' END
             FROM #PlanObjects po
-            WHERE po.DatabaseName COLLATE DATABASE_DEFAULT = @db;';
+            WHERE po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db;';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
 
             /* Indexes on plan-referenced objects. Emit BOTH a presence row per index AND
@@ -1185,7 +1187,7 @@ BEGIN
             FROM sys.tables t
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.indexes i ON i.object_id = t.object_id
-            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
                                 AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
                                 AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name];
 
@@ -1201,7 +1203,7 @@ BEGIN
             FROM sys.tables t
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             LEFT JOIN sys.indexes i ON i.object_id = t.object_id
-            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
                                 AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
                                 AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name];';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
@@ -1233,7 +1235,7 @@ BEGIN
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.indexes i ON i.object_id = t.object_id
             LEFT JOIN key_cols kc ON kc.object_id = i.object_id AND kc.index_id = i.index_id
-            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
                                 AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
                                 AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name]
             UNION ALL
@@ -1244,7 +1246,7 @@ BEGIN
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.indexes i ON i.object_id = t.object_id
             LEFT JOIN key_cols kc ON kc.object_id = i.object_id AND kc.index_id = i.index_id
-            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
                                 AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
                                 AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name];';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
@@ -1294,6 +1296,22 @@ BEGIN
                    + ''|hasFilter='' + CONVERT(NVARCHAR(1), st.has_filter)
                    + ''|filter='' + ISNULL(st.filter_definition, ''(none)''), NULL)
             ) v(Setting, ValueText, ValueNumeric);';
+            SELECT ''Statistics'', ''Header'',
+                   @db + ''.'' + s.[name] + ''.'' + t.[name] + ''.'' + st.[name],
+                   ''lastUpdated='' + ISNULL(CONVERT(VARCHAR(33), sp.last_updated, 126), ''(null)'')
+                     + ''|rows='' + ISNULL(CAST(sp.[rows] AS VARCHAR(20)), ''(null)'')
+                     + ''|sampled='' + ISNULL(CAST(sp.rows_sampled AS VARCHAR(20)), ''(null)'')
+                     + ''|modCounter='' + ISNULL(CAST(sp.modification_counter AS VARCHAR(20)), ''(null)'')
+                     + ''|autoCreated='' + CASE WHEN st.auto_created = 1 THEN ''Y'' ELSE ''N'' END
+                     + ''|hasFilter='' + CASE WHEN st.has_filter = 1 THEN ''Y'' ELSE ''N'' END,
+                   sp.modification_counter
+            FROM sys.stats st
+            JOIN sys.tables t  ON t.object_id  = st.object_id
+            JOIN sys.schemas s ON s.schema_id  = t.schema_id
+            CROSS APPLY sys.dm_db_stats_properties(st.object_id, st.stats_id) sp
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
+                                AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
+                                AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name];';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
 
             /* Row counts and page counts */
@@ -1309,7 +1327,7 @@ BEGIN
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.dm_db_partition_stats ps
                  ON ps.object_id = t.object_id AND ps.index_id IN (0, 1)
-            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
                                 AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
                                 AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name]
             GROUP BY s.[name], t.[name]
@@ -1322,7 +1340,7 @@ BEGIN
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.dm_db_partition_stats ps
                  ON ps.object_id = t.object_id AND ps.index_id IN (0, 1)
-            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
                                 AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
                                 AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name]
             GROUP BY s.[name], t.[name];';
@@ -1631,7 +1649,7 @@ IF OBJECT_ID('tempdb..#RemoteSnapshot') IS NOT NULL DROP TABLE #RemoteSnapshot;
 CREATE TABLE #RemoteSnapshot (
     Category     VARCHAR(50)    NOT NULL,
     Setting      VARCHAR(200)   NOT NULL,
-    SubjectKey   NVARCHAR(776)  NULL,
+    SubjectKey   NVARCHAR(776) COLLATE Latin1_General_100_BIN2 NULL,
     ValueText    NVARCHAR(MAX)  NULL,
     ValueNumeric DECIMAL(38,4)  NULL
 );
@@ -1865,6 +1883,29 @@ END;
 /* =====================================================================
    Rubric: priority + finding text + URL per (Category, Setting)
    ===================================================================== */
+/* Normalize legacy per-session grants. Their numeric field contains granted
+   KB; ideal/used values were only embedded in display text and cannot be
+   compared reliably. An old idle snapshot had no grant rows at all. */
+IF NOT EXISTS (SELECT 1 FROM #RemoteSnapshot WHERE Category = 'LiveState' AND Setting = 'ActiveMemoryGrantCount')
+BEGIN
+    IF EXISTS (SELECT 1 FROM #RemoteSnapshot WHERE Category = 'LiveState' AND Setting = 'ActiveMemoryGrantKB' AND SubjectKey IS NOT NULL)
+    BEGIN
+        DECLARE @LegacyGrantCount BIGINT, @LegacyGrantedKB DECIMAL(38,4);
+        SELECT @LegacyGrantCount = COUNT_BIG(*), @LegacyGrantedKB = SUM(ValueNumeric)
+        FROM #RemoteSnapshot WHERE Category = 'LiveState' AND Setting = 'ActiveMemoryGrantKB';
+        DELETE #RemoteSnapshot WHERE Category = 'LiveState' AND Setting = 'ActiveMemoryGrantKB';
+        INSERT #RemoteSnapshot (Category, Setting, SubjectKey, ValueText, ValueNumeric)
+        VALUES ('LiveState', 'ActiveMemoryGrantCount', NULL, CONVERT(NVARCHAR(40), @LegacyGrantCount), @LegacyGrantCount),
+               ('LiveState', 'ActiveMemoryGrantKB', NULL, CONVERT(NVARCHAR(40), CONVERT(BIGINT, @LegacyGrantedKB)), @LegacyGrantedKB);
+    END
+    ELSE
+        /* No grants in a legacy snapshot means zero active grants. */
+        INSERT #RemoteSnapshot (Category, Setting, SubjectKey, ValueText, ValueNumeric)
+        VALUES ('LiveState', 'ActiveMemoryGrantCount', NULL, N'0', 0),
+               ('LiveState', 'ActiveMemoryGrantKB', NULL, N'0', 0);
+    DELETE #LocalSnapshot WHERE Category = 'LiveState' AND Setting IN ('ActiveIdealMemoryKB', 'ActiveUsedMemoryKB');
+END;
+
 IF OBJECT_ID('tempdb..#Rubric') IS NOT NULL DROP TABLE #Rubric;
 CREATE TABLE #Rubric (
     Category VARCHAR(50)   NOT NULL,
@@ -1986,20 +2027,44 @@ INSERT INTO #Rubric (Category, Setting, Priority, Finding, [URL]) VALUES
     WHERE Category IN ('Index', 'Statistics') AND Setting = 'UsedByPlan' AND ValueNumeric = 1
 ),
 local_rows AS (
+;WITH local_values AS (
     SELECT *, ROW_NUMBER() OVER (
-        PARTITION BY Category, Setting, ISNULL(SubjectKey, N'')
-        ORDER BY ValueText COLLATE Latin1_General_100_BIN2, ValueNumeric) AS Occurrence
+        PARTITION BY Category, Setting, ISNULL(SubjectKey, N''), ISNULL(ValueText, N'') COLLATE Latin1_General_100_BIN2
+        ORDER BY ValueNumeric) AS ValueOccurrence
     FROM #LocalSnapshot
 ),
-remote_rows AS (
+remote_values AS (
     SELECT *, ROW_NUMBER() OVER (
-        PARTITION BY Category, Setting, ISNULL(SubjectKey, N'')
-        ORDER BY ValueText COLLATE Latin1_General_100_BIN2, ValueNumeric) AS Occurrence
+        PARTITION BY Category, Setting, ISNULL(SubjectKey, N''), ISNULL(ValueText, N'') COLLATE Latin1_General_100_BIN2
+        ORDER BY ValueNumeric) AS ValueOccurrence
     FROM #RemoteSnapshot
 ),
-/* Repeated keys represent multisets (for example, repeated plan warnings).
-   Pair sorted occurrences once each; never produce an N-by-N cross product.
-   Avoid NodeId keys: operator numbers need not match across different plans. */
+/* Cancel identical occurrences before pairing the remaining values. Deleting
+   the first warning must not shift all subsequent, unchanged warnings. */
+local_rows AS (
+    SELECT l.*, ROW_NUMBER() OVER (
+        PARTITION BY Category, Setting, ISNULL(SubjectKey, N'')
+        ORDER BY ValueText COLLATE Latin1_General_100_BIN2, ValueNumeric) AS Occurrence
+    FROM local_values l
+    WHERE NOT EXISTS (
+        SELECT 1 FROM remote_values r
+        WHERE r.Category = l.Category AND r.Setting = l.Setting
+          AND ISNULL(r.SubjectKey, N'') = ISNULL(l.SubjectKey, N'')
+          AND ISNULL(r.ValueText, N'') COLLATE Latin1_General_100_BIN2 = ISNULL(l.ValueText, N'') COLLATE Latin1_General_100_BIN2
+          AND r.ValueOccurrence = l.ValueOccurrence)
+),
+remote_rows AS (
+    SELECT r.*, ROW_NUMBER() OVER (
+        PARTITION BY Category, Setting, ISNULL(SubjectKey, N'')
+        ORDER BY ValueText COLLATE Latin1_General_100_BIN2, ValueNumeric) AS Occurrence
+    FROM remote_values r
+    WHERE NOT EXISTS (
+        SELECT 1 FROM local_values l
+        WHERE r.Category = l.Category AND r.Setting = l.Setting
+          AND ISNULL(r.SubjectKey, N'') = ISNULL(l.SubjectKey, N'')
+          AND ISNULL(r.ValueText, N'') COLLATE Latin1_General_100_BIN2 = ISNULL(l.ValueText, N'') COLLATE Latin1_General_100_BIN2
+          AND r.ValueOccurrence = l.ValueOccurrence)
+),
 paired AS (
     SELECT COALESCE(l.Category,   r.Category)   AS Category,
            COALESCE(l.Setting,    r.Setting)    AS Setting,
@@ -2202,7 +2267,7 @@ BEGIN
             @LocalArguments NVARCHAR(MAX), @RemoteArguments NVARCHAR(MAX),
             @RemoteParamDecls NVARCHAR(MAX);
     SELECT @LocalDeclarations = (
-        SELECT N'DECLARE ' + ParameterName + N' ' + DataType + N' = '
+        SELECT CONVERT(NVARCHAR(MAX), N'DECLARE ') + ParameterName + N' ' + DataType + N' = '
              + COALESCE(NULLIF(CompiledValue, N''), N'NULL') + N';' + CHAR(13) + CHAR(10)
         FROM #PlanParameters ORDER BY ParameterName
         FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'),
@@ -2216,7 +2281,7 @@ BEGIN
         FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, N'');
 
     SELECT @RemoteDeclarations = (
-        SELECT N'DECLARE ' + ParameterName + N' ' + DataType + N' = '
+        SELECT CONVERT(NVARCHAR(MAX), N'DECLARE ') + ParameterName + N' ' + DataType + N' = '
              + COALESCE(NULLIF(CompiledValue, N''), N'NULL') + N';' + CHAR(13) + CHAR(10)
         FROM #RemotePlanParameters ORDER BY ParameterName
         FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'),
@@ -2230,8 +2295,8 @@ BEGIN
         FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, N'');
 
     /* Unknown types cannot safely reconstruct the call. */
-    IF NOT EXISTS (SELECT 1 FROM #PlanParameters WHERE NULLIF(DataType, N'') IS NULL)
-       AND NOT EXISTS (SELECT 1 FROM #RemotePlanParameters WHERE NULLIF(DataType, N'') IS NULL)
+    IF NOT EXISTS (SELECT 1 FROM #PlanParameters WHERE NULLIF(DataType, N'') IS NULL OR NULLIF(CompiledValue, N'') IS NULL)
+       AND NOT EXISTS (SELECT 1 FROM #RemotePlanParameters WHERE NULLIF(DataType, N'') IS NULL OR NULLIF(CompiledValue, N'') IS NULL)
     BEGIN
         IF @ProcName IS NOT NULL
         BEGIN
@@ -2267,7 +2332,9 @@ BEGIN
            just the code rows without grabbing the wrapper tags. */
         DECLARE @ReproText NVARCHAR(MAX) =
               @CRLF + @CRLF
-            + N'/* Selected statement only; required batch setup must be supplied separately. */' + @CRLF
+            + CASE WHEN @ProcName IS NULL
+                   THEN N'/* Selected statement only; required batch setup must be supplied separately. */'
+                   ELSE N'/* Executes the full stored procedure, including its other statements. */' END + @CRLF
             + N'/* Local server ' + ISNULL(@LocalServerName, N'(unknown)') + N' */' + @CRLF
             + @LocalExec + @CRLF + N'GO' + @CRLF
             + @CRLF
@@ -2359,7 +2426,8 @@ BEGIN TRY
             rop.n.value('@NodeId',     'INT'),
             rop.n.value('@PhysicalOp', 'VARCHAR(200)'),
             rop.n.value('@LogicalOp',  'VARCHAR(200)'),
-            CONVERT(BIGINT, rop.n.value('sum(p:RunTimeInformation/p:RunTimeCountersPerThread/@ActualRows)', 'FLOAT')),
+            /* XQuery sum may serialize as scientific notation; parse FLOAT before BIGINT. */
+               CONVERT(BIGINT, rop.n.value('sum(p:RunTimeInformation/p:RunTimeCountersPerThread/@ActualRows)', 'FLOAT')),
             rop.n.value('@EstimateRows', 'FLOAT'),
             CASE WHEN rop.n.exist('p:RunTimeInformation') = 1 THEN 1 ELSE 0 END
         FROM @PlanXmlForEmit.nodes('//p:RelOp') AS rop(n);
@@ -2414,7 +2482,8 @@ BEGIN TRY
             rop.n.value('@NodeId',     'INT'),
             rop.n.value('@PhysicalOp', 'VARCHAR(200)'),
             rop.n.value('@LogicalOp',  'VARCHAR(200)'),
-            CONVERT(BIGINT, rop.n.value('sum(p:RunTimeInformation/p:RunTimeCountersPerThread/@ActualRows)', 'FLOAT')),
+            /* XQuery sum may serialize as scientific notation; parse FLOAT before BIGINT. */
+               CONVERT(BIGINT, rop.n.value('sum(p:RunTimeInformation/p:RunTimeCountersPerThread/@ActualRows)', 'FLOAT')),
             rop.n.value('@EstimateRows', 'FLOAT'),
             CASE WHEN rop.n.exist('p:RunTimeInformation') = 1 THEN 1 ELSE 0 END
         FROM @RemotePlanXml.nodes('//p:RelOp') AS rop(n);
@@ -2534,6 +2603,7 @@ IF @LocalOpCount > 0 AND @RemoteOpCount > 0
 BEGIN
     ;WITH pairs AS (
         SELECT l.NodeId, l.PhysicalOp, l.LogicalOp, l.ObjectSig, l.MaxInSubtree,
+               l.ActualRows AS LocalActualRows, r.ActualRows AS RemoteActualRows,
                CASE WHEN @BothActual = 1 THEN CAST(l.ActualRows AS FLOAT) ELSE l.EstRows END AS LocalMetric,
                CASE WHEN @BothActual = 1 THEN CAST(r.ActualRows AS FLOAT) ELSE r.EstRows END AS RemoteMetric
         FROM       #OpsLocal  l
@@ -2558,8 +2628,10 @@ BEGIN
            @Metric,
            'NodeId ' + CAST(NodeId AS VARCHAR(10)) + ': ' + ISNULL(PhysicalOp, '(unknown)')
             + CASE WHEN NULLIF(ObjectSig, '') IS NOT NULL THEN ' on ' + ObjectSig ELSE '' END,
-           CAST(LocalMetric  AS NVARCHAR(40)),
-           CAST(RemoteMetric AS NVARCHAR(40)),
+           CASE WHEN @BothActual = 1 THEN CONVERT(NVARCHAR(40), LocalActualRows)
+                ELSE CONVERT(NVARCHAR(40), LocalMetric, 3) END,
+           CASE WHEN @BothActual = 1 THEN CONVERT(NVARCHAR(40), RemoteActualRows)
+                ELSE CONVERT(NVARCHAR(40), RemoteMetric, 3) END,
            CASE WHEN @ShapeMatch = 1
                 THEN 'Walking the plan right-to-left, top-to-bottom, this is the first operator whose ' + @Metric
                      + ' differs by 25% or more. Upstream operators match; divergence starts here - this is where to focus.'
