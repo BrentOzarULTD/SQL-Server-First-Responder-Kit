@@ -1488,12 +1488,12 @@ CREATE TABLE #Diff (
     Priority    TINYINT        NULL,
     Category    VARCHAR(50)    NULL,
     Setting     VARCHAR(200)   NULL,
-    [Object]    NVARCHAR(776)  NULL,
+    [Object]    NVARCHAR(MAX)  NULL,
     LocalValue  NVARCHAR(MAX)  NULL,
     RemoteValue NVARCHAR(MAX)  NULL,
     Finding     NVARCHAR(500)  NULL,
     [URL]       NVARCHAR(500)  NULL,
-    Details     NVARCHAR(1000) NULL,
+    Details     NVARCHAR(MAX) NULL,
     CallStack   XML            NULL  /* typed XML so SSMS renders it as a clickable cell - populated only for the parameter-sniffing reproducer row today, reserved for future row types */
 );
 
@@ -2150,7 +2150,7 @@ CREATE TABLE #OpsLocal (
     ParentNodeId INT             NULL,
     PhysicalOp   VARCHAR(200)    NULL,
     LogicalOp    VARCHAR(200)    NULL,
-    ObjectSig    NVARCHAR(4000)  NULL,
+    ObjectSig    NVARCHAR(MAX)  NULL,
     ActualRows   BIGINT          NULL,
     EstRows      FLOAT           NULL,
     HasRuntime   BIT             NOT NULL DEFAULT 0,
@@ -2161,7 +2161,7 @@ CREATE TABLE #OpsRemote (
     ParentNodeId INT             NULL,
     PhysicalOp   VARCHAR(200)    NULL,
     LogicalOp    VARCHAR(200)    NULL,
-    ObjectSig    NVARCHAR(4000)  NULL,
+    ObjectSig    NVARCHAR(MAX)  NULL,
     ActualRows   BIGINT          NULL,
     EstRows      FLOAT           NULL,
     HasRuntime   BIT             NOT NULL DEFAULT 0,
