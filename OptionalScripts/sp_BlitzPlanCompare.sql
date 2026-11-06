@@ -2166,7 +2166,9 @@ BEGIN
            just the code rows without grabbing the wrapper tags. */
         DECLARE @ReproText NVARCHAR(MAX) =
               @CRLF + @CRLF
-            + N'/* Selected statement only; required batch setup must be supplied separately. */' + @CRLF
+            + CASE WHEN @ProcName IS NULL
+                   THEN N'/* Selected statement only; required batch setup must be supplied separately. */'
+                   ELSE N'/* Executes the full stored procedure, including its other statements. */' END + @CRLF
             + N'/* Local server ' + ISNULL(@LocalServerName, N'(unknown)') + N' */' + @CRLF
             + @LocalExec + @CRLF + N'GO' + @CRLF
             + @CRLF
