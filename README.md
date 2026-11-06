@@ -425,6 +425,8 @@ You get back a single `CallStack` column — a complete `EXEC dbo.sp_BlitzPlanCo
 
 How cross-server plan resolution works: the snapshot carries the stable `QueryHash` attribute (not just the `QueryPlanHash`). When the other server runs the compare, it looks up its own cached plan by `query_hash` — because the whole point of comparing is that the plan on the other server is probably *different*. That divergence is the mystery you're investigating.
 
+When a snapshot comes from an older procedure with an incompatible statistics format, the comparison returns a StatisticsNotCompared notice and continues comparing the other categories. Update the procedure on the source server and capture a new snapshot to compare statistics.
+
 ### Linked-server one-call workflow
 
 ```tsql

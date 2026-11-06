@@ -17,10 +17,10 @@ live Azure SQL Managed Instance tests.
 Run all single-instance tests with:
 
 ~~~sh
-for test in Tests/PlanCompare/plancompare-[0-9]*-regression.py; do
+for test in Tests/PlanCompare/plancompare-[0-9]*-regression.py Tests/PlanCompare/plancompare-statistics-compatibility-regression.py; do
     python "$test" || exit 1
 done
 ~~~
 
-The separate linked-server test requires two disposable SQL Server 2022 instances;
-its module docstring lists the remote connection variables.
+The linked-server and database-scope regressions require two disposable SQL Server
+2022 instances. Their module docstrings list the remote connection variables.

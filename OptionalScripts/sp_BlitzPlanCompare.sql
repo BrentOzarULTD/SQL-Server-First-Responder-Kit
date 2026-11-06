@@ -1603,6 +1603,7 @@ BEGIN
 
     SET @SnapshotXml = (
         SELECT '0.01'                                              AS [@Version],
+               2                                                   AS [@StatisticsFormatVersion],
                CONVERT(NVARCHAR(33), SYSUTCDATETIME(), 126)        AS [@GeneratedUTC],
                CONVERT(NVARCHAR(50), @QueryHashBin, 1)             AS [@QueryHash],
                CONVERT(NVARCHAR(50), @QueryPlanHash, 1)            AS [@QueryPlanHash],
@@ -1871,6 +1872,25 @@ END;
 /* =====================================================================
    Rubric: priority + finding text + URL per (Category, Setting)
    ===================================================================== */
+/* Statistics format 2 uses separate fields and normalized auto-stat keys.
+   A shipped-format Header cannot be safely mapped to those keys. Preserve the
+   rest of the comparison, but disclose that statistics were not compared.
+   UsedByPlan recognizes format-2 snapshots emitted before the explicit marker. */
+IF @RemoteXml.exist('/BlitzPlanCompareSnapshot[@StatisticsFormatVersion="2"]') = 0
+   AND NOT (
+       @RemoteXml.exist('/BlitzPlanCompareSnapshot/@StatisticsFormatVersion') = 0
+       AND EXISTS (SELECT 1 FROM #RemoteSnapshot
+                   WHERE Category = 'Statistics' AND Setting = 'UsedByPlan'))
+BEGIN
+    DELETE FROM #LocalSnapshot WHERE Category = 'Statistics';
+    DELETE FROM #RemoteSnapshot WHERE Category = 'Statistics';
+    INSERT INTO #Diff (Priority, Category, Setting, Finding, [URL], Details)
+    VALUES (100, 'Setup', 'StatisticsNotCompared',
+            'Statistics were not compared because the remote snapshot uses an older or unsupported statistics format. Update sp_BlitzPlanCompare on the source server and capture a new snapshot.',
+            'http://FirstResponderKit.org',
+            'Other snapshot categories are still compared. Legacy Statistics.Header rows are not reported as missing statistics.');
+END;
+
 /* Normalize legacy per-session grants. Their numeric field contains granted
    KB; ideal/used values were only embedded in display text and cannot be
    compared reliably. An old idle snapshot had no grant rows at all. */
@@ -2120,9 +2140,13 @@ WHERE   p.DiffKind <> 'Same'
                         EstimatedPagesCached, CompileTime, CompileMemory, etc.).
                         Text attributes (PlanSource, StatementOptmLevel, etc.)
                         have ValueNumeric = NULL and bypass this filter.
-                        CardinalityEstimationModelVersion is exact-match: any
+                        CardinalityEstimationModelVersion and DegreeOfParallelism are exact-match: any
                         delta matters (70 vs 160 vs 170 all change optimizer
                         behavior), even though it happens to be numeric.
+       - Hardware.CommittedTargetKB: a moving memory-manager target, not capacity.
+         Other hardware capacity metrics retain exact comparison.
+       - Statistics: current row, sample, and modification counts for used statistics.
+         Last-update timestamps are informational and bypass this numeric filter.
      Rows present on only one side bypass this check since LocalValueNumeric or
      RemoteValueNumeric is NULL - a missing wait type / attribute is still signal. */
   AND   NOT ((p.Category IN ('LiveState', 'PlanRuntime', 'PlanWait', 'LiveWait', 'PlanAttribute', 'Statistics')
