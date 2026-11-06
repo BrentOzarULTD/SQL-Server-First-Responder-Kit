@@ -447,7 +447,7 @@ The local side passes its `query_hash` (not `query_plan_hash`) to the remote —
 | `Finding` | One-line explanation of the diff. |
 | `URL` | Link to more info. |
 | `Details` | Extra context - plan-source flags, shape-match verdict, operator metadata. |
-| `CallStack` | Typed XML — populated only on the `Parameter.Reproducer` row with a click-to-view reproducer containing two blocks of copy/paste-ready EXECs (one per server) that re-compile the proc/ad-hoc SQL with each side's sniffed parameter values. |
+| `CallStack` | Typed XML — populated only on the `Parameter.Reproducer` row with a click-to-view reproducer containing two blocks of copy/paste-ready EXECs (one per server) that execute with each side's sniffed parameter values. Procedure calls use `WITH RECOMPILE`; ad-hoc `sp_executesql` calls may reuse a cached plan. |
 
 **Second result set — the two plans** (one row per server):
 
@@ -467,7 +467,7 @@ The local side passes its `query_hash` (not `query_plan_hash`) to the remote —
 * **Database-scoped configurations**: the full row from `sys.database_scoped_configurations`, including `LEGACY_CARDINALITY_ESTIMATION`, `MAXDOP`, `LAST_QUERY_PLAN_STATS`.
 * **Objects, indexes, statistics**: presence, index definitions (type, unique, filter, key + included columns), stats headers (last update, modification counter, rows sampled), row counts and page counts.
 * **Forced plans**: Query Store forced plans + `sys.plan_guides`.
-* **Parameter sniffing**: compiled values per parameter. When any value differs, a `Parameter.Reproducer` row is emitted whose `CallStack` column is a clickable XML cell with copy/paste-ready `EXEC [db].[schema].[proc] @p = v` blocks for each server. For ad-hoc parameterized SQL, the reproducer uses `sp_executesql` form instead.
+* **Parameter sniffing**: compiled values per parameter. When any value differs, a `Parameter.Reproducer` row is emitted whose `CallStack` column is a clickable XML cell with copy/paste-ready `EXEC [db].[schema].[proc] @p = v` blocks for each server. For ad-hoc parameterized SQL, the reproducer uses `sp_executesql` form instead and may reuse a cached plan. Values are assigned to typed variables so Showplan expression syntax remains valid. Review the generated calls before running them: they execute the original workload, and additional procedure arguments or batch setup may be required.
 * **Plan-level attributes**: DOP, memory grant, CompileTime/CompileMemory, CachedPlanSize, CardinalityEstimationModelVersion, OptimizerHardwareDependentProperties (estimated memory grant, pages cached, available DOP, max compile memory), StatementOptmLevel, RetrievedFromCache. Numeric deltas ≤ 25% are suppressed as noise; `CardinalityEstimationModelVersion` is exact-match regardless (70 vs 160 vs 170 all change optimizer behavior).
 * **Plan warnings**: spills, memory grant warnings, convert warnings, NoStats, WaitStats.
 * **Runtime totals (PlanRuntime)**: elapsed time, CPU time, granted memory, max used memory, UDF elapsed/CPU, spill count (exact-match — 0 vs 1 matters). Populated when both plans are actual (`LAST_QUERY_PLAN_STATS`). Sub-25% deltas suppressed except for spill count.
