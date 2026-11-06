@@ -9,7 +9,7 @@ with Database(4158) as d:
       ('PlanWarning','PlanAffectingConvert',NULL,'B',NULL),('PlanWarning','PlanAffectingConvert',NULL,'B',NULL),
       ('ForcedPlan','QueryStore','Db','A',NULL),('ForcedPlan','QueryStore','Db','B',NULL);
       INSERT #RemoteSnapshot SELECT * FROM #LocalSnapshot;"""
-    for edit,count in [('',0),("UPDATE #RemoteSnapshot SET ValueText='Z' WHERE Category='ForcedPlan' AND ValueText='B';",1),
+    for edit,count in [('',0),("DELETE FROM #RemoteSnapshot WHERE Category='PlanWarning' AND ValueText='A';",1),("UPDATE #RemoteSnapshot SET ValueText='Z' WHERE Category='ForcedPlan' AND ValueText='B';",1),
                        ("DELETE TOP(1) FROM #RemoteSnapshot WHERE Category='PlanWarning' AND ValueText='B';",1)]:
         result=execute(d.c,'EXEC sys.sp_executesql %s',(schema+'CREATE TABLE #LocalSnapshot'+table+
             'CREATE TABLE #RemoteSnapshot'+table+seed+edit+block+'SELECT * FROM #Diff;',))[0]
@@ -27,4 +27,12 @@ with Database(4158) as d:
       'ActiveMemoryGrantCount':2,'ActiveMemoryGrantKB':200,'ActiveIdealMemoryKB':400,'ActiveUsedMemoryKB':100},first
     idle=execute(d.c,'EXEC sys.sp_executesql %s',(script.replace('INSERT #TestGrants VALUES','INSERT #TestGrants VALUES').replace(collector,'DELETE #TestGrants;'+collector),))[0]
     assert all(r['ValueNumeric']==0 for r in idle)
+    normalizer=source[source.index('/* Normalize legacy per-session grants.'):source.index("IF OBJECT_ID('tempdb..#Rubric')")]
+    for legacy in (True,False):
+        seed="INSERT #LocalSnapshot VALUES ('LiveState','ActiveMemoryGrantCount',NULL,'1',1),('LiveState','ActiveMemoryGrantKB',NULL,'100',100),('LiveState','ActiveIdealMemoryKB',NULL,'200',200),('LiveState','ActiveUsedMemoryKB',NULL,'50',50);"
+        if legacy: seed+="INSERT #RemoteSnapshot VALUES('LiveState','ActiveMemoryGrantKB','500','100/200 (used 50)',100);"
+        else: seed=seed.replace("'1',1","'0',0").replace("'100',100","'0',0")
+        result=execute(d.c,'EXEC sys.sp_executesql %s',(schema+'CREATE TABLE #LocalSnapshot'+table+'CREATE TABLE #RemoteSnapshot'+table+seed+normalizer+block+'SELECT * FROM #Diff;',))[0]
+        assert not result,result
+
 print('PASS: repeated snapshots compare cleanly, differences are bounded, grants ignore server-local session IDs.')
