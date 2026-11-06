@@ -1096,8 +1096,20 @@ BEGIN
 END;
 
 DECLARE @CurrentDb SYSNAME;
+DECLARE @SelectedStatementSqlHandle VARBINARY(64);
+SELECT @SelectedStatementSqlHandle = qs.statement_sql_handle
+FROM sys.dm_exec_query_stats qs
+JOIN #PlanMatches pm ON pm.plan_handle = qs.plan_handle
+                   AND pm.statement_start_offset = qs.statement_start_offset;
+DECLARE @ForcedPlanQueryHashText VARCHAR(50) = CONVERT(VARCHAR(50), @QueryHashBin, 1);
 DECLARE db_cur CURSOR LOCAL FAST_FORWARD READ_ONLY FOR
-    SELECT DISTINCT DatabaseName FROM #PlanObjects WHERE DatabaseName IS NOT NULL;
+    SELECT DatabaseName FROM #PlanObjects WHERE DatabaseName IS NOT NULL
+    UNION
+    /* Query Store and plan guides live in the compilation database, which may
+       differ from every database referenced by the selected statement. */
+    SELECT database_name COLLATE Latin1_General_100_BIN2 FROM #PlanMatches
+    WHERE database_name IS NOT NULL AND database_name <> N'tempdb'
+      AND (@EngineEdition NOT IN (5, 6, 11) OR database_name = DB_NAME());
 
 OPEN db_cur;
 FETCH NEXT FROM db_cur INTO @CurrentDb;
@@ -1297,12 +1309,18 @@ BEGIN
                 USE ' + QUOTENAME(@CurrentDb) + N';
                 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                 INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText)
-                SELECT ''ForcedPlan'', ''QueryStore'', @db,
-                       ''plan_id='' + CAST(plan_id AS NVARCHAR(40))
-                       + '' hash='' + CONVERT(NVARCHAR(50), query_plan_hash, 1)
-                FROM sys.query_store_plan
-                WHERE is_forced_plan = 1;';
-                EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
+                SELECT DISTINCT ''ForcedPlan'', ''QueryStore'',
+                       @db + ''|'' + CONVERT(NVARCHAR(50), q.query_hash, 1)
+                           + ''|'' + CONVERT(NVARCHAR(50), p.query_plan_hash, 1),
+                       CONVERT(NVARCHAR(50), p.query_plan_hash, 1)
+                FROM sys.query_store_plan p
+                JOIN sys.query_store_query q ON q.query_id = p.query_id
+                JOIN sys.query_store_query_text qt ON qt.query_text_id = q.query_text_id
+                WHERE p.is_forced_plan = 1
+                  AND (q.query_hash = @qh OR qt.statement_sql_handle = @stmt_handle);';
+                EXEC sp_executesql @sql, N'@db SYSNAME, @qh BINARY(8), @stmt_handle VARBINARY(64)',
+                     @db = @CurrentDb, @qh = @QueryHashBin,
+                     @stmt_handle = @SelectedStatementSqlHandle;
             END TRY
             BEGIN CATCH
                 /* Query Store off, view missing on this version, or no permission. Skip. */
@@ -1351,14 +1369,25 @@ BEGIN
                 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                 INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText)
                 SELECT ''ForcedPlan'', ''PlanGuide'',
-                       @db + ''.'' + ISNULL(scope_object_id_name, ''(server)''),
-                       [name] + '':'' + scope_type_desc + '':'' + ISNULL(hints, ''(no hints)'')
-                FROM (
-                    SELECT pg.[name], pg.scope_type_desc, pg.hints,
-                           OBJECT_NAME(pg.scope_object_id) AS scope_object_id_name
-                    FROM sys.plan_guides pg
-                ) x;';
-                EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
+                       @db + ''.'' + pg.[name],
+                       pg.scope_type_desc + '':'' + ISNULL(pg.hints, ''(no hints)'')
+                FROM sys.plan_guides pg
+                WHERE pg.is_disabled = 0
+                  AND EXISTS (
+                    SELECT 1
+                    FROM @plan.nodes(''declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
+                        //p:StmtSimple'') AS stmt(n)
+                    WHERE stmt.n.value(''@QueryHash'', ''VARCHAR(50)'') = @qh
+                      AND ((stmt.n.value(''@PlanGuideDB'', ''SYSNAME'') = @db
+                            AND stmt.n.value(''@PlanGuideName'', ''SYSNAME'') = pg.[name])
+                        OR (stmt.n.value(''@TemplatePlanGuideDB'', ''SYSNAME'') = @db
+                            AND stmt.n.value(''@TemplatePlanGuideName'', ''SYSNAME'') = pg.[name]))
+                  );';
+                /* Showplan records guides actually applied to this statement.
+                   Do not attribute unrelated or disabled database guides to it. */
+                EXEC sp_executesql @sql, N'@db SYSNAME, @plan XML, @qh VARCHAR(50)',
+                     @db = @CurrentDb, @plan = @PlanXml,
+                     @qh = @ForcedPlanQueryHashText;
             END TRY
             BEGIN CATCH
                 IF @Debug = 1
