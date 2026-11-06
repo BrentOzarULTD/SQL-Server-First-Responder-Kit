@@ -166,7 +166,7 @@ BEGIN
     UNION ALL
     SELECT N'@DatabaseName',
            N'SYSNAME',
-           N'Scopes the plan lookup (and @StoredProcName resolution) to this database. Cannot stand alone - must accompany one of the identifier parameters.'
+           N'Scopes the plan lookup (and @StoredProcName resolution) to this database. With @LinkedServer, only an explicit @DatabaseName is forwarded to the remote lookup; a database inferred from a three-part @StoredProcName scopes the local side only. Cannot stand alone - must accompany one of the identifier parameters.'
     UNION ALL
     SELECT N'@CompareToXML',
            N'XML',
