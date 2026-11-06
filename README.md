@@ -368,7 +368,7 @@ When the same query runs differently on two SQL Servers (fast on dev, slow on pr
 
 | Parameter | Type | Default | Purpose |
 |---|---|---|---|
-| `@DatabaseName` | `SYSNAME` | `NULL` | Scopes plan lookup (and `@StoredProcName` resolution) to this database. On Azure SQL DB you must be connected to this database — cross-DB `OBJECT_ID()` isn't supported. |
+| `@DatabaseName` | `SYSNAME` | `NULL` | Scopes plan lookup (and `@StoredProcName` resolution) to this database. With `@LinkedServer`, only an explicit `@DatabaseName` is forwarded to the remote lookup; a database inferred from a three-part `@StoredProcName` scopes the local side only. On Azure SQL DB you must be connected to this database — cross-DB `OBJECT_ID()` isn't supported. |
 
 **Exact cached-copy selectors:** `@PlanHandle VARBINARY(64)` selects a local cache entry; `@StatementStartOffset INT` selects a statement within it. Use the values returned in the candidate list when multiple copies have the same hash. These also work with `@CompareToXML`. For linked-server mode, `@RemotePlanHandle` and `@RemoteStatementStartOffset` independently select the remote entry. Handles belong to one server's current cache and cannot be copied between servers. The procedure never automatically chooses among different compile contexts.
 
