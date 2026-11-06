@@ -629,7 +629,8 @@ FROM    #PlanMatches;
    share the same hash inside a batch. */
 DECLARE @StatementPlan XML, @SelectedStatementCompId INT, @ActualStatement XML;
 SELECT @StatementPlan = TRY_CONVERT(XML, tp.query_plan)
-FROM sys.dm_exec_text_query_plan(@PlanHandle, @StmtStartOffset, @StmtEndOffset) tp;
+FROM #PlanMatches pm
+CROSS APPLY sys.dm_exec_text_query_plan(pm.plan_handle, pm.statement_start_offset, pm.statement_end_offset) tp;
 IF @StatementPlan IS NULL
 BEGIN
     RAISERROR('The selected statement plan is no longer available. Resolve the cached plan again.', 16, 1);
