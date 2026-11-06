@@ -368,7 +368,7 @@ When the same query runs differently on two SQL Servers (fast on dev, slow on pr
 
 | Parameter | Type | Default | Purpose |
 |---|---|---|---|
-| `@DatabaseName` | `SYSNAME` | `NULL` | Scopes plan lookup (and `@StoredProcName` resolution) to this database. On Azure SQL DB you must be connected to this database — cross-DB `OBJECT_ID()` isn't supported. |
+| `@DatabaseName` | `SYSNAME` | `NULL` | Scopes plan lookup (and `@StoredProcName` resolution) to this database. With `@LinkedServer`, only an explicit `@DatabaseName` is forwarded to the remote lookup; a database inferred from a three-part `@StoredProcName` scopes the local side only. On Azure SQL DB you must be connected to this database — cross-DB `OBJECT_ID()` isn't supported. |
 
 **Comparison source** (exactly one, or none for mode 1):
 
