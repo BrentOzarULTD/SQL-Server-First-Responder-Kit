@@ -284,18 +284,8 @@ ELSE
 IF @Debug = 1
     RAISERROR('Operating in mode %d (1=emit XML, 2=compare XML, 3=linked server)', 0, 1, @Mode) WITH NOWAIT;
 
-/* Mode 2: extract the QUERY hash from the XML (not the plan hash). The whole point of
-   comparing is that the plan may be DIFFERENT on this server — that's the symptom we're
-   investigating. So we look up THIS server's plan by query_hash and let the optimizer's
-   chosen plan_hash come out of the cache however it got there.
-
-   The existing "look up by query_plan_hash, fall back to query_hash" flow handles this
-   cleanly: we stuff the query_hash into @QueryPlanHash, the first lookup (by plan_hash)
-   returns 0 rows, and the fallback resolves by query_hash.
-
-   If the user ALSO passes @QueryPlanHash explicitly (e.g. to disambiguate when this
-   server has multiple plans for the same query_hash), we honor that and skip the XML
-   extraction. */
+/* Mode 2 uses the snapshot query hash directly. Additional selectors narrow
+   that query; an explicit plan hash must still belong to the snapshot query. */
 IF @Mode = 2
 BEGIN
     SET @QueryHashBin = CONVERT(BINARY(8),
@@ -307,8 +297,12 @@ BEGIN
         RETURN;
     END;
 
-    IF @QueryPlanHash IS NULL
-        SET @QueryPlanHash = @QueryHashBin;
+    IF @QueryHash IS NOT NULL AND @QueryHash <> @QueryHashBin
+    BEGIN
+        RAISERROR('@QueryHash does not match the query in @CompareToXML.', 16, 1);
+        RETURN;
+    END;
+    SET @QueryHash = @QueryHashBin;
 END;
 
 /* =====================================================================
@@ -1542,22 +1536,14 @@ BEGIN
     /* Isolation note: the remote sp_BlitzPlanCompare runs in its own session on the remote server
        and sets READ UNCOMMITTED itself at the top of the proc, so the remote work does not block.
 
-       Pass @QueryHashBin (the local plan's query_hash) rather than @QueryPlanHash.
-       The query_plan_hash is specific to the compiled plan shape and is almost always
-       DIFFERENT on each server (different stats, indexes, hardware, compat level all
-       shift the optimizer toward different operators). The query_hash is stable: it's
-       derived from the normalized query text and is what the remote should be looking
-       up. Mode 2 (paste-in XML) already relies on this exact fallback - we extract the
-       remote QueryHash from the snapshot and the local resolution logic tries it as a
-       plan_hash first, falls back to query_hash. The remote proc's plan-resolution
-       block does the same thing when we hand it a query_hash disguised as a plan_hash. */
+       Pass the logical query hash directly so the remote can resolve its own plan. */
     /* Normalize and quote @LinkedServer before injecting into the 4-part name.
        sys.servers stores bare names; the caller may pass 'OtherSrv' or '[OtherSrv]'.
        Strip outer brackets first, then re-wrap with QUOTENAME so names containing
        a period, space, or other special character still produce a valid identifier
        and the dynamic SQL can't be tampered with via a maliciously-named linked server. */
     DECLARE @LinkedServerSafe SYSNAME = REPLACE(REPLACE(@LinkedServer, N'[', N''), N']', N'');
-    SET @sql = N'EXEC ' + QUOTENAME(@LinkedServerSafe) + N'.master.dbo.sp_BlitzPlanCompare @QueryPlanHash = @hash'
+    SET @sql = N'EXEC ' + QUOTENAME(@LinkedServerSafe) + N'.master.dbo.sp_BlitzPlanCompare @QueryHash = @hash'
              + CASE WHEN @DatabaseName IS NOT NULL THEN N', @DatabaseName = @dbname' ELSE N'' END
              + N';';
 
