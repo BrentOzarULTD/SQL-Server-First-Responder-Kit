@@ -2199,7 +2199,7 @@ BEGIN TRY
             rop.n.value('@NodeId',     'INT'),
             rop.n.value('@PhysicalOp', 'VARCHAR(200)'),
             rop.n.value('@LogicalOp',  'VARCHAR(200)'),
-            rop.n.value('sum(p:RunTimeInformation/p:RunTimeCountersPerThread/@ActualRows)', 'BIGINT'),
+            CONVERT(BIGINT, rop.n.value('sum(p:RunTimeInformation/p:RunTimeCountersPerThread/@ActualRows)', 'FLOAT')),
             rop.n.value('@EstimateRows', 'FLOAT'),
             CASE WHEN rop.n.exist('p:RunTimeInformation') = 1 THEN 1 ELSE 0 END
         FROM @PlanXmlForEmit.nodes('//p:RelOp') AS rop(n);
@@ -2254,7 +2254,7 @@ BEGIN TRY
             rop.n.value('@NodeId',     'INT'),
             rop.n.value('@PhysicalOp', 'VARCHAR(200)'),
             rop.n.value('@LogicalOp',  'VARCHAR(200)'),
-            rop.n.value('sum(p:RunTimeInformation/p:RunTimeCountersPerThread/@ActualRows)', 'BIGINT'),
+            CONVERT(BIGINT, rop.n.value('sum(p:RunTimeInformation/p:RunTimeCountersPerThread/@ActualRows)', 'FLOAT')),
             rop.n.value('@EstimateRows', 'FLOAT'),
             CASE WHEN rop.n.exist('p:RunTimeInformation') = 1 THEN 1 ELSE 0 END
         FROM @RemotePlanXml.nodes('//p:RelOp') AS rop(n);
@@ -2374,8 +2374,8 @@ IF @LocalOpCount > 0 AND @RemoteOpCount > 0
 BEGIN
     ;WITH pairs AS (
         SELECT l.NodeId, l.PhysicalOp, l.LogicalOp, l.ObjectSig, l.MaxInSubtree,
-               CASE WHEN @BothActual = 1 THEN l.ActualRows ELSE CAST(l.EstRows AS BIGINT) END AS LocalMetric,
-               CASE WHEN @BothActual = 1 THEN r.ActualRows ELSE CAST(r.EstRows AS BIGINT) END AS RemoteMetric
+               CASE WHEN @BothActual = 1 THEN CAST(l.ActualRows AS FLOAT) ELSE l.EstRows END AS LocalMetric,
+               CASE WHEN @BothActual = 1 THEN CAST(r.ActualRows AS FLOAT) ELSE r.EstRows END AS RemoteMetric
         FROM       #OpsLocal  l
         INNER JOIN #OpsRemote r ON r.NodeId = l.NodeId
     ),
