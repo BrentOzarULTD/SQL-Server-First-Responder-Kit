@@ -463,7 +463,9 @@ BEGIN
     SELECT DISTINCT qs.plan_handle
     FROM sys.dm_exec_query_stats qs
     CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st
-    WHERE st.objectid = @ResolvedProcObjectId AND st.dbid = DB_ID(@DatabaseName);
+    WHERE st.objectid = @ResolvedProcObjectId AND st.dbid = DB_ID(@DatabaseName)
+      AND (@QueryPlanHash IS NULL OR qs.query_plan_hash = @QueryPlanHash)
+      AND (@QueryHash IS NULL OR qs.query_hash = @QueryHash);
 END;
 
 /* Build the WHERE clause from whichever identifiers the user supplied. AND-combined.
@@ -922,7 +924,7 @@ IF OBJECT_ID('tempdb..#LocalSnapshot') IS NOT NULL DROP TABLE #LocalSnapshot;
 CREATE TABLE #LocalSnapshot (
     Category     VARCHAR(50)    NOT NULL,
     Setting      VARCHAR(200)   NOT NULL,
-    SubjectKey   NVARCHAR(776)  NULL,
+    SubjectKey   NVARCHAR(776) COLLATE Latin1_General_100_BIN2 NULL,
     ValueText    NVARCHAR(MAX)  NULL,
     ValueNumeric DECIMAL(38,4)  NULL
 );
@@ -1105,7 +1107,7 @@ BEGIN
                    CASE WHEN OBJECT_ID(QUOTENAME(po.SchemaName) + ''.'' + QUOTENAME(po.TableName)) IS NULL
                         THEN ''missing'' ELSE ''present'' END
             FROM #PlanObjects po
-            WHERE po.DatabaseName COLLATE DATABASE_DEFAULT = @db;';
+            WHERE po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db;';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
 
             /* Indexes on plan-referenced objects. Emit BOTH a presence row per index AND
@@ -1122,7 +1124,7 @@ BEGIN
             FROM sys.tables t
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.indexes i ON i.object_id = t.object_id
-            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
                                 AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
                                 AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name];
 
@@ -1138,7 +1140,7 @@ BEGIN
             FROM sys.tables t
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             LEFT JOIN sys.indexes i ON i.object_id = t.object_id
-            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
                                 AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
                                 AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name];';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
@@ -1170,7 +1172,7 @@ BEGIN
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.indexes i ON i.object_id = t.object_id
             LEFT JOIN key_cols kc ON kc.object_id = i.object_id AND kc.index_id = i.index_id
-            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
                                 AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
                                 AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name]
             UNION ALL
@@ -1181,7 +1183,7 @@ BEGIN
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.indexes i ON i.object_id = t.object_id
             LEFT JOIN key_cols kc ON kc.object_id = i.object_id AND kc.index_id = i.index_id
-            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
                                 AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
                                 AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name];';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
@@ -1204,7 +1206,7 @@ BEGIN
             JOIN sys.tables t  ON t.object_id  = st.object_id
             JOIN sys.schemas s ON s.schema_id  = t.schema_id
             CROSS APPLY sys.dm_db_stats_properties(st.object_id, st.stats_id) sp
-            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
                                 AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
                                 AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name];';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
@@ -1222,7 +1224,7 @@ BEGIN
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.dm_db_partition_stats ps
                  ON ps.object_id = t.object_id AND ps.index_id IN (0, 1)
-            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
                                 AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
                                 AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name]
             GROUP BY s.[name], t.[name]
@@ -1235,7 +1237,7 @@ BEGIN
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.dm_db_partition_stats ps
                  ON ps.object_id = t.object_id AND ps.index_id IN (0, 1)
-            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
                                 AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
                                 AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name]
             GROUP BY s.[name], t.[name];';
@@ -1521,7 +1523,7 @@ IF OBJECT_ID('tempdb..#RemoteSnapshot') IS NOT NULL DROP TABLE #RemoteSnapshot;
 CREATE TABLE #RemoteSnapshot (
     Category     VARCHAR(50)    NOT NULL,
     Setting      VARCHAR(200)   NOT NULL,
-    SubjectKey   NVARCHAR(776)  NULL,
+    SubjectKey   NVARCHAR(776) COLLATE Latin1_General_100_BIN2 NULL,
     ValueText    NVARCHAR(MAX)  NULL,
     ValueNumeric DECIMAL(38,4)  NULL
 );
@@ -2226,7 +2228,8 @@ BEGIN TRY
             rop.n.value('@NodeId',     'INT'),
             rop.n.value('@PhysicalOp', 'VARCHAR(200)'),
             rop.n.value('@LogicalOp',  'VARCHAR(200)'),
-            CONVERT(BIGINT, rop.n.value('sum(p:RunTimeInformation/p:RunTimeCountersPerThread/@ActualRows)', 'FLOAT')),
+            /* XQuery sum may serialize as scientific notation; parse FLOAT before BIGINT. */
+               CONVERT(BIGINT, rop.n.value('sum(p:RunTimeInformation/p:RunTimeCountersPerThread/@ActualRows)', 'FLOAT')),
             rop.n.value('@EstimateRows', 'FLOAT'),
             CASE WHEN rop.n.exist('p:RunTimeInformation') = 1 THEN 1 ELSE 0 END
         FROM @PlanXmlForEmit.nodes('//p:RelOp') AS rop(n);
@@ -2281,7 +2284,8 @@ BEGIN TRY
             rop.n.value('@NodeId',     'INT'),
             rop.n.value('@PhysicalOp', 'VARCHAR(200)'),
             rop.n.value('@LogicalOp',  'VARCHAR(200)'),
-            CONVERT(BIGINT, rop.n.value('sum(p:RunTimeInformation/p:RunTimeCountersPerThread/@ActualRows)', 'FLOAT')),
+            /* XQuery sum may serialize as scientific notation; parse FLOAT before BIGINT. */
+               CONVERT(BIGINT, rop.n.value('sum(p:RunTimeInformation/p:RunTimeCountersPerThread/@ActualRows)', 'FLOAT')),
             rop.n.value('@EstimateRows', 'FLOAT'),
             CASE WHEN rop.n.exist('p:RunTimeInformation') = 1 THEN 1 ELSE 0 END
         FROM @RemotePlanXml.nodes('//p:RelOp') AS rop(n);
@@ -2401,6 +2405,7 @@ IF @LocalOpCount > 0 AND @RemoteOpCount > 0
 BEGIN
     ;WITH pairs AS (
         SELECT l.NodeId, l.PhysicalOp, l.LogicalOp, l.ObjectSig, l.MaxInSubtree,
+               l.ActualRows AS LocalActualRows, r.ActualRows AS RemoteActualRows,
                CASE WHEN @BothActual = 1 THEN CAST(l.ActualRows AS FLOAT) ELSE l.EstRows END AS LocalMetric,
                CASE WHEN @BothActual = 1 THEN CAST(r.ActualRows AS FLOAT) ELSE r.EstRows END AS RemoteMetric
         FROM       #OpsLocal  l
@@ -2425,8 +2430,10 @@ BEGIN
            @Metric,
            'NodeId ' + CAST(NodeId AS VARCHAR(10)) + ': ' + ISNULL(PhysicalOp, '(unknown)')
             + CASE WHEN NULLIF(ObjectSig, '') IS NOT NULL THEN ' on ' + ObjectSig ELSE '' END,
-           CAST(LocalMetric  AS NVARCHAR(40)),
-           CAST(RemoteMetric AS NVARCHAR(40)),
+           CASE WHEN @BothActual = 1 THEN CONVERT(NVARCHAR(40), LocalActualRows)
+                ELSE CONVERT(NVARCHAR(40), LocalMetric, 3) END,
+           CASE WHEN @BothActual = 1 THEN CONVERT(NVARCHAR(40), RemoteActualRows)
+                ELSE CONVERT(NVARCHAR(40), RemoteMetric, 3) END,
            CASE WHEN @ShapeMatch = 1
                 THEN 'Walking the plan right-to-left, top-to-bottom, this is the first operator whose ' + @Metric
                      + ' differs by 25% or more. Upstream operators match; divergence starts here - this is where to focus.'
