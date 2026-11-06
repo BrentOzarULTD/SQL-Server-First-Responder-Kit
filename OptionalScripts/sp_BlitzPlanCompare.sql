@@ -1353,7 +1353,7 @@ FROM   #PlanParameters;
 /* ----- Category: LiveState (point-in-time snapshot for sessions running this hash) ----- */
 DECLARE @RunnableTasks INT, @WorkerCount INT, @BlockedSessions INT;
 
-SELECT @RunnableTasks = COUNT(*)
+SELECT @RunnableTasks = COALESCE(SUM(runnable_tasks_count), 0)
 FROM   sys.dm_os_schedulers
 WHERE  status = 'VISIBLE ONLINE';
 
@@ -1362,7 +1362,7 @@ SELECT @WorkerCount = COUNT(*) FROM sys.dm_os_workers;
 SELECT @BlockedSessions = COUNT(*) FROM sys.dm_exec_requests WHERE blocking_session_id <> 0;
 
 INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText, ValueNumeric)
-VALUES ('LiveState', 'RunnableSchedulers', NULL, CAST(@RunnableTasks AS NVARCHAR(20)), @RunnableTasks),
+VALUES ('LiveState', 'RunnableTasks', NULL, CAST(@RunnableTasks AS NVARCHAR(20)), @RunnableTasks),
        ('LiveState', 'WorkerCount',        NULL, CAST(@WorkerCount   AS NVARCHAR(20)), @WorkerCount),
        ('LiveState', 'BlockedSessions',    NULL, CAST(@BlockedSessions AS NVARCHAR(20)), @BlockedSessions);
 
@@ -1813,6 +1813,7 @@ INSERT INTO #Rubric (Category, Setting, Priority, Finding, [URL]) VALUES
     ('LiveWait',             '*',                    30, 'A live-wait metric differs between servers.', 'http://FirstResponderKit.org'),
 
     /* Live state */
+    ('LiveState',            'RunnableTasks',        35, 'Different number of tasks waiting for CPU on the runnable queue right now.', 'http://FirstResponderKit.org'),
     ('LiveState',            'BlockedSessions',      35, 'Different number of blocked sessions right now. The slow server may be losing time to blocking, not the plan.', 'http://FirstResponderKit.org'),
     ('LiveState',            'WaitType',             35, 'Different wait types currently being incurred by this query. The slow server may be IO- or memory-bound.', 'http://FirstResponderKit.org'),
     ('LiveState',            'ActiveMemoryGrantKB',  35, 'A query is currently executing with a memory grant that differs from the other server.', 'http://FirstResponderKit.org'),
