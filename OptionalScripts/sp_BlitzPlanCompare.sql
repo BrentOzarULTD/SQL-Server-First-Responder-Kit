@@ -47,7 +47,12 @@ ALTER PROCEDURE dbo.sp_BlitzPlanCompare
     @Debug            BIT           = 0,
     @Version          VARCHAR(30)   = NULL OUTPUT,
     @VersionDate      DATETIME      = NULL OUTPUT,
-    @VersionCheckMode BIT           = 0
+    @VersionCheckMode BIT           = 0,
+    /* Append selectors to preserve existing positional calls. Handles are server-local. */
+    @PlanHandle       VARBINARY(64) = NULL,
+    @StatementStartOffset INT      = NULL,
+    @RemotePlanHandle VARBINARY(64) = NULL,
+    @RemoteStatementStartOffset INT = NULL
 WITH RECOMPILE
 AS
 BEGIN
@@ -86,7 +91,7 @@ BEGIN
 
     If the identifier(s) you provide resolve to multiple cached plans, sp_BlitzPlanCompare
     returns the candidates with set_options + query text snippet so you can re-run with a
-    specific @QueryPlanHash.
+    specific @PlanHandle and @StatementStartOffset.
 
     Linked-server mode requires:
       - sp_BlitzPlanCompare installed on BOTH servers
@@ -179,6 +184,10 @@ BEGIN
            N'BIT',
            N'When 1, prints intermediate progress messages and the dynamic SQL used for cross-database snapshots.'
     UNION ALL
+    SELECT N'@PlanHandle / @RemotePlanHandle', N'VARBINARY(64)', N'Select a specific local/remote cached copy. Remote selectors require @LinkedServer.'
+    UNION ALL
+    SELECT N'@StatementStartOffset / @RemoteStatementStartOffset', N'INT', N'Select a statement within the corresponding handle using the offset returned in the candidate list.'
+    UNION ALL
     SELECT N'@Version',
            N'VARCHAR(30) OUTPUT',
            N'Returns the version string.'
@@ -205,7 +214,7 @@ DECLARE @Mode             TINYINT,
         @LocalServerName  NVARCHAR(256) = CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(256)),
         @QueryHashBin     BINARY(8),     /* the query_hash of the resolved plan (or from mode 2 XML) */
         @MatchCount       INT,
-        @PlanHandle       VARBINARY(64),
+        @ResolvedPlanHandle       VARBINARY(64),
         @SqlHandle        VARBINARY(64),
         @StmtStartOffset  INT,
         @StmtEndOffset    INT,
@@ -226,11 +235,12 @@ DECLARE @HasIdentifier BIT =
            OR @QueryHash      IS NOT NULL
            OR @StoredProcName IS NOT NULL
            OR @CompareToXML   IS NOT NULL
+           OR @PlanHandle     IS NOT NULL
          THEN 1 ELSE 0 END;
 
 IF @HasIdentifier = 0
 BEGIN
-    RAISERROR('You must supply at least one of @QueryPlanHash, @QueryHash, @StoredProcName, or @CompareToXML. Run with @Help = 1 for usage.', 16, 1);
+    RAISERROR('You must supply at least one of @QueryPlanHash, @QueryHash, @StoredProcName, @PlanHandle, or @CompareToXML. Run with @Help = 1 for usage.', 16, 1);
     RETURN;
 END;
 
@@ -242,8 +252,21 @@ IF @DatabaseName IS NOT NULL
    AND @QueryHash      IS NULL
    AND @StoredProcName IS NULL
    AND @CompareToXML   IS NULL
+   AND @PlanHandle     IS NULL
 BEGIN
     RAISERROR('@DatabaseName cannot stand alone. Supply one of @QueryPlanHash, @QueryHash, or @StoredProcName alongside it.', 16, 1);
+    RETURN;
+END;
+
+IF (@StatementStartOffset IS NOT NULL AND (@PlanHandle IS NULL OR @StatementStartOffset < 0))
+   OR (@RemoteStatementStartOffset IS NOT NULL AND (@RemotePlanHandle IS NULL OR @RemoteStatementStartOffset < 0))
+BEGIN
+    RAISERROR('A statement offset must be nonnegative and accompany the corresponding plan handle.', 16, 1);
+    RETURN;
+END;
+IF @LinkedServer IS NULL AND (@RemotePlanHandle IS NOT NULL OR @RemoteStatementStartOffset IS NOT NULL)
+BEGIN
+    RAISERROR('Remote plan selectors require @LinkedServer.', 16, 1);
     RETURN;
 END;
 
@@ -257,6 +280,7 @@ IF @LinkedServer IS NOT NULL
    AND @QueryPlanHash  IS NULL
    AND @QueryHash      IS NULL
    AND @StoredProcName IS NULL
+   AND @PlanHandle IS NULL
 BEGIN
     RAISERROR('@LinkedServer requires one of @QueryPlanHash, @QueryHash, or @StoredProcName so we know which plan to look up on both sides.', 16, 1);
     RETURN;
@@ -453,6 +477,11 @@ END;
    collation which may not match the caller's default. */
 DECLARE @Predicate NVARCHAR(MAX) = N'qp.query_plan IS NOT NULL';
 
+IF @PlanHandle IS NOT NULL
+    SET @Predicate += N' AND qs.plan_handle = @selected_handle';
+IF @StatementStartOffset IS NOT NULL
+    SET @Predicate += N' AND qs.statement_start_offset = @selected_offset';
+
 IF @QueryPlanHash IS NOT NULL
     SET @Predicate = @Predicate + N' AND qs.query_plan_hash = @qph';
 IF @QueryHash IS NOT NULL
@@ -523,11 +552,11 @@ IF @Debug = 1
     PRINT @PlanLookupSql;
 
 EXEC sp_executesql @PlanLookupSql,
-    N'@qph BINARY(8), @qh BINARY(8), @objid INT, @dbname SYSNAME',
+    N'@qph BINARY(8), @qh BINARY(8), @objid INT, @dbname SYSNAME, @selected_handle VARBINARY(64), @selected_offset INT',
     @qph    = @QueryPlanHash,
     @qh     = @QueryHash,
     @objid  = @ResolvedProcObjectId,
-    @dbname = @DatabaseName;
+    @dbname = @DatabaseName, @selected_handle = @PlanHandle, @selected_offset = @StatementStartOffset;
 
 SELECT @MatchCount = COUNT(*) FROM #PlanMatches;
 
@@ -556,11 +585,11 @@ BEGIN
         RAISERROR('No match on query_plan_hash. Retrying the passed hash as query_hash...', 0, 1) WITH NOWAIT;
 
     EXEC sp_executesql @PlanLookupSqlByQueryHash,
-        N'@qph BINARY(8), @qh BINARY(8), @objid INT, @dbname SYSNAME',
+        N'@qph BINARY(8), @qh BINARY(8), @objid INT, @dbname SYSNAME, @selected_handle VARBINARY(64), @selected_offset INT',
         @qph    = @QueryPlanHash,
         @qh     = @QueryHash,
         @objid  = @ResolvedProcObjectId,
-        @dbname = @DatabaseName;
+        @dbname = @DatabaseName, @selected_handle = @PlanHandle, @selected_offset = @StatementStartOffset;
     SELECT @MatchCount = COUNT(*) FROM #PlanMatches;
 
     IF @MatchCount > 0
@@ -615,7 +644,7 @@ END;
 
 IF @MatchCount > 1
 BEGIN
-    RAISERROR('Multiple cached plans match the identifiers you passed. The matches are returned below; inspect set_options + query_text_snippet, then re-run with a more specific @QueryPlanHash (or supply additional narrowers like @DatabaseName).',
+    RAISERROR('Multiple cached plans match the identifiers you passed. The matches are returned below; inspect set_options + query_text_snippet, then select a row using @PlanHandle and @StatementStartOffset (or narrow with @DatabaseName).',
               11, 1);
 
     SELECT  plan_handle, sql_handle, statement_start_offset, statement_end_offset,
@@ -632,7 +661,7 @@ END;
 DECLARE @PlanSource      NVARCHAR(50);
 DECLARE @PlanXmlForEmit  XML;  /* actual plan if available, else full estimated; what we embed in the snapshot */
 
-SELECT  @PlanHandle      = plan_handle,
+SELECT  @ResolvedPlanHandle      = plan_handle,
         @SqlHandle       = sql_handle,
         @StmtStartOffset = statement_start_offset,
         @StmtEndOffset   = statement_end_offset,
@@ -1436,7 +1465,7 @@ SELECT 'LiveState', 'ActiveMemoryGrantKB', CAST(session_id AS NVARCHAR(20)),
        + ' (used ' + CAST(ISNULL(used_memory_kb, 0) AS NVARCHAR(40)) + ')',
        granted_memory_kb
 FROM   sys.dm_exec_query_memory_grants
-WHERE  plan_handle = @PlanHandle;
+WHERE  plan_handle = @ResolvedPlanHandle;
 
 /* =====================================================================
    Mode 1: emit XML and return
@@ -1555,6 +1584,8 @@ BEGIN
     DECLARE @LinkedServerSafe SYSNAME = REPLACE(REPLACE(@LinkedServer, N'[', N''), N']', N'');
     SET @sql = N'EXEC ' + QUOTENAME(@LinkedServerSafe) + N'.master.dbo.sp_BlitzPlanCompare @QueryHash = @hash'
              + CASE WHEN @CallerDatabaseName IS NOT NULL THEN N', @DatabaseName = @dbname' ELSE N'' END
+             + CASE WHEN @RemotePlanHandle IS NOT NULL THEN N', @PlanHandle = @remote_handle' ELSE N'' END
+             + CASE WHEN @RemoteStatementStartOffset IS NOT NULL THEN N', @StatementStartOffset = @remote_offset' ELSE N'' END
              + N';';
 
     IF @Debug = 1
@@ -1562,7 +1593,9 @@ BEGIN
 
     BEGIN TRY
         INSERT INTO #RemoteEmit ([CallStack])
-        EXEC sp_executesql @sql, N'@hash BINARY(8), @dbname SYSNAME', @hash = @QueryHashBin, @dbname = @CallerDatabaseName;
+        EXEC sp_executesql @sql, N'@hash BINARY(8), @dbname SYSNAME, @remote_handle VARBINARY(64), @remote_offset INT',
+            @hash = @QueryHashBin, @dbname = @CallerDatabaseName,
+            @remote_handle = @RemotePlanHandle, @remote_offset = @RemoteStatementStartOffset;
 
         /* The remote returned a single string of the form:
                EXEC dbo.sp_BlitzPlanCompare @CompareToXML = N'<BlitzPlanCompareSnapshot ...>';
