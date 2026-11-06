@@ -46,7 +46,7 @@ with Database(4168) as d:
     assert calls=={'LocalCall':None,'RemoteCall':None},calls
     execute(d.c,"DROP TABLE #PlanParameters; DROP TABLE #RemotePlanParameters;")
     # A real two-statement procedure requires @b, which is absent from the selected plan.
-    execute(d.c,"CREATE TABLE dbo.T(id int,n int); INSERT dbo.T VALUES(1,1),(2,2);")
+    execute(d.c,"ALTER DATABASE SCOPED CONFIGURATION SET LAST_QUERY_PLAN_STATS=ON; CREATE TABLE dbo.T(id int,n int); INSERT dbo.T SELECT TOP(50000) ROW_NUMBER() OVER(ORDER BY (SELECT NULL)),1 FROM sys.all_objects a CROSS JOIN sys.all_objects b;")
     execute(d.c,"CREATE PROC dbo.Multi @a int,@b int AS SELECT SUM(n) FROM dbo.T WHERE id>=@a; SELECT MAX(n) FROM dbo.T WHERE id<=@b;")
     execute(d.c,"EXEC dbo.Multi @a=1,@b=2;")
     h=hashes(d.c,'dbo.Multi')[0]
