@@ -2096,73 +2096,100 @@ BEGIN
 
     SET @UseDb = N'USE ' + QUOTENAME(ISNULL(DB_NAME(@ProcDbId), DB_NAME())) + N';' + CHAR(13) + CHAR(10);
 
-    IF @ProcName IS NOT NULL
+    /* Assign expressions to typed variables first. Showplan numeric values
+       such as (1) are legal in DECLARE assignments, but not EXEC arguments. */
+    DECLARE @LocalDeclarations NVARCHAR(MAX), @RemoteDeclarations NVARCHAR(MAX),
+            @LocalArguments NVARCHAR(MAX), @RemoteArguments NVARCHAR(MAX),
+            @RemoteParamDecls NVARCHAR(MAX);
+    SELECT @LocalDeclarations = (
+        SELECT CONVERT(NVARCHAR(MAX), N'DECLARE ') + ParameterName + N' ' + DataType + N' = '
+             + COALESCE(NULLIF(CompiledValue, N''), N'NULL') + N';' + CHAR(13) + CHAR(10)
+        FROM #PlanParameters ORDER BY ParameterName
+        FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'),
+        @LocalArguments = STUFF((
+        SELECT N', ' + ParameterName + N' = ' + ParameterName
+        FROM #PlanParameters ORDER BY ParameterName
+        FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, N''),
+        @ParamDecls = STUFF((
+        SELECT N', ' + ParameterName + N' ' + DataType
+        FROM #PlanParameters ORDER BY ParameterName
+        FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, N'');
+
+    SELECT @RemoteDeclarations = (
+        SELECT CONVERT(NVARCHAR(MAX), N'DECLARE ') + ParameterName + N' ' + DataType + N' = '
+             + COALESCE(NULLIF(CompiledValue, N''), N'NULL') + N';' + CHAR(13) + CHAR(10)
+        FROM #RemotePlanParameters ORDER BY ParameterName
+        FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'),
+        @RemoteArguments = STUFF((
+        SELECT N', ' + ParameterName + N' = ' + ParameterName
+        FROM #RemotePlanParameters ORDER BY ParameterName
+        FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, N''),
+        @RemoteParamDecls = STUFF((
+        SELECT N', ' + ParameterName + N' ' + DataType
+        FROM #RemotePlanParameters ORDER BY ParameterName
+        FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, N'');
+
+    /* Unknown types cannot safely reconstruct the call. */
+    IF NOT EXISTS (SELECT 1 FROM #PlanParameters WHERE NULLIF(DataType, N'') IS NULL OR NULLIF(CompiledValue, N'') IS NULL)
+       AND NOT EXISTS (SELECT 1 FROM #RemotePlanParameters WHERE NULLIF(DataType, N'') IS NULL OR NULLIF(CompiledValue, N'') IS NULL)
     BEGIN
-        /* Proc / function form: EXEC [db].[schema].[name] @p = v, ... */
-        SELECT @LocalExec = @UseDb + N'EXEC ' + @ProcName
-            + ISNULL(STUFF((
-                SELECT N',' + CHAR(13) + CHAR(10)
-                     + N'    '
-                     + CASE WHEN LEFT(ParameterName, 1) = N'@' THEN ParameterName ELSE N'@' + ParameterName END
-                     + N' = '
-                     + ISNULL(CompiledValue, N'NULL')
-                FROM   #PlanParameters
-                ORDER BY ParameterName
-                FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 1, N''), N'')
-            + N';';
+        IF @ProcName IS NOT NULL
+        BEGIN
+            /* Statement-scoped XML may omit parameters used by other statements.
+               Reconstruct a full procedure call only when both snapshots supply
+               every declared parameter. T-SQL parameter defaults are not reliably
+               exposed by sys.parameters, so omitted optional parameters also skip
+               the reproducer rather than guessing their values. */
+            DECLARE @ProcedureParametersComplete BIT = 0;
+            DECLARE @ProcedureCheckSql NVARCHAR(MAX) =
+                N'USE ' + QUOTENAME(DB_NAME(@ProcDbId)) + N';
+                SELECT @complete = CASE
+                  WHEN EXISTS (SELECT 1 FROM sys.procedures WHERE object_id = @objid)
+                   AND NOT EXISTS (
+                     SELECT 1 FROM sys.parameters p
+                     WHERE p.object_id = @objid AND p.parameter_id > 0
+                       AND (NOT EXISTS (SELECT 1 FROM #PlanParameters l
+                              WHERE l.ParameterName COLLATE Latin1_General_100_BIN2 = p.[name] COLLATE Latin1_General_100_BIN2)
+                         OR NOT EXISTS (SELECT 1 FROM #RemotePlanParameters r
+                              WHERE r.ParameterName COLLATE Latin1_General_100_BIN2 = p.[name] COLLATE Latin1_General_100_BIN2)))
+                   AND NOT EXISTS (
+                     SELECT 1 FROM #PlanParameters l
+                     WHERE NOT EXISTS (SELECT 1 FROM sys.parameters p
+                       WHERE p.object_id = @objid AND p.parameter_id > 0
+                         AND p.[name] COLLATE Latin1_General_100_BIN2 = l.ParameterName COLLATE Latin1_General_100_BIN2))
+                   AND NOT EXISTS (
+                     SELECT 1 FROM #RemotePlanParameters r
+                     WHERE NOT EXISTS (SELECT 1 FROM sys.parameters p
+                       WHERE p.object_id = @objid AND p.parameter_id > 0
+                         AND p.[name] COLLATE Latin1_General_100_BIN2 = r.ParameterName COLLATE Latin1_General_100_BIN2))
+                  THEN 1 ELSE 0 END;';
+            BEGIN TRY
+                EXEC sp_executesql @ProcedureCheckSql,
+                     N'@objid INT, @complete BIT OUTPUT',
+                     @objid = @ProcObjectId, @complete = @ProcedureParametersComplete OUTPUT;
+            END TRY
+            BEGIN CATCH
+                /* Inaccessible procedure metadata cannot prove a complete call. */
+                SET @ProcedureParametersComplete = 0;
+            END CATCH;
 
-        SELECT @RemoteExec = @UseDb + N'EXEC ' + @ProcName
-            + ISNULL(STUFF((
-                SELECT N',' + CHAR(13) + CHAR(10)
-                     + N'    '
-                     + CASE WHEN LEFT(ParameterName, 1) = N'@' THEN ParameterName ELSE N'@' + ParameterName END
-                     + N' = '
-                     + ISNULL(CompiledValue, N'NULL')
-                FROM   #RemotePlanParameters
-                ORDER BY ParameterName
-                FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 1, N''), N'')
-            + N';';
-    END
-    ELSE IF @SqlText IS NOT NULL
-    BEGIN
-        /* Ad-hoc parameterized SQL form: EXEC sp_executesql N'...', N'@p int', @p = v */
-        SELECT @ParamDecls = STUFF((
-            SELECT N', '
-                 + CASE WHEN LEFT(ParameterName, 1) = N'@' THEN ParameterName ELSE N'@' + ParameterName END
-                 + N' ' + ISNULL(DataType, N'sql_variant')
-            FROM   #PlanParameters
-            ORDER BY ParameterName
-            FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, N'');
-
-        SET @LocalExec = @UseDb + N'EXEC sp_executesql N'''
-            + REPLACE(@SqlText, N'''', N'''''')
-            + N''','
-            + CHAR(13) + CHAR(10) + N'    N''' + ISNULL(@ParamDecls, N'') + N''''
-            + ISNULL(STUFF((
-                SELECT N',' + CHAR(13) + CHAR(10)
-                     + N'    '
-                     + CASE WHEN LEFT(ParameterName, 1) = N'@' THEN ParameterName ELSE N'@' + ParameterName END
-                     + N' = '
-                     + ISNULL(CompiledValue, N'NULL')
-                FROM   #PlanParameters
-                ORDER BY ParameterName
-                FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 1, N''), N'')
-            + N';';
-
-        SET @RemoteExec = @UseDb + N'EXEC sp_executesql N'''
-            + REPLACE(@SqlText, N'''', N'''''')
-            + N''','
-            + CHAR(13) + CHAR(10) + N'    N''' + ISNULL(@ParamDecls, N'') + N''''
-            + ISNULL(STUFF((
-                SELECT N',' + CHAR(13) + CHAR(10)
-                     + N'    '
-                     + CASE WHEN LEFT(ParameterName, 1) = N'@' THEN ParameterName ELSE N'@' + ParameterName END
-                     + N' = '
-                     + ISNULL(CompiledValue, N'NULL')
-                FROM   #RemotePlanParameters
-                ORDER BY ParameterName
-                FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 1, N''), N'')
-            + N';';
+            IF @ProcedureParametersComplete = 1
+            BEGIN
+                SET @LocalExec = @UseDb + @LocalDeclarations + N'EXEC ' + @ProcName
+                               + N' ' + @LocalArguments + N' WITH RECOMPILE;';
+                SET @RemoteExec = @UseDb + @RemoteDeclarations + N'EXEC ' + @ProcName
+                                + N' ' + @RemoteArguments + N' WITH RECOMPILE;';
+            END;
+        END
+        ELSE IF @SqlText IS NOT NULL
+        BEGIN
+            SET @LocalExec = @UseDb + @LocalDeclarations + N'EXEC sp_executesql N'''
+                + REPLACE(@SqlText, N'''', N'''''') + N''', N'''
+                + REPLACE(@ParamDecls, N'''', N'''''') + N''', ' + @LocalArguments + N';';
+            SET @RemoteExec = @UseDb + @RemoteDeclarations + N'EXEC sp_executesql N'''
+                + REPLACE(@SqlText, N'''', N'''''') + N''', N'''
+                + REPLACE(@RemoteParamDecls, N'''', N'''''') + N''', ' + @RemoteArguments + N';';
+        END;
     END;
 
     /* Build the clickable XML. The column type is XML so SSMS renders it as a
@@ -2182,10 +2209,10 @@ BEGIN
         DECLARE @ReproText NVARCHAR(MAX) =
               @CRLF + @CRLF
             + N'/* Local server ' + ISNULL(@LocalServerName, N'(unknown)') + N' */' + @CRLF
-            + @LocalExec + @CRLF
+            + @LocalExec + @CRLF + N'GO' + @CRLF
             + @CRLF
             + N'/* Remote server ' + ISNULL(@RemoteServerName, N'(unknown)') + N' */' + @CRLF
-            + @RemoteExec
+            + @RemoteExec + @CRLF + N'GO'
             + @CRLF + @CRLF;
 
         DECLARE @Repro XML =
