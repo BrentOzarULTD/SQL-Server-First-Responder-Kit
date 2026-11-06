@@ -637,25 +637,25 @@ IF OBJECT_ID('tempdb..#PlanWarnings')   IS NOT NULL DROP TABLE #PlanWarnings;
 IF OBJECT_ID('tempdb..#PlanParameters') IS NOT NULL DROP TABLE #PlanParameters;
 
 CREATE TABLE #PlanObjects (
-    DatabaseName SYSNAME      NULL,
-    SchemaName   SYSNAME      NULL,
-    TableName    SYSNAME      NULL,
+    DatabaseName SYSNAME COLLATE Latin1_General_100_BIN2      NULL,
+    SchemaName   SYSNAME COLLATE Latin1_General_100_BIN2      NULL,
+    TableName    SYSNAME COLLATE Latin1_General_100_BIN2      NULL,
     Source       VARCHAR(20)  NULL  /* 'Object', 'ColumnReference', 'StatsUsed' */
 );
 
 CREATE TABLE #PlanIndexesRef (
-    DatabaseName SYSNAME      NULL,
-    SchemaName   SYSNAME      NULL,
-    TableName    SYSNAME      NULL,
-    IndexName    SYSNAME      NULL,
+    DatabaseName SYSNAME COLLATE Latin1_General_100_BIN2      NULL,
+    SchemaName   SYSNAME COLLATE Latin1_General_100_BIN2      NULL,
+    TableName    SYSNAME COLLATE Latin1_General_100_BIN2      NULL,
+    IndexName    SYSNAME COLLATE Latin1_General_100_BIN2      NULL,
     IndexKind    NVARCHAR(50) NULL
 );
 
 CREATE TABLE #PlanStatsUsed (
-    DatabaseName     SYSNAME      NULL,
-    SchemaName       SYSNAME      NULL,
-    TableName        SYSNAME      NULL,
-    StatisticsName   SYSNAME      NULL,
+    DatabaseName     SYSNAME COLLATE Latin1_General_100_BIN2      NULL,
+    SchemaName       SYSNAME COLLATE Latin1_General_100_BIN2      NULL,
+    TableName        SYSNAME COLLATE Latin1_General_100_BIN2      NULL,
+    StatisticsName   SYSNAME COLLATE Latin1_General_100_BIN2      NULL,
     ModificationCount BIGINT      NULL,
     SamplingPercent  DECIMAL(9,4) NULL
 );
@@ -681,9 +681,9 @@ CREATE TABLE #PlanParameters (
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT INTO #PlanObjects (DatabaseName, SchemaName, TableName, Source)
 SELECT DISTINCT
-       PARSENAME(o.n.value('@Database', 'NVARCHAR(258)'), 1),
-       PARSENAME(o.n.value('@Schema',   'NVARCHAR(258)'), 1),
-       PARSENAME(o.n.value('@Table',    'NVARCHAR(258)'), 1),
+       PARSENAME(o.n.value('@Database', 'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
+       PARSENAME(o.n.value('@Schema',   'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
+       PARSENAME(o.n.value('@Table',    'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
        'Object'
 FROM   @PlanXml.nodes('//p:RelOp//p:Object') AS o(n)
 WHERE  o.n.value('@Database', 'NVARCHAR(258)') LIKE '[[]%'
@@ -693,10 +693,10 @@ WHERE  o.n.value('@Database', 'NVARCHAR(258)') LIKE '[[]%'
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT INTO #PlanIndexesRef (DatabaseName, SchemaName, TableName, IndexName, IndexKind)
 SELECT DISTINCT
-       PARSENAME(o.n.value('@Database', 'NVARCHAR(258)'), 1),
-       PARSENAME(o.n.value('@Schema',   'NVARCHAR(258)'), 1),
-       PARSENAME(o.n.value('@Table',    'NVARCHAR(258)'), 1),
-       PARSENAME(o.n.value('@Index',    'NVARCHAR(258)'), 1),
+       PARSENAME(o.n.value('@Database', 'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
+       PARSENAME(o.n.value('@Schema',   'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
+       PARSENAME(o.n.value('@Table',    'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
+       PARSENAME(o.n.value('@Index',    'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
        o.n.value('@IndexKind', 'NVARCHAR(50)')
 FROM   @PlanXml.nodes('//p:RelOp//p:Object') AS o(n)
 WHERE  o.n.value('@Database', 'NVARCHAR(258)') LIKE '[[]%'
@@ -706,27 +706,27 @@ WHERE  o.n.value('@Database', 'NVARCHAR(258)') LIKE '[[]%'
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT INTO #PlanObjects (DatabaseName, SchemaName, TableName, Source)
 SELECT DISTINCT
-       PARSENAME(c.n.value('@Database', 'NVARCHAR(258)'), 1),
-       PARSENAME(c.n.value('@Schema',   'NVARCHAR(258)'), 1),
-       PARSENAME(c.n.value('@Table',    'NVARCHAR(258)'), 1),
+       PARSENAME(c.n.value('@Database', 'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
+       PARSENAME(c.n.value('@Schema',   'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
+       PARSENAME(c.n.value('@Table',    'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
        'ColumnReference'
 FROM   @PlanXml.nodes('//p:ColumnReference[@Database]') AS c(n)
 WHERE  c.n.value('@Database', 'NVARCHAR(258)') LIKE '[[]%'
   AND  c.n.value('@Table',    'NVARCHAR(258)') IS NOT NULL
   AND  NOT EXISTS (
         SELECT 1 FROM #PlanObjects po
-        WHERE po.DatabaseName = PARSENAME(c.n.value('@Database', 'NVARCHAR(258)'), 1)
-          AND po.SchemaName   = PARSENAME(c.n.value('@Schema',   'NVARCHAR(258)'), 1)
-          AND po.TableName    = PARSENAME(c.n.value('@Table',    'NVARCHAR(258)'), 1));
+        WHERE po.DatabaseName = PARSENAME(c.n.value('@Database', 'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2
+          AND po.SchemaName   = PARSENAME(c.n.value('@Schema',   'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2
+          AND po.TableName    = PARSENAME(c.n.value('@Table',    'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2);
 
 /* Statistics used by the optimizer for this plan (high-signal) */
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT INTO #PlanStatsUsed (DatabaseName, SchemaName, TableName, StatisticsName, ModificationCount, SamplingPercent)
 SELECT DISTINCT
-       PARSENAME(s.n.value('@Database',   'NVARCHAR(258)'), 1),
-       PARSENAME(s.n.value('@Schema',     'NVARCHAR(258)'), 1),
-       PARSENAME(s.n.value('@Table',      'NVARCHAR(258)'), 1),
-       PARSENAME(s.n.value('@Statistics', 'NVARCHAR(258)'), 1),
+       PARSENAME(s.n.value('@Database',   'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
+       PARSENAME(s.n.value('@Schema',     'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
+       PARSENAME(s.n.value('@Table',      'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
+       PARSENAME(s.n.value('@Statistics', 'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
        s.n.value('@ModificationCount', 'BIGINT'),
        s.n.value('@SamplingPercent',   'DECIMAL(9,4)')
 FROM   @PlanXml.nodes('//p:StatsUsed/p:Stats') AS s(n)
@@ -949,7 +949,7 @@ BEGIN TRY
     INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText, ValueNumeric)
     SELECT 'SpConfigure', c.[name], NULL, CAST(c.value_in_use AS NVARCHAR(40)), CAST(c.value_in_use AS DECIMAL(38,4))
     FROM   sys.configurations c
-    JOIN   #ConfigAllowlist a ON a.[name] = c.[name];
+    JOIN   #ConfigAllowlist a ON a.[name] COLLATE DATABASE_DEFAULT = c.[name];
 END TRY
 BEGIN CATCH
     INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText)
@@ -1078,7 +1078,7 @@ BEGIN
                    CASE WHEN OBJECT_ID(QUOTENAME(po.SchemaName) + ''.'' + QUOTENAME(po.TableName)) IS NULL
                         THEN ''missing'' ELSE ''present'' END
             FROM #PlanObjects po
-            WHERE po.DatabaseName = @db;';
+            WHERE po.DatabaseName COLLATE DATABASE_DEFAULT = @db;';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
 
             /* Indexes on plan-referenced objects. Emit BOTH a presence row per index AND
@@ -1095,9 +1095,9 @@ BEGIN
             FROM sys.tables t
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.indexes i ON i.object_id = t.object_id
-            JOIN #PlanObjects po ON po.DatabaseName = @db
-                                AND po.SchemaName  = s.[name]
-                                AND po.TableName   = t.[name];
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+                                AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
+                                AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name];
 
             INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText, ValueNumeric)
             SELECT ''Index'',
@@ -1111,9 +1111,9 @@ BEGIN
             FROM sys.tables t
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             LEFT JOIN sys.indexes i ON i.object_id = t.object_id
-            JOIN #PlanObjects po ON po.DatabaseName = @db
-                                AND po.SchemaName  = s.[name]
-                                AND po.TableName   = t.[name];';
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+                                AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
+                                AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name];';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
 
             /* Index key + included columns (one row per index, columns concatenated) */
@@ -1143,9 +1143,9 @@ BEGIN
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.indexes i ON i.object_id = t.object_id
             LEFT JOIN key_cols kc ON kc.object_id = i.object_id AND kc.index_id = i.index_id
-            JOIN #PlanObjects po ON po.DatabaseName = @db
-                                AND po.SchemaName  = s.[name]
-                                AND po.TableName   = t.[name]
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+                                AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
+                                AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name]
             UNION ALL
             SELECT ''Index'', ''InclColumns'',
                    @db + ''.'' + s.[name] + ''.'' + t.[name] + ''.'' + ISNULL(i.[name], ''HEAP''),
@@ -1154,9 +1154,9 @@ BEGIN
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.indexes i ON i.object_id = t.object_id
             LEFT JOIN key_cols kc ON kc.object_id = i.object_id AND kc.index_id = i.index_id
-            JOIN #PlanObjects po ON po.DatabaseName = @db
-                                AND po.SchemaName  = s.[name]
-                                AND po.TableName   = t.[name];';
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+                                AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
+                                AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name];';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
 
             /* Statistics: header data only */
@@ -1177,9 +1177,9 @@ BEGIN
             JOIN sys.tables t  ON t.object_id  = st.object_id
             JOIN sys.schemas s ON s.schema_id  = t.schema_id
             CROSS APPLY sys.dm_db_stats_properties(st.object_id, st.stats_id) sp
-            JOIN #PlanObjects po ON po.DatabaseName = @db
-                                AND po.SchemaName  = s.[name]
-                                AND po.TableName   = t.[name];';
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+                                AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
+                                AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name];';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
 
             /* Row counts and page counts */
@@ -1195,9 +1195,9 @@ BEGIN
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.dm_db_partition_stats ps
                  ON ps.object_id = t.object_id AND ps.index_id IN (0, 1)
-            JOIN #PlanObjects po ON po.DatabaseName = @db
-                                AND po.SchemaName  = s.[name]
-                                AND po.TableName   = t.[name]
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+                                AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
+                                AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name]
             GROUP BY s.[name], t.[name]
             UNION ALL
             SELECT ''RowCount'', ''Pages'',
@@ -1208,9 +1208,9 @@ BEGIN
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.dm_db_partition_stats ps
                  ON ps.object_id = t.object_id AND ps.index_id IN (0, 1)
-            JOIN #PlanObjects po ON po.DatabaseName = @db
-                                AND po.SchemaName  = s.[name]
-                                AND po.TableName   = t.[name]
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+                                AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
+                                AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name]
             GROUP BY s.[name], t.[name];';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
 
