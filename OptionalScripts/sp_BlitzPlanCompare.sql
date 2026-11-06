@@ -1495,14 +1495,23 @@ SELECT 'LiveWait', 'WaitCount', lw.wait_type,
 FROM   live_waits lw
 WHERE  lw.waiting_tasks_count >= 1000;
 
-/* Active memory grants for this query hash (if currently executing). */
+/* Aggregate active grants for the selected cached plan. Session IDs are local
+   identifiers and cannot be paired across servers. Include zero when idle. */
+;WITH grants AS (
+    SELECT COUNT_BIG(*) AS GrantCount,
+           COALESCE(SUM(CONVERT(BIGINT, granted_memory_kb)), 0) AS GrantedKB,
+           COALESCE(SUM(CONVERT(BIGINT, ideal_memory_kb)), 0) AS IdealKB,
+           COALESCE(SUM(CONVERT(BIGINT, used_memory_kb)), 0) AS UsedKB
+    FROM sys.dm_exec_query_memory_grants
+    WHERE plan_handle = (SELECT plan_handle FROM #PlanMatches)
+)
 INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText, ValueNumeric)
-SELECT 'LiveState', 'ActiveMemoryGrantKB', CAST(session_id AS NVARCHAR(20)),
-       CAST(granted_memory_kb AS NVARCHAR(40)) + '/' + CAST(ideal_memory_kb AS NVARCHAR(40))
-       + ' (used ' + CAST(ISNULL(used_memory_kb, 0) AS NVARCHAR(40)) + ')',
-       granted_memory_kb
-FROM   sys.dm_exec_query_memory_grants
-WHERE  plan_handle = @ResolvedPlanHandle;
+SELECT 'LiveState', v.Setting, NULL, CONVERT(NVARCHAR(40), v.Amount), v.Amount
+FROM grants g
+CROSS APPLY (VALUES ('ActiveMemoryGrantCount', g.GrantCount),
+                    ('ActiveMemoryGrantKB', g.GrantedKB),
+                    ('ActiveIdealMemoryKB', g.IdealKB),
+                    ('ActiveUsedMemoryKB', g.UsedKB)) v(Setting, Amount);
 
 /* =====================================================================
    Mode 1: emit XML and return
@@ -1880,6 +1889,9 @@ INSERT INTO #Rubric (Category, Setting, Priority, Finding, [URL]) VALUES
     ('LiveState',            'BlockedSessions',      35, 'Different number of blocked sessions right now. The slow server may be losing time to blocking, not the plan.', 'http://FirstResponderKit.org'),
     ('LiveState',            'WaitType',             35, 'Different wait types currently being incurred by this query. The slow server may be IO- or memory-bound.', 'http://FirstResponderKit.org'),
     ('LiveState',            'ActiveMemoryGrantKB',  35, 'A query is currently executing with a memory grant that differs from the other server.', 'http://FirstResponderKit.org'),
+    ('LiveState',            'ActiveMemoryGrantCount', 35, 'The number of active memory grants for this cached plan differs.', 'http://FirstResponderKit.org'),
+    ('LiveState',            'ActiveIdealMemoryKB',  35, 'Total ideal memory for active grants differs.', 'http://FirstResponderKit.org'),
+    ('LiveState',            'ActiveUsedMemoryKB',   35, 'Total used memory for active grants differs.', 'http://FirstResponderKit.org'),
     ('LiveState',            '*',                    55, 'A live-state metric differs.', 'http://FirstResponderKit.org'),
 
     /* Config drift */
@@ -1904,7 +1916,22 @@ INSERT INTO #Rubric (Category, Setting, Priority, Finding, [URL]) VALUES
 /* =====================================================================
    Diff engine: FULL OUTER JOIN local vs remote, classify, prioritize
    ===================================================================== */
-;WITH paired AS (
+;WITH local_rows AS (
+    SELECT *, ROW_NUMBER() OVER (
+        PARTITION BY Category, Setting, ISNULL(SubjectKey, N'')
+        ORDER BY ValueText COLLATE Latin1_General_100_BIN2, ValueNumeric) AS Occurrence
+    FROM #LocalSnapshot
+),
+remote_rows AS (
+    SELECT *, ROW_NUMBER() OVER (
+        PARTITION BY Category, Setting, ISNULL(SubjectKey, N'')
+        ORDER BY ValueText COLLATE Latin1_General_100_BIN2, ValueNumeric) AS Occurrence
+    FROM #RemoteSnapshot
+),
+/* Repeated keys represent multisets (for example, repeated plan warnings).
+   Pair sorted occurrences once each; never produce an N-by-N cross product.
+   Avoid NodeId keys: operator numbers need not match across different plans. */
+paired AS (
     SELECT COALESCE(l.Category,   r.Category)   AS Category,
            COALESCE(l.Setting,    r.Setting)    AS Setting,
            COALESCE(l.SubjectKey, r.SubjectKey) AS SubjectKey,
@@ -1918,11 +1945,12 @@ INSERT INTO #Rubric (Category, Setting, Priority, Finding, [URL]) VALUES
                 WHEN r.Category IS NULL THEN 'Missing on Remote'
                 WHEN ISNULL(l.ValueText, N'') <> ISNULL(r.ValueText, N'') THEN 'Mismatch'
                 ELSE 'Same' END                 AS DiffKind
-    FROM   #LocalSnapshot l
-    FULL OUTER JOIN #RemoteSnapshot r
+    FROM   local_rows l
+    FULL OUTER JOIN remote_rows r
       ON   l.Category = r.Category
       AND  l.Setting  = r.Setting
       AND  ISNULL(l.SubjectKey, N'') = ISNULL(r.SubjectKey, N'')
+      AND  l.Occurrence = r.Occurrence
 ),
 /* When an Index.Present row says "Missing on X" for some db.schema.table.indexname,
    the Definition/KeyColumns/InclColumns diffs for the same SubjectKey are redundant
