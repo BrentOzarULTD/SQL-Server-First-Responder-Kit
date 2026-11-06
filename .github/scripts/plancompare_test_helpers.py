@@ -73,12 +73,23 @@ class Database:
         self.collation = collation
     def __enter__(self):
         self.admin = connect()
-        install(self.admin)
-        execute(self.admin, 'CREATE DATABASE ['+self.name+']'+
-                (' COLLATE '+self.collation if self.collation else ''))
-        self.c = connect(self.name)
-        return self
+        self.c = None
+        self.created = False
+        try:
+            install(self.admin)
+            execute(self.admin, 'CREATE DATABASE ['+self.name+']'+
+                    (' COLLATE '+self.collation if self.collation else ''))
+            self.created = True
+            self.c = connect(self.name)
+            return self
+        except BaseException:
+            self.__exit__()
+            raise
     def __exit__(self, *exc):
-        self.c.close()
-        execute(self.admin, 'ALTER DATABASE ['+self.name+'] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE ['+self.name+'];')
-        self.admin.close()
+        try:
+            if self.c is not None:
+                self.c.close()
+            if self.created:
+                execute(self.admin, 'ALTER DATABASE ['+self.name+'] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE ['+self.name+'];')
+        finally:
+            self.admin.close()
