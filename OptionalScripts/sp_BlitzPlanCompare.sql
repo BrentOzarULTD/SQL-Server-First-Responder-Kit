@@ -197,6 +197,9 @@ END;
 /* =====================================================================
    Variable declarations
    ===================================================================== */
+/* Local procedure resolution may infer a database. Only a caller-supplied
+   database filter should restrict the remote server's query-hash search. */
+DECLARE @CallerDatabaseName SYSNAME = @DatabaseName;
 DECLARE @Mode             TINYINT,
         @EngineEdition    INT      = CAST(SERVERPROPERTY('EngineEdition')  AS INT),
         @LocalServerName  NVARCHAR(256) = CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(256)),
@@ -432,6 +435,7 @@ DECLARE @HasPlanStatsDmv BIT =
    expand plans. Keep statement rows in the subsequent query; a plan handle
    alone is not a statement identifier. SQL text also covers object types that
    do not appear in dm_exec_procedure_stats. */
+IF OBJECT_ID('tempdb..#ProcedurePlanHandles') IS NOT NULL DROP TABLE #ProcedurePlanHandles;
 CREATE TABLE #ProcedurePlanHandles (plan_handle VARBINARY(64) NOT NULL PRIMARY KEY);
 IF @ResolvedProcObjectId IS NOT NULL
 BEGIN
@@ -1550,7 +1554,7 @@ BEGIN
        and the dynamic SQL can't be tampered with via a maliciously-named linked server. */
     DECLARE @LinkedServerSafe SYSNAME = REPLACE(REPLACE(@LinkedServer, N'[', N''), N']', N'');
     SET @sql = N'EXEC ' + QUOTENAME(@LinkedServerSafe) + N'.master.dbo.sp_BlitzPlanCompare @QueryHash = @hash'
-             + CASE WHEN @DatabaseName IS NOT NULL THEN N', @DatabaseName = @dbname' ELSE N'' END
+             + CASE WHEN @CallerDatabaseName IS NOT NULL THEN N', @DatabaseName = @dbname' ELSE N'' END
              + N';';
 
     IF @Debug = 1
@@ -1558,7 +1562,7 @@ BEGIN
 
     BEGIN TRY
         INSERT INTO #RemoteEmit ([CallStack])
-        EXEC sp_executesql @sql, N'@hash BINARY(8), @dbname SYSNAME', @hash = @QueryHashBin, @dbname = @DatabaseName;
+        EXEC sp_executesql @sql, N'@hash BINARY(8), @dbname SYSNAME', @hash = @QueryHashBin, @dbname = @CallerDatabaseName;
 
         /* The remote returned a single string of the form:
                EXEC dbo.sp_BlitzPlanCompare @CompareToXML = N'<BlitzPlanCompareSnapshot ...>';
