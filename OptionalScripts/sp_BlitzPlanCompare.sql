@@ -833,18 +833,13 @@ SELECT 'MaxUsedMemoryKB', CAST(v AS NVARCHAR(40)), v
 FROM (SELECT @PlanXmlForEmit.value('(//p:MemoryGrantInfo/@MaxUsedMemory)[1]', 'BIGINT') AS v) x
 WHERE v IS NOT NULL;
 
-/* Spills: count of <SpillOccurred> elements in the plan. Unlike the other PlanRuntime
-   metrics above (which use XPaths that return NULL when the actual plan is missing and
-   are filtered by WHERE v IS NOT NULL), count() always returns 0 for an empty result -
-   so this row is emitted with value 0 even on an estimated plan that has no runtime
-   warnings. That's intentional: 0 vs 0 matches as "Same" and gets suppressed by the
-   diff engine; 0 vs N or N vs M surfaces. The diff engine's 25% noise filter has an
-   exact-match carve-out for PlanRuntime.SpillCount so even a single spill on one side
-   is reported. */
+/* Count each spilling operator warning container once. Lightweight actual plans
+   use SpillOccurred; full Showplan can include SpillToTempDb and spill details.
+   A container with several spill representations still describes one operator. */
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT INTO #PlanRuntime ([Setting], ValueText, ValueNumeric)
 SELECT 'SpillCount', CAST(v AS NVARCHAR(20)), v
-FROM (SELECT @PlanXmlForEmit.value('count(//p:Warnings/p:SpillOccurred)', 'INT') AS v) x
+FROM (SELECT @PlanXmlForEmit.value('count(//p:Warnings[p:SpillOccurred or p:SpillToTempDb or p:SortSpillDetails or p:HashSpillDetails or p:ExchangeSpillDetails])', 'INT') AS v) x
 WHERE @PlanXmlForEmit IS NOT NULL;
 
 /* Per-wait-type runtime waits. One row per wait type encountered by the query.
