@@ -206,6 +206,9 @@ END;
 /* =====================================================================
    Variable declarations
    ===================================================================== */
+/* Local procedure resolution may infer a database. Only a caller-supplied
+   database filter should restrict the remote server's query-hash search. */
+DECLARE @CallerDatabaseName SYSNAME = @DatabaseName;
 DECLARE @Mode             TINYINT,
         @EngineEdition    INT      = CAST(SERVERPROPERTY('EngineEdition')  AS INT),
         @LocalServerName  NVARCHAR(256) = CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(256)),
@@ -456,6 +459,7 @@ DECLARE @HasPlanStatsDmv BIT =
    expand plans. Keep statement rows in the subsequent query; a plan handle
    alone is not a statement identifier. SQL text also covers object types that
    do not appear in dm_exec_procedure_stats. */
+IF OBJECT_ID('tempdb..#ProcedurePlanHandles') IS NOT NULL DROP TABLE #ProcedurePlanHandles;
 CREATE TABLE #ProcedurePlanHandles (plan_handle VARBINARY(64) NOT NULL PRIMARY KEY);
 IF @ResolvedProcObjectId IS NOT NULL
 BEGIN
@@ -1689,7 +1693,7 @@ BEGIN
        and the dynamic SQL can't be tampered with via a maliciously-named linked server. */
     DECLARE @LinkedServerSafe SYSNAME = REPLACE(REPLACE(@LinkedServer, N'[', N''), N']', N'');
     SET @sql = N'EXEC ' + QUOTENAME(@LinkedServerSafe) + N'.master.dbo.sp_BlitzPlanCompare @QueryHash = @hash'
-             + CASE WHEN @DatabaseName IS NOT NULL THEN N', @DatabaseName = @dbname' ELSE N'' END
+             + CASE WHEN @CallerDatabaseName IS NOT NULL THEN N', @DatabaseName = @dbname' ELSE N'' END
              + CASE WHEN @RemotePlanHandle IS NOT NULL THEN N', @PlanHandle = @remote_handle' ELSE N'' END
              + CASE WHEN @RemoteStatementStartOffset IS NOT NULL THEN N', @StatementStartOffset = @remote_offset' ELSE N'' END
              + N';';
@@ -1700,7 +1704,7 @@ BEGIN
     BEGIN TRY
         INSERT INTO #RemoteEmit ([CallStack])
         EXEC sp_executesql @sql, N'@hash BINARY(8), @dbname SYSNAME, @remote_handle VARBINARY(64), @remote_offset INT',
-            @hash = @QueryHashBin, @dbname = @DatabaseName,
+            @hash = @QueryHashBin, @dbname = @CallerDatabaseName,
             @remote_handle = @RemotePlanHandle, @remote_offset = @RemoteStatementStartOffset;
 
         /* The remote returned a single string of the form:
@@ -2283,10 +2287,51 @@ BEGIN
     BEGIN
         IF @ProcName IS NOT NULL
         BEGIN
-            SET @LocalExec = @UseDb + @LocalDeclarations + N'EXEC ' + @ProcName
-                           + N' ' + @LocalArguments + N' WITH RECOMPILE;';
-            SET @RemoteExec = @UseDb + @RemoteDeclarations + N'EXEC ' + @ProcName
-                            + N' ' + @RemoteArguments + N' WITH RECOMPILE;';
+            /* Statement-scoped XML may omit parameters used by other statements.
+               Reconstruct a full procedure call only when both snapshots supply
+               every declared parameter. T-SQL parameter defaults are not reliably
+               exposed by sys.parameters, so omitted optional parameters also skip
+               the reproducer rather than guessing their values. */
+            DECLARE @ProcedureParametersComplete BIT = 0;
+            DECLARE @ProcedureCheckSql NVARCHAR(MAX) =
+                N'USE ' + QUOTENAME(DB_NAME(@ProcDbId)) + N';
+                SELECT @complete = CASE
+                  WHEN EXISTS (SELECT 1 FROM sys.procedures WHERE object_id = @objid)
+                   AND NOT EXISTS (
+                     SELECT 1 FROM sys.parameters p
+                     WHERE p.object_id = @objid AND p.parameter_id > 0
+                       AND (NOT EXISTS (SELECT 1 FROM #PlanParameters l
+                              WHERE l.ParameterName COLLATE Latin1_General_100_BIN2 = p.[name] COLLATE Latin1_General_100_BIN2)
+                         OR NOT EXISTS (SELECT 1 FROM #RemotePlanParameters r
+                              WHERE r.ParameterName COLLATE Latin1_General_100_BIN2 = p.[name] COLLATE Latin1_General_100_BIN2)))
+                   AND NOT EXISTS (
+                     SELECT 1 FROM #PlanParameters l
+                     WHERE NOT EXISTS (SELECT 1 FROM sys.parameters p
+                       WHERE p.object_id = @objid AND p.parameter_id > 0
+                         AND p.[name] COLLATE Latin1_General_100_BIN2 = l.ParameterName COLLATE Latin1_General_100_BIN2))
+                   AND NOT EXISTS (
+                     SELECT 1 FROM #RemotePlanParameters r
+                     WHERE NOT EXISTS (SELECT 1 FROM sys.parameters p
+                       WHERE p.object_id = @objid AND p.parameter_id > 0
+                         AND p.[name] COLLATE Latin1_General_100_BIN2 = r.ParameterName COLLATE Latin1_General_100_BIN2))
+                  THEN 1 ELSE 0 END;';
+            BEGIN TRY
+                EXEC sp_executesql @ProcedureCheckSql,
+                     N'@objid INT, @complete BIT OUTPUT',
+                     @objid = @ProcObjectId, @complete = @ProcedureParametersComplete OUTPUT;
+            END TRY
+            BEGIN CATCH
+                /* Inaccessible procedure metadata cannot prove a complete call. */
+                SET @ProcedureParametersComplete = 0;
+            END CATCH;
+
+            IF @ProcedureParametersComplete = 1
+            BEGIN
+                SET @LocalExec = @UseDb + @LocalDeclarations + N'EXEC ' + @ProcName
+                               + N' ' + @LocalArguments + N' WITH RECOMPILE;';
+                SET @RemoteExec = @UseDb + @RemoteDeclarations + N'EXEC ' + @ProcName
+                                + N' ' + @RemoteArguments + N' WITH RECOMPILE;';
+            END;
         END
         ELSE IF @SqlText IS NOT NULL
         BEGIN
