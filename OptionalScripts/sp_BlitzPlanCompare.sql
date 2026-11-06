@@ -754,7 +754,7 @@ UNION ALL SELECT 'RetrievedFromCache',
 UNION ALL SELECT 'StatementSubTreeCost',
        @PlanXml.value('(//p:StmtSimple/@StatementSubTreeCost)[1]', 'NVARCHAR(50)')
 UNION ALL SELECT 'DegreeOfParallelism',
-       @PlanXml.value('(//p:QueryPlan/@DegreeOfParallelism)[1]', 'NVARCHAR(50)')
+       @PlanXmlForEmit.value('(//p:QueryPlan/@DegreeOfParallelism)[1]', 'NVARCHAR(50)')
 UNION ALL SELECT 'MemoryGrant',
        @PlanXml.value('(//p:QueryPlan/@MemoryGrant)[1]', 'NVARCHAR(50)')
 UNION ALL SELECT 'CompileTime',
@@ -1764,7 +1764,7 @@ INSERT INTO #Rubric (Category, Setting, Priority, Finding, [URL]) VALUES
     ('SpConfigure',          'cost threshold for parallelism', 20, 'Cost threshold for parallelism differs. This decides whether a plan goes parallel at all.', 'http://FirstResponderKit.org'),
     ('SpConfigure',          'max server memory (MB)', 20, 'Max server memory differs. This caps memory grants and buffer pool size.', 'http://FirstResponderKit.org'),
     ('SpConfigure',          '*',                    55, 'A configured option differs.', 'http://FirstResponderKit.org'),
-    ('PlanAttribute',        'DegreeOfParallelism',  20, 'The cached plan was compiled with a different DOP on each server.', 'http://FirstResponderKit.org'),
+    ('PlanAttribute',        'DegreeOfParallelism',  20, 'The captured plans report different degrees of parallelism.', 'http://FirstResponderKit.org'),
     ('PlanAttribute',        'MemoryGrant',          20, 'The cached plan asked for a different memory grant on each server.', 'http://FirstResponderKit.org'),
     ('PlanAttribute',        'EstimatedAvailableMemoryGrant',  20, 'The optimizer saw a different available memory grant on each server when compiling.', 'http://FirstResponderKit.org'),
     ('PlanAttribute',        'EstimatedPagesCached', 20, 'The optimizer saw a different cached-pages estimate on each server when compiling.', 'http://FirstResponderKit.org'),
@@ -1899,14 +1899,17 @@ WHERE   p.DiffKind <> 'Same'
                         EstimatedPagesCached, CompileTime, CompileMemory, etc.).
                         Text attributes (PlanSource, StatementOptmLevel, etc.)
                         have ValueNumeric = NULL and bypass this filter.
-                        CardinalityEstimationModelVersion is exact-match: any
+                        CardinalityEstimationModelVersion and DegreeOfParallelism are exact-match: any
                         delta matters (70 vs 160 vs 170 all change optimizer
                         behavior), even though it happens to be numeric.
+       - Hardware.CommittedTargetKB: a moving memory-manager target, not capacity.
+         Other hardware capacity metrics retain exact comparison.
      Rows present on only one side bypass this check since LocalValueNumeric or
      RemoteValueNumeric is NULL - a missing wait type / attribute is still signal. */
-  AND   NOT (p.Category IN ('LiveState', 'PlanRuntime', 'PlanWait', 'LiveWait', 'PlanAttribute')
+  AND   NOT ((p.Category IN ('LiveState', 'PlanRuntime', 'PlanWait', 'LiveWait', 'PlanAttribute')
+               OR (p.Category = 'Hardware' AND p.Setting = 'CommittedTargetKB'))
              AND NOT (p.Category = 'PlanRuntime'   AND p.Setting = 'SpillCount')
-             AND NOT (p.Category = 'PlanAttribute' AND p.Setting = 'CardinalityEstimationModelVersion')
+             AND NOT (p.Category = 'PlanAttribute' AND p.Setting IN ('CardinalityEstimationModelVersion', 'DegreeOfParallelism'))
              AND p.LocalValueNumeric  IS NOT NULL
              AND p.RemoteValueNumeric IS NOT NULL
              AND ABS(p.LocalValueNumeric - p.RemoteValueNumeric)
