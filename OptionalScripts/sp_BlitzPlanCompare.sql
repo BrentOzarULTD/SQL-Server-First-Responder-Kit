@@ -378,6 +378,9 @@ BEGIN
         RETURN;
     END;
 
+    /* object_id is database-local, including for bare/two-part names. */
+    IF @DatabaseName IS NULL SET @DatabaseName = @CurrentDbName;
+
     IF @Debug = 1
     BEGIN
         DECLARE @DebugDbName SYSNAME = ISNULL(@DatabaseName, @CurrentDbName);
@@ -424,6 +427,20 @@ DECLARE @HasPlanStatsDmv BIT =
                        WHERE [name] = 'dm_exec_query_plan_stats'
                          AND [schema_id] = SCHEMA_ID('sys'))
          THEN 1 ELSE 0 END;
+
+/* Materialize procedure candidates before asking the XML-producing DMFs to
+   expand plans. Keep statement rows in the subsequent query; a plan handle
+   alone is not a statement identifier. SQL text also covers object types that
+   do not appear in dm_exec_procedure_stats. */
+CREATE TABLE #ProcedurePlanHandles (plan_handle VARBINARY(64) NOT NULL PRIMARY KEY);
+IF @ResolvedProcObjectId IS NOT NULL
+BEGIN
+    INSERT INTO #ProcedurePlanHandles (plan_handle)
+    SELECT DISTINCT qs.plan_handle
+    FROM sys.dm_exec_query_stats qs
+    CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st
+    WHERE st.objectid = @ResolvedProcObjectId AND st.dbid = DB_ID(@DatabaseName);
+END;
 
 /* Build the WHERE clause from whichever identifiers the user supplied. AND-combined.
    Collation applied to @DatabaseName match because DB_NAME() returns the catalog
@@ -476,6 +493,9 @@ SELECT  qs.plan_handle,
         qs.query_plan_hash,
         qs.query_hash
 FROM    sys.dm_exec_query_stats AS qs
+' + CASE WHEN @ResolvedProcObjectId IS NOT NULL
+         THEN N'INNER JOIN #ProcedurePlanHandles ph ON ph.plan_handle = qs.plan_handle'
+         ELSE N'' END + N'
 CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS st
 OUTER APPLY sys.dm_exec_query_plan(qs.plan_handle) AS qp
 '     + CASE WHEN @HasPlanStatsDmv = 1
