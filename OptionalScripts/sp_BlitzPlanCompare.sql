@@ -1266,7 +1266,7 @@ BEGIN
                        st.auto_created, st.has_filter, st.filter_definition,
                        CASE WHEN EXISTS (
                          SELECT 1 FROM #PlanStatsUsed su
-                         WHERE su.DatabaseName COLLATE DATABASE_DEFAULT = @db
+                         WHERE su.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
                            AND su.SchemaName COLLATE DATABASE_DEFAULT = s.[name]
                            AND su.TableName COLLATE DATABASE_DEFAULT = t.[name]
                            AND su.StatisticsName COLLATE DATABASE_DEFAULT = st.[name])
@@ -1279,7 +1279,7 @@ BEGIN
                 LEFT JOIN sys.columns c ON c.object_id = sc.object_id AND c.column_id = sc.column_id
                 OUTER APPLY sys.dm_db_stats_properties(st.object_id, st.stats_id) sp
                 WHERE EXISTS (SELECT 1 FROM #PlanObjects po
-                    WHERE po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+                    WHERE po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
                       AND po.SchemaName COLLATE DATABASE_DEFAULT = s.[name]
                       AND po.TableName COLLATE DATABASE_DEFAULT = t.[name])
             )
@@ -1296,22 +1296,6 @@ BEGIN
                    + ''|hasFilter='' + CONVERT(NVARCHAR(1), st.has_filter)
                    + ''|filter='' + ISNULL(st.filter_definition, ''(none)''), NULL)
             ) v(Setting, ValueText, ValueNumeric);';
-            SELECT ''Statistics'', ''Header'',
-                   @db + ''.'' + s.[name] + ''.'' + t.[name] + ''.'' + st.[name],
-                   ''lastUpdated='' + ISNULL(CONVERT(VARCHAR(33), sp.last_updated, 126), ''(null)'')
-                     + ''|rows='' + ISNULL(CAST(sp.[rows] AS VARCHAR(20)), ''(null)'')
-                     + ''|sampled='' + ISNULL(CAST(sp.rows_sampled AS VARCHAR(20)), ''(null)'')
-                     + ''|modCounter='' + ISNULL(CAST(sp.modification_counter AS VARCHAR(20)), ''(null)'')
-                     + ''|autoCreated='' + CASE WHEN st.auto_created = 1 THEN ''Y'' ELSE ''N'' END
-                     + ''|hasFilter='' + CASE WHEN st.has_filter = 1 THEN ''Y'' ELSE ''N'' END,
-                   sp.modification_counter
-            FROM sys.stats st
-            JOIN sys.tables t  ON t.object_id  = st.object_id
-            JOIN sys.schemas s ON s.schema_id  = t.schema_id
-            CROSS APPLY sys.dm_db_stats_properties(st.object_id, st.stats_id) sp
-            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
-                                AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
-                                AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name];';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
 
             /* Row counts and page counts */
@@ -2026,8 +2010,7 @@ INSERT INTO #Rubric (Category, Setting, Priority, Finding, [URL]) VALUES
     SELECT Category, SubjectKey FROM #RemoteSnapshot
     WHERE Category IN ('Index', 'Statistics') AND Setting = 'UsedByPlan' AND ValueNumeric = 1
 ),
-local_rows AS (
-;WITH local_values AS (
+local_values AS (
     SELECT *, ROW_NUMBER() OVER (
         PARTITION BY Category, Setting, ISNULL(SubjectKey, N''), ISNULL(ValueText, N'') COLLATE Latin1_General_100_BIN2
         ORDER BY ValueNumeric) AS ValueOccurrence
