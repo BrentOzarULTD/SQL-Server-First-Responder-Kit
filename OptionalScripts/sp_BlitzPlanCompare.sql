@@ -2188,7 +2188,8 @@ BEGIN TRY
             rop.n.value('@NodeId',     'INT'),
             rop.n.value('@PhysicalOp', 'VARCHAR(200)'),
             rop.n.value('@LogicalOp',  'VARCHAR(200)'),
-            CONVERT(BIGINT, rop.n.value('sum(p:RunTimeInformation/p:RunTimeCountersPerThread/@ActualRows)', 'FLOAT')),
+            /* XQuery sum may serialize as scientific notation; parse FLOAT before BIGINT. */
+               CONVERT(BIGINT, rop.n.value('sum(p:RunTimeInformation/p:RunTimeCountersPerThread/@ActualRows)', 'FLOAT')),
             rop.n.value('@EstimateRows', 'FLOAT'),
             CASE WHEN rop.n.exist('p:RunTimeInformation') = 1 THEN 1 ELSE 0 END
         FROM @PlanXmlForEmit.nodes('//p:RelOp') AS rop(n);
@@ -2243,7 +2244,8 @@ BEGIN TRY
             rop.n.value('@NodeId',     'INT'),
             rop.n.value('@PhysicalOp', 'VARCHAR(200)'),
             rop.n.value('@LogicalOp',  'VARCHAR(200)'),
-            CONVERT(BIGINT, rop.n.value('sum(p:RunTimeInformation/p:RunTimeCountersPerThread/@ActualRows)', 'FLOAT')),
+            /* XQuery sum may serialize as scientific notation; parse FLOAT before BIGINT. */
+               CONVERT(BIGINT, rop.n.value('sum(p:RunTimeInformation/p:RunTimeCountersPerThread/@ActualRows)', 'FLOAT')),
             rop.n.value('@EstimateRows', 'FLOAT'),
             CASE WHEN rop.n.exist('p:RunTimeInformation') = 1 THEN 1 ELSE 0 END
         FROM @RemotePlanXml.nodes('//p:RelOp') AS rop(n);
@@ -2363,6 +2365,7 @@ IF @LocalOpCount > 0 AND @RemoteOpCount > 0
 BEGIN
     ;WITH pairs AS (
         SELECT l.NodeId, l.PhysicalOp, l.LogicalOp, l.ObjectSig, l.MaxInSubtree,
+               l.ActualRows AS LocalActualRows, r.ActualRows AS RemoteActualRows,
                CASE WHEN @BothActual = 1 THEN CAST(l.ActualRows AS FLOAT) ELSE l.EstRows END AS LocalMetric,
                CASE WHEN @BothActual = 1 THEN CAST(r.ActualRows AS FLOAT) ELSE r.EstRows END AS RemoteMetric
         FROM       #OpsLocal  l
@@ -2387,8 +2390,10 @@ BEGIN
            @Metric,
            'NodeId ' + CAST(NodeId AS VARCHAR(10)) + ': ' + ISNULL(PhysicalOp, '(unknown)')
             + CASE WHEN NULLIF(ObjectSig, '') IS NOT NULL THEN ' on ' + ObjectSig ELSE '' END,
-           CAST(LocalMetric  AS NVARCHAR(40)),
-           CAST(RemoteMetric AS NVARCHAR(40)),
+           CASE WHEN @BothActual = 1 THEN CONVERT(NVARCHAR(40), LocalActualRows)
+                ELSE CONVERT(NVARCHAR(40), LocalMetric, 3) END,
+           CASE WHEN @BothActual = 1 THEN CONVERT(NVARCHAR(40), RemoteActualRows)
+                ELSE CONVERT(NVARCHAR(40), RemoteMetric, 3) END,
            CASE WHEN @ShapeMatch = 1
                 THEN 'Walking the plan right-to-left, top-to-bottom, this is the first operator whose ' + @Metric
                      + ' differs by 25% or more. Upstream operators match; divergence starts here - this is where to focus.'
