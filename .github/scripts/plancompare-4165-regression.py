@@ -25,7 +25,7 @@ with Database(4165) as d:
         assert int(rows(snap,'PlanRuntime',setting)[0]['ValueText'])==int(timing.get(attribute))
     # Exercise UDF fields with known asymmetric values using the same production extraction block.
     source=(ROOT/'OptionalScripts/sp_BlitzPlanCompare.sql').read_text()
-    block=source[source.index('CREATE TABLE #PlanRuntime'):source.index('/* Spills:')]
+    block=source[source.index('CREATE TABLE #PlanRuntime'):source.index('/* Per-wait-type runtime waits.')]
     result=execute(d.c,"DECLARE @PlanXmlForEmit xml=N'<ShowPlanXML xmlns=\"http://schemas.microsoft.com/sqlserver/2004/07/showplan\"><QueryTimeStats CpuTime=\"7\" ElapsedTime=\"2000\" UdfCpuTime=\"3\" UdfElapsedTime=\"1000\"/></ShowPlanXML>';"+block+'SELECT Setting,ValueNumeric FROM #PlanRuntime;')[-1]
     values={r['Setting']:int(r['ValueNumeric']) for r in result}
     assert values['UdfCpuTimeMs']==3 and values['UdfElapsedTimeMs']==1000,values
