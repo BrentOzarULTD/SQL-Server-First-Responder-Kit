@@ -2098,7 +2098,7 @@ BEGIN
             @LocalArguments NVARCHAR(MAX), @RemoteArguments NVARCHAR(MAX),
             @RemoteParamDecls NVARCHAR(MAX);
     SELECT @LocalDeclarations = (
-        SELECT N'DECLARE ' + ParameterName + N' ' + DataType + N' = '
+        SELECT CONVERT(NVARCHAR(MAX), N'DECLARE ') + ParameterName + N' ' + DataType + N' = '
              + COALESCE(NULLIF(CompiledValue, N''), N'NULL') + N';' + CHAR(13) + CHAR(10)
         FROM #PlanParameters ORDER BY ParameterName
         FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'),
@@ -2112,7 +2112,7 @@ BEGIN
         FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, N'');
 
     SELECT @RemoteDeclarations = (
-        SELECT N'DECLARE ' + ParameterName + N' ' + DataType + N' = '
+        SELECT CONVERT(NVARCHAR(MAX), N'DECLARE ') + ParameterName + N' ' + DataType + N' = '
              + COALESCE(NULLIF(CompiledValue, N''), N'NULL') + N';' + CHAR(13) + CHAR(10)
         FROM #RemotePlanParameters ORDER BY ParameterName
         FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'),
@@ -2126,8 +2126,8 @@ BEGIN
         FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, N'');
 
     /* Unknown types cannot safely reconstruct the call. */
-    IF NOT EXISTS (SELECT 1 FROM #PlanParameters WHERE NULLIF(DataType, N'') IS NULL)
-       AND NOT EXISTS (SELECT 1 FROM #RemotePlanParameters WHERE NULLIF(DataType, N'') IS NULL)
+    IF NOT EXISTS (SELECT 1 FROM #PlanParameters WHERE NULLIF(DataType, N'') IS NULL OR NULLIF(CompiledValue, N'') IS NULL)
+       AND NOT EXISTS (SELECT 1 FROM #RemotePlanParameters WHERE NULLIF(DataType, N'') IS NULL OR NULLIF(CompiledValue, N'') IS NULL)
     BEGIN
         IF @ProcName IS NOT NULL
         BEGIN
