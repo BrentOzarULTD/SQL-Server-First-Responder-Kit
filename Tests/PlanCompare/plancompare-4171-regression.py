@@ -10,4 +10,11 @@ with Database(4171,'Latin1_General_100_CS_AS') as d:
     assert len(rows(snap,'Index','Present'))==3,rows(snap,'Index','Present')
     diffs=compare(d.c,snap,h['query_plan_hash'],d.name)[0]
     assert not [r for r in diffs if r['Category'] in ('Setup','Object','Index','Statistics','RowCount')],diffs
+    # Force a real mismatch to exercise the Details concatenation, not only empty diffs.
+    for r in snap.findall('./Snapshot/Row'):
+        if r.get('Category')=='RowCount' and r.get('Setting')=='Rows' and r.get('SubjectKey').endswith('.CaseTable'):
+            r.set('ValueText','999');r.set('ValueNumeric','999')
+    diffs=compare(d.c,snap,h['query_plan_hash'],d.name)[0]
+    changed=[r for r in diffs if r['Category']=='RowCount' and r['Setting']=='Rows']
+    assert len(changed)==1 and changed[0]['Details']=='Mismatch: RowCount.Rows ('+d.name+'.dbo.CaseTable)',changed
 print('PASS: #4171 cross-collation catalog reads, case-distinct and Unicode tables')
