@@ -879,7 +879,7 @@ IF OBJECT_ID('tempdb..#LocalSnapshot') IS NOT NULL DROP TABLE #LocalSnapshot;
 CREATE TABLE #LocalSnapshot (
     Category     VARCHAR(50)    NOT NULL,
     Setting      VARCHAR(200)   NOT NULL,
-    SubjectKey   NVARCHAR(776)  NULL,
+    SubjectKey   NVARCHAR(776) COLLATE Latin1_General_100_BIN2 NULL,
     ValueText    NVARCHAR(MAX)  NULL,
     ValueNumeric DECIMAL(38,4)  NULL
 );
@@ -1062,7 +1062,7 @@ BEGIN
                    CASE WHEN OBJECT_ID(QUOTENAME(po.SchemaName) + ''.'' + QUOTENAME(po.TableName)) IS NULL
                         THEN ''missing'' ELSE ''present'' END
             FROM #PlanObjects po
-            WHERE po.DatabaseName COLLATE DATABASE_DEFAULT = @db;';
+            WHERE po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db;';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
 
             /* Indexes on plan-referenced objects. Emit BOTH a presence row per index AND
@@ -1079,7 +1079,7 @@ BEGIN
             FROM sys.tables t
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.indexes i ON i.object_id = t.object_id
-            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
                                 AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
                                 AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name];
 
@@ -1095,7 +1095,7 @@ BEGIN
             FROM sys.tables t
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             LEFT JOIN sys.indexes i ON i.object_id = t.object_id
-            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
                                 AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
                                 AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name];';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
@@ -1127,7 +1127,7 @@ BEGIN
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.indexes i ON i.object_id = t.object_id
             LEFT JOIN key_cols kc ON kc.object_id = i.object_id AND kc.index_id = i.index_id
-            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
                                 AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
                                 AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name]
             UNION ALL
@@ -1138,7 +1138,7 @@ BEGIN
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.indexes i ON i.object_id = t.object_id
             LEFT JOIN key_cols kc ON kc.object_id = i.object_id AND kc.index_id = i.index_id
-            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
                                 AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
                                 AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name];';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
@@ -1161,7 +1161,7 @@ BEGIN
             JOIN sys.tables t  ON t.object_id  = st.object_id
             JOIN sys.schemas s ON s.schema_id  = t.schema_id
             CROSS APPLY sys.dm_db_stats_properties(st.object_id, st.stats_id) sp
-            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
                                 AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
                                 AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name];';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
@@ -1179,7 +1179,7 @@ BEGIN
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.dm_db_partition_stats ps
                  ON ps.object_id = t.object_id AND ps.index_id IN (0, 1)
-            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
                                 AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
                                 AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name]
             GROUP BY s.[name], t.[name]
@@ -1192,7 +1192,7 @@ BEGIN
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.dm_db_partition_stats ps
                  ON ps.object_id = t.object_id AND ps.index_id IN (0, 1)
-            JOIN #PlanObjects po ON po.DatabaseName COLLATE DATABASE_DEFAULT = @db
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
                                 AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
                                 AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name]
             GROUP BY s.[name], t.[name];';
@@ -1478,7 +1478,7 @@ IF OBJECT_ID('tempdb..#RemoteSnapshot') IS NOT NULL DROP TABLE #RemoteSnapshot;
 CREATE TABLE #RemoteSnapshot (
     Category     VARCHAR(50)    NOT NULL,
     Setting      VARCHAR(200)   NOT NULL,
-    SubjectKey   NVARCHAR(776)  NULL,
+    SubjectKey   NVARCHAR(776) COLLATE Latin1_General_100_BIN2 NULL,
     ValueText    NVARCHAR(MAX)  NULL,
     ValueNumeric DECIMAL(38,4)  NULL
 );
