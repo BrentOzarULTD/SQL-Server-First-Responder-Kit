@@ -2135,10 +2135,51 @@ BEGIN
     BEGIN
         IF @ProcName IS NOT NULL
         BEGIN
-            SET @LocalExec = @UseDb + @LocalDeclarations + N'EXEC ' + @ProcName
-                           + N' ' + @LocalArguments + N' WITH RECOMPILE;';
-            SET @RemoteExec = @UseDb + @RemoteDeclarations + N'EXEC ' + @ProcName
-                            + N' ' + @RemoteArguments + N' WITH RECOMPILE;';
+            /* Statement-scoped XML may omit parameters used by other statements.
+               Reconstruct a full procedure call only when both snapshots supply
+               every declared parameter. T-SQL parameter defaults are not reliably
+               exposed by sys.parameters, so omitted optional parameters also skip
+               the reproducer rather than guessing their values. */
+            DECLARE @ProcedureParametersComplete BIT = 0;
+            DECLARE @ProcedureCheckSql NVARCHAR(MAX) =
+                N'USE ' + QUOTENAME(DB_NAME(@ProcDbId)) + N';
+                SELECT @complete = CASE
+                  WHEN EXISTS (SELECT 1 FROM sys.procedures WHERE object_id = @objid)
+                   AND NOT EXISTS (
+                     SELECT 1 FROM sys.parameters p
+                     WHERE p.object_id = @objid AND p.parameter_id > 0
+                       AND (NOT EXISTS (SELECT 1 FROM #PlanParameters l
+                              WHERE l.ParameterName COLLATE Latin1_General_100_BIN2 = p.[name] COLLATE Latin1_General_100_BIN2)
+                         OR NOT EXISTS (SELECT 1 FROM #RemotePlanParameters r
+                              WHERE r.ParameterName COLLATE Latin1_General_100_BIN2 = p.[name] COLLATE Latin1_General_100_BIN2)))
+                   AND NOT EXISTS (
+                     SELECT 1 FROM #PlanParameters l
+                     WHERE NOT EXISTS (SELECT 1 FROM sys.parameters p
+                       WHERE p.object_id = @objid AND p.parameter_id > 0
+                         AND p.[name] COLLATE Latin1_General_100_BIN2 = l.ParameterName COLLATE Latin1_General_100_BIN2))
+                   AND NOT EXISTS (
+                     SELECT 1 FROM #RemotePlanParameters r
+                     WHERE NOT EXISTS (SELECT 1 FROM sys.parameters p
+                       WHERE p.object_id = @objid AND p.parameter_id > 0
+                         AND p.[name] COLLATE Latin1_General_100_BIN2 = r.ParameterName COLLATE Latin1_General_100_BIN2))
+                  THEN 1 ELSE 0 END;';
+            BEGIN TRY
+                EXEC sp_executesql @ProcedureCheckSql,
+                     N'@objid INT, @complete BIT OUTPUT',
+                     @objid = @ProcObjectId, @complete = @ProcedureParametersComplete OUTPUT;
+            END TRY
+            BEGIN CATCH
+                /* Inaccessible procedure metadata cannot prove a complete call. */
+                SET @ProcedureParametersComplete = 0;
+            END CATCH;
+
+            IF @ProcedureParametersComplete = 1
+            BEGIN
+                SET @LocalExec = @UseDb + @LocalDeclarations + N'EXEC ' + @ProcName
+                               + N' ' + @LocalArguments + N' WITH RECOMPILE;';
+                SET @RemoteExec = @UseDb + @RemoteDeclarations + N'EXEC ' + @ProcName
+                                + N' ' + @RemoteArguments + N' WITH RECOMPILE;';
+            END;
         END
         ELSE IF @SqlText IS NOT NULL
         BEGIN
