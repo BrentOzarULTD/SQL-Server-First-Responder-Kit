@@ -659,18 +659,61 @@ BEGIN
 END;
 
 DECLARE @PlanSource      NVARCHAR(50);
-DECLARE @PlanXmlForEmit  XML;  /* actual plan if available, else full estimated; what we embed in the snapshot */
+DECLARE @PlanXmlForEmit  XML;  /* statement-scoped actual if available, else estimated */
 
 SELECT  @ResolvedPlanHandle      = plan_handle,
         @SqlHandle       = sql_handle,
         @StmtStartOffset = statement_start_offset,
         @StmtEndOffset   = statement_end_offset,
-        @PlanXml         = query_plan_full,               /* FULL plan - used for #PlanObjects extraction */
+        @PlanXml         = query_plan_full,               /* narrowed to the selected statement below */
         @PlanXmlForEmit  = COALESCE(query_plan_actual, query_plan_full),
         @PlanSource      = plan_source,
         @QueryPlanHash   = query_plan_hash, /* may have been NULL if user passed @QueryHash / @StoredProcName only */
         @QueryHashBin    = query_hash    /* overwrite any mode-2 XML-extracted value with the real resolved plan's query_hash */
 FROM    #PlanMatches;
+
+/* A cache handle identifies a batch, while the selected DMV row identifies a
+   statement. Ask for that statement's estimated plan using its byte offsets.
+   Do not select the first occurrence of a plan hash: repeated statements can
+   share the same hash inside a batch. */
+DECLARE @StatementPlan XML, @SelectedStatementCompId INT, @ActualStatement XML;
+SELECT @StatementPlan = TRY_CONVERT(XML, tp.query_plan)
+FROM #PlanMatches pm
+CROSS APPLY sys.dm_exec_text_query_plan(pm.plan_handle, pm.statement_start_offset, pm.statement_end_offset) tp;
+IF @StatementPlan IS NULL
+BEGIN
+    RAISERROR('The selected statement plan is no longer available. Resolve the cached plan again.', 16, 1);
+    RETURN;
+END;
+SET @PlanXml = @StatementPlan;
+;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+SELECT @SelectedStatementCompId = @PlanXml.value('(//p:StmtSimple/@StatementCompId)[1]', 'INT');
+
+IF @PlanSource = N'Actual (LAST_QUERY_PLAN_STATS)' AND @SelectedStatementCompId IS NOT NULL
+BEGIN
+    /* StatementCompId survives statement-scoped retrieval (StatementId is renumbered). Require a
+       unique match in the actual batch and matching query/plan hashes. */
+    DECLARE @SelectedQueryHashText NVARCHAR(50) = CONVERT(NVARCHAR(50), @QueryHashBin, 1),
+            @SelectedPlanHashText NVARCHAR(50) = CONVERT(NVARCHAR(50), @QueryPlanHash, 1);
+    ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+    SELECT @ActualStatement = @PlanXmlForEmit.query('//p:StmtSimple[
+        @StatementCompId = sql:variable("@SelectedStatementCompId") and
+        @QueryHash = sql:variable("@SelectedQueryHashText") and
+        @QueryPlanHash = sql:variable("@SelectedPlanHashText")]');
+END;
+IF @ActualStatement IS NOT NULL AND @ActualStatement.value('count(/*)', 'INT') = 1
+BEGIN
+    SET @PlanXmlForEmit = @PlanXmlForEmit.query('
+        declare default element namespace "http://schemas.microsoft.com/sqlserver/2004/07/showplan";
+        <ShowPlanXML Version="{(/ShowPlanXML/@Version)[1]}" Build="{(/ShowPlanXML/@Build)[1]}">
+          <BatchSequence><Batch><Statements>{//StmtSimple[@StatementCompId = sql:variable("@SelectedStatementCompId") and @QueryHash = sql:variable("@SelectedQueryHashText") and @QueryPlanHash = sql:variable("@SelectedPlanHashText")]}</Statements></Batch></BatchSequence>
+        </ShowPlanXML>');
+END
+ELSE
+BEGIN
+    SET @PlanXmlForEmit = @PlanXml;
+    SET @PlanSource = N'Cached estimated';
+END;
 
 IF @Debug = 1
     RAISERROR('Plan resolved. plan_source = %s', 0, 1, @PlanSource) WITH NOWAIT;
@@ -1485,10 +1528,7 @@ BEGIN
 
     /* Build a separate Plan element so the typed XML round-trips cleanly */
     DECLARE @PlanContainer XML;
-    /* Embed the actual-plan-if-available variant (richer runtime info), not the full
-       plan used for object extraction. For stored procs with multiple statements,
-       the actual plan is a statement-scoped fragment with runtime stats, while the
-       full plan is the whole batch's plan used for table/index diffing. */
+    /* Embed only the selected statement, with actual runtime data when available. */
     SET @PlanContainer = (SELECT @PlanXmlForEmit AS [*] FOR XML PATH('Plan'), TYPE);
 
     SET @SnapshotXml = (
