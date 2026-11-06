@@ -2037,9 +2037,12 @@ DECLARE @RemotePlanXml XML = @RemoteXml.query('/BlitzPlanCompareSnapshot/Plan/*'
 DECLARE @ProcObjectId INT, @ProcDbId INT, @ProcName NVARCHAR(600), @SqlText NVARCHAR(MAX);
 
 BEGIN TRY
+    /* Cache offsets exclude both unrelated statements and auto-parameter prefixes. */
     SELECT @ProcObjectId = st.objectid,
            @ProcDbId     = st.dbid,
-           @SqlText      = st.text
+           @SqlText      = SUBSTRING(st.text, @StmtStartOffset / 2 + 1,
+               ((CASE WHEN @StmtEndOffset = -1 THEN DATALENGTH(st.text)
+                      ELSE @StmtEndOffset END - @StmtStartOffset) / 2) + 1)
     FROM   sys.dm_exec_sql_text(@SqlHandle) AS st;
 
     IF @ProcObjectId IS NOT NULL
@@ -2208,6 +2211,9 @@ BEGIN
            just the code rows without grabbing the wrapper tags. */
         DECLARE @ReproText NVARCHAR(MAX) =
               @CRLF + @CRLF
+            + CASE WHEN @ProcName IS NULL
+                   THEN N'/* Selected statement only; required batch setup must be supplied separately. */'
+                   ELSE N'/* Executes the full stored procedure, including its other statements. */' END + @CRLF
             + N'/* Local server ' + ISNULL(@LocalServerName, N'(unknown)') + N' */' + @CRLF
             + @LocalExec + @CRLF + N'GO' + @CRLF
             + @CRLF
