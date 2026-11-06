@@ -1806,6 +1806,29 @@ END;
 /* =====================================================================
    Rubric: priority + finding text + URL per (Category, Setting)
    ===================================================================== */
+/* Normalize legacy per-session grants. Their numeric field contains granted
+   KB; ideal/used values were only embedded in display text and cannot be
+   compared reliably. An old idle snapshot had no grant rows at all. */
+IF NOT EXISTS (SELECT 1 FROM #RemoteSnapshot WHERE Category = 'LiveState' AND Setting = 'ActiveMemoryGrantCount')
+BEGIN
+    IF EXISTS (SELECT 1 FROM #RemoteSnapshot WHERE Category = 'LiveState' AND Setting = 'ActiveMemoryGrantKB' AND SubjectKey IS NOT NULL)
+    BEGIN
+        DECLARE @LegacyGrantCount BIGINT, @LegacyGrantedKB DECIMAL(38,4);
+        SELECT @LegacyGrantCount = COUNT_BIG(*), @LegacyGrantedKB = SUM(ValueNumeric)
+        FROM #RemoteSnapshot WHERE Category = 'LiveState' AND Setting = 'ActiveMemoryGrantKB';
+        DELETE #RemoteSnapshot WHERE Category = 'LiveState' AND Setting = 'ActiveMemoryGrantKB';
+        INSERT #RemoteSnapshot (Category, Setting, SubjectKey, ValueText, ValueNumeric)
+        VALUES ('LiveState', 'ActiveMemoryGrantCount', NULL, CONVERT(NVARCHAR(40), @LegacyGrantCount), @LegacyGrantCount),
+               ('LiveState', 'ActiveMemoryGrantKB', NULL, CONVERT(NVARCHAR(40), CONVERT(BIGINT, @LegacyGrantedKB)), @LegacyGrantedKB);
+    END
+    ELSE
+        /* No grants in a legacy snapshot means zero active grants. */
+        INSERT #RemoteSnapshot (Category, Setting, SubjectKey, ValueText, ValueNumeric)
+        VALUES ('LiveState', 'ActiveMemoryGrantCount', NULL, N'0', 0),
+               ('LiveState', 'ActiveMemoryGrantKB', NULL, N'0', 0);
+    DELETE #LocalSnapshot WHERE Category = 'LiveState' AND Setting IN ('ActiveIdealMemoryKB', 'ActiveUsedMemoryKB');
+END;
+
 IF OBJECT_ID('tempdb..#Rubric') IS NOT NULL DROP TABLE #Rubric;
 CREATE TABLE #Rubric (
     Category VARCHAR(50)   NOT NULL,
@@ -1918,21 +1941,44 @@ INSERT INTO #Rubric (Category, Setting, Priority, Finding, [URL]) VALUES
 /* =====================================================================
    Diff engine: FULL OUTER JOIN local vs remote, classify, prioritize
    ===================================================================== */
-;WITH local_rows AS (
+;WITH local_values AS (
     SELECT *, ROW_NUMBER() OVER (
-        PARTITION BY Category, Setting, ISNULL(SubjectKey, N'')
-        ORDER BY ValueText COLLATE Latin1_General_100_BIN2, ValueNumeric) AS Occurrence
+        PARTITION BY Category, Setting, ISNULL(SubjectKey, N''), ISNULL(ValueText, N'') COLLATE Latin1_General_100_BIN2
+        ORDER BY ValueNumeric) AS ValueOccurrence
     FROM #LocalSnapshot
 ),
-remote_rows AS (
+remote_values AS (
     SELECT *, ROW_NUMBER() OVER (
-        PARTITION BY Category, Setting, ISNULL(SubjectKey, N'')
-        ORDER BY ValueText COLLATE Latin1_General_100_BIN2, ValueNumeric) AS Occurrence
+        PARTITION BY Category, Setting, ISNULL(SubjectKey, N''), ISNULL(ValueText, N'') COLLATE Latin1_General_100_BIN2
+        ORDER BY ValueNumeric) AS ValueOccurrence
     FROM #RemoteSnapshot
 ),
-/* Repeated keys represent multisets (for example, repeated plan warnings).
-   Pair sorted occurrences once each; never produce an N-by-N cross product.
-   Avoid NodeId keys: operator numbers need not match across different plans. */
+/* Cancel identical occurrences before pairing the remaining values. Deleting
+   the first warning must not shift all subsequent, unchanged warnings. */
+local_rows AS (
+    SELECT l.*, ROW_NUMBER() OVER (
+        PARTITION BY Category, Setting, ISNULL(SubjectKey, N'')
+        ORDER BY ValueText COLLATE Latin1_General_100_BIN2, ValueNumeric) AS Occurrence
+    FROM local_values l
+    WHERE NOT EXISTS (
+        SELECT 1 FROM remote_values r
+        WHERE r.Category = l.Category AND r.Setting = l.Setting
+          AND ISNULL(r.SubjectKey, N'') = ISNULL(l.SubjectKey, N'')
+          AND ISNULL(r.ValueText, N'') COLLATE Latin1_General_100_BIN2 = ISNULL(l.ValueText, N'') COLLATE Latin1_General_100_BIN2
+          AND r.ValueOccurrence = l.ValueOccurrence)
+),
+remote_rows AS (
+    SELECT r.*, ROW_NUMBER() OVER (
+        PARTITION BY Category, Setting, ISNULL(SubjectKey, N'')
+        ORDER BY ValueText COLLATE Latin1_General_100_BIN2, ValueNumeric) AS Occurrence
+    FROM remote_values r
+    WHERE NOT EXISTS (
+        SELECT 1 FROM local_values l
+        WHERE r.Category = l.Category AND r.Setting = l.Setting
+          AND ISNULL(r.SubjectKey, N'') = ISNULL(l.SubjectKey, N'')
+          AND ISNULL(r.ValueText, N'') COLLATE Latin1_General_100_BIN2 = ISNULL(l.ValueText, N'') COLLATE Latin1_General_100_BIN2
+          AND r.ValueOccurrence = l.ValueOccurrence)
+),
 paired AS (
     SELECT COALESCE(l.Category,   r.Category)   AS Category,
            COALESCE(l.Setting,    r.Setting)    AS Setting,
