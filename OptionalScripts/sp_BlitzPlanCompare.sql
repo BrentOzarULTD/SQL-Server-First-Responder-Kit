@@ -261,7 +261,7 @@ END;
 
 IF @LinkedServer IS NOT NULL
 BEGIN
-    IF @EngineEdition IN (5, 8)
+    IF @EngineEdition IN (5, 6, 11)
     BEGIN
         RAISERROR('Linked servers are not supported on Azure SQL DB or Synapse. Use @CompareToXML mode instead.', 16, 1);
         RETURN;
@@ -338,7 +338,7 @@ BEGIN
         SET @DatabaseName = @StoredProcDatabaseName;
 
     /* Azure SQL DB can't do cross-DB OBJECT_ID lookups. Reject mismatches early. */
-    IF @EngineEdition IN (5, 8)
+    IF @EngineEdition IN (5, 6, 11)
        AND @DatabaseName IS NOT NULL
        AND @DatabaseName <> @CurrentDbName
     BEGIN
@@ -918,8 +918,8 @@ SELECT 'Hardware', 'CPUCount',           NULL, CAST(cpu_count            AS NVAR
 SELECT 'Hardware', 'SchedulerCount',     NULL, CAST(scheduler_count      AS NVARCHAR(20)), CAST(scheduler_count      AS DECIMAL(38,4)) FROM sys.dm_os_sys_info UNION ALL
 SELECT 'Hardware', 'HyperthreadRatio',   NULL, CAST(hyperthread_ratio    AS NVARCHAR(20)), CAST(hyperthread_ratio    AS DECIMAL(38,4)) FROM sys.dm_os_sys_info;
 
-/* physical_memory_kb is unreliable on Azure SQL DB. Skip it on EngineEdition 5/8. */
-IF @EngineEdition NOT IN (5, 8)
+/* physical_memory_kb is unreliable on Azure SQL DB. Skip it on SQL Database / Synapse. */
+IF @EngineEdition NOT IN (5, 6, 11)
 BEGIN
     INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText, ValueNumeric)
     SELECT 'Hardware', 'PhysicalMemoryKB', NULL, CAST(physical_memory_kb AS NVARCHAR(40)), CAST(physical_memory_kb AS DECIMAL(38,4))
@@ -957,7 +957,7 @@ BEGIN CATCH
 END CATCH;
 
 /* ----- Category: TraceFlag ----- */
-IF @EngineEdition IN (2, 3, 4, 6)  /* Box product or Managed Instance */
+IF @EngineEdition IN (2, 3, 4, 8)  /* Box product or Managed Instance */
 BEGIN
     IF OBJECT_ID('tempdb..#TraceFlags') IS NOT NULL DROP TABLE #TraceFlags;
     CREATE TABLE #TraceFlags (
@@ -991,7 +991,7 @@ END;
    Azure SQL DB note: sessions are bound to one user database, and USE [otherDb] raises an error.
    For any plan-referenced DB that isn't the current DB on Azure SQL DB / Synapse, emit a warning
    row and remove it from the iteration so we don't blow up trying to USE it. */
-IF @EngineEdition IN (5, 8)
+IF @EngineEdition IN (5, 6, 11)
 BEGIN
     INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText)
     SELECT DISTINCT 'Database', '_unreadable_', po.DatabaseName,
