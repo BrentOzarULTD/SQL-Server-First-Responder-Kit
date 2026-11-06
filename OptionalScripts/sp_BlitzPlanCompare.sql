@@ -439,7 +439,9 @@ BEGIN
     SELECT DISTINCT qs.plan_handle
     FROM sys.dm_exec_query_stats qs
     CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st
-    WHERE st.objectid = @ResolvedProcObjectId AND st.dbid = DB_ID(@DatabaseName);
+    WHERE st.objectid = @ResolvedProcObjectId AND st.dbid = DB_ID(@DatabaseName)
+      AND (@QueryPlanHash IS NULL OR qs.query_plan_hash = @QueryPlanHash)
+      AND (@QueryHash IS NULL OR qs.query_hash = @QueryHash);
 END;
 
 /* Build the WHERE clause from whichever identifiers the user supplied. AND-combined.
