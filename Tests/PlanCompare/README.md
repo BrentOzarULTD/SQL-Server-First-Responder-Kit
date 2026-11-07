@@ -1,6 +1,6 @@
 # sp_BlitzPlanCompare manual regressions
 
-These scripts are manual SQL Server 2022 integration tests; the existing GitHub
+These scripts are manual SQL Server 2022/2025 integration tests; the existing GitHub
 smoke workflows do not invoke them. Run only against a disposable instance:
 the helper installs the procedure in master, and tests create their own databases.
 
@@ -23,4 +23,9 @@ done
 ~~~
 
 The linked-server and database-scope regressions require two disposable SQL Server
-2022 instances. Their module docstrings list the remote connection variables.
+instances. Their module docstrings list the remote connection variables. Both
+connections use FRK_TEST_USER and FRK_TEST_PASSWORD. Set FRK_TEST_LINKED_SERVER
+to an existing link with RPC OUT to test that configuration without changing or
+dropping the link. Otherwise the tests create and remove their own temporary link.
+Do not run multiple test scripts concurrently against the same server: they install
+(and some temporarily replace) the procedure in master.
