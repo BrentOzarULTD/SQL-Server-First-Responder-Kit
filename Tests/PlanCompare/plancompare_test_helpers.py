@@ -7,6 +7,7 @@ then run a plancompare regression from the repository root. Default server is
 import os
 import re
 from pathlib import Path
+from contextlib import contextmanager
 from xml.etree import ElementTree as ET
 import pymssql
 
@@ -93,3 +94,24 @@ class Database:
                 execute(self.admin, 'ALTER DATABASE ['+self.name+'] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE ['+self.name+'];')
         finally:
             self.admin.close()
+
+
+@contextmanager
+def linked_server(admin, temporary_name):
+    """Reuse FRK_TEST_LINKED_SERVER or own a temporary link for two-instance tests."""
+    existing = os.environ.get('FRK_TEST_LINKED_SERVER')
+    if existing:
+        found = execute(admin, 'SELECT is_rpc_out_enabled FROM sys.servers WHERE name=%s', (existing,))[0]
+        assert len(found) == 1 and found[0]['is_rpc_out_enabled'], 'Existing test link must have RPC OUT enabled'
+        yield existing
+        return
+    execute(admin, "EXEC sys.sp_addlinkedserver @server=%s,@srvproduct=N'',@provider=N'MSOLEDBSQL',@datasrc=%s,@provstr=N'TrustServerCertificate=yes';",
+            (temporary_name, os.environ.get('FRK_TEST_REMOTE_DATASOURCE', 'frk-plancompare-remote')))
+    try:
+        execute(admin, "EXEC sys.sp_addlinkedsrvlogin @rmtsrvname=%s,@useself=N'False',@rmtuser=%s,@rmtpassword=%s",
+                (temporary_name, os.environ.get('FRK_TEST_USER', 'sa'), os.environ['FRK_TEST_PASSWORD']))
+        execute(admin, "EXEC sys.sp_serveroption @server=%s,@optname=N'rpc out',@optvalue=N'true';", (temporary_name,))
+        execute(admin, "EXEC sys.sp_serveroption @server=%s,@optname=N'remote proc transaction promotion',@optvalue=N'false';", (temporary_name,))
+        yield temporary_name
+    finally:
+        execute(admin, "EXEC sys.sp_dropserver @server=%s,@droplogins=N'droplogins';", (temporary_name,))

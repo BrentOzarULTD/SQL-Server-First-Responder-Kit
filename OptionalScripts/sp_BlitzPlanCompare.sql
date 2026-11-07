@@ -439,6 +439,8 @@ CREATE TABLE #PlanMatches (
     creation_time         DATETIME      NULL,
     last_execution_time   DATETIME      NULL,
     execution_count       BIGINT        NULL,
+    last_worker_time      BIGINT        NULL, /* microseconds, from the selected statement DMV row */
+    last_elapsed_time     BIGINT        NULL,
     database_name         SYSNAME       NULL,
     set_options           INT           NULL,
     query_text_snippet    NVARCHAR(500) NULL,
@@ -493,7 +495,7 @@ IF @DatabaseName IS NOT NULL
 
 DECLARE @PlanLookupSql NVARCHAR(MAX) = N'
 INSERT INTO #PlanMatches (plan_handle, sql_handle, statement_start_offset, statement_end_offset,
-                          creation_time, last_execution_time, execution_count,
+                          creation_time, last_execution_time, execution_count, last_worker_time, last_elapsed_time,
                           database_name, set_options, query_text_snippet,
                           query_plan_full, query_plan_actual, plan_source,
                           query_plan_hash, query_hash)
@@ -504,6 +506,8 @@ SELECT  qs.plan_handle,
         qs.creation_time,
         qs.last_execution_time,
         qs.execution_count,
+        qs.last_worker_time,
+        qs.last_elapsed_time,
         DB_NAME(CONVERT(INT, pa_db.value)),
         CONVERT(INT, pa_set.value),
         SUBSTRING(st.text,
@@ -866,10 +870,10 @@ UNION ALL SELECT 'MaxCompileMemory',
 INSERT INTO #PlanAttributes (AttributeName, AttributeValue) VALUES ('PlanSource', @PlanSource);
 
 /* =====================================================================
-   Runtime totals from the actual plan (LAST_QUERY_PLAN_STATS).
-   We compare TOTALS only (not per-operator stats), since operator layouts differ
-   between plans. These come from @PlanXmlForEmit (the actual plan if present, else
-   the full estimated - in which case these XPaths return NULL and get filtered). */
+   Runtime totals for the selected statement. CPU and elapsed time come from
+   dm_exec_query_stats, including when only an estimated plan is available.
+   Actual-plan-specific counters come from @PlanXmlForEmit; absent attributes
+   return NULL and get filtered. Compare totals because operator layouts differ. */
 IF OBJECT_ID('tempdb..#PlanRuntime') IS NOT NULL DROP TABLE #PlanRuntime;
 CREATE TABLE #PlanRuntime (
     [Setting]    VARCHAR(100)   NOT NULL,
@@ -877,18 +881,18 @@ CREATE TABLE #PlanRuntime (
     ValueNumeric DECIMAL(38,4)  NULL
 );
 
-/* QueryTimeStats reports CPU and elapsed time in milliseconds, under their respective names. */
-;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+/* Cached QueryTimeStats timing attributes can be swapped or omit execution
+   waits on some builds. Use the last completed execution counters captured
+   with this exact plan handle and statement offsets, converting us to ms.
+   https://www.brentozar.com/archive/2026/04/theres-a-bug-in-sys-dm_exec_query_plan_stats/ */
 INSERT INTO #PlanRuntime ([Setting], ValueText, ValueNumeric)
-SELECT 'ElapsedTimeMs', CAST(v AS NVARCHAR(40)), v
-FROM (SELECT @PlanXmlForEmit.value('(//p:QueryTimeStats/@ElapsedTime)[1]', 'BIGINT') AS v) x
-WHERE v IS NOT NULL;
-
-;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-INSERT INTO #PlanRuntime ([Setting], ValueText, ValueNumeric)
-SELECT 'CpuTimeMs', CAST(v AS NVARCHAR(40)), v
-FROM (SELECT @PlanXmlForEmit.value('(//p:QueryTimeStats/@CpuTime)[1]', 'BIGINT') AS v) x
-WHERE v IS NOT NULL;
+SELECT v.Setting, CONVERT(NVARCHAR(40), v.Milliseconds), v.Milliseconds
+FROM #PlanMatches AS pm
+CROSS APPLY (VALUES
+    ('ElapsedTimeMs', CONVERT(DECIMAL(38,4), pm.last_elapsed_time / 1000.0)),
+    ('CpuTimeMs', CONVERT(DECIMAL(38,4), pm.last_worker_time / 1000.0))
+) AS v(Setting, Milliseconds)
+WHERE v.Milliseconds IS NOT NULL;
 
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT INTO #PlanRuntime ([Setting], ValueText, ValueNumeric)
