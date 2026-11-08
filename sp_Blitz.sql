@@ -235,9 +235,7 @@ BEGIN
 			,@SkipXPFixedDrives bit = 0
 			,@SkipXPCMDShell bit = 0
 			,@SkipMaster bit = 0
-			,@SkipMSDB_objs bit = 0
-            ,@SkipMSDB_jobs bit = 0
-			,@SkipModel bit = 0
+            ,@PermissionObjectName NVARCHAR(776)
 			,@SkipTempDB bit = 0
 			,@SkipValidateLogins bit = 0
       ,@SkipGetAlertInfo bit = 0
@@ -258,10 +256,18 @@ BEGIN
             SELECT
                 database_name =
 				    DB_NAME(d.database_id),
-                fmp.permission_name
+                permission_name = N'SELECT'
             FROM sys.databases AS d
-            CROSS APPLY fn_my_permissions(d.name, 'DATABASE') AS fmp
-            WHERE fmp.permission_name = N'SELECT'; /*Databases where we don't have read permissions*/
+            /* fn_my_permissions evaluates DATABASE permissions in the current database.
+               HAS_PERMS_BY_NAME can evaluate the named database from here. #4194 */
+            WHERE HAS_PERMS_BY_NAME(d.name, N'DATABASE', N'SELECT') = 1;
+
+            DECLARE @CheckReadPermissions TABLE
+            (
+                CheckID INT NOT NULL,
+                ObjectName NVARCHAR(776) NOT NULL,
+                CanSelect BIT NOT NULL DEFAULT (0)
+            );
             
             /* End of declarations for First Responder Kit consistency check:*/
         ;
@@ -381,113 +387,75 @@ BEGIN
 			    SET @SkipGetAlertInfo = 1;
 			END; /*Need execute on sp_MSgetalertinfo*/
 
-			IF ISNULL(@SkipModel, 0) != 1 /*If @SkipModel hasn't been set to 1 by the caller*/
-			BEGIN
-				IF EXISTS
-            	(
-            	    SELECT 1/0
-            	    FROM @db_perms
-            	    WHERE database_name = N'model'
-            	)
-            	BEGIN
-            	    BEGIN TRY
-            	        /* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
-            	        SET @CrossDBExists = 0;
-            	        IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
-            	        BEGIN
-            	        EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS (
-            	            SELECT 1/0
-            	            FROM model.sys.objects
-            	        );',
-            	            N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
-            	        END;
+            /* These checks read specific objects, so database-wide SELECT is not
+               a prerequisite. Keep each check disabled until all of its reads succeed.
+               Probe empty tables too: the presence of rows is not a permission test. */
+            INSERT @CheckReadPermissions (CheckID, ObjectName)
+            VALUES
+                (28, N'[msdb].[sys].[tables]'),
+                (29, N'[model].[sys].[tables]'),
+                (6, N'[msdb].[dbo].[sysjobs]'),
+                (57, N'[msdb].[dbo].[sysjobs]'),
+                (57, N'[msdb].[dbo].[sysjobschedules]'),
+                (57, N'[msdb].[dbo].[sysschedules]'),
+                (79, N'[msdb].[dbo].[sysjobs]'),
+                (79, N'[msdb].[dbo].[sysjobsteps]'),
+                (79, N'[msdb].[dbo].[sysjobschedules]'),
+                (79, N'[msdb].[dbo].[sysschedules]'),
+                (79, N'[msdb].[dbo].[sysjobhistory]'),
+                (94, N'[msdb].[dbo].[sysjobs]'),
+                (94, N'[msdb].[dbo].[sysjobhistory]'),
+                (123, N'[msdb].[dbo].[sysjobactivity]'),
+                (180, N'[msdb].[dbo].[sysssispackages]'),
+                (180, N'[msdb].[dbo].[sysmaintplan_subplans]'),
+                (180, N'[msdb].[dbo].[sysjobs]'),
+                (180, N'[msdb].[dbo].[sysjobsteps]'),
+                (180, N'[msdb].[dbo].[sysjobschedules]'),
+                (180, N'[msdb].[dbo].[sysschedules]'),
+                (180, N'[msdb].[dbo].[sysjobhistory]'),
+                (181, N'[msdb].[dbo].[sysssispackages]'),
+                (30, N'[msdb].[dbo].[sysalerts]'),
+                (59, N'[msdb].[dbo].[sysalerts]'),
+                (61, N'[msdb].[dbo].[sysalerts]'),
+                (96, N'[msdb].[dbo].[sysalerts]'),
+                (98, N'[msdb].[dbo].[sysalerts]'),
+                (219, N'[msdb].[dbo].[sysalerts]'),
+                (31, N'[msdb].[dbo].[sysoperators]');
 
-            	        IF (@CrossDBExists = 1)
-            	        BEGIN
-                            SET @SkipModel = 0; /*We have read permissions in the model database, and can view the objects*/
-            	        END;
-            	    END TRY
-            	    BEGIN CATCH
-            	        SET @SkipModel = 1; /*We have read permissions in the model database ... oh wait we got tricked, we can't view the objects*/
-            	    END CATCH;
-            	END;
-            	ELSE
-            	BEGIN
-            	    SET @SkipModel = 1; /*We don't have read permissions in the model database*/
-            	END;
-			END;
+            /* Cross-database names stay dynamic for Azure SQL DB compilation. #4040 */
+            IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5
+            BEGIN
+                DECLARE CheckReadPermissionsCursor CURSOR LOCAL FAST_FORWARD FOR
+                    SELECT DISTINCT ObjectName
+                    FROM @CheckReadPermissions;
 
-			IF ISNULL(@SkipMSDB_objs, 0) != 1 /*If @SkipMSDB_objs hasn't been set to 1 by the caller*/
-			BEGIN
-				IF EXISTS
-				(
-					SELECT	1/0
-            	    FROM	@db_perms
-            	    WHERE	database_name = N'msdb'
-				)
-				BEGIN
-					BEGIN TRY
-						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
-						SET @CrossDBExists = 0;
-						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
-						BEGIN
-						EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS (
-            	            SELECT	1/0
-            	            FROM	msdb.sys.objects
-						);',
-						    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
-						END;
+                OPEN CheckReadPermissionsCursor;
+                FETCH NEXT FROM CheckReadPermissionsCursor INTO @PermissionObjectName;
 
-						IF (@CrossDBExists = 1)
-						BEGIN
-							SET @SkipMSDB_objs = 0; /*We have read permissions in the msdb database, and can view the objects*/
-						END;
-					END TRY
-					BEGIN CATCH
-						SET @SkipMSDB_objs = 1; /*We have read permissions in the msdb database ... oh wait we got tricked, we can't view the objects*/
-					END CATCH;
-				END;
-				ELSE
-				BEGIN
-					SET @SkipMSDB_objs = 1; /*We don't have read permissions in the msdb database*/
-				END;
-			END;
+                WHILE @@FETCH_STATUS = 0
+                BEGIN
+                    BEGIN TRY
+                        SET @StringToExecute = N'SELECT TOP (0) @r = 1 FROM ' + @PermissionObjectName + N';';
+                        EXEC sys.sp_executesql @StringToExecute,
+                            N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
 
-            IF ISNULL(@SkipMSDB_jobs, 0) != 1 /*If @SkipMSDB_jobs hasn't been set to 1 by the caller*/
-			BEGIN
-				IF EXISTS
-				(
-					SELECT	1/0
-            	    FROM	@db_perms
-            	    WHERE	database_name = N'msdb'
-				)
-				BEGIN
-					BEGIN TRY
-						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
-						SET @CrossDBExists = 0;
-						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
-						BEGIN
-						EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS (
-            	            SELECT	1/0
-            	            FROM	msdb.dbo.sysjobs
-						);',
-						    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
-						END;
+                        UPDATE @CheckReadPermissions
+                        SET CanSelect = 1
+                        WHERE ObjectName = @PermissionObjectName;
+                    END TRY
+                    BEGIN CATCH
+                        /* Leave checks requiring this object disabled on a failed read. */
+                        UPDATE @CheckReadPermissions
+                        SET CanSelect = 0
+                        WHERE ObjectName = @PermissionObjectName;
+                    END CATCH;
 
-						IF (@CrossDBExists = 1)
-						BEGIN
-							SET @SkipMSDB_jobs = 0; /*We have read permissions in the msdb database, and can view the objects*/
-						END;
-					END TRY
-					BEGIN CATCH
-						SET @SkipMSDB_jobs = 1; /*We have read permissions in the msdb database ... oh wait we got tricked, we can't view the objects*/
-					END CATCH;
-				END;
-				ELSE
-				BEGIN
-					SET @SkipMSDB_jobs = 1; /*We don't have read permissions in the msdb database*/
-				END;
-			END;
+                    FETCH NEXT FROM CheckReadPermissionsCursor INTO @PermissionObjectName;
+                END;
+
+                CLOSE CheckReadPermissionsCursor;
+                DEALLOCATE CheckReadPermissionsCursor;
+            END;
 		END;
 
 		SET @crlf = NCHAR(13) + NCHAR(10);
@@ -637,44 +605,11 @@ BEGIN
 			WHERE dp.database_name = DB_NAME(d.database_id)
 		);
 
-		/*Skip individual checks where we don't have permissions*/
-        INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
-        SELECT
-            v.*
-        FROM (VALUES(NULL, 29, NULL)) AS v (DatabaseName, CheckID, ServerName) /*Looks for user tables in model*/
-        WHERE @SkipModel = 1;
-
-		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
-		SELECT
-			v.*
-		FROM (VALUES(NULL,  28, NULL)) AS v (DatabaseName, CheckID, ServerName) /*Tables in the MSDB Database*/
-		WHERE @SkipMSDB_objs = 1;
-
-        INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
-		SELECT
-			v.*
-		FROM (VALUES
-					/*sysjobs checks*/
-					(NULL,   6, NULL), /*Jobs Owned By Users*/
-					(NULL,  57, NULL), /*SQL Agent Job Runs at Startup*/
-					(NULL,  79, NULL), /*Shrink Database Job*/
-					(NULL,  94, NULL), /*Agent Jobs Without Failure Emails*/
-					(NULL, 123, NULL), /*Agent Jobs Starting Simultaneously*/
-					(NULL, 180, NULL), /*Shrink Database Step In Maintenance Plan*/
-					(NULL, 181, NULL), /*Repetitive Maintenance Tasks*/
-					
-					/*sysalerts checks*/
-					(NULL,  30, NULL), /*Not All Alerts Configured*/
-					(NULL,  59, NULL), /*Alerts Configured without Follow Up*/
-                    (NULL,  61, NULL), /*No Alerts for Sev 19-25*/
-					(NULL,  96, NULL), /*No Alerts for Corruption*/
-					(NULL,  98, NULL), /*Alerts Disabled*/
-					(NULL, 219, NULL), /*Alerts Without Event Descriptions*/
-
-					/*sysoperators*/
-					(NULL,  31, NULL)  /*No Operators Configured/Enabled*/
-            ) AS v (DatabaseName, CheckID, ServerName)
-		WHERE @SkipMSDB_jobs = 1;
+        /* Skip only checks whose required object reads failed. #4194 */
+        INSERT #SkipChecks (CheckID)
+        SELECT DISTINCT CheckID
+        FROM @CheckReadPermissions
+        WHERE CanSelect = 0;
 
 		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
 		SELECT
