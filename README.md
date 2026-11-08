@@ -68,7 +68,7 @@ There are a couple of Install-Core scripts included for legacy purposes, for fol
 
 ## Permissions Required
 
-After installing the kit, run this as sysadmin. Replace `UserLogin` with the existing server login and `DatabaseUser` with its database user name. They can be the same name; if the login already has a user in the kit database, use that user's existing name.
+After installing the kit, run this as sysadmin, replacing `UserLogin` with the existing login that will run the tools. The script finds its database user automatically.
 
 ```sql
 USE master;
@@ -81,25 +81,34 @@ GRANT VIEW ANY DEFINITION TO [UserLogin];
 -- other than master, uncomment this and enter that database's name:
 -- USE [KitDatabase];
 
-IF USER_ID(N'DatabaseUser') IS NULL
-    CREATE USER [DatabaseUser] FOR LOGIN [UserLogin];
+-- Reuse the user mapped to this login, even if its name differs.
+DECLARE @KitUser sysname =
+    (SELECT name FROM sys.database_principals
+     WHERE sid = SUSER_SID(N'UserLogin') AND type IN ('S', 'U', 'G', 'E', 'X'));
 
--- Stop if this database user belongs to a different login.
-IF NOT EXISTS (SELECT 1 FROM sys.database_principals
-               WHERE name = N'DatabaseUser'
-                 AND sid = SUSER_SID(N'UserLogin'))
-    THROW 50000, 'DatabaseUser is not mapped to UserLogin. Check both names.', 1;
+IF @KitUser IS NULL
+BEGIN
+    IF USER_ID(N'UserLogin') IS NOT NULL
+        THROW 50000, 'This database user name belongs to another login. No procedure permissions were granted.', 1;
+    CREATE USER [UserLogin] FOR LOGIN [UserLogin];
+    SET @KitUser = N'UserLogin';
+END;
 
-GRANT EXECUTE ON dbo.sp_Blitz TO [DatabaseUser];
-GRANT EXECUTE ON dbo.sp_BlitzAnalysis TO [DatabaseUser];
-GRANT EXECUTE ON dbo.sp_BlitzBackups TO [DatabaseUser];
-GRANT EXECUTE ON dbo.sp_BlitzCache TO [DatabaseUser];
-GRANT EXECUTE ON dbo.sp_BlitzFirst TO [DatabaseUser];
-GRANT EXECUTE ON dbo.sp_BlitzIndex TO [DatabaseUser];
-GRANT EXECUTE ON dbo.sp_BlitzLock TO [DatabaseUser];
-GRANT EXECUTE ON dbo.sp_BlitzWho TO [DatabaseUser];
-GRANT EXECUTE ON dbo.sp_DatabaseRestore TO [DatabaseUser];
-GRANT EXECUTE ON dbo.sp_ineachdb TO [DatabaseUser];
+-- The database owner already has these permissions.
+IF @KitUser = N'dbo' RETURN;
+
+DECLARE @Grants nvarchar(max) =
+    N'GRANT EXECUTE ON dbo.sp_Blitz TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_BlitzAnalysis TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_BlitzBackups TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_BlitzCache TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_BlitzFirst TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_BlitzIndex TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_BlitzLock TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_BlitzWho TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_DatabaseRestore TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_ineachdb TO ' + QUOTENAME(@KitUser) + N';';
+EXEC sys.sp_executesql @Grants;
 ```
 
 **Run it once per server.** It covers current and future databases; no per-database setup is needed.
