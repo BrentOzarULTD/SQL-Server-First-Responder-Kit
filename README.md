@@ -8,6 +8,7 @@
 
 Navigation
  - [How to Install the Scripts](#how-to-install-the-scripts)
+ - [Permissions Required](#permissions-required)
  - [How to Get Support](#how-to-get-support)
  - Common Scripts:
    - [sp_Blitz: Overall Health Check](#sp_blitz-overall-health-check)
@@ -63,6 +64,67 @@ If you hit an error when running Install-All-Scripts, it's likely because you're
 We recommend installing these stored procedures in the master database, but if you want to use another one, that's totally fine - they're all supported in any database - but just be aware that you can run into problems if you have these procs in multiple databases. You may not keep them all up to date, and you may hit an issue when you're running an older version.
 
 There are a couple of Install-Core scripts included for legacy purposes, for folks with installers they've built. You can ignore those.
+
+
+## Permissions Required
+
+After installing the kit, run this as sysadmin, replacing `UserLogin` with the existing login that will run the tools. The script finds its database user automatically.
+
+```sql
+USE master;
+
+GRANT VIEW SERVER STATE TO [UserLogin];
+GRANT CONNECT ANY DATABASE TO [UserLogin];
+GRANT VIEW ANY DEFINITION TO [UserLogin];
+
+-- If you installed the First Responder Kit scripts in a database
+-- other than master, uncomment this and enter that database's name:
+-- USE [KitDatabase];
+
+-- Reuse the user mapped to this login, even if its name differs.
+DECLARE @KitUser sysname =
+    (SELECT name FROM sys.database_principals
+     WHERE sid = SUSER_SID(N'UserLogin') AND type IN ('S', 'U', 'G', 'E', 'X'));
+
+IF @KitUser IS NULL
+BEGIN
+    IF USER_ID(N'UserLogin') IS NOT NULL
+        THROW 50000, 'This database user name belongs to another login. No procedure permissions were granted.', 1;
+    CREATE USER [UserLogin] FOR LOGIN [UserLogin];
+    SET @KitUser = N'UserLogin';
+END;
+
+-- The database owner already has these permissions.
+IF @KitUser = N'dbo' RETURN;
+
+DECLARE @Grants nvarchar(max) =
+    N'GRANT EXECUTE ON dbo.sp_Blitz TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_BlitzAnalysis TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_BlitzBackups TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_BlitzCache TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_BlitzFirst TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_BlitzIndex TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_BlitzLock TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_BlitzWho TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_DatabaseRestore TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_ineachdb TO ' + QUOTENAME(@KitUser) + N';';
+EXEC sys.sp_executesql @Grants;
+```
+
+**Run it once per server.** It covers current and future databases; no per-database setup is needed.
+
+This enables most troubleshooting without making the login sysadmin. Some `sp_Blitz` checks still require sysadmin. Detailed statistics need table-read permissions, saving results needs write permissions, and administrative actions such as restoring databases require additional permissions.
+
+**What permissions this grants:**
+
+- **Connect to every database**, including databases created later.
+- **See server activity**, including other users’ query text, execution plans, and performance statistics.
+- **View object definitions**, including table structures, indexes, and stored procedure code.
+- **Run the listed kit procedures**, subject to any additional permissions their actions require.
+
+These grants do not make the login sysadmin or give it general permission to read or change the data stored in tables.
+
+[*Back to top*](#header1)
 
 
 ## How to Get Support
