@@ -8,6 +8,7 @@
 
 Navigation
  - [How to Install the Scripts](#how-to-install-the-scripts)
+ - [Permissions Required](#permissions-required)
  - [How to Get Support](#how-to-get-support)
  - Common Scripts:
    - [sp_Blitz: Overall Health Check](#sp_blitz-overall-health-check)
@@ -63,6 +64,52 @@ If you hit an error when running Install-All-Scripts, it's likely because you're
 We recommend installing these stored procedures in the master database, but if you want to use another one, that's totally fine - they're all supported in any database - but just be aware that you can run into problems if you have these procs in multiple databases. You may not keep them all up to date, and you may hit an issue when you're running an older version.
 
 There are a couple of Install-Core scripts included for legacy purposes, for folks with installers they've built. You can ignore those.
+
+
+## Permissions Required
+
+After installing the kit, run this as sysadmin, replacing `UserLogin` with the existing login that will run the tools:
+
+```sql
+USE master;
+
+GRANT VIEW SERVER STATE TO [UserLogin];
+GRANT CONNECT ANY DATABASE TO [UserLogin];
+GRANT VIEW ANY DEFINITION TO [UserLogin];
+
+-- If you installed the First Responder Kit scripts in a database
+-- other than master, uncomment this and enter that database's name:
+-- USE [KitDatabase];
+
+IF USER_ID(N'UserLogin') IS NULL
+    CREATE USER [UserLogin] FOR LOGIN [UserLogin];
+
+GRANT EXECUTE ON dbo.sp_Blitz TO [UserLogin];
+GRANT EXECUTE ON dbo.sp_BlitzAnalysis TO [UserLogin];
+GRANT EXECUTE ON dbo.sp_BlitzBackups TO [UserLogin];
+GRANT EXECUTE ON dbo.sp_BlitzCache TO [UserLogin];
+GRANT EXECUTE ON dbo.sp_BlitzFirst TO [UserLogin];
+GRANT EXECUTE ON dbo.sp_BlitzIndex TO [UserLogin];
+GRANT EXECUTE ON dbo.sp_BlitzLock TO [UserLogin];
+GRANT EXECUTE ON dbo.sp_BlitzWho TO [UserLogin];
+GRANT EXECUTE ON dbo.sp_DatabaseRestore TO [UserLogin];
+GRANT EXECUTE ON dbo.sp_ineachdb TO [UserLogin];
+```
+
+**Run it once per server.** It covers current and future databases; no per-database setup is needed.
+
+This enables most troubleshooting without making the login sysadmin. Some `sp_Blitz` checks still require sysadmin. Detailed statistics need table-read permissions, saving results needs write permissions, and administrative actions such as restoring databases require additional permissions.
+
+**What permissions this grants:**
+
+- **Connect to every database**, including databases created later.
+- **See server activity**, including other users’ query text, execution plans, and performance statistics.
+- **View object definitions**, including table structures, indexes, and stored procedure code.
+- **Run the listed kit procedures**, subject to any additional permissions their actions require.
+
+These grants do not make the login sysadmin or give it general permission to read or change the data stored in tables.
+
+[*Back to top*](#header1)
 
 
 ## How to Get Support
