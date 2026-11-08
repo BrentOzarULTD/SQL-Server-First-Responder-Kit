@@ -68,7 +68,7 @@ There are a couple of Install-Core scripts included for legacy purposes, for fol
 
 ## Permissions Required
 
-After installing the kit, run this as sysadmin, replacing `UserLogin` with the existing login that will run the tools:
+After installing the kit, run this as sysadmin. Replace `UserLogin` with the existing server login and `DatabaseUser` with its database user name. They can be the same name; if the login already has a user in the kit database, use that user's existing name.
 
 ```sql
 USE master;
@@ -81,19 +81,25 @@ GRANT VIEW ANY DEFINITION TO [UserLogin];
 -- other than master, uncomment this and enter that database's name:
 -- USE [KitDatabase];
 
-IF USER_ID(N'UserLogin') IS NULL
-    CREATE USER [UserLogin] FOR LOGIN [UserLogin];
+IF USER_ID(N'DatabaseUser') IS NULL
+    CREATE USER [DatabaseUser] FOR LOGIN [UserLogin];
 
-GRANT EXECUTE ON dbo.sp_Blitz TO [UserLogin];
-GRANT EXECUTE ON dbo.sp_BlitzAnalysis TO [UserLogin];
-GRANT EXECUTE ON dbo.sp_BlitzBackups TO [UserLogin];
-GRANT EXECUTE ON dbo.sp_BlitzCache TO [UserLogin];
-GRANT EXECUTE ON dbo.sp_BlitzFirst TO [UserLogin];
-GRANT EXECUTE ON dbo.sp_BlitzIndex TO [UserLogin];
-GRANT EXECUTE ON dbo.sp_BlitzLock TO [UserLogin];
-GRANT EXECUTE ON dbo.sp_BlitzWho TO [UserLogin];
-GRANT EXECUTE ON dbo.sp_DatabaseRestore TO [UserLogin];
-GRANT EXECUTE ON dbo.sp_ineachdb TO [UserLogin];
+-- Stop if this database user belongs to a different login.
+IF NOT EXISTS (SELECT 1 FROM sys.database_principals
+               WHERE name = N'DatabaseUser'
+                 AND sid = SUSER_SID(N'UserLogin'))
+    THROW 50000, 'DatabaseUser is not mapped to UserLogin. Check both names.', 1;
+
+GRANT EXECUTE ON dbo.sp_Blitz TO [DatabaseUser];
+GRANT EXECUTE ON dbo.sp_BlitzAnalysis TO [DatabaseUser];
+GRANT EXECUTE ON dbo.sp_BlitzBackups TO [DatabaseUser];
+GRANT EXECUTE ON dbo.sp_BlitzCache TO [DatabaseUser];
+GRANT EXECUTE ON dbo.sp_BlitzFirst TO [DatabaseUser];
+GRANT EXECUTE ON dbo.sp_BlitzIndex TO [DatabaseUser];
+GRANT EXECUTE ON dbo.sp_BlitzLock TO [DatabaseUser];
+GRANT EXECUTE ON dbo.sp_BlitzWho TO [DatabaseUser];
+GRANT EXECUTE ON dbo.sp_DatabaseRestore TO [DatabaseUser];
+GRANT EXECUTE ON dbo.sp_ineachdb TO [DatabaseUser];
 ```
 
 **Run it once per server.** It covers current and future databases; no per-database setup is needed.
