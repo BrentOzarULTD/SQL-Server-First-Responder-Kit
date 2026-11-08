@@ -236,6 +236,7 @@ BEGIN
 			,@SkipXPCMDShell bit = 0
 			,@SkipMaster bit = 0
             ,@PermissionObjectName NVARCHAR(776)
+            ,@PermissionColumnList NVARCHAR(1000)
 			,@SkipTempDB bit = 0
 			,@SkipValidateLogins bit = 0
       ,@SkipGetAlertInfo bit = 0
@@ -266,6 +267,7 @@ BEGIN
             (
                 CheckID INT NOT NULL,
                 ObjectName NVARCHAR(776) NOT NULL,
+                ColumnList NVARCHAR(1000) NOT NULL,
                 CanSelect BIT NOT NULL DEFAULT (0)
             );
             
@@ -390,67 +392,72 @@ BEGIN
             /* These checks read specific objects, so database-wide SELECT is not
                a prerequisite. Keep each check disabled until all of its reads succeed.
                Probe empty tables too: the presence of rows is not a permission test. */
-            INSERT @CheckReadPermissions (CheckID, ObjectName)
+            INSERT @CheckReadPermissions (CheckID, ObjectName, ColumnList)
             VALUES
-                (28, N'[msdb].[sys].[tables]'),
-                (29, N'[model].[sys].[tables]'),
-                (6, N'[msdb].[dbo].[sysjobs]'),
-                (57, N'[msdb].[dbo].[sysjobs]'),
-                (57, N'[msdb].[dbo].[sysjobschedules]'),
-                (57, N'[msdb].[dbo].[sysschedules]'),
-                (79, N'[msdb].[dbo].[sysjobs]'),
-                (79, N'[msdb].[dbo].[sysjobsteps]'),
-                (79, N'[msdb].[dbo].[sysjobschedules]'),
-                (79, N'[msdb].[dbo].[sysschedules]'),
-                (79, N'[msdb].[dbo].[sysjobhistory]'),
-                (94, N'[msdb].[dbo].[sysjobs]'),
-                (94, N'[msdb].[dbo].[sysjobhistory]'),
-                (123, N'[msdb].[dbo].[sysjobactivity]'),
-                (180, N'[msdb].[dbo].[sysssispackages]'),
-                (180, N'[msdb].[dbo].[sysmaintplan_subplans]'),
-                (180, N'[msdb].[dbo].[sysjobs]'),
-                (180, N'[msdb].[dbo].[sysjobsteps]'),
-                (180, N'[msdb].[dbo].[sysjobschedules]'),
-                (180, N'[msdb].[dbo].[sysschedules]'),
-                (180, N'[msdb].[dbo].[sysjobhistory]'),
-                (181, N'[msdb].[dbo].[sysssispackages]'),
-                (30, N'[msdb].[dbo].[sysalerts]'),
-                (59, N'[msdb].[dbo].[sysalerts]'),
-                (61, N'[msdb].[dbo].[sysalerts]'),
-                (96, N'[msdb].[dbo].[sysalerts]'),
-                (98, N'[msdb].[dbo].[sysalerts]'),
-                (219, N'[msdb].[dbo].[sysalerts]'),
-                (31, N'[msdb].[dbo].[sysoperators]');
+                (28, N'[msdb].[sys].[tables]', N'name, create_date, is_ms_shipped'),
+                (29, N'[model].[sys].[tables]', N'name, create_date, is_ms_shipped'),
+                (6, N'[msdb].[dbo].[sysjobs]', N'name, enabled, owner_sid'),
+                (57, N'[msdb].[dbo].[sysjobs]', N'job_id, name'),
+                (57, N'[msdb].[dbo].[sysjobschedules]', N'schedule_id, job_id'),
+                (57, N'[msdb].[dbo].[sysschedules]', N'schedule_id, freq_type, enabled'),
+                (79, N'[msdb].[dbo].[sysjobs]', N'job_id, name, enabled'),
+                (79, N'[msdb].[dbo].[sysjobsteps]', N'job_id, step_id, step_name, command'),
+                (79, N'[msdb].[dbo].[sysjobschedules]', N'job_id, schedule_id'),
+                (79, N'[msdb].[dbo].[sysschedules]', N'schedule_id, enabled, name'),
+                (79, N'[msdb].[dbo].[sysjobhistory]', N'job_id, step_id, run_date, run_time'),
+                (94, N'[msdb].[dbo].[sysjobs]', N'job_id, name, enabled, notify_email_operator_id, notify_netsend_operator_id, notify_page_operator_id, category_id'),
+                (94, N'[msdb].[dbo].[sysjobhistory]', N'instance_id, job_id, run_status, step_id, run_date, run_time'),
+                (123, N'[msdb].[dbo].[sysjobactivity]', N'start_execution_date'),
+                (180, N'[msdb].[dbo].[sysssispackages]', N'name, id, packagedata, packagetype'),
+                (180, N'[msdb].[dbo].[sysmaintplan_subplans]', N'plan_id, job_id'),
+                (180, N'[msdb].[dbo].[sysjobs]', N'job_id, enabled'),
+                (180, N'[msdb].[dbo].[sysjobsteps]', N'job_id, step_id'),
+                (180, N'[msdb].[dbo].[sysjobschedules]', N'job_id, schedule_id'),
+                (180, N'[msdb].[dbo].[sysschedules]', N'schedule_id, enabled, name'),
+                (180, N'[msdb].[dbo].[sysjobhistory]', N'job_id, step_id, run_date, run_time'),
+                (181, N'[msdb].[dbo].[sysssispackages]', N'name, packagedata, packagetype'),
+                (30, N'[msdb].[dbo].[sysalerts]', N'severity'),
+                (59, N'[msdb].[dbo].[sysalerts]', N'enabled, has_notification, job_id'),
+                (61, N'[msdb].[dbo].[sysalerts]', N'severity'),
+                (96, N'[msdb].[dbo].[sysalerts]', N'message_id'),
+                (98, N'[msdb].[dbo].[sysalerts]', N'name, enabled'),
+                (219, N'[msdb].[dbo].[sysalerts]', N'name, enabled, include_event_description'),
+                (31, N'[msdb].[dbo].[sysoperators]', N'enabled');
 
             /* Cross-database names stay dynamic for Azure SQL DB compilation. #4040 */
             IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5
             BEGIN
                 DECLARE CheckReadPermissionsCursor CURSOR LOCAL FAST_FORWARD FOR
-                    SELECT DISTINCT ObjectName
+                    SELECT DISTINCT ObjectName, ColumnList
                     FROM @CheckReadPermissions;
 
                 OPEN CheckReadPermissionsCursor;
-                FETCH NEXT FROM CheckReadPermissionsCursor INTO @PermissionObjectName;
+                FETCH NEXT FROM CheckReadPermissionsCursor INTO @PermissionObjectName, @PermissionColumnList;
 
                 WHILE @@FETCH_STATUS = 0
                 BEGIN
                     BEGIN TRY
-                        SET @StringToExecute = N'SELECT TOP (0) @r = 1 FROM ' + @PermissionObjectName + N';';
-                        EXEC sys.sp_executesql @StringToExecute,
-                            N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+                        /* SELECT INTO consumes the projection without returning a result set.
+                           Its dynamic-scope temp table is dropped when the batch ends.
+                           Name every required column so column grants and DENYs count. */
+                        SET @StringToExecute = N'SELECT TOP (0) ' + @PermissionColumnList
+                            + N' INTO #BlitzPermissionProbe FROM ' + @PermissionObjectName + N';';
+                        EXEC sys.sp_executesql @StringToExecute;
 
                         UPDATE @CheckReadPermissions
                         SET CanSelect = 1
-                        WHERE ObjectName = @PermissionObjectName;
+                        WHERE ObjectName = @PermissionObjectName
+                          AND ColumnList = @PermissionColumnList;
                     END TRY
                     BEGIN CATCH
                         /* Leave checks requiring this object disabled on a failed read. */
                         UPDATE @CheckReadPermissions
                         SET CanSelect = 0
-                        WHERE ObjectName = @PermissionObjectName;
+                        WHERE ObjectName = @PermissionObjectName
+                          AND ColumnList = @PermissionColumnList;
                     END CATCH;
 
-                    FETCH NEXT FROM CheckReadPermissionsCursor INTO @PermissionObjectName;
+                    FETCH NEXT FROM CheckReadPermissionsCursor INTO @PermissionObjectName, @PermissionColumnList;
                 END;
 
                 CLOSE CheckReadPermissionsCursor;

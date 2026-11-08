@@ -128,10 +128,36 @@ def main():
                 GRANT SELECT ON dbo.sysschedules TO {qlogin};
                 GRANT SELECT ON dbo.sysjobhistory TO {qlogin};''')
             run('job dependencies granted', {6, 57, 94}, {13, 98})
+            # A column DENY must disable check 6 without disabling checks 57/94,
+            # which read the same sysjobs table but never use owner_sid.
+            execute(admin, f'USE msdb; DENY SELECT ON dbo.sysjobs (owner_sid) TO {qlogin};')
+            with closing(connect(login, password)) as limited:
+                try:
+                    execute(limited, 'SELECT TOP (0) owner_sid FROM msdb.dbo.sysjobs;')
+                except pymssql.DatabaseError as exc:
+                    assert exc.args[0] == 230, exc
+                else:
+                    raise AssertionError('Fixture column DENY did not reject owner_sid access')
+            run('job owner column denied', {57, 94}, {6, 13, 98})
+            execute(admin, f'USE msdb; REVOKE SELECT ON dbo.sysjobs (owner_sid) FROM {qlogin};')
+
+            # The converse: grant only check 6's columns, with no table-wide SELECT.
+            execute(admin, f'''USE msdb; REVOKE SELECT ON dbo.sysjobs FROM {qlogin};
+                GRANT SELECT ON dbo.sysjobs (name, enabled, owner_sid) TO {qlogin};''')
+            run('job owner columns only', {6}, {13, 57, 94, 98})
+            execute(admin, f'''USE msdb; REVOKE SELECT ON dbo.sysjobs (name, enabled, owner_sid) FROM {qlogin};
+                GRANT SELECT ON dbo.sysjobs TO {qlogin};''')
+
             execute(admin, f'USE msdb; DENY SELECT ON dbo.sysjobhistory TO {qlogin};')
             run('job history denied', {6, 57}, {13, 94, 98})
             execute(admin, f'USE msdb; REVOKE SELECT ON dbo.sysjobs FROM {qlogin}; GRANT SELECT ON dbo.sysalerts TO {qlogin};')
             run('alerts without sysjobs', {98}, {6, 13, 57, 94})
+
+            # Alert checks also have independent column requirements: severity is
+            # needed by checks 30/61, while the seeded disabled-alert finding needs
+            # only name and enabled. A severity DENY must not suppress check 98.
+            execute(admin, f'USE msdb; DENY SELECT ON dbo.sysalerts (severity) TO {qlogin};')
+            run('alert severity column denied', {98}, {6, 13, 57, 94}, absent_checks=(30, 61))
 
             # Operators have their own permission gate, independent of jobs and alerts.
             no_enabled_operators = not execute(admin, 'SELECT TOP (1) 1 AS enabled_operator FROM msdb.dbo.sysoperators WHERE enabled=1;')
