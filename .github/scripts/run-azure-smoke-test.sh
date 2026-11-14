@@ -150,7 +150,8 @@ echo "  database is clean"
 echo
 echo "=== Installing ==="
 # sp_ineachdb first: sp_Blitz calls it to iterate databases.
-for script in sp_ineachdb sp_Blitz sp_BlitzIndex sp_BlitzWho sp_BlitzCache sp_BlitzFirst; do
+# sp_BlitzCache precedes sp_BlitzIndex; Cache and Who both precede First.
+for script in sp_ineachdb sp_Blitz sp_BlitzCache sp_BlitzIndex sp_BlitzWho sp_BlitzFirst; do
   echo "  installing $script"
   if ! "$SQLCMD" "${SQLCMD_ARGS[@]}" -i "$REPO_ROOT/$script.sql" > "$WORK_DIR/$script.log" 2>&1; then
     echo "::error::$script failed to install on Azure SQL Database"
