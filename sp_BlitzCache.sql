@@ -77,7 +77,7 @@ CREATE TABLE ##BlitzCacheProcs (
         PercentWritesByType MONEY,
         WritesPerMinute MONEY,
         PlanCreationTime DATETIME,
-		PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, SYSDATETIME()),
+		PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END)),
         LastExecutionTime DATETIME,
 		LastCompletionTime DATETIME,
         PlanHandle VARBINARY(64),
@@ -282,7 +282,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
 	@CheckDateOverride DATETIMEOFFSET = NULL,
 	@MinutesBack INT = NULL,
     @AI TINYINT = 0, /* 1 = ask for advice, 2 = build prompt but don't actually call AI. Only works with a single query plan: automatically sets @ExpertMode = 1, @KeepCRLF = 1. */
-    @AIModel VARCHAR(200) = NULL, /* Defaults to gpt-4.1-mini */
+    @AIModel VARCHAR(200) = NULL, /* Defaults to gpt-5.6-luna */
     @AIURL VARCHAR(200) = NULL, /* Defaults to https://api.openai.com/v1/chat/completions */
     @AICredential VARCHAR(200) = NULL, /* Defaults to 'https://api.openai.com/' or the root of your AIURL, trailing slash included */
     @AIConfigTable NVARCHAR(500) = NULL, /* Table where AI provider config is stored - can be in the format db.schema.table, schema.table, or just table. */
@@ -299,7 +299,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.34', @VersionDate = '20260702';
+SELECT @Version = '8.35', @VersionDate = '20261114';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -490,7 +490,7 @@ IF @Help = 1
 	UNION ALL
 	SELECT N'@AIModel',
 			N'VARCHAR(200)',
-			N'Defaults to gpt-4.1-mini. Can accept other models, or if you have a dbo.AI_Services table, we will look up services there.'
+			N'Defaults to gpt-5.6-luna. Can accept other models, or if you have a dbo.AI_Services table, we will look up services there.'
 
 	UNION ALL
 	SELECT N'@AIURL',
@@ -847,6 +847,13 @@ BEGIN
     SET @HideSummary = 1;
 END;
 
+/* Reserve case/accent/kana/width-equivalent internal names before preprocessing. */
+IF @OutputTableName COLLATE Latin1_General_100_CI_AI IN ('##BlitzCacheProcs', '##BlitzCacheResults')
+BEGIN
+    RAISERROR('OutputTableName is a reserved name for this procedure. We only use ##BlitzCacheProcs and ##BlitzCacheResults, please choose another table name.', 16, 1);
+    RETURN;
+END;
+
 /* Lets get @SortOrder set to lower case here for comparisons later */
 SET @SortOrder = LOWER(@SortOrder);
 
@@ -867,6 +874,70 @@ IF (
          SET @Top = 10;
    END;
 
+
+/* Normalize and reject incompatible filters before collecting plan-cache data. */
+DECLARE @SortByQueryHash bit = CASE WHEN @SortOrder LIKE 'query hash%' THEN 1 ELSE 0 END;
+IF @SortByQueryHash = 1
+BEGIN
+	/* When they ran it, @SortOrder probably looked like 'query hash, cpu', so strip the first sort order out: */
+    SELECT @SortOrder = LTRIM(REPLACE(REPLACE(@SortOrder,'query hash', ''), ',', ''));
+
+	/* If they just called it with @SortOrder = 'query hash', set it to 'cpu' for backwards compatibility: */
+	IF @SortOrder = '' SET @SortOrder = 'cpu';
+
+END;
+
+SET @SortOrder = REPLACE(REPLACE(@SortOrder, 'average', 'avg'), '.', '');
+
+SET @SortOrder = CASE
+                     WHEN @SortOrder IN ('executions per minute','execution per minute','executions / minute','execution / minute','xpm') THEN 'avg executions'
+                     WHEN @SortOrder IN ('recent compilations','recent compilation','compile') THEN 'compiles'
+                     WHEN @SortOrder IN ('read') THEN 'reads'
+                     WHEN @SortOrder IN ('avg read') THEN 'avg reads'
+                     WHEN @SortOrder IN ('write') THEN 'writes'
+                     WHEN @SortOrder IN ('avg write') THEN 'avg writes'
+                     WHEN @SortOrder IN ('memory grants') THEN 'memory grant'
+                     WHEN @SortOrder IN ('avg memory grants') THEN 'avg memory grant'
+                     WHEN @SortOrder IN ('unused grants','unused memory', 'unused memory grant', 'unused memory grants') THEN 'unused grant'
+                     WHEN @SortOrder IN ('spill') THEN 'spills'
+                     WHEN @SortOrder IN ('avg spill') THEN 'avg spills'
+                     WHEN @SortOrder IN ('execution') THEN 'executions'
+                     WHEN @SortOrder IN ('duplicates') THEN 'duplicate'
+                 ELSE @SortOrder END
+
+RAISERROR(N'Checking sort order', 0, 1) WITH NOWAIT;
+IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg writes',
+                       'duration', 'avg duration', 'executions', 'avg executions',
+                       'compiles', 'memory grant', 'avg memory grant', 'unused grant',
+					   'spills', 'avg spills', 'all', 'all avg', 'sp_BlitzIndex',
+					   'query hash', 'duplicate')
+  BEGIN
+  RAISERROR(N'Invalid sort order chosen, reverting to cpu', 16, 1) WITH NOWAIT;
+  SET @SortOrder = 'cpu';
+  END;
+
+SET @QueryFilter = LOWER(@QueryFilter);
+
+IF LEFT(@QueryFilter, 3) NOT IN ('all', 'sta', 'pro', 'fun')
+  BEGIN
+  RAISERROR(N'Invalid query filter chosen. Reverting to all.', 0, 1) WITH NOWAIT;
+  SET @QueryFilter = 'all';
+  END;
+
+/* Procedure and function DMVs do not expose statement memory-grant or duplicate data. */
+IF LEFT(@QueryFilter, 3) IN ('pro', 'fun')
+   AND @SortOrder IN ('memory grant', 'avg memory grant', 'unused grant', 'duplicate')
+BEGIN
+   RAISERROR('This sort order requires statement statistics. Use @QueryFilter = ''statements'' or choose another sort order.', 16, 1);
+   RETURN;
+END;
+
+/* Function statistics do not expose spill counters. */
+IF LEFT(@QueryFilter, 3) = 'fun' AND @SortOrder IN ('spills', 'avg spills')
+BEGIN
+   RAISERROR('Function statistics do not support sorting by spills. Use @QueryFilter = ''statements'' or choose another sort order.', 16, 1);
+   RETURN;
+END;
 
 DROP TABLE IF EXISTS #configuration;
 
@@ -943,7 +1014,7 @@ BEGIN
     DECLARE @AIModelRequested NVARCHAR(200) = @AIModel;
     DECLARE @AIFallbackModel NVARCHAR(200);
     SELECT TOP 1 @AIFallbackModel = AI_Model FROM #ai_providers WHERE Default_Model = 1 ORDER BY Id;
-    IF @AIFallbackModel IS NULL SET @AIFallbackModel = N'gpt-5-nano';
+    IF @AIFallbackModel IS NULL SET @AIFallbackModel = N'gpt-5.6-luna';
     RAISERROR('@AIModel "%s" was not found in configuration table %s. Using "%s" instead.',
         10, 1, @AIModelRequested, @AIConfigTable, @AIFallbackModel) WITH NOWAIT;
     SET @AIModel = NULL;
@@ -1018,7 +1089,7 @@ IF @AI > 0
             ORDER BY Id;
         
     IF @AIModel IS NULL
-        SET @AIModel = N'gpt-5-nano';
+        SET @AIModel = N'gpt-5.6-luna';
     
     IF @AIURL IS NULL OR @AIURL NOT LIKE N'http%'
         SET @AIURL = CASE 
@@ -1034,11 +1105,9 @@ IF @AI > 0
         SET @AITimeoutSeconds = 230;
 
     IF @AISystemPrompt IS NULL OR @AISystemPrompt = N''
-        SET @AISystemPrompt = N'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
+        SET @AISystemPrompt = N'Review a poorly performing query for Microsoft SQL Server or Azure SQL Database. Focus on the query and index changes most likely to improve end-user performance; keep server configuration and routine statistics maintenance outside the plan.
 
-    You have a query that isn''t performing to end user expectations. You have been tasked with making serious improvements to it, quickly. You are not allowed to change server-level settings or make frivolous suggestions like updating statistics. Instead, you need to focus on query changes or index changes. 
-    
-    Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.';
+Return one self-contained Markdown response with prioritized findings, recommended changes, complete scripts, and validation or rollback steps. Keep the response focused.';
 
     IF @AIModel LIKE 'gemini%' AND @AIPayloadTemplate IS NULL
         SET @AIPayloadTemplate = N'{
@@ -1088,7 +1157,7 @@ IF @AI > 0
 
 
 /* If they want to sort by query hash, populate the @OnlyQueryHashes list for them */
-IF @SortOrder LIKE 'query hash%'
+IF @SortByQueryHash = 1
 	BEGIN
 	RAISERROR('Beginning query hash sort', 0, 1) WITH NOWAIT;
 
@@ -1112,11 +1181,6 @@ IF @SortOrder LIKE 'query hash%'
     FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
 	OPTION(RECOMPILE);
 
-	/* When they ran it, @SortOrder probably looked like 'query hash, cpu', so strip the first sort order out: */
-    SELECT @SortOrder = LTRIM(REPLACE(REPLACE(@SortOrder,'query hash', ''), ',', ''));
-	
-	/* If they just called it with @SortOrder = 'query hash', set it to 'cpu' for backwards compatibility: */
-	IF @SortOrder = '' SET @SortOrder = 'cpu';
 
 	END
 
@@ -1229,43 +1293,6 @@ BEGIN
 END;
 
 SELECT @MinMemoryPerQuery = CONVERT(INT, c.value) FROM sys.configurations AS c WHERE c.name = 'min memory per query (KB)';
-
-SET @SortOrder = REPLACE(REPLACE(@SortOrder, 'average', 'avg'), '.', '');
-
-SET @SortOrder = CASE 
-                     WHEN @SortOrder IN ('executions per minute','execution per minute','executions / minute','execution / minute','xpm') THEN 'avg executions'
-                     WHEN @SortOrder IN ('recent compilations','recent compilation','compile') THEN 'compiles'
-                     WHEN @SortOrder IN ('read') THEN 'reads'
-                     WHEN @SortOrder IN ('avg read') THEN 'avg reads'
-                     WHEN @SortOrder IN ('write') THEN 'writes'
-                     WHEN @SortOrder IN ('avg write') THEN 'avg writes'
-                     WHEN @SortOrder IN ('memory grants') THEN 'memory grant'
-                     WHEN @SortOrder IN ('avg memory grants') THEN 'avg memory grant'
-                     WHEN @SortOrder IN ('unused grants','unused memory', 'unused memory grant', 'unused memory grants') THEN 'unused grant'
-                     WHEN @SortOrder IN ('spill') THEN 'spills'
-                     WHEN @SortOrder IN ('avg spill') THEN 'avg spills'
-                     WHEN @SortOrder IN ('execution') THEN 'executions'
-                     WHEN @SortOrder IN ('duplicates') THEN 'duplicate'
-                 ELSE @SortOrder END							  
-							  
-RAISERROR(N'Checking sort order', 0, 1) WITH NOWAIT;
-IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg writes',
-                       'duration', 'avg duration', 'executions', 'avg executions',
-                       'compiles', 'memory grant', 'avg memory grant', 'unused grant',
-					   'spills', 'avg spills', 'all', 'all avg', 'sp_BlitzIndex',
-					   'query hash', 'duplicate')
-  BEGIN
-  RAISERROR(N'Invalid sort order chosen, reverting to cpu', 16, 1) WITH NOWAIT;
-  SET @SortOrder = 'cpu';
-  END; 
-
-SET @QueryFilter = LOWER(@QueryFilter);
-
-IF LEFT(@QueryFilter, 3) NOT IN ('all', 'sta', 'pro', 'fun')
-  BEGIN
-  RAISERROR(N'Invalid query filter chosen. Reverting to all.', 0, 1) WITH NOWAIT;
-  SET @QueryFilter = 'all';
-  END;
 
 IF @SkipAnalysis = 1
   BEGIN
@@ -1703,11 +1730,11 @@ OPTION (RECOMPILE);
 
 RAISERROR(N'Checking plan cache age', 0, 1) WITH NOWAIT;
 INSERT INTO #plan_creation ( percent_24, percent_4, percent_1, total_plans, SPID )
-SELECT CONVERT(DECIMAL(5,2), NULLIF(SUM(CASE WHEN DATEDIFF(HOUR, pc.creation_time, SYSDATETIME()) <= 24 THEN 1 ELSE 0 END), 0)
+SELECT CONVERT(DECIMAL(5,2), NULLIF(SUM(CASE WHEN DATEDIFF(HOUR, pc.creation_time, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END)) <= 24 THEN 1 ELSE 0 END), 0)
            / (1. * NULLIF(COUNT_BIG(*), 0))) * 100,
-       CONVERT(DECIMAL(5,2), NULLIF(SUM(CASE WHEN DATEDIFF(HOUR, pc.creation_time, SYSDATETIME()) <= 4 THEN 1 ELSE 0 END), 0)
+       CONVERT(DECIMAL(5,2), NULLIF(SUM(CASE WHEN DATEDIFF(HOUR, pc.creation_time, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END)) <= 4 THEN 1 ELSE 0 END), 0)
            / (1. * NULLIF(COUNT_BIG(*), 0))) * 100,
-       CONVERT(DECIMAL(5,2), NULLIF(SUM(CASE WHEN DATEDIFF(HOUR, pc.creation_time, SYSDATETIME()) <= 1 THEN 1 ELSE 0 END), 0)
+       CONVERT(DECIMAL(5,2), NULLIF(SUM(CASE WHEN DATEDIFF(HOUR, pc.creation_time, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END)) <= 1 THEN 1 ELSE 0 END), 0)
            / (1. * NULLIF(COUNT_BIG(*), 0))) * 100,
        COUNT_BIG(*),
        @@SPID
@@ -2040,8 +2067,8 @@ INSERT INTO ##BlitzCacheProcs (SPID, QueryType, DatabaseName, AverageCPU, TotalC
 
 SET @body += N'
 FROM   (SELECT TOP (@Top) x.*, xpa.*,
-               CAST((CASE WHEN DATEDIFF(mi, cached_time, GETDATE()) > 0 AND execution_count > 1
-                          THEN DATEDIFF(mi, cached_time, GETDATE()) 
+               CAST((CASE WHEN DATEDIFF(mi, cached_time, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) > 0 AND execution_count > 1
+                          THEN DATEDIFF(mi, cached_time, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                           ELSE NULL END) as MONEY) as age_minutes,
                CAST((CASE WHEN DATEDIFF(mi, cached_time, last_execution_time) > 0 AND execution_count > 1
                           THEN DATEDIFF(mi, cached_time, last_execution_time) 
@@ -2123,7 +2150,7 @@ IF @DurationFilter IS NOT NULL
 IF @MinutesBack IS NOT NULL
 	BEGIN
 	RAISERROR(N'Setting minutes back filter', 0, 1) WITH NOWAIT;
-	SET @body += N'       AND DATEADD(SECOND, (x.last_elapsed_time / 1000000.), x.last_execution_time) >= DATEADD(MINUTE, @min_back, GETDATE()) ' + @nl ;
+	SET @body += N'       AND DATEADD(SECOND, (x.last_elapsed_time / 1000000.), x.last_execution_time) >= DATEADD(MINUTE, @min_back, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) ' + @nl ;
 	END;
 
 IF @SlowlySearchPlansFor IS NOT NULL
@@ -2161,13 +2188,13 @@ SELECT @body += N'        ORDER BY ' +
 								 WHEN N'avg memory grant' THEN N'CASE WHEN max_grant_kb = 0 THEN 0 ELSE max_grant_kb / execution_count END'
                                  WHEN N'avg spills' THEN N'CASE WHEN total_spills = 0 THEN 0 ELSE total_spills / execution_count END'
 								 WHEN N'avg executions' THEN 'CASE WHEN execution_count = 0 THEN 0
-            WHEN COALESCE(CAST((CASE WHEN DATEDIFF(mi, cached_time, GETDATE()) > 0 AND execution_count > 1
-                          THEN DATEDIFF(mi, cached_time, GETDATE())
+            WHEN COALESCE(CAST((CASE WHEN DATEDIFF(mi, cached_time, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) > 0 AND execution_count > 1
+                          THEN DATEDIFF(mi, cached_time, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                           ELSE NULL END) as MONEY), CAST((CASE WHEN DATEDIFF(mi, cached_time, last_execution_time) > 0 AND execution_count > 1
                           THEN DATEDIFF(mi, cached_time, last_execution_time)
                           ELSE Null END) as MONEY), 0) = 0 THEN 0
-            ELSE CAST((1.00 * execution_count / COALESCE(CAST((CASE WHEN DATEDIFF(mi, cached_time, GETDATE()) > 0 AND execution_count > 1
-                          THEN DATEDIFF(mi, cached_time, GETDATE())
+            ELSE CAST((1.00 * execution_count / COALESCE(CAST((CASE WHEN DATEDIFF(mi, cached_time, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) > 0 AND execution_count > 1
+                          THEN DATEDIFF(mi, cached_time, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                           ELSE NULL END) as MONEY), CAST((CASE WHEN DATEDIFF(mi, cached_time, last_execution_time) > 0 AND execution_count > 1
                           THEN DATEDIFF(mi, cached_time, last_execution_time)
                           ELSE Null END) as MONEY))) AS money)
@@ -2335,10 +2362,10 @@ BEGIN
                 ELSE CAST((total_worker_time / 1000.0) / COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time)) AS MONEY)
                 END AS AverageCPUPerMinute ,
            CASE WHEN t.t_TotalWorker = 0 THEN 0
-                ELSE CAST(ROUND(100.00 * total_worker_time / t.t_TotalWorker, 2) AS MONEY)
+                ELSE CAST(ROUND(100.00 * (total_worker_time / 1000.0) / t.t_TotalWorker, 2) AS MONEY)
                 END AS PercentCPUByType,
            CASE WHEN t.t_TotalElapsed = 0 THEN 0
-                ELSE CAST(ROUND(100.00 * total_elapsed_time / t.t_TotalElapsed, 2) AS MONEY)
+                ELSE CAST(ROUND(100.00 * (total_elapsed_time / 1000.0) / t.t_TotalElapsed, 2) AS MONEY)
                 END AS PercentDurationByType,
            CASE WHEN t.t_TotalReads = 0 THEN 0
                 ELSE CAST(ROUND(100.00 * total_logical_reads / t.t_TotalReads, 2) AS MONEY)
@@ -2728,7 +2755,7 @@ BEGIN
         PercentWritesByType MONEY,
         WritesPerMinute MONEY,
         PlanCreationTime DATETIME,
-		PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, SYSDATETIME()),
+		PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END)),
         LastExecutionTime DATETIME,
 		LastCompletionTime DATETIME,
         PlanHandle VARBINARY(64),
@@ -3346,6 +3373,7 @@ JOIN    (   SELECT  r.SqlHandle
 WHERE   s.statement.exist('//p:StmtSimple[@StatementOptmLevel[.="TRIVIAL"]]/p:QueryPlan/p:ParameterList') = 1
 ) AS s
 ON b.SqlHandle = s.SqlHandle
+WHERE b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 
@@ -3377,6 +3405,7 @@ WITH pc AS (
 		ON b.SqlHandle = pc.SqlHandle
 		AND b.QueryHash = pc.QueryHash
 		WHERE b.QueryType NOT LIKE '%Procedure%'
+        AND b.SPID = @@SPID
 	OPTION (RECOMPILE);
 
 IF EXISTS (
@@ -3841,6 +3870,7 @@ UPDATE b
 FROM ##BlitzCacheProcs b
 JOIN spools sp
 ON sp.QueryHash = b.QueryHash
+WHERE b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 RAISERROR('Checking for wonky Table Spools', 0, 1) WITH NOWAIT;
@@ -3868,6 +3898,7 @@ UPDATE b
 FROM ##BlitzCacheProcs b
 JOIN spools sp
 ON sp.QueryHash = b.QueryHash
+WHERE b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 
@@ -3882,7 +3913,8 @@ AS ( SELECT CONVERT(BINARY(8),
      FROM   #statements AS s
 	 JOIN ##BlitzCacheProcs b
 	 ON s.QueryHash = b.QueryHash
-	 WHERE b.index_spool_rows IS NULL
+	 WHERE b.SPID = @@SPID
+     AND   b.index_spool_rows IS NULL
 	 AND   b.index_spool_cost IS NULL
 	 AND   b.table_spool_cost IS NULL
 	 AND   b.table_spool_rows IS NULL
@@ -3895,7 +3927,8 @@ UPDATE b
 FROM ##BlitzCacheProcs b
 JOIN selects AS s
 ON s.QueryHash = b.QueryHash
-AND b.AverageWrites > 1024.;
+AND b.AverageWrites > 1024.
+WHERE b.SPID = @@SPID;
 
 	RAISERROR(N'Checking for forced serialization', 0, 1) WITH NOWAIT;
 	WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
@@ -3977,7 +4010,7 @@ WITH  stale_stats AS (
 	SELECT sa.SqlHandle
 	FROM #stats_agg AS sa
 	GROUP BY sa.SqlHandle
-	HAVING MAX(sa.LastUpdate) <= DATEADD(DAY, -7, SYSDATETIME())
+	HAVING MAX(sa.LastUpdate) <= DATEADD(DAY, -7, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END))
 	AND AVG(sa.ModificationCount) >= 100000
 )
 UPDATE b
@@ -4144,6 +4177,7 @@ FROM #relop AS r
 JOIN ##BlitzCacheProcs AS b
 ON b.SqlHandle = r.SqlHandle
 WHERE  r.relop.exist('/p:RelOp[(@EstimateRows="100" or @EstimateRows="1") and @LogicalOp="Table-valued function"]') = 1
+AND b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 
@@ -4157,6 +4191,7 @@ FROM #relop AS r
 JOIN ##BlitzCacheProcs AS b
 ON b.SqlHandle = r.SqlHandle
 WHERE  r.relop.exist('/p:RelOp/p:Merge/@ManyToMany[.="1"]') = 1
+AND b.SPID = @@SPID
 OPTION (RECOMPILE);
 END ;
 
@@ -4464,6 +4499,7 @@ FROM ##BlitzCacheProcs AS b
 JOIN precheck pk
 ON pk.SqlHandle = b.SqlHandle
 AND pk.SPID = b.SPID
+WHERE b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 
@@ -4507,6 +4543,7 @@ JOIN precheck pk
 ON pk.SqlHandle = b.SqlHandle
 AND pk.SPID = b.SPID
 WHERE b.QueryType <> N'Statement'
+AND b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 
@@ -4551,6 +4588,7 @@ JOIN precheck pk
 ON pk.SqlHandle = b.SqlHandle
 AND pk.SPID = b.SPID
 WHERE b.QueryType = N'Statement'
+AND b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 RAISERROR(N'Filling in implicit conversion and cached plan parameter info', 0, 1) WITH NOWAIT;
@@ -5954,6 +5992,7 @@ BEGIN
     /* excel output */
     UPDATE ##BlitzCacheProcs
     SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),' ','<>'),'><',''),'<>',' '), 1, 32000)
+	WHERE SPID = @@SPID
 	OPTION(RECOMPILE);
 
     SET @sql = N'
@@ -6023,7 +6062,7 @@ BEGIN
 	
    IF @MinutesBack IS NOT NULL
       BEGIN
-		SET @sql += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ';
+		SET @sql += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END) ) ';
 	  END;
 
 	SELECT @sql += N' ORDER BY ' + CASE @SortOrder WHEN N'cpu' THEN N' TotalCPU '
@@ -6298,7 +6337,7 @@ IF @MinimumExecutionCount IS NOT NULL
 
 IF @MinutesBack IS NOT NULL
     BEGIN
-		SET @sql += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ' + @nl;
+		SET @sql += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END) ) ' + @nl;
     END;
 
 SELECT @sql += N' ORDER BY ' + CASE @SortOrder WHEN  N'cpu' THEN N' TotalCPU '
@@ -7167,7 +7206,7 @@ BEGIN
 				'Consider updating statistics more frequently,' AS [Details]
 				FROM #stats_agg AS sa
 				GROUP BY sa.[Database]
-				HAVING MAX(sa.LastUpdate) <= DATEADD(DAY, -7, SYSDATETIME())
+				HAVING MAX(sa.LastUpdate) <= DATEADD(DAY, -7, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END))
 				AND AVG(sa.ModificationCount) >= 100000;
 
         IF EXISTS (SELECT 1/0
@@ -7796,7 +7835,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END; 
@@ -7826,7 +7865,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END; 
@@ -7845,7 +7884,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END; 
@@ -7875,7 +7914,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END; 
@@ -7973,7 +8012,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END;  
@@ -8003,7 +8042,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END; 
@@ -8022,7 +8061,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END;  
@@ -8052,7 +8091,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END; 
@@ -8119,7 +8158,7 @@ IF @OutputServerName IS NOT NULL
 					
 		IF EXISTS (SELECT server_id FROM sys.servers WHERE QUOTENAME([name]) = @OutputServerName)
 		    BEGIN
-		        SET @LinkedServerDBCheck = 'SELECT 1 WHERE EXISTS (SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = '''+@OutputDatabaseName+''')';
+		        SET @LinkedServerDBCheck = 'SELECT 1 WHERE EXISTS (SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = N'''+REPLACE(@OutputDatabaseName, N'''', N'''''')+''')';
 		        INSERT INTO @tmpdbchk EXEC sys.sp_executesql @LinkedServerDBCheck;
 		        SET @ValidLinkedServerDB = (SELECT COUNT(*) FROM @tmpdbchk);
 		        IF (@ValidLinkedServerDB > 0)
@@ -8170,13 +8209,13 @@ ELSE
 				+ @OutputDatabaseName
 				+ N'; IF EXISTS(SELECT * FROM '
 				+ @OutputDatabaseName
-				+ N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-				+ @OutputSchemaName
+				+ N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+				+ REPLACE(@OutputSchemaName, N'''', N'''''')
 				+ N''') AND NOT EXISTS (SELECT * FROM '
 				+ @OutputDatabaseName
-				+ N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-				+ @OutputSchemaName + N''' AND QUOTENAME(TABLE_NAME) = '''
-				+ @OutputTableName + N''') CREATE TABLE '
+				+ N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N'''
+				+ REPLACE(@OutputSchemaName, N'''', N'''''') + N''' AND QUOTENAME(TABLE_NAME) = N'''
+				+ REPLACE(@OutputTableName, N'''', N'''''') + N''') CREATE TABLE '
 				+ @OutputSchemaName + N'.'
 				+ @OutputTableName
 				+ CONVERT
@@ -8268,18 +8307,18 @@ ELSE
 
 			SET @StringToExecute += N'IF EXISTS(SELECT * FROM '
 					+@OutputDatabaseName
-					+N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-					+@OutputSchemaName
+					+N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+					+REPLACE(@OutputSchemaName, N'''', N'''''')
 					+N''') AND EXISTS (SELECT * FROM '
 					+@OutputDatabaseName+
-					N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-					+@OutputSchemaName
-					+N''' AND QUOTENAME(TABLE_NAME) = '''
-					+@OutputTableName
+					N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N'''
+					+REPLACE(@OutputSchemaName, N'''', N'''''')
+					+N''' AND QUOTENAME(TABLE_NAME) = N'''
+					+REPLACE(@OutputTableName, N'''', N'''''')
 					+N''') AND EXISTS (SELECT * FROM '
 					+@OutputDatabaseName+
 					N'.sys.computed_columns WHERE [name] = N''PlanCreationTimeHours'' AND QUOTENAME(OBJECT_NAME(object_id)) = N'''
-					+@OutputTableName
+					+REPLACE(@OutputTableName, N'''', N'''''')
 					+N''' AND [definition] = N''(datediff(hour,[PlanCreationTime],sysdatetime()))'')
 BEGIN 
 	RAISERROR(''We noticed that you are running an old computed column definition for PlanCreationTimeHours, fixing that now'',0,0) WITH NOWAIT;
@@ -8289,14 +8328,8 @@ END ';
 
             IF @ValidOutputServer = 1
 				BEGIN
-					SET @StringToExecute = REPLACE(@StringToExecute,''''+@OutputSchemaName+'''',''''''+@OutputSchemaName+'''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,''''+@OutputTableName+'''',''''''+@OutputTableName+'''''');
+					SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
 					SET @StringToExecute = REPLACE(@StringToExecute,'xml','nvarchar(max)');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [PlanHandle], 1) + '');''','''''DBCC FREEPROCCACHE ('''' + CONVERT(VARCHAR(128), [PlanHandle], 1) + '''');''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '');''','''''DBCC FREEPROCCACHE ('''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '''');''''');
-                    SET @StringToExecute = REPLACE(@StringToExecute,'''EXEC sp_BlitzCache @OnlySqlHandles = '''''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ''''''; ''','''''EXEC sp_BlitzCache @OnlySqlHandles = '''''''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ''''''''; ''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''EXEC sp_BlitzCache @OnlyQueryHashes = '''''' + CONVERT(VARCHAR(32), [QueryHash], 1) + ''''''; ''','''''EXEC sp_BlitzCache @OnlyQueryHashes = '''''''' + CONVERT(VARCHAR(32), [QueryHash], 1) + ''''''''; ''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''N/A''','''''N/A''''');
 					
                     IF @Debug = 1
                     BEGIN
@@ -8311,7 +8344,7 @@ END ';
                         PRINT SUBSTRING(@StringToExecute, 32000, 36000);
                         PRINT SUBSTRING(@StringToExecute, 36000, 40000);
                     END;
-                    EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+                    EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
                 END;
             ELSE
                 BEGIN
@@ -8334,13 +8367,12 @@ END ';
             /* If the table doesn't have the new LastCompletionTime column, add it. See Github #2377. */
             SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
             SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''LastCompletionTime'')
+                WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + ''')) AND name = ''LastCompletionTime'')
                 ALTER TABLE ' + @ObjectFullName + N' ADD LastCompletionTime DATETIME NULL;';
             IF @ValidOutputServer = 1
 				BEGIN
-					SET @StringToExecute = REPLACE(@StringToExecute,'''LastCompletionTime''','''''LastCompletionTime''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
-					EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
+					EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
                 END;
             ELSE
                 BEGIN
@@ -8350,13 +8382,12 @@ END ';
             /* If the table doesn't have the new PlanGenerationNum column, add it. See Github #2514. */
             SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
             SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''PlanGenerationNum'')
+                WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''PlanGenerationNum'')
                 ALTER TABLE ' + @ObjectFullName + N' ADD PlanGenerationNum BIGINT NULL;';
 			IF @ValidOutputServer = 1
 				BEGIN
-					SET @StringToExecute = REPLACE(@StringToExecute,'''PlanGenerationNum''','''''PlanGenerationNum''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
-                    EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
+                    EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
                 END;
             ELSE
                 BEGIN
@@ -8366,13 +8397,12 @@ END ';
 			/* If the table doesn't have the new Pattern column, add it */
             SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
             SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''Pattern'')
+                WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''Pattern'')
                 ALTER TABLE ' + @ObjectFullName + N' ADD Pattern NVARCHAR(20) NULL;';
 			IF @ValidOutputServer = 1
 				BEGIN
-					SET @StringToExecute = REPLACE(@StringToExecute,'''Pattern''','''''Pattern''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
-                    EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
+                    EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
                 END;
             ELSE
                 BEGIN
@@ -8382,13 +8412,12 @@ END ';
             /* If the table doesn't have the new ai_prompt column, add it. See Github #3669. */
             SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
             SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''ai_prompt'')
+                WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + ''')) AND name = ''ai_prompt'')
                 ALTER TABLE ' + @ObjectFullName + N' ADD ai_prompt NVARCHAR(MAX) NULL;';
             IF @ValidOutputServer = 1
 				BEGIN
-					SET @StringToExecute = REPLACE(@StringToExecute,'''ai_prompt''','''''ai_prompt''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
-					EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
+					EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
                 END;
             ELSE
                 BEGIN
@@ -8398,13 +8427,12 @@ END ';
             /* If the table doesn't have the new ai_advice column, add it. See Github #3669. */
             SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
             SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''ai_advice'')
+                WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + ''')) AND name = ''ai_advice'')
                 ALTER TABLE ' + @ObjectFullName + N' ADD ai_advice NVARCHAR(MAX) NULL;';
             IF @ValidOutputServer = 1
 				BEGIN
-					SET @StringToExecute = REPLACE(@StringToExecute,'''ai_advice''','''''ai_advice''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
-					EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
+					EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
                 END;
             ELSE
                 BEGIN
@@ -8414,13 +8442,12 @@ END ';
             /* If the table doesn't have the new ai_payload column, add it. See Github #3669. */
             SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
             SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''ai_payload'')
+                WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + ''')) AND name = ''ai_payload'')
                 ALTER TABLE ' + @ObjectFullName + N' ADD ai_payload NVARCHAR(MAX) NULL;';
             IF @ValidOutputServer = 1
 				BEGIN
-					SET @StringToExecute = REPLACE(@StringToExecute,'''ai_payload''','''''ai_payload''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
-					EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
+					EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
                 END;
             ELSE
                 BEGIN
@@ -8430,13 +8457,12 @@ END ';
             /* If the table doesn't have the new ai_raw_response column, add it. See Github #3669. */
             SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
             SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''ai_raw_response'')
+                WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + ''')) AND name = ''ai_raw_response'')
                 ALTER TABLE ' + @ObjectFullName + N' ADD ai_raw_response NVARCHAR(MAX) NULL;';
             IF @ValidOutputServer = 1
 				BEGIN
-					SET @StringToExecute = REPLACE(@StringToExecute,'''ai_raw_response''','''''ai_raw_response''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
-					EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
+					EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
                 END;
             ELSE
                 BEGIN
@@ -8453,8 +8479,8 @@ END ';
 					SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
 					+ @OutputServerName + '.'
 					+ @OutputDatabaseName
-					+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-					+ @OutputSchemaName + ''') INSERT '
+					+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+					+ REPLACE(@OutputSchemaName, N'''', N'''''') + ''') INSERT '
 					+ @OutputServerName + '.'
 					+ @OutputDatabaseName + '.'
 					+ @OutputSchemaName + '.'
@@ -8479,7 +8505,7 @@ END ';
                     END;
                 IF @MinutesBack IS NOT NULL
                     BEGIN
-                        SET @StringToExecute += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ';
+                        SET @StringToExecute += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END) ) ';
                     END;
                     SET @StringToExecute += N' AND SPID = @@SPID ';
                     SELECT @StringToExecute += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
@@ -8522,8 +8548,8 @@ END ';
 				BEGIN
 					SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
 					+ @OutputDatabaseName
-					+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-					+ @OutputSchemaName + ''') INSERT '
+					+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+					+ REPLACE(@OutputSchemaName, N'''', N'''''') + ''') INSERT '
 					+ @OutputDatabaseName + '.'
 					+ @OutputSchemaName + '.'
 					+ @OutputTableName
@@ -8547,7 +8573,7 @@ END ';
                     END;
                 IF @MinutesBack IS NOT NULL
                     BEGIN
-                        SET @StringToExecute += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ';
+                        SET @StringToExecute += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END) ) ';
                     END;
                     SET @StringToExecute += N' AND SPID = @@SPID ';
                     SELECT @StringToExecute += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
@@ -8593,14 +8619,10 @@ END ';
 				BEGIN
 					RAISERROR('Due to the nature of temporary tables, outputting to a linked server requires a permanent table.', 16, 0);
 				END;
-			ELSE IF @OutputTableName IN ('##BlitzCacheProcs','##BlitzCacheResults')
-				BEGIN
-					RAISERROR('OutputTableName is a reserved name for this procedure. We only use ##BlitzCacheProcs and ##BlitzCacheResults, please choose another table name.', 16, 0);
-				END;
 			ELSE
 				BEGIN				
-					SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
-						+ @OutputTableName
+					SET @StringToExecute = N' IF (OBJECT_ID(N''tempdb..'
+						+ REPLACE(@OutputTableName, N'''', N'''''')
 						+ ''') IS NOT NULL) DROP TABLE ' + @OutputTableName + ';'
 						+ 'CREATE TABLE '
 						+ @OutputTableName
@@ -8634,7 +8656,7 @@ END ';
 						PercentExecutionsByType money,
 						ExecutionsPerMinute money,
 						PlanCreationTime datetime,' + N'
-						PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, SYSDATETIME()),
+						PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END)),
 						LastExecutionTime datetime,
 						LastCompletionTime datetime, 
 						PlanHandle varbinary(64),
@@ -8709,7 +8731,7 @@ END ';
 
                     IF @MinutesBack IS NOT NULL
                         BEGIN
-                            SET @StringToExecute += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ';
+                            SET @StringToExecute += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END) ) ';
                         END;
 
                         SET @StringToExecute += N' AND SPID = @@SPID ';
@@ -8754,7 +8776,7 @@ END ';
 		END;
 	ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
 		BEGIN
-			RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
+			RAISERROR('Due to the nature of Dynamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
 END; /* End of writing results to table */
 
 END; /*Final End*/

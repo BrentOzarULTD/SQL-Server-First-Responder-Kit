@@ -47,7 +47,12 @@ ALTER PROCEDURE dbo.sp_BlitzPlanCompare
     @Debug            BIT           = 0,
     @Version          VARCHAR(30)   = NULL OUTPUT,
     @VersionDate      DATETIME      = NULL OUTPUT,
-    @VersionCheckMode BIT           = 0
+    @VersionCheckMode BIT           = 0,
+    /* Append selectors to preserve existing positional calls. Handles are server-local. */
+    @PlanHandle       VARBINARY(64) = NULL,
+    @StatementStartOffset INT      = NULL,
+    @RemotePlanHandle VARBINARY(64) = NULL,
+    @RemoteStatementStartOffset INT = NULL
 WITH RECOMPILE
 AS
 BEGIN
@@ -86,7 +91,7 @@ BEGIN
 
     If the identifier(s) you provide resolve to multiple cached plans, sp_BlitzPlanCompare
     returns the candidates with set_options + query text snippet so you can re-run with a
-    specific @QueryPlanHash.
+    specific @PlanHandle and @StatementStartOffset.
 
     Linked-server mode requires:
       - sp_BlitzPlanCompare installed on BOTH servers
@@ -161,7 +166,7 @@ BEGIN
     UNION ALL
     SELECT N'@DatabaseName',
            N'SYSNAME',
-           N'Scopes the plan lookup (and @StoredProcName resolution) to this database. Cannot stand alone - must accompany one of the identifier parameters.'
+           N'Scopes the plan lookup (and @StoredProcName resolution) to this database. With @LinkedServer, only an explicit @DatabaseName is forwarded to the remote lookup; a database inferred from a three-part @StoredProcName scopes the local side only. Cannot stand alone - must accompany one of the identifier parameters.'
     UNION ALL
     SELECT N'@CompareToXML',
            N'XML',
@@ -178,6 +183,10 @@ BEGIN
     SELECT N'@Debug',
            N'BIT',
            N'When 1, prints intermediate progress messages and the dynamic SQL used for cross-database snapshots.'
+    UNION ALL
+    SELECT N'@PlanHandle / @RemotePlanHandle', N'VARBINARY(64)', N'Select a specific local/remote cached copy. Remote selectors require @LinkedServer.'
+    UNION ALL
+    SELECT N'@StatementStartOffset / @RemoteStatementStartOffset', N'INT', N'Select a statement within the corresponding handle using the offset returned in the candidate list.'
     UNION ALL
     SELECT N'@Version',
            N'VARCHAR(30) OUTPUT',
@@ -197,12 +206,15 @@ END;
 /* =====================================================================
    Variable declarations
    ===================================================================== */
+/* Local procedure resolution may infer a database. Only a caller-supplied
+   database filter should restrict the remote server's query-hash search. */
+DECLARE @CallerDatabaseName SYSNAME = @DatabaseName;
 DECLARE @Mode             TINYINT,
         @EngineEdition    INT      = CAST(SERVERPROPERTY('EngineEdition')  AS INT),
         @LocalServerName  NVARCHAR(256) = CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(256)),
         @QueryHashBin     BINARY(8),     /* the query_hash of the resolved plan (or from mode 2 XML) */
         @MatchCount       INT,
-        @PlanHandle       VARBINARY(64),
+        @ResolvedPlanHandle       VARBINARY(64),
         @SqlHandle        VARBINARY(64),
         @StmtStartOffset  INT,
         @StmtEndOffset    INT,
@@ -223,11 +235,12 @@ DECLARE @HasIdentifier BIT =
            OR @QueryHash      IS NOT NULL
            OR @StoredProcName IS NOT NULL
            OR @CompareToXML   IS NOT NULL
+           OR @PlanHandle     IS NOT NULL
          THEN 1 ELSE 0 END;
 
 IF @HasIdentifier = 0
 BEGIN
-    RAISERROR('You must supply at least one of @QueryPlanHash, @QueryHash, @StoredProcName, or @CompareToXML. Run with @Help = 1 for usage.', 16, 1);
+    RAISERROR('You must supply at least one of @QueryPlanHash, @QueryHash, @StoredProcName, @PlanHandle, or @CompareToXML. Run with @Help = 1 for usage.', 16, 1);
     RETURN;
 END;
 
@@ -239,8 +252,21 @@ IF @DatabaseName IS NOT NULL
    AND @QueryHash      IS NULL
    AND @StoredProcName IS NULL
    AND @CompareToXML   IS NULL
+   AND @PlanHandle     IS NULL
 BEGIN
     RAISERROR('@DatabaseName cannot stand alone. Supply one of @QueryPlanHash, @QueryHash, or @StoredProcName alongside it.', 16, 1);
+    RETURN;
+END;
+
+IF (@StatementStartOffset IS NOT NULL AND (@PlanHandle IS NULL OR @StatementStartOffset < 0))
+   OR (@RemoteStatementStartOffset IS NOT NULL AND (@RemotePlanHandle IS NULL OR @RemoteStatementStartOffset < 0))
+BEGIN
+    RAISERROR('A statement offset must be nonnegative and accompany the corresponding plan handle.', 16, 1);
+    RETURN;
+END;
+IF @LinkedServer IS NULL AND (@RemotePlanHandle IS NOT NULL OR @RemoteStatementStartOffset IS NOT NULL)
+BEGIN
+    RAISERROR('Remote plan selectors require @LinkedServer.', 16, 1);
     RETURN;
 END;
 
@@ -254,6 +280,7 @@ IF @LinkedServer IS NOT NULL
    AND @QueryPlanHash  IS NULL
    AND @QueryHash      IS NULL
    AND @StoredProcName IS NULL
+   AND @PlanHandle IS NULL
 BEGIN
     RAISERROR('@LinkedServer requires one of @QueryPlanHash, @QueryHash, or @StoredProcName so we know which plan to look up on both sides.', 16, 1);
     RETURN;
@@ -261,7 +288,7 @@ END;
 
 IF @LinkedServer IS NOT NULL
 BEGIN
-    IF @EngineEdition IN (5, 8)
+    IF @EngineEdition IN (5, 6, 11)
     BEGIN
         RAISERROR('Linked servers are not supported on Azure SQL DB or Synapse. Use @CompareToXML mode instead.', 16, 1);
         RETURN;
@@ -284,18 +311,8 @@ ELSE
 IF @Debug = 1
     RAISERROR('Operating in mode %d (1=emit XML, 2=compare XML, 3=linked server)', 0, 1, @Mode) WITH NOWAIT;
 
-/* Mode 2: extract the QUERY hash from the XML (not the plan hash). The whole point of
-   comparing is that the plan may be DIFFERENT on this server — that's the symptom we're
-   investigating. So we look up THIS server's plan by query_hash and let the optimizer's
-   chosen plan_hash come out of the cache however it got there.
-
-   The existing "look up by query_plan_hash, fall back to query_hash" flow handles this
-   cleanly: we stuff the query_hash into @QueryPlanHash, the first lookup (by plan_hash)
-   returns 0 rows, and the fallback resolves by query_hash.
-
-   If the user ALSO passes @QueryPlanHash explicitly (e.g. to disambiguate when this
-   server has multiple plans for the same query_hash), we honor that and skip the XML
-   extraction. */
+/* Mode 2 uses the snapshot query hash directly. Additional selectors narrow
+   that query; an explicit plan hash must still belong to the snapshot query. */
 IF @Mode = 2
 BEGIN
     SET @QueryHashBin = CONVERT(BINARY(8),
@@ -307,8 +324,12 @@ BEGIN
         RETURN;
     END;
 
-    IF @QueryPlanHash IS NULL
-        SET @QueryPlanHash = @QueryHashBin;
+    IF @QueryHash IS NOT NULL AND @QueryHash <> @QueryHashBin
+    BEGIN
+        RAISERROR('@QueryHash does not match the query in @CompareToXML.', 16, 1);
+        RETURN;
+    END;
+    SET @QueryHash = @QueryHashBin;
 END;
 
 /* =====================================================================
@@ -338,7 +359,7 @@ BEGIN
         SET @DatabaseName = @StoredProcDatabaseName;
 
     /* Azure SQL DB can't do cross-DB OBJECT_ID lookups. Reject mismatches early. */
-    IF @EngineEdition IN (5, 8)
+    IF @EngineEdition IN (5, 6, 11)
        AND @DatabaseName IS NOT NULL
        AND @DatabaseName <> @CurrentDbName
     BEGIN
@@ -384,6 +405,9 @@ BEGIN
         RETURN;
     END;
 
+    /* object_id is database-local, including for bare/two-part names. */
+    IF @DatabaseName IS NULL SET @DatabaseName = @CurrentDbName;
+
     IF @Debug = 1
     BEGIN
         DECLARE @DebugDbName SYSNAME = ISNULL(@DatabaseName, @CurrentDbName);
@@ -415,6 +439,8 @@ CREATE TABLE #PlanMatches (
     creation_time         DATETIME      NULL,
     last_execution_time   DATETIME      NULL,
     execution_count       BIGINT        NULL,
+    last_worker_time      BIGINT        NULL, /* microseconds, from the selected statement DMV row */
+    last_elapsed_time     BIGINT        NULL,
     database_name         SYSNAME       NULL,
     set_options           INT           NULL,
     query_text_snippet    NVARCHAR(500) NULL,
@@ -431,10 +457,32 @@ DECLARE @HasPlanStatsDmv BIT =
                          AND [schema_id] = SCHEMA_ID('sys'))
          THEN 1 ELSE 0 END;
 
+/* Materialize procedure candidates before asking the XML-producing DMFs to
+   expand plans. Keep statement rows in the subsequent query; a plan handle
+   alone is not a statement identifier. SQL text also covers object types that
+   do not appear in dm_exec_procedure_stats. */
+IF OBJECT_ID('tempdb..#ProcedurePlanHandles') IS NOT NULL DROP TABLE #ProcedurePlanHandles;
+CREATE TABLE #ProcedurePlanHandles (plan_handle VARBINARY(64) NOT NULL PRIMARY KEY);
+IF @ResolvedProcObjectId IS NOT NULL
+BEGIN
+    INSERT INTO #ProcedurePlanHandles (plan_handle)
+    SELECT DISTINCT qs.plan_handle
+    FROM sys.dm_exec_query_stats qs
+    CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st
+    WHERE st.objectid = @ResolvedProcObjectId AND st.dbid = DB_ID(@DatabaseName)
+      AND (@QueryPlanHash IS NULL OR qs.query_plan_hash = @QueryPlanHash)
+      AND (@QueryHash IS NULL OR qs.query_hash = @QueryHash);
+END;
+
 /* Build the WHERE clause from whichever identifiers the user supplied. AND-combined.
    Collation applied to @DatabaseName match because DB_NAME() returns the catalog
    collation which may not match the caller's default. */
 DECLARE @Predicate NVARCHAR(MAX) = N'qp.query_plan IS NOT NULL';
+
+IF @PlanHandle IS NOT NULL
+    SET @Predicate += N' AND qs.plan_handle = @selected_handle';
+IF @StatementStartOffset IS NOT NULL
+    SET @Predicate += N' AND qs.statement_start_offset = @selected_offset';
 
 IF @QueryPlanHash IS NOT NULL
     SET @Predicate = @Predicate + N' AND qs.query_plan_hash = @qph';
@@ -447,7 +495,7 @@ IF @DatabaseName IS NOT NULL
 
 DECLARE @PlanLookupSql NVARCHAR(MAX) = N'
 INSERT INTO #PlanMatches (plan_handle, sql_handle, statement_start_offset, statement_end_offset,
-                          creation_time, last_execution_time, execution_count,
+                          creation_time, last_execution_time, execution_count, last_worker_time, last_elapsed_time,
                           database_name, set_options, query_text_snippet,
                           query_plan_full, query_plan_actual, plan_source,
                           query_plan_hash, query_hash)
@@ -458,6 +506,8 @@ SELECT  qs.plan_handle,
         qs.creation_time,
         qs.last_execution_time,
         qs.execution_count,
+        qs.last_worker_time,
+        qs.last_elapsed_time,
         DB_NAME(CONVERT(INT, pa_db.value)),
         CONVERT(INT, pa_set.value),
         SUBSTRING(st.text,
@@ -482,6 +532,9 @@ SELECT  qs.plan_handle,
         qs.query_plan_hash,
         qs.query_hash
 FROM    sys.dm_exec_query_stats AS qs
+' + CASE WHEN @ResolvedProcObjectId IS NOT NULL
+         THEN N'INNER JOIN #ProcedurePlanHandles ph ON ph.plan_handle = qs.plan_handle'
+         ELSE N'' END + N'
 CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS st
 OUTER APPLY sys.dm_exec_query_plan(qs.plan_handle) AS qp
 '     + CASE WHEN @HasPlanStatsDmv = 1
@@ -503,11 +556,11 @@ IF @Debug = 1
     PRINT @PlanLookupSql;
 
 EXEC sp_executesql @PlanLookupSql,
-    N'@qph BINARY(8), @qh BINARY(8), @objid INT, @dbname SYSNAME',
+    N'@qph BINARY(8), @qh BINARY(8), @objid INT, @dbname SYSNAME, @selected_handle VARBINARY(64), @selected_offset INT',
     @qph    = @QueryPlanHash,
     @qh     = @QueryHash,
     @objid  = @ResolvedProcObjectId,
-    @dbname = @DatabaseName;
+    @dbname = @DatabaseName, @selected_handle = @PlanHandle, @selected_offset = @StatementStartOffset;
 
 SELECT @MatchCount = COUNT(*) FROM #PlanMatches;
 
@@ -536,11 +589,11 @@ BEGIN
         RAISERROR('No match on query_plan_hash. Retrying the passed hash as query_hash...', 0, 1) WITH NOWAIT;
 
     EXEC sp_executesql @PlanLookupSqlByQueryHash,
-        N'@qph BINARY(8), @qh BINARY(8), @objid INT, @dbname SYSNAME',
+        N'@qph BINARY(8), @qh BINARY(8), @objid INT, @dbname SYSNAME, @selected_handle VARBINARY(64), @selected_offset INT',
         @qph    = @QueryPlanHash,
         @qh     = @QueryHash,
         @objid  = @ResolvedProcObjectId,
-        @dbname = @DatabaseName;
+        @dbname = @DatabaseName, @selected_handle = @PlanHandle, @selected_offset = @StatementStartOffset;
     SELECT @MatchCount = COUNT(*) FROM #PlanMatches;
 
     IF @MatchCount > 0
@@ -595,7 +648,7 @@ END;
 
 IF @MatchCount > 1
 BEGIN
-    RAISERROR('Multiple cached plans match the identifiers you passed. The matches are returned below; inspect set_options + query_text_snippet, then re-run with a more specific @QueryPlanHash (or supply additional narrowers like @DatabaseName).',
+    RAISERROR('Multiple cached plans match the identifiers you passed. The matches are returned below; inspect set_options + query_text_snippet, then select a row using @PlanHandle and @StatementStartOffset (or narrow with @DatabaseName).',
               11, 1);
 
     SELECT  plan_handle, sql_handle, statement_start_offset, statement_end_offset,
@@ -610,18 +663,61 @@ BEGIN
 END;
 
 DECLARE @PlanSource      NVARCHAR(50);
-DECLARE @PlanXmlForEmit  XML;  /* actual plan if available, else full estimated; what we embed in the snapshot */
+DECLARE @PlanXmlForEmit  XML;  /* statement-scoped actual if available, else estimated */
 
-SELECT  @PlanHandle      = plan_handle,
+SELECT  @ResolvedPlanHandle      = plan_handle,
         @SqlHandle       = sql_handle,
         @StmtStartOffset = statement_start_offset,
         @StmtEndOffset   = statement_end_offset,
-        @PlanXml         = query_plan_full,               /* FULL plan - used for #PlanObjects extraction */
+        @PlanXml         = query_plan_full,               /* narrowed to the selected statement below */
         @PlanXmlForEmit  = COALESCE(query_plan_actual, query_plan_full),
         @PlanSource      = plan_source,
         @QueryPlanHash   = query_plan_hash, /* may have been NULL if user passed @QueryHash / @StoredProcName only */
         @QueryHashBin    = query_hash    /* overwrite any mode-2 XML-extracted value with the real resolved plan's query_hash */
 FROM    #PlanMatches;
+
+/* A cache handle identifies a batch, while the selected DMV row identifies a
+   statement. Ask for that statement's estimated plan using its byte offsets.
+   Do not select the first occurrence of a plan hash: repeated statements can
+   share the same hash inside a batch. */
+DECLARE @StatementPlan XML, @SelectedStatementCompId INT, @ActualStatement XML;
+SELECT @StatementPlan = TRY_CONVERT(XML, tp.query_plan)
+FROM #PlanMatches pm
+CROSS APPLY sys.dm_exec_text_query_plan(pm.plan_handle, pm.statement_start_offset, pm.statement_end_offset) tp;
+IF @StatementPlan IS NULL
+BEGIN
+    RAISERROR('The selected statement plan is no longer available. Resolve the cached plan again.', 16, 1);
+    RETURN;
+END;
+SET @PlanXml = @StatementPlan;
+;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+SELECT @SelectedStatementCompId = @PlanXml.value('(//p:StmtSimple/@StatementCompId)[1]', 'INT');
+
+IF @PlanSource = N'Actual (LAST_QUERY_PLAN_STATS)' AND @SelectedStatementCompId IS NOT NULL
+BEGIN
+    /* StatementCompId survives statement-scoped retrieval (StatementId is renumbered). Require a
+       unique match in the actual batch and matching query/plan hashes. */
+    DECLARE @SelectedQueryHashText NVARCHAR(50) = CONVERT(NVARCHAR(50), @QueryHashBin, 1),
+            @SelectedPlanHashText NVARCHAR(50) = CONVERT(NVARCHAR(50), @QueryPlanHash, 1);
+    ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+    SELECT @ActualStatement = @PlanXmlForEmit.query('//p:StmtSimple[
+        @StatementCompId = sql:variable("@SelectedStatementCompId") and
+        @QueryHash = sql:variable("@SelectedQueryHashText") and
+        @QueryPlanHash = sql:variable("@SelectedPlanHashText")]');
+END;
+IF @ActualStatement IS NOT NULL AND @ActualStatement.value('count(/*)', 'INT') = 1
+BEGIN
+    SET @PlanXmlForEmit = @PlanXmlForEmit.query('
+        declare default element namespace "http://schemas.microsoft.com/sqlserver/2004/07/showplan";
+        <ShowPlanXML Version="{(/ShowPlanXML/@Version)[1]}" Build="{(/ShowPlanXML/@Build)[1]}">
+          <BatchSequence><Batch><Statements>{//StmtSimple[@StatementCompId = sql:variable("@SelectedStatementCompId") and @QueryHash = sql:variable("@SelectedQueryHashText") and @QueryPlanHash = sql:variable("@SelectedPlanHashText")]}</Statements></Batch></BatchSequence>
+        </ShowPlanXML>');
+END
+ELSE
+BEGIN
+    SET @PlanXmlForEmit = @PlanXml;
+    SET @PlanSource = N'Cached estimated';
+END;
 
 IF @Debug = 1
     RAISERROR('Plan resolved. plan_source = %s', 0, 1, @PlanSource) WITH NOWAIT;
@@ -637,25 +733,25 @@ IF OBJECT_ID('tempdb..#PlanWarnings')   IS NOT NULL DROP TABLE #PlanWarnings;
 IF OBJECT_ID('tempdb..#PlanParameters') IS NOT NULL DROP TABLE #PlanParameters;
 
 CREATE TABLE #PlanObjects (
-    DatabaseName SYSNAME      NULL,
-    SchemaName   SYSNAME      NULL,
-    TableName    SYSNAME      NULL,
+    DatabaseName SYSNAME COLLATE Latin1_General_100_BIN2      NULL,
+    SchemaName   SYSNAME COLLATE Latin1_General_100_BIN2      NULL,
+    TableName    SYSNAME COLLATE Latin1_General_100_BIN2      NULL,
     Source       VARCHAR(20)  NULL  /* 'Object', 'ColumnReference', 'StatsUsed' */
 );
 
 CREATE TABLE #PlanIndexesRef (
-    DatabaseName SYSNAME      NULL,
-    SchemaName   SYSNAME      NULL,
-    TableName    SYSNAME      NULL,
-    IndexName    SYSNAME      NULL,
+    DatabaseName SYSNAME COLLATE Latin1_General_100_BIN2      NULL,
+    SchemaName   SYSNAME COLLATE Latin1_General_100_BIN2      NULL,
+    TableName    SYSNAME COLLATE Latin1_General_100_BIN2      NULL,
+    IndexName    SYSNAME COLLATE Latin1_General_100_BIN2      NULL,
     IndexKind    NVARCHAR(50) NULL
 );
 
 CREATE TABLE #PlanStatsUsed (
-    DatabaseName     SYSNAME      NULL,
-    SchemaName       SYSNAME      NULL,
-    TableName        SYSNAME      NULL,
-    StatisticsName   SYSNAME      NULL,
+    DatabaseName     SYSNAME COLLATE Latin1_General_100_BIN2      NULL,
+    SchemaName       SYSNAME COLLATE Latin1_General_100_BIN2      NULL,
+    TableName        SYSNAME COLLATE Latin1_General_100_BIN2      NULL,
+    StatisticsName   SYSNAME COLLATE Latin1_General_100_BIN2      NULL,
     ModificationCount BIGINT      NULL,
     SamplingPercent  DECIMAL(9,4) NULL
 );
@@ -681,9 +777,9 @@ CREATE TABLE #PlanParameters (
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT INTO #PlanObjects (DatabaseName, SchemaName, TableName, Source)
 SELECT DISTINCT
-       PARSENAME(o.n.value('@Database', 'NVARCHAR(258)'), 1),
-       PARSENAME(o.n.value('@Schema',   'NVARCHAR(258)'), 1),
-       PARSENAME(o.n.value('@Table',    'NVARCHAR(258)'), 1),
+       PARSENAME(o.n.value('@Database', 'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
+       PARSENAME(o.n.value('@Schema',   'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
+       PARSENAME(o.n.value('@Table',    'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
        'Object'
 FROM   @PlanXml.nodes('//p:RelOp//p:Object') AS o(n)
 WHERE  o.n.value('@Database', 'NVARCHAR(258)') LIKE '[[]%'
@@ -693,10 +789,10 @@ WHERE  o.n.value('@Database', 'NVARCHAR(258)') LIKE '[[]%'
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT INTO #PlanIndexesRef (DatabaseName, SchemaName, TableName, IndexName, IndexKind)
 SELECT DISTINCT
-       PARSENAME(o.n.value('@Database', 'NVARCHAR(258)'), 1),
-       PARSENAME(o.n.value('@Schema',   'NVARCHAR(258)'), 1),
-       PARSENAME(o.n.value('@Table',    'NVARCHAR(258)'), 1),
-       PARSENAME(o.n.value('@Index',    'NVARCHAR(258)'), 1),
+       PARSENAME(o.n.value('@Database', 'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
+       PARSENAME(o.n.value('@Schema',   'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
+       PARSENAME(o.n.value('@Table',    'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
+       PARSENAME(o.n.value('@Index',    'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
        o.n.value('@IndexKind', 'NVARCHAR(50)')
 FROM   @PlanXml.nodes('//p:RelOp//p:Object') AS o(n)
 WHERE  o.n.value('@Database', 'NVARCHAR(258)') LIKE '[[]%'
@@ -706,30 +802,30 @@ WHERE  o.n.value('@Database', 'NVARCHAR(258)') LIKE '[[]%'
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT INTO #PlanObjects (DatabaseName, SchemaName, TableName, Source)
 SELECT DISTINCT
-       PARSENAME(c.n.value('@Database', 'NVARCHAR(258)'), 1),
-       PARSENAME(c.n.value('@Schema',   'NVARCHAR(258)'), 1),
-       PARSENAME(c.n.value('@Table',    'NVARCHAR(258)'), 1),
+       PARSENAME(c.n.value('@Database', 'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
+       PARSENAME(c.n.value('@Schema',   'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
+       PARSENAME(c.n.value('@Table',    'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
        'ColumnReference'
 FROM   @PlanXml.nodes('//p:ColumnReference[@Database]') AS c(n)
 WHERE  c.n.value('@Database', 'NVARCHAR(258)') LIKE '[[]%'
   AND  c.n.value('@Table',    'NVARCHAR(258)') IS NOT NULL
   AND  NOT EXISTS (
         SELECT 1 FROM #PlanObjects po
-        WHERE po.DatabaseName = PARSENAME(c.n.value('@Database', 'NVARCHAR(258)'), 1)
-          AND po.SchemaName   = PARSENAME(c.n.value('@Schema',   'NVARCHAR(258)'), 1)
-          AND po.TableName    = PARSENAME(c.n.value('@Table',    'NVARCHAR(258)'), 1));
+        WHERE po.DatabaseName = PARSENAME(c.n.value('@Database', 'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2
+          AND po.SchemaName   = PARSENAME(c.n.value('@Schema',   'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2
+          AND po.TableName    = PARSENAME(c.n.value('@Table',    'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2);
 
 /* Statistics used by the optimizer for this plan (high-signal) */
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT INTO #PlanStatsUsed (DatabaseName, SchemaName, TableName, StatisticsName, ModificationCount, SamplingPercent)
 SELECT DISTINCT
-       PARSENAME(s.n.value('@Database',   'NVARCHAR(258)'), 1),
-       PARSENAME(s.n.value('@Schema',     'NVARCHAR(258)'), 1),
-       PARSENAME(s.n.value('@Table',      'NVARCHAR(258)'), 1),
-       PARSENAME(s.n.value('@Statistics', 'NVARCHAR(258)'), 1),
+       PARSENAME(s.n.value('@Database',   'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
+       PARSENAME(s.n.value('@Schema',     'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
+       PARSENAME(s.n.value('@Table',      'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
+       PARSENAME(s.n.value('@Statistics', 'NVARCHAR(258)'), 1) COLLATE Latin1_General_100_BIN2,
        s.n.value('@ModificationCount', 'BIGINT'),
        s.n.value('@SamplingPercent',   'DECIMAL(9,4)')
-FROM   @PlanXml.nodes('//p:StatsUsed/p:Stats') AS s(n)
+FROM   @PlanXml.nodes('//p:OptimizerStatsUsage/p:StatisticsInfo') AS s(n)
 WHERE  s.n.value('@Database', 'NVARCHAR(258)') LIKE '[[]%';
 
 /* Make sure the StatsUsed objects are in #PlanObjects too */
@@ -754,7 +850,7 @@ UNION ALL SELECT 'RetrievedFromCache',
 UNION ALL SELECT 'StatementSubTreeCost',
        @PlanXml.value('(//p:StmtSimple/@StatementSubTreeCost)[1]', 'NVARCHAR(50)')
 UNION ALL SELECT 'DegreeOfParallelism',
-       @PlanXml.value('(//p:QueryPlan/@DegreeOfParallelism)[1]', 'NVARCHAR(50)')
+       @PlanXmlForEmit.value('(//p:QueryPlan/@DegreeOfParallelism)[1]', 'NVARCHAR(50)')
 UNION ALL SELECT 'MemoryGrant',
        @PlanXml.value('(//p:QueryPlan/@MemoryGrant)[1]', 'NVARCHAR(50)')
 UNION ALL SELECT 'CompileTime',
@@ -774,10 +870,10 @@ UNION ALL SELECT 'MaxCompileMemory',
 INSERT INTO #PlanAttributes (AttributeName, AttributeValue) VALUES ('PlanSource', @PlanSource);
 
 /* =====================================================================
-   Runtime totals from the actual plan (LAST_QUERY_PLAN_STATS).
-   We compare TOTALS only (not per-operator stats), since operator layouts differ
-   between plans. These come from @PlanXmlForEmit (the actual plan if present, else
-   the full estimated - in which case these XPaths return NULL and get filtered). */
+   Runtime totals for the selected statement. CPU and elapsed time come from
+   dm_exec_query_stats, including when only an estimated plan is available.
+   Actual-plan-specific counters come from @PlanXmlForEmit; absent attributes
+   return NULL and get filtered. Compare totals because operator layouts differ. */
 IF OBJECT_ID('tempdb..#PlanRuntime') IS NOT NULL DROP TABLE #PlanRuntime;
 CREATE TABLE #PlanRuntime (
     [Setting]    VARCHAR(100)   NOT NULL,
@@ -785,40 +881,29 @@ CREATE TABLE #PlanRuntime (
     ValueNumeric DECIMAL(38,4)  NULL
 );
 
-/* Microsoft quirk: <QueryTimeStats> attribute VALUES are swapped relative to
-   the attribute names in the plan XML that sys.dm_exec_query_plan_stats
-   produces. Empirically verified against sys.dm_exec_query_stats
-   (total_worker_time / total_elapsed_time) on single-execution plans:
-
-       @CpuTime attribute     actually holds the elapsed-time value
-       @ElapsedTime attribute actually holds the cpu-time value
-
-   So we SWAP at read time: our ElapsedTimeMs output reads from @CpuTime,
-   and our CpuTimeMs output reads from @ElapsedTime. The user-facing labels
-   stay correct; only the XPath sources are flipped. The same swap applies
-   to the Udf variants. */
-;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
+/* Cached QueryTimeStats timing attributes can be swapped or omit execution
+   waits on some builds. Use the last completed execution counters captured
+   with this exact plan handle and statement offsets, converting us to ms.
+   https://www.brentozar.com/archive/2026/04/theres-a-bug-in-sys-dm_exec_query_plan_stats/ */
 INSERT INTO #PlanRuntime ([Setting], ValueText, ValueNumeric)
-SELECT 'ElapsedTimeMs', CAST(v AS NVARCHAR(40)), v
-FROM (SELECT @PlanXmlForEmit.value('(//p:QueryTimeStats/@CpuTime)[1]', 'BIGINT') AS v) x
-WHERE v IS NOT NULL;
-
-;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
-INSERT INTO #PlanRuntime ([Setting], ValueText, ValueNumeric)
-SELECT 'CpuTimeMs', CAST(v AS NVARCHAR(40)), v
-FROM (SELECT @PlanXmlForEmit.value('(//p:QueryTimeStats/@ElapsedTime)[1]', 'BIGINT') AS v) x
-WHERE v IS NOT NULL;
+SELECT v.Setting, CONVERT(NVARCHAR(40), v.Milliseconds), v.Milliseconds
+FROM #PlanMatches AS pm
+CROSS APPLY (VALUES
+    ('ElapsedTimeMs', CONVERT(DECIMAL(38,4), pm.last_elapsed_time / 1000.0)),
+    ('CpuTimeMs', CONVERT(DECIMAL(38,4), pm.last_worker_time / 1000.0))
+) AS v(Setting, Milliseconds)
+WHERE v.Milliseconds IS NOT NULL;
 
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT INTO #PlanRuntime ([Setting], ValueText, ValueNumeric)
 SELECT 'UdfElapsedTimeMs', CAST(v AS NVARCHAR(40)), v
-FROM (SELECT @PlanXmlForEmit.value('(//p:QueryTimeStats/@UdfCpuTime)[1]', 'BIGINT') AS v) x
+FROM (SELECT @PlanXmlForEmit.value('(//p:QueryTimeStats/@UdfElapsedTime)[1]', 'BIGINT') AS v) x
 WHERE v IS NOT NULL;
 
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT INTO #PlanRuntime ([Setting], ValueText, ValueNumeric)
 SELECT 'UdfCpuTimeMs', CAST(v AS NVARCHAR(40)), v
-FROM (SELECT @PlanXmlForEmit.value('(//p:QueryTimeStats/@UdfElapsedTime)[1]', 'BIGINT') AS v) x
+FROM (SELECT @PlanXmlForEmit.value('(//p:QueryTimeStats/@UdfCpuTime)[1]', 'BIGINT') AS v) x
 WHERE v IS NOT NULL;
 
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
@@ -833,18 +918,13 @@ SELECT 'MaxUsedMemoryKB', CAST(v AS NVARCHAR(40)), v
 FROM (SELECT @PlanXmlForEmit.value('(//p:MemoryGrantInfo/@MaxUsedMemory)[1]', 'BIGINT') AS v) x
 WHERE v IS NOT NULL;
 
-/* Spills: count of <SpillOccurred> elements in the plan. Unlike the other PlanRuntime
-   metrics above (which use XPaths that return NULL when the actual plan is missing and
-   are filtered by WHERE v IS NOT NULL), count() always returns 0 for an empty result -
-   so this row is emitted with value 0 even on an estimated plan that has no runtime
-   warnings. That's intentional: 0 vs 0 matches as "Same" and gets suppressed by the
-   diff engine; 0 vs N or N vs M surfaces. The diff engine's 25% noise filter has an
-   exact-match carve-out for PlanRuntime.SpillCount so even a single spill on one side
-   is reported. */
+/* Count each spilling operator warning container once. Lightweight actual plans
+   use SpillOccurred; full Showplan can include SpillToTempDb and spill details.
+   A container with several spill representations still describes one operator. */
 ;WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
 INSERT INTO #PlanRuntime ([Setting], ValueText, ValueNumeric)
 SELECT 'SpillCount', CAST(v AS NVARCHAR(20)), v
-FROM (SELECT @PlanXmlForEmit.value('count(//p:Warnings/p:SpillOccurred)', 'INT') AS v) x
+FROM (SELECT @PlanXmlForEmit.value('count(//p:Warnings[p:SpillOccurred or p:SpillToTempDb or p:SortSpillDetails or p:HashSpillDetails or p:ExchangeSpillDetails])', 'INT') AS v) x
 WHERE @PlanXmlForEmit IS NOT NULL;
 
 /* Per-wait-type runtime waits. One row per wait type encountered by the query.
@@ -895,7 +975,7 @@ IF OBJECT_ID('tempdb..#LocalSnapshot') IS NOT NULL DROP TABLE #LocalSnapshot;
 CREATE TABLE #LocalSnapshot (
     Category     VARCHAR(50)    NOT NULL,
     Setting      VARCHAR(200)   NOT NULL,
-    SubjectKey   NVARCHAR(776)  NULL,
+    SubjectKey   NVARCHAR(776) COLLATE Latin1_General_100_BIN2 NULL,
     ValueText    NVARCHAR(MAX)  NULL,
     ValueNumeric DECIMAL(38,4)  NULL
 );
@@ -918,8 +998,8 @@ SELECT 'Hardware', 'CPUCount',           NULL, CAST(cpu_count            AS NVAR
 SELECT 'Hardware', 'SchedulerCount',     NULL, CAST(scheduler_count      AS NVARCHAR(20)), CAST(scheduler_count      AS DECIMAL(38,4)) FROM sys.dm_os_sys_info UNION ALL
 SELECT 'Hardware', 'HyperthreadRatio',   NULL, CAST(hyperthread_ratio    AS NVARCHAR(20)), CAST(hyperthread_ratio    AS DECIMAL(38,4)) FROM sys.dm_os_sys_info;
 
-/* physical_memory_kb is unreliable on Azure SQL DB. Skip it on EngineEdition 5/8. */
-IF @EngineEdition NOT IN (5, 8)
+/* physical_memory_kb is unreliable on Azure SQL DB. Skip it on SQL Database / Synapse. */
+IF @EngineEdition NOT IN (5, 6, 11)
 BEGIN
     INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText, ValueNumeric)
     SELECT 'Hardware', 'PhysicalMemoryKB', NULL, CAST(physical_memory_kb AS NVARCHAR(40)), CAST(physical_memory_kb AS DECIMAL(38,4))
@@ -949,7 +1029,7 @@ BEGIN TRY
     INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText, ValueNumeric)
     SELECT 'SpConfigure', c.[name], NULL, CAST(c.value_in_use AS NVARCHAR(40)), CAST(c.value_in_use AS DECIMAL(38,4))
     FROM   sys.configurations c
-    JOIN   #ConfigAllowlist a ON a.[name] = c.[name];
+    JOIN   #ConfigAllowlist a ON a.[name] COLLATE DATABASE_DEFAULT = c.[name];
 END TRY
 BEGIN CATCH
     INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText)
@@ -957,7 +1037,7 @@ BEGIN CATCH
 END CATCH;
 
 /* ----- Category: TraceFlag ----- */
-IF @EngineEdition IN (2, 3, 4, 6)  /* Box product or Managed Instance */
+IF @EngineEdition IN (2, 3, 4, 8)  /* Box product or Managed Instance */
 BEGIN
     IF OBJECT_ID('tempdb..#TraceFlags') IS NOT NULL DROP TABLE #TraceFlags;
     CREATE TABLE #TraceFlags (
@@ -991,7 +1071,7 @@ END;
    Azure SQL DB note: sessions are bound to one user database, and USE [otherDb] raises an error.
    For any plan-referenced DB that isn't the current DB on Azure SQL DB / Synapse, emit a warning
    row and remove it from the iteration so we don't blow up trying to USE it. */
-IF @EngineEdition IN (5, 8)
+IF @EngineEdition IN (5, 6, 11)
 BEGIN
     INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText)
     SELECT DISTINCT 'Database', '_unreadable_', po.DatabaseName,
@@ -1019,9 +1099,29 @@ BEGIN
     DELETE FROM #PlanObjects WHERE DatabaseName = 'tempdb';
 END;
 
+/* Preserve usage independently of catalog enumeration: a missing index on the
+   other server must still be recognized as used by this captured plan. */
+INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText, ValueNumeric)
+SELECT DISTINCT 'Index', 'UsedByPlan',
+       DatabaseName + N'.' + SchemaName + N'.' + TableName + N'.' + IndexName, N'1', 1
+FROM #PlanIndexesRef
+WHERE IndexName IS NOT NULL AND DatabaseName <> N'tempdb';
+
 DECLARE @CurrentDb SYSNAME;
+DECLARE @SelectedStatementSqlHandle VARBINARY(64);
+SELECT @SelectedStatementSqlHandle = qs.statement_sql_handle
+FROM sys.dm_exec_query_stats qs
+JOIN #PlanMatches pm ON pm.plan_handle = qs.plan_handle
+                   AND pm.statement_start_offset = qs.statement_start_offset;
+DECLARE @ForcedPlanQueryHashText VARCHAR(50) = CONVERT(VARCHAR(50), @QueryHashBin, 1);
 DECLARE db_cur CURSOR LOCAL FAST_FORWARD READ_ONLY FOR
-    SELECT DISTINCT DatabaseName FROM #PlanObjects WHERE DatabaseName IS NOT NULL;
+    SELECT DatabaseName FROM #PlanObjects WHERE DatabaseName IS NOT NULL
+    UNION
+    /* Query Store and plan guides live in the compilation database, which may
+       differ from every database referenced by the selected statement. */
+    SELECT database_name COLLATE Latin1_General_100_BIN2 FROM #PlanMatches
+    WHERE database_name IS NOT NULL AND database_name <> N'tempdb'
+      AND (@EngineEdition NOT IN (5, 6, 11) OR database_name = DB_NAME());
 
 OPEN db_cur;
 FETCH NEXT FROM db_cur INTO @CurrentDb;
@@ -1078,7 +1178,7 @@ BEGIN
                    CASE WHEN OBJECT_ID(QUOTENAME(po.SchemaName) + ''.'' + QUOTENAME(po.TableName)) IS NULL
                         THEN ''missing'' ELSE ''present'' END
             FROM #PlanObjects po
-            WHERE po.DatabaseName = @db;';
+            WHERE po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db;';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
 
             /* Indexes on plan-referenced objects. Emit BOTH a presence row per index AND
@@ -1095,9 +1195,9 @@ BEGIN
             FROM sys.tables t
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.indexes i ON i.object_id = t.object_id
-            JOIN #PlanObjects po ON po.DatabaseName = @db
-                                AND po.SchemaName  = s.[name]
-                                AND po.TableName   = t.[name];
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
+                                AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
+                                AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name];
 
             INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText, ValueNumeric)
             SELECT ''Index'',
@@ -1111,9 +1211,9 @@ BEGIN
             FROM sys.tables t
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             LEFT JOIN sys.indexes i ON i.object_id = t.object_id
-            JOIN #PlanObjects po ON po.DatabaseName = @db
-                                AND po.SchemaName  = s.[name]
-                                AND po.TableName   = t.[name];';
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
+                                AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
+                                AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name];';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
 
             /* Index key + included columns (one row per index, columns concatenated) */
@@ -1143,9 +1243,9 @@ BEGIN
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.indexes i ON i.object_id = t.object_id
             LEFT JOIN key_cols kc ON kc.object_id = i.object_id AND kc.index_id = i.index_id
-            JOIN #PlanObjects po ON po.DatabaseName = @db
-                                AND po.SchemaName  = s.[name]
-                                AND po.TableName   = t.[name]
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
+                                AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
+                                AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name]
             UNION ALL
             SELECT ''Index'', ''InclColumns'',
                    @db + ''.'' + s.[name] + ''.'' + t.[name] + ''.'' + ISNULL(i.[name], ''HEAP''),
@@ -1154,32 +1254,56 @@ BEGIN
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.indexes i ON i.object_id = t.object_id
             LEFT JOIN key_cols kc ON kc.object_id = i.object_id AND kc.index_id = i.index_id
-            JOIN #PlanObjects po ON po.DatabaseName = @db
-                                AND po.SchemaName  = s.[name]
-                                AND po.TableName   = t.[name];';
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
+                                AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
+                                AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name];';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
 
-            /* Statistics: header data only */
+            /* Keep current headers for all statistics on referenced tables so a
+               statistic used only by the OTHER plan still has a comparison row.
+               UsedByPlan controls which headers the diff reports. Timestamps are
+               informational; histogram content is not compared. */
             SET @sql = N'
             USE ' + QUOTENAME(@CurrentDb) + N';
             SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+            ;WITH stats AS (
+                SELECT @db + ''.'' + s.[name] + ''.'' + t.[name] + ''.''
+                     + CASE WHEN st.auto_created = 1 THEN ''auto:'' + c.[name]
+                            ELSE ''named:'' + st.[name] END AS SubjectKey,
+                       sp.last_updated, sp.[rows], sp.rows_sampled, sp.modification_counter,
+                       st.auto_created, st.has_filter, st.filter_definition,
+                       CASE WHEN EXISTS (
+                         SELECT 1 FROM #PlanStatsUsed su
+                         WHERE su.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
+                           AND su.SchemaName COLLATE DATABASE_DEFAULT = s.[name]
+                           AND su.TableName COLLATE DATABASE_DEFAULT = t.[name]
+                           AND su.StatisticsName COLLATE DATABASE_DEFAULT = st.[name])
+                         THEN 1 ELSE 0 END AS UsedByPlan
+                FROM sys.stats st
+                JOIN sys.tables t ON t.object_id = st.object_id
+                JOIN sys.schemas s ON s.schema_id = t.schema_id
+                LEFT JOIN sys.stats_columns sc ON sc.object_id = st.object_id
+                                             AND sc.stats_id = st.stats_id AND sc.stats_column_id = 1
+                LEFT JOIN sys.columns c ON c.object_id = sc.object_id AND c.column_id = sc.column_id
+                OUTER APPLY sys.dm_db_stats_properties(st.object_id, st.stats_id) sp
+                WHERE EXISTS (SELECT 1 FROM #PlanObjects po
+                    WHERE po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
+                      AND po.SchemaName COLLATE DATABASE_DEFAULT = s.[name]
+                      AND po.TableName COLLATE DATABASE_DEFAULT = t.[name])
+            )
             INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText, ValueNumeric)
-            SELECT ''Statistics'', ''Header'',
-                   @db + ''.'' + s.[name] + ''.'' + t.[name] + ''.'' + st.[name],
-                   ''lastUpdated='' + ISNULL(CONVERT(VARCHAR(33), sp.last_updated, 126), ''(null)'')
-                     + ''|rows='' + ISNULL(CAST(sp.[rows] AS VARCHAR(20)), ''(null)'')
-                     + ''|sampled='' + ISNULL(CAST(sp.rows_sampled AS VARCHAR(20)), ''(null)'')
-                     + ''|modCounter='' + ISNULL(CAST(sp.modification_counter AS VARCHAR(20)), ''(null)'')
-                     + ''|autoCreated='' + CASE WHEN st.auto_created = 1 THEN ''Y'' ELSE ''N'' END
-                     + ''|hasFilter='' + CASE WHEN st.has_filter = 1 THEN ''Y'' ELSE ''N'' END,
-                   sp.modification_counter
-            FROM sys.stats st
-            JOIN sys.tables t  ON t.object_id  = st.object_id
-            JOIN sys.schemas s ON s.schema_id  = t.schema_id
-            CROSS APPLY sys.dm_db_stats_properties(st.object_id, st.stats_id) sp
-            JOIN #PlanObjects po ON po.DatabaseName = @db
-                                AND po.SchemaName  = s.[name]
-                                AND po.TableName   = t.[name];';
+            SELECT ''Statistics'', v.Setting, st.SubjectKey, v.ValueText, v.ValueNumeric
+            FROM stats st
+            CROSS APPLY (VALUES
+              (''UsedByPlan'', CONVERT(NVARCHAR(40), st.UsedByPlan), CONVERT(DECIMAL(38,4), st.UsedByPlan)),
+              (''LastUpdated'', ISNULL(CONVERT(NVARCHAR(33), st.last_updated, 126), ''(null)''), NULL),
+              (''Rows'', CONVERT(NVARCHAR(40), st.[rows]), CONVERT(DECIMAL(38,4), st.[rows])),
+              (''RowsSampled'', CONVERT(NVARCHAR(40), st.rows_sampled), CONVERT(DECIMAL(38,4), st.rows_sampled)),
+              (''ModificationCounter'', CONVERT(NVARCHAR(40), st.modification_counter), CONVERT(DECIMAL(38,4), st.modification_counter)),
+              (''Definition'', CONVERT(NVARCHAR(MAX), ''autoCreated='') + CONVERT(NVARCHAR(1), st.auto_created)
+                   + ''|hasFilter='' + CONVERT(NVARCHAR(1), st.has_filter)
+                   + ''|filter='' + ISNULL(st.filter_definition, ''(none)''), NULL)
+            ) v(Setting, ValueText, ValueNumeric);';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
 
             /* Row counts and page counts */
@@ -1195,9 +1319,9 @@ BEGIN
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.dm_db_partition_stats ps
                  ON ps.object_id = t.object_id AND ps.index_id IN (0, 1)
-            JOIN #PlanObjects po ON po.DatabaseName = @db
-                                AND po.SchemaName  = s.[name]
-                                AND po.TableName   = t.[name]
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
+                                AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
+                                AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name]
             GROUP BY s.[name], t.[name]
             UNION ALL
             SELECT ''RowCount'', ''Pages'',
@@ -1208,9 +1332,9 @@ BEGIN
             JOIN sys.schemas s ON s.schema_id = t.schema_id
             JOIN sys.dm_db_partition_stats ps
                  ON ps.object_id = t.object_id AND ps.index_id IN (0, 1)
-            JOIN #PlanObjects po ON po.DatabaseName = @db
-                                AND po.SchemaName  = s.[name]
-                                AND po.TableName   = t.[name]
+            JOIN #PlanObjects po ON po.DatabaseName COLLATE Latin1_General_100_BIN2 = @db
+                                AND po.SchemaName COLLATE DATABASE_DEFAULT  = s.[name]
+                                AND po.TableName COLLATE DATABASE_DEFAULT   = t.[name]
             GROUP BY s.[name], t.[name];';
             EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
 
@@ -1221,12 +1345,18 @@ BEGIN
                 USE ' + QUOTENAME(@CurrentDb) + N';
                 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                 INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText)
-                SELECT ''ForcedPlan'', ''QueryStore'', @db,
-                       ''plan_id='' + CAST(plan_id AS NVARCHAR(40))
-                       + '' hash='' + CONVERT(NVARCHAR(50), query_plan_hash, 1)
-                FROM sys.query_store_plan
-                WHERE is_forced_plan = 1;';
-                EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
+                SELECT DISTINCT ''ForcedPlan'', ''QueryStore'',
+                       @db + ''|'' + CONVERT(NVARCHAR(50), q.query_hash, 1)
+                           + ''|'' + CONVERT(NVARCHAR(50), p.query_plan_hash, 1),
+                       CONVERT(NVARCHAR(50), p.query_plan_hash, 1)
+                FROM sys.query_store_plan p
+                JOIN sys.query_store_query q ON q.query_id = p.query_id
+                JOIN sys.query_store_query_text qt ON qt.query_text_id = q.query_text_id
+                WHERE p.is_forced_plan = 1
+                  AND (q.query_hash = @qh OR qt.statement_sql_handle = @stmt_handle);';
+                EXEC sp_executesql @sql, N'@db SYSNAME, @qh BINARY(8), @stmt_handle VARBINARY(64)',
+                     @db = @CurrentDb, @qh = @QueryHashBin,
+                     @stmt_handle = @SelectedStatementSqlHandle;
             END TRY
             BEGIN CATCH
                 /* Query Store off, view missing on this version, or no permission. Skip. */
@@ -1275,14 +1405,25 @@ BEGIN
                 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                 INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText)
                 SELECT ''ForcedPlan'', ''PlanGuide'',
-                       @db + ''.'' + ISNULL(scope_object_id_name, ''(server)''),
-                       [name] + '':'' + scope_type_desc + '':'' + ISNULL(hints, ''(no hints)'')
-                FROM (
-                    SELECT pg.[name], pg.scope_type_desc, pg.hints,
-                           OBJECT_NAME(pg.scope_object_id) AS scope_object_id_name
-                    FROM sys.plan_guides pg
-                ) x;';
-                EXEC sp_executesql @sql, N'@db SYSNAME', @db = @CurrentDb;
+                       @db + ''.'' + pg.[name],
+                       pg.scope_type_desc + '':'' + ISNULL(pg.hints, ''(no hints)'')
+                FROM sys.plan_guides pg
+                WHERE pg.is_disabled = 0
+                  AND EXISTS (
+                    SELECT 1
+                    FROM @plan.nodes(''declare namespace p="http://schemas.microsoft.com/sqlserver/2004/07/showplan";
+                        //p:StmtSimple'') AS stmt(n)
+                    WHERE stmt.n.value(''@QueryHash'', ''VARCHAR(50)'') = @qh
+                      AND ((stmt.n.value(''@PlanGuideDB'', ''SYSNAME'') = @db
+                            AND stmt.n.value(''@PlanGuideName'', ''SYSNAME'') = pg.[name])
+                        OR (stmt.n.value(''@TemplatePlanGuideDB'', ''SYSNAME'') = @db
+                            AND stmt.n.value(''@TemplatePlanGuideName'', ''SYSNAME'') = pg.[name]))
+                  );';
+                /* Showplan records guides actually applied to this statement.
+                   Do not attribute unrelated or disabled database guides to it. */
+                EXEC sp_executesql @sql, N'@db SYSNAME, @plan XML, @qh VARCHAR(50)',
+                     @db = @CurrentDb, @plan = @PlanXml,
+                     @qh = @ForcedPlanQueryHashText;
             END TRY
             BEGIN CATCH
                 IF @Debug = 1
@@ -1353,7 +1494,7 @@ FROM   #PlanParameters;
 /* ----- Category: LiveState (point-in-time snapshot for sessions running this hash) ----- */
 DECLARE @RunnableTasks INT, @WorkerCount INT, @BlockedSessions INT;
 
-SELECT @RunnableTasks = COUNT(*)
+SELECT @RunnableTasks = COALESCE(SUM(runnable_tasks_count), 0)
 FROM   sys.dm_os_schedulers
 WHERE  status = 'VISIBLE ONLINE';
 
@@ -1362,7 +1503,7 @@ SELECT @WorkerCount = COUNT(*) FROM sys.dm_os_workers;
 SELECT @BlockedSessions = COUNT(*) FROM sys.dm_exec_requests WHERE blocking_session_id <> 0;
 
 INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText, ValueNumeric)
-VALUES ('LiveState', 'RunnableSchedulers', NULL, CAST(@RunnableTasks AS NVARCHAR(20)), @RunnableTasks),
+VALUES ('LiveState', 'RunnableTasks', NULL, CAST(@RunnableTasks AS NVARCHAR(20)), @RunnableTasks),
        ('LiveState', 'WorkerCount',        NULL, CAST(@WorkerCount   AS NVARCHAR(20)), @WorkerCount),
        ('LiveState', 'BlockedSessions',    NULL, CAST(@BlockedSessions AS NVARCHAR(20)), @BlockedSessions);
 
@@ -1425,14 +1566,23 @@ SELECT 'LiveWait', 'WaitCount', lw.wait_type,
 FROM   live_waits lw
 WHERE  lw.waiting_tasks_count >= 1000;
 
-/* Active memory grants for this query hash (if currently executing). */
+/* Aggregate active grants for the selected cached plan. Session IDs are local
+   identifiers and cannot be paired across servers. Include zero when idle. */
+;WITH grants AS (
+    SELECT COUNT_BIG(*) AS GrantCount,
+           COALESCE(SUM(CONVERT(BIGINT, granted_memory_kb)), 0) AS GrantedKB,
+           COALESCE(SUM(CONVERT(BIGINT, ideal_memory_kb)), 0) AS IdealKB,
+           COALESCE(SUM(CONVERT(BIGINT, used_memory_kb)), 0) AS UsedKB
+    FROM sys.dm_exec_query_memory_grants
+    WHERE plan_handle = (SELECT plan_handle FROM #PlanMatches)
+)
 INSERT INTO #LocalSnapshot (Category, Setting, SubjectKey, ValueText, ValueNumeric)
-SELECT 'LiveState', 'ActiveMemoryGrantKB', CAST(session_id AS NVARCHAR(20)),
-       CAST(granted_memory_kb AS NVARCHAR(40)) + '/' + CAST(ideal_memory_kb AS NVARCHAR(40))
-       + ' (used ' + CAST(ISNULL(used_memory_kb, 0) AS NVARCHAR(40)) + ')',
-       granted_memory_kb
-FROM   sys.dm_exec_query_memory_grants
-WHERE  plan_handle = @PlanHandle;
+SELECT 'LiveState', v.Setting, NULL, CONVERT(NVARCHAR(40), v.Amount), v.Amount
+FROM grants g
+CROSS APPLY (VALUES ('ActiveMemoryGrantCount', g.GrantCount),
+                    ('ActiveMemoryGrantKB', g.GrantedKB),
+                    ('ActiveIdealMemoryKB', g.IdealKB),
+                    ('ActiveUsedMemoryKB', g.UsedKB)) v(Setting, Amount);
 
 /* =====================================================================
    Mode 1: emit XML and return
@@ -1452,14 +1602,12 @@ BEGIN
 
     /* Build a separate Plan element so the typed XML round-trips cleanly */
     DECLARE @PlanContainer XML;
-    /* Embed the actual-plan-if-available variant (richer runtime info), not the full
-       plan used for object extraction. For stored procs with multiple statements,
-       the actual plan is a statement-scoped fragment with runtime stats, while the
-       full plan is the whole batch's plan used for table/index diffing. */
+    /* Embed only the selected statement, with actual runtime data when available. */
     SET @PlanContainer = (SELECT @PlanXmlForEmit AS [*] FOR XML PATH('Plan'), TYPE);
 
     SET @SnapshotXml = (
         SELECT '0.01'                                              AS [@Version],
+               2                                                   AS [@StatisticsFormatVersion],
                CONVERT(NVARCHAR(33), SYSUTCDATETIME(), 126)        AS [@GeneratedUTC],
                CONVERT(NVARCHAR(50), @QueryHashBin, 1)             AS [@QueryHash],
                CONVERT(NVARCHAR(50), @QueryPlanHash, 1)            AS [@QueryPlanHash],
@@ -1494,7 +1642,7 @@ IF OBJECT_ID('tempdb..#RemoteSnapshot') IS NOT NULL DROP TABLE #RemoteSnapshot;
 CREATE TABLE #RemoteSnapshot (
     Category     VARCHAR(50)    NOT NULL,
     Setting      VARCHAR(200)   NOT NULL,
-    SubjectKey   NVARCHAR(776)  NULL,
+    SubjectKey   NVARCHAR(776) COLLATE Latin1_General_100_BIN2 NULL,
     ValueText    NVARCHAR(MAX)  NULL,
     ValueNumeric DECIMAL(38,4)  NULL
 );
@@ -1504,12 +1652,12 @@ CREATE TABLE #Diff (
     Priority    TINYINT        NULL,
     Category    VARCHAR(50)    NULL,
     Setting     VARCHAR(200)   NULL,
-    [Object]    NVARCHAR(776)  NULL,
+    [Object]    NVARCHAR(MAX)  NULL,
     LocalValue  NVARCHAR(MAX)  NULL,
     RemoteValue NVARCHAR(MAX)  NULL,
     Finding     NVARCHAR(500)  NULL,
     [URL]       NVARCHAR(500)  NULL,
-    Details     NVARCHAR(1000) NULL,
+    Details     NVARCHAR(MAX) NULL,
     CallStack   XML            NULL  /* typed XML so SSMS renders it as a clickable cell - populated only for the parameter-sniffing reproducer row today, reserved for future row types */
 );
 
@@ -1542,23 +1690,17 @@ BEGIN
     /* Isolation note: the remote sp_BlitzPlanCompare runs in its own session on the remote server
        and sets READ UNCOMMITTED itself at the top of the proc, so the remote work does not block.
 
-       Pass @QueryHashBin (the local plan's query_hash) rather than @QueryPlanHash.
-       The query_plan_hash is specific to the compiled plan shape and is almost always
-       DIFFERENT on each server (different stats, indexes, hardware, compat level all
-       shift the optimizer toward different operators). The query_hash is stable: it's
-       derived from the normalized query text and is what the remote should be looking
-       up. Mode 2 (paste-in XML) already relies on this exact fallback - we extract the
-       remote QueryHash from the snapshot and the local resolution logic tries it as a
-       plan_hash first, falls back to query_hash. The remote proc's plan-resolution
-       block does the same thing when we hand it a query_hash disguised as a plan_hash. */
+       Pass the logical query hash directly so the remote can resolve its own plan. */
     /* Normalize and quote @LinkedServer before injecting into the 4-part name.
        sys.servers stores bare names; the caller may pass 'OtherSrv' or '[OtherSrv]'.
        Strip outer brackets first, then re-wrap with QUOTENAME so names containing
        a period, space, or other special character still produce a valid identifier
        and the dynamic SQL can't be tampered with via a maliciously-named linked server. */
     DECLARE @LinkedServerSafe SYSNAME = REPLACE(REPLACE(@LinkedServer, N'[', N''), N']', N'');
-    SET @sql = N'EXEC ' + QUOTENAME(@LinkedServerSafe) + N'.master.dbo.sp_BlitzPlanCompare @QueryPlanHash = @hash'
-             + CASE WHEN @DatabaseName IS NOT NULL THEN N', @DatabaseName = @dbname' ELSE N'' END
+    SET @sql = N'EXEC ' + QUOTENAME(@LinkedServerSafe) + N'.master.dbo.sp_BlitzPlanCompare @QueryHash = @hash'
+             + CASE WHEN @CallerDatabaseName IS NOT NULL THEN N', @DatabaseName = @dbname' ELSE N'' END
+             + CASE WHEN @RemotePlanHandle IS NOT NULL THEN N', @PlanHandle = @remote_handle' ELSE N'' END
+             + CASE WHEN @RemoteStatementStartOffset IS NOT NULL THEN N', @StatementStartOffset = @remote_offset' ELSE N'' END
              + N';';
 
     IF @Debug = 1
@@ -1566,7 +1708,9 @@ BEGIN
 
     BEGIN TRY
         INSERT INTO #RemoteEmit ([CallStack])
-        EXEC sp_executesql @sql, N'@hash BINARY(8), @dbname SYSNAME', @hash = @QueryHashBin, @dbname = @DatabaseName;
+        EXEC sp_executesql @sql, N'@hash BINARY(8), @dbname SYSNAME, @remote_handle VARBINARY(64), @remote_offset INT',
+            @hash = @QueryHashBin, @dbname = @CallerDatabaseName,
+            @remote_handle = @RemotePlanHandle, @remote_offset = @RemoteStatementStartOffset;
 
         /* The remote returned a single string of the form:
                EXEC dbo.sp_BlitzPlanCompare @CompareToXML = N'<BlitzPlanCompareSnapshot ...>';
@@ -1732,6 +1876,48 @@ END;
 /* =====================================================================
    Rubric: priority + finding text + URL per (Category, Setting)
    ===================================================================== */
+/* Statistics format 2 uses separate fields and normalized auto-stat keys.
+   A shipped-format Header cannot be safely mapped to those keys. Preserve the
+   rest of the comparison, but disclose that statistics were not compared.
+   UsedByPlan recognizes format-2 snapshots emitted before the explicit marker. */
+IF @RemoteXml.exist('/BlitzPlanCompareSnapshot[@StatisticsFormatVersion="2"]') = 0
+   AND NOT (
+       @RemoteXml.exist('/BlitzPlanCompareSnapshot/@StatisticsFormatVersion') = 0
+       AND EXISTS (SELECT 1 FROM #RemoteSnapshot
+                   WHERE Category = 'Statistics' AND Setting = 'UsedByPlan'))
+BEGIN
+    DELETE FROM #LocalSnapshot WHERE Category = 'Statistics';
+    DELETE FROM #RemoteSnapshot WHERE Category = 'Statistics';
+    INSERT INTO #Diff (Priority, Category, Setting, Finding, [URL], Details)
+    VALUES (100, 'Setup', 'StatisticsNotCompared',
+            'Statistics were not compared because the remote snapshot uses an older or unsupported statistics format. Update sp_BlitzPlanCompare on the source server and capture a new snapshot.',
+            'http://FirstResponderKit.org',
+            'Other snapshot categories are still compared. Legacy Statistics.Header rows are not reported as missing statistics.');
+END;
+
+/* Normalize legacy per-session grants. Their numeric field contains granted
+   KB; ideal/used values were only embedded in display text and cannot be
+   compared reliably. An old idle snapshot had no grant rows at all. */
+IF NOT EXISTS (SELECT 1 FROM #RemoteSnapshot WHERE Category = 'LiveState' AND Setting = 'ActiveMemoryGrantCount')
+BEGIN
+    IF EXISTS (SELECT 1 FROM #RemoteSnapshot WHERE Category = 'LiveState' AND Setting = 'ActiveMemoryGrantKB' AND SubjectKey IS NOT NULL)
+    BEGIN
+        DECLARE @LegacyGrantCount BIGINT, @LegacyGrantedKB DECIMAL(38,4);
+        SELECT @LegacyGrantCount = COUNT_BIG(*), @LegacyGrantedKB = SUM(ValueNumeric)
+        FROM #RemoteSnapshot WHERE Category = 'LiveState' AND Setting = 'ActiveMemoryGrantKB';
+        DELETE #RemoteSnapshot WHERE Category = 'LiveState' AND Setting = 'ActiveMemoryGrantKB';
+        INSERT #RemoteSnapshot (Category, Setting, SubjectKey, ValueText, ValueNumeric)
+        VALUES ('LiveState', 'ActiveMemoryGrantCount', NULL, CONVERT(NVARCHAR(40), @LegacyGrantCount), @LegacyGrantCount),
+               ('LiveState', 'ActiveMemoryGrantKB', NULL, CONVERT(NVARCHAR(40), CONVERT(BIGINT, @LegacyGrantedKB)), @LegacyGrantedKB);
+    END
+    ELSE
+        /* No grants in a legacy snapshot means zero active grants. */
+        INSERT #RemoteSnapshot (Category, Setting, SubjectKey, ValueText, ValueNumeric)
+        VALUES ('LiveState', 'ActiveMemoryGrantCount', NULL, N'0', 0),
+               ('LiveState', 'ActiveMemoryGrantKB', NULL, N'0', 0);
+    DELETE #LocalSnapshot WHERE Category = 'LiveState' AND Setting IN ('ActiveIdealMemoryKB', 'ActiveUsedMemoryKB');
+END;
+
 IF OBJECT_ID('tempdb..#Rubric') IS NOT NULL DROP TABLE #Rubric;
 CREATE TABLE #Rubric (
     Category VARCHAR(50)   NOT NULL,
@@ -1754,7 +1940,8 @@ INSERT INTO #Rubric (Category, Setting, Priority, Finding, [URL]) VALUES
     ('Parameter',            '*',                    10, 'A plan parameter differs.', 'http://FirstResponderKit.org'),
 
     /* Cardinality estimator drift */
-    ('Statistics',           'Header',               15, 'A statistic the optimizer relied on differs between servers (last update, row count, sampling, or modification counter).', 'http://FirstResponderKit.org'),
+    ('Statistics',           '*',                    15, 'Current metadata differs for a statistic used by at least one captured plan. Histogram contents are not compared.', 'http://FirstResponderKit.org'),
+    ('Statistics',           'LastUpdated',          100, 'Last-update timestamps differ for a statistic used by a captured plan. Different timestamps alone do not prove different statistics contents.', 'http://FirstResponderKit.org'),
     ('Database',             'CompatLevel',          15, 'Database compatibility level differs. This changes the cardinality estimator and can change every plan.', 'http://FirstResponderKit.org'),
     ('PlanAttribute',        'CardinalityEstimationModelVersion', 15, 'The cardinality estimator model version baked into this plan differs across servers.', 'http://FirstResponderKit.org'),
 
@@ -1764,7 +1951,7 @@ INSERT INTO #Rubric (Category, Setting, Priority, Finding, [URL]) VALUES
     ('SpConfigure',          'cost threshold for parallelism', 20, 'Cost threshold for parallelism differs. This decides whether a plan goes parallel at all.', 'http://FirstResponderKit.org'),
     ('SpConfigure',          'max server memory (MB)', 20, 'Max server memory differs. This caps memory grants and buffer pool size.', 'http://FirstResponderKit.org'),
     ('SpConfigure',          '*',                    55, 'A configured option differs.', 'http://FirstResponderKit.org'),
-    ('PlanAttribute',        'DegreeOfParallelism',  20, 'The cached plan was compiled with a different DOP on each server.', 'http://FirstResponderKit.org'),
+    ('PlanAttribute',        'DegreeOfParallelism',  20, 'The captured plans report different degrees of parallelism.', 'http://FirstResponderKit.org'),
     ('PlanAttribute',        'MemoryGrant',          20, 'The cached plan asked for a different memory grant on each server.', 'http://FirstResponderKit.org'),
     ('PlanAttribute',        'EstimatedAvailableMemoryGrant',  20, 'The optimizer saw a different available memory grant on each server when compiling.', 'http://FirstResponderKit.org'),
     ('PlanAttribute',        'EstimatedPagesCached', 20, 'The optimizer saw a different cached-pages estimate on each server when compiling.', 'http://FirstResponderKit.org'),
@@ -1813,9 +2000,13 @@ INSERT INTO #Rubric (Category, Setting, Priority, Finding, [URL]) VALUES
     ('LiveWait',             '*',                    30, 'A live-wait metric differs between servers.', 'http://FirstResponderKit.org'),
 
     /* Live state */
+    ('LiveState',            'RunnableTasks',        35, 'Different number of tasks waiting for CPU on the runnable queue right now.', 'http://FirstResponderKit.org'),
     ('LiveState',            'BlockedSessions',      35, 'Different number of blocked sessions right now. The slow server may be losing time to blocking, not the plan.', 'http://FirstResponderKit.org'),
     ('LiveState',            'WaitType',             35, 'Different wait types currently being incurred by this query. The slow server may be IO- or memory-bound.', 'http://FirstResponderKit.org'),
     ('LiveState',            'ActiveMemoryGrantKB',  35, 'A query is currently executing with a memory grant that differs from the other server.', 'http://FirstResponderKit.org'),
+    ('LiveState',            'ActiveMemoryGrantCount', 35, 'The number of active memory grants for this cached plan differs.', 'http://FirstResponderKit.org'),
+    ('LiveState',            'ActiveIdealMemoryKB',  35, 'Total ideal memory for active grants differs.', 'http://FirstResponderKit.org'),
+    ('LiveState',            'ActiveUsedMemoryKB',   35, 'Total used memory for active grants differs.', 'http://FirstResponderKit.org'),
     ('LiveState',            '*',                    55, 'A live-state metric differs.', 'http://FirstResponderKit.org'),
 
     /* Config drift */
@@ -1840,7 +2031,52 @@ INSERT INTO #Rubric (Category, Setting, Priority, Finding, [URL]) VALUES
 /* =====================================================================
    Diff engine: FULL OUTER JOIN local vs remote, classify, prioritize
    ===================================================================== */
-;WITH paired AS (
+;WITH used_metadata AS (
+    SELECT Category, SubjectKey FROM #LocalSnapshot
+    WHERE Category IN ('Index', 'Statistics') AND Setting = 'UsedByPlan' AND ValueNumeric = 1
+    UNION
+    SELECT Category, SubjectKey FROM #RemoteSnapshot
+    WHERE Category IN ('Index', 'Statistics') AND Setting = 'UsedByPlan' AND ValueNumeric = 1
+),
+local_values AS (
+    SELECT *, ROW_NUMBER() OVER (
+        PARTITION BY Category, Setting, ISNULL(SubjectKey, N''), ISNULL(ValueText, N'') COLLATE Latin1_General_100_BIN2
+        ORDER BY ValueNumeric) AS ValueOccurrence
+    FROM #LocalSnapshot
+),
+remote_values AS (
+    SELECT *, ROW_NUMBER() OVER (
+        PARTITION BY Category, Setting, ISNULL(SubjectKey, N''), ISNULL(ValueText, N'') COLLATE Latin1_General_100_BIN2
+        ORDER BY ValueNumeric) AS ValueOccurrence
+    FROM #RemoteSnapshot
+),
+/* Cancel identical occurrences before pairing the remaining values. Deleting
+   the first warning must not shift all subsequent, unchanged warnings. */
+local_rows AS (
+    SELECT l.*, ROW_NUMBER() OVER (
+        PARTITION BY Category, Setting, ISNULL(SubjectKey, N'')
+        ORDER BY ValueText COLLATE Latin1_General_100_BIN2, ValueNumeric) AS Occurrence
+    FROM local_values l
+    WHERE NOT EXISTS (
+        SELECT 1 FROM remote_values r
+        WHERE r.Category = l.Category AND r.Setting = l.Setting
+          AND ISNULL(r.SubjectKey, N'') = ISNULL(l.SubjectKey, N'')
+          AND ISNULL(r.ValueText, N'') COLLATE Latin1_General_100_BIN2 = ISNULL(l.ValueText, N'') COLLATE Latin1_General_100_BIN2
+          AND r.ValueOccurrence = l.ValueOccurrence)
+),
+remote_rows AS (
+    SELECT r.*, ROW_NUMBER() OVER (
+        PARTITION BY Category, Setting, ISNULL(SubjectKey, N'')
+        ORDER BY ValueText COLLATE Latin1_General_100_BIN2, ValueNumeric) AS Occurrence
+    FROM remote_values r
+    WHERE NOT EXISTS (
+        SELECT 1 FROM local_values l
+        WHERE r.Category = l.Category AND r.Setting = l.Setting
+          AND ISNULL(r.SubjectKey, N'') = ISNULL(l.SubjectKey, N'')
+          AND ISNULL(r.ValueText, N'') COLLATE Latin1_General_100_BIN2 = ISNULL(l.ValueText, N'') COLLATE Latin1_General_100_BIN2
+          AND r.ValueOccurrence = l.ValueOccurrence)
+),
+paired AS (
     SELECT COALESCE(l.Category,   r.Category)   AS Category,
            COALESCE(l.Setting,    r.Setting)    AS Setting,
            COALESCE(l.SubjectKey, r.SubjectKey) AS SubjectKey,
@@ -1854,11 +2090,12 @@ INSERT INTO #Rubric (Category, Setting, Priority, Finding, [URL]) VALUES
                 WHEN r.Category IS NULL THEN 'Missing on Remote'
                 WHEN ISNULL(l.ValueText, N'') <> ISNULL(r.ValueText, N'') THEN 'Mismatch'
                 ELSE 'Same' END                 AS DiffKind
-    FROM   #LocalSnapshot l
-    FULL OUTER JOIN #RemoteSnapshot r
+    FROM   local_rows l
+    FULL OUTER JOIN remote_rows r
       ON   l.Category = r.Category
       AND  l.Setting  = r.Setting
       AND  ISNULL(l.SubjectKey, N'') = ISNULL(r.SubjectKey, N'')
+      AND  l.Occurrence = r.Occurrence
 ),
 /* When an Index.Present row says "Missing on X" for some db.schema.table.indexname,
    the Definition/KeyColumns/InclColumns diffs for the same SubjectKey are redundant
@@ -1870,13 +2107,18 @@ index_gaps AS (
     WHERE  Category = 'Index' AND Setting = 'Present' AND DiffKind LIKE 'Missing%'
 )
 INSERT INTO #Diff (Priority, Category, Setting, [Object], LocalValue, RemoteValue, Finding, [URL], Details)
-SELECT  COALESCE(rb.Priority, rbDefault.Priority, 200)                                           AS Priority,
+SELECT  CASE WHEN p.Category = 'Index' AND p.Setting = 'Present'
+                     AND NOT EXISTS (SELECT 1 FROM used_metadata u WHERE u.Category = p.Category AND u.SubjectKey = p.SubjectKey)
+                     THEN 25 ELSE COALESCE(rb.Priority, rbDefault.Priority, 200) END                                           AS Priority,
         p.Category,
         p.Setting,
         p.SubjectKey                                                                             AS [Object],
         p.LocalValue,
         p.RemoteValue,
-        COALESCE(rb.Finding, rbDefault.Finding, 'Difference detected.')                          AS Finding,
+        CASE WHEN p.Category = 'Index' AND p.Setting = 'Present'
+                  AND NOT EXISTS (SELECT 1 FROM used_metadata u WHERE u.Category = p.Category AND u.SubjectKey = p.SubjectKey)
+             THEN 'An index not referenced by either captured plan is missing on one side.'
+             ELSE COALESCE(rb.Finding, rbDefault.Finding, 'Difference detected.') END                          AS Finding,
         COALESCE(rb.[URL],   rbDefault.[URL],   'http://FirstResponderKit.org')                  AS [URL],
         p.DiffKind + ': ' + p.Category + '.' + p.Setting
             + ISNULL(' (' + p.SubjectKey + ')', '')                                              AS Details
@@ -1884,6 +2126,9 @@ FROM    paired p
 LEFT JOIN #Rubric rb         ON rb.Category = p.Category AND rb.Setting  = p.Setting
 LEFT JOIN #Rubric rbDefault  ON rbDefault.Category = p.Category AND rbDefault.Setting = '*'
 WHERE   p.DiffKind <> 'Same'
+  AND   NOT (p.Category IN ('Index', 'Statistics') AND p.Setting = 'UsedByPlan')
+  AND   (p.Category <> 'Statistics'
+         OR EXISTS (SELECT 1 FROM used_metadata u WHERE u.Category = p.Category AND u.SubjectKey = p.SubjectKey))
   AND   NOT (p.Category = 'Index'
              AND p.Setting IN ('Definition', 'KeyColumns', 'InclColumns')
              AND p.SubjectKey IN (SELECT SubjectKey FROM index_gaps))
@@ -1899,14 +2144,19 @@ WHERE   p.DiffKind <> 'Same'
                         EstimatedPagesCached, CompileTime, CompileMemory, etc.).
                         Text attributes (PlanSource, StatementOptmLevel, etc.)
                         have ValueNumeric = NULL and bypass this filter.
-                        CardinalityEstimationModelVersion is exact-match: any
+                        CardinalityEstimationModelVersion and DegreeOfParallelism are exact-match: any
                         delta matters (70 vs 160 vs 170 all change optimizer
                         behavior), even though it happens to be numeric.
+       - Hardware.CommittedTargetKB: a moving memory-manager target, not capacity.
+         Other hardware capacity metrics retain exact comparison.
+       - Statistics: current row, sample, and modification counts for used statistics.
+         Last-update timestamps are informational and bypass this numeric filter.
      Rows present on only one side bypass this check since LocalValueNumeric or
      RemoteValueNumeric is NULL - a missing wait type / attribute is still signal. */
-  AND   NOT (p.Category IN ('LiveState', 'PlanRuntime', 'PlanWait', 'LiveWait', 'PlanAttribute')
+  AND   NOT ((p.Category IN ('LiveState', 'PlanRuntime', 'PlanWait', 'LiveWait', 'PlanAttribute', 'Statistics')
+               OR (p.Category = 'Hardware' AND p.Setting = 'CommittedTargetKB'))
              AND NOT (p.Category = 'PlanRuntime'   AND p.Setting = 'SpillCount')
-             AND NOT (p.Category = 'PlanAttribute' AND p.Setting = 'CardinalityEstimationModelVersion')
+             AND NOT (p.Category = 'PlanAttribute' AND p.Setting IN ('CardinalityEstimationModelVersion', 'DegreeOfParallelism'))
              AND p.LocalValueNumeric  IS NOT NULL
              AND p.RemoteValueNumeric IS NOT NULL
              AND ABS(p.LocalValueNumeric - p.RemoteValueNumeric)
@@ -1964,9 +2214,12 @@ DECLARE @RemotePlanXml XML = @RemoteXml.query('/BlitzPlanCompareSnapshot/Plan/*'
 DECLARE @ProcObjectId INT, @ProcDbId INT, @ProcName NVARCHAR(600), @SqlText NVARCHAR(MAX);
 
 BEGIN TRY
+    /* Cache offsets exclude both unrelated statements and auto-parameter prefixes. */
     SELECT @ProcObjectId = st.objectid,
            @ProcDbId     = st.dbid,
-           @SqlText      = st.text
+           @SqlText      = SUBSTRING(st.text, @StmtStartOffset / 2 + 1,
+               ((CASE WHEN @StmtEndOffset = -1 THEN DATALENGTH(st.text)
+                      ELSE @StmtEndOffset END - @StmtStartOffset) / 2) + 1)
     FROM   sys.dm_exec_sql_text(@SqlHandle) AS st;
 
     IF @ProcObjectId IS NOT NULL
@@ -2023,73 +2276,100 @@ BEGIN
 
     SET @UseDb = N'USE ' + QUOTENAME(ISNULL(DB_NAME(@ProcDbId), DB_NAME())) + N';' + CHAR(13) + CHAR(10);
 
-    IF @ProcName IS NOT NULL
+    /* Assign expressions to typed variables first. Showplan numeric values
+       such as (1) are legal in DECLARE assignments, but not EXEC arguments. */
+    DECLARE @LocalDeclarations NVARCHAR(MAX), @RemoteDeclarations NVARCHAR(MAX),
+            @LocalArguments NVARCHAR(MAX), @RemoteArguments NVARCHAR(MAX),
+            @RemoteParamDecls NVARCHAR(MAX);
+    SELECT @LocalDeclarations = (
+        SELECT CONVERT(NVARCHAR(MAX), N'DECLARE ') + ParameterName + N' ' + DataType + N' = '
+             + COALESCE(NULLIF(CompiledValue, N''), N'NULL') + N';' + CHAR(13) + CHAR(10)
+        FROM #PlanParameters ORDER BY ParameterName
+        FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'),
+        @LocalArguments = STUFF((
+        SELECT N', ' + ParameterName + N' = ' + ParameterName
+        FROM #PlanParameters ORDER BY ParameterName
+        FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, N''),
+        @ParamDecls = STUFF((
+        SELECT N', ' + ParameterName + N' ' + DataType
+        FROM #PlanParameters ORDER BY ParameterName
+        FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, N'');
+
+    SELECT @RemoteDeclarations = (
+        SELECT CONVERT(NVARCHAR(MAX), N'DECLARE ') + ParameterName + N' ' + DataType + N' = '
+             + COALESCE(NULLIF(CompiledValue, N''), N'NULL') + N';' + CHAR(13) + CHAR(10)
+        FROM #RemotePlanParameters ORDER BY ParameterName
+        FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'),
+        @RemoteArguments = STUFF((
+        SELECT N', ' + ParameterName + N' = ' + ParameterName
+        FROM #RemotePlanParameters ORDER BY ParameterName
+        FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, N''),
+        @RemoteParamDecls = STUFF((
+        SELECT N', ' + ParameterName + N' ' + DataType
+        FROM #RemotePlanParameters ORDER BY ParameterName
+        FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, N'');
+
+    /* Unknown types cannot safely reconstruct the call. */
+    IF NOT EXISTS (SELECT 1 FROM #PlanParameters WHERE NULLIF(DataType, N'') IS NULL OR NULLIF(CompiledValue, N'') IS NULL)
+       AND NOT EXISTS (SELECT 1 FROM #RemotePlanParameters WHERE NULLIF(DataType, N'') IS NULL OR NULLIF(CompiledValue, N'') IS NULL)
     BEGIN
-        /* Proc / function form: EXEC [db].[schema].[name] @p = v, ... */
-        SELECT @LocalExec = @UseDb + N'EXEC ' + @ProcName
-            + ISNULL(STUFF((
-                SELECT N',' + CHAR(13) + CHAR(10)
-                     + N'    '
-                     + CASE WHEN LEFT(ParameterName, 1) = N'@' THEN ParameterName ELSE N'@' + ParameterName END
-                     + N' = '
-                     + ISNULL(CompiledValue, N'NULL')
-                FROM   #PlanParameters
-                ORDER BY ParameterName
-                FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 1, N''), N'')
-            + N';';
+        IF @ProcName IS NOT NULL
+        BEGIN
+            /* Statement-scoped XML may omit parameters used by other statements.
+               Reconstruct a full procedure call only when both snapshots supply
+               every declared parameter. T-SQL parameter defaults are not reliably
+               exposed by sys.parameters, so omitted optional parameters also skip
+               the reproducer rather than guessing their values. */
+            DECLARE @ProcedureParametersComplete BIT = 0;
+            DECLARE @ProcedureCheckSql NVARCHAR(MAX) =
+                N'USE ' + QUOTENAME(DB_NAME(@ProcDbId)) + N';
+                SELECT @complete = CASE
+                  WHEN EXISTS (SELECT 1 FROM sys.procedures WHERE object_id = @objid)
+                   AND NOT EXISTS (
+                     SELECT 1 FROM sys.parameters p
+                     WHERE p.object_id = @objid AND p.parameter_id > 0
+                       AND (NOT EXISTS (SELECT 1 FROM #PlanParameters l
+                              WHERE l.ParameterName COLLATE Latin1_General_100_BIN2 = p.[name] COLLATE Latin1_General_100_BIN2)
+                         OR NOT EXISTS (SELECT 1 FROM #RemotePlanParameters r
+                              WHERE r.ParameterName COLLATE Latin1_General_100_BIN2 = p.[name] COLLATE Latin1_General_100_BIN2)))
+                   AND NOT EXISTS (
+                     SELECT 1 FROM #PlanParameters l
+                     WHERE NOT EXISTS (SELECT 1 FROM sys.parameters p
+                       WHERE p.object_id = @objid AND p.parameter_id > 0
+                         AND p.[name] COLLATE Latin1_General_100_BIN2 = l.ParameterName COLLATE Latin1_General_100_BIN2))
+                   AND NOT EXISTS (
+                     SELECT 1 FROM #RemotePlanParameters r
+                     WHERE NOT EXISTS (SELECT 1 FROM sys.parameters p
+                       WHERE p.object_id = @objid AND p.parameter_id > 0
+                         AND p.[name] COLLATE Latin1_General_100_BIN2 = r.ParameterName COLLATE Latin1_General_100_BIN2))
+                  THEN 1 ELSE 0 END;';
+            BEGIN TRY
+                EXEC sp_executesql @ProcedureCheckSql,
+                     N'@objid INT, @complete BIT OUTPUT',
+                     @objid = @ProcObjectId, @complete = @ProcedureParametersComplete OUTPUT;
+            END TRY
+            BEGIN CATCH
+                /* Inaccessible procedure metadata cannot prove a complete call. */
+                SET @ProcedureParametersComplete = 0;
+            END CATCH;
 
-        SELECT @RemoteExec = @UseDb + N'EXEC ' + @ProcName
-            + ISNULL(STUFF((
-                SELECT N',' + CHAR(13) + CHAR(10)
-                     + N'    '
-                     + CASE WHEN LEFT(ParameterName, 1) = N'@' THEN ParameterName ELSE N'@' + ParameterName END
-                     + N' = '
-                     + ISNULL(CompiledValue, N'NULL')
-                FROM   #RemotePlanParameters
-                ORDER BY ParameterName
-                FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 1, N''), N'')
-            + N';';
-    END
-    ELSE IF @SqlText IS NOT NULL
-    BEGIN
-        /* Ad-hoc parameterized SQL form: EXEC sp_executesql N'...', N'@p int', @p = v */
-        SELECT @ParamDecls = STUFF((
-            SELECT N', '
-                 + CASE WHEN LEFT(ParameterName, 1) = N'@' THEN ParameterName ELSE N'@' + ParameterName END
-                 + N' ' + ISNULL(DataType, N'sql_variant')
-            FROM   #PlanParameters
-            ORDER BY ParameterName
-            FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, N'');
-
-        SET @LocalExec = @UseDb + N'EXEC sp_executesql N'''
-            + REPLACE(@SqlText, N'''', N'''''')
-            + N''','
-            + CHAR(13) + CHAR(10) + N'    N''' + ISNULL(@ParamDecls, N'') + N''''
-            + ISNULL(STUFF((
-                SELECT N',' + CHAR(13) + CHAR(10)
-                     + N'    '
-                     + CASE WHEN LEFT(ParameterName, 1) = N'@' THEN ParameterName ELSE N'@' + ParameterName END
-                     + N' = '
-                     + ISNULL(CompiledValue, N'NULL')
-                FROM   #PlanParameters
-                ORDER BY ParameterName
-                FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 1, N''), N'')
-            + N';';
-
-        SET @RemoteExec = @UseDb + N'EXEC sp_executesql N'''
-            + REPLACE(@SqlText, N'''', N'''''')
-            + N''','
-            + CHAR(13) + CHAR(10) + N'    N''' + ISNULL(@ParamDecls, N'') + N''''
-            + ISNULL(STUFF((
-                SELECT N',' + CHAR(13) + CHAR(10)
-                     + N'    '
-                     + CASE WHEN LEFT(ParameterName, 1) = N'@' THEN ParameterName ELSE N'@' + ParameterName END
-                     + N' = '
-                     + ISNULL(CompiledValue, N'NULL')
-                FROM   #RemotePlanParameters
-                ORDER BY ParameterName
-                FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 1, N''), N'')
-            + N';';
+            IF @ProcedureParametersComplete = 1
+            BEGIN
+                SET @LocalExec = @UseDb + @LocalDeclarations + N'EXEC ' + @ProcName
+                               + N' ' + @LocalArguments + N' WITH RECOMPILE;';
+                SET @RemoteExec = @UseDb + @RemoteDeclarations + N'EXEC ' + @ProcName
+                                + N' ' + @RemoteArguments + N' WITH RECOMPILE;';
+            END;
+        END
+        ELSE IF @SqlText IS NOT NULL
+        BEGIN
+            SET @LocalExec = @UseDb + @LocalDeclarations + N'EXEC sp_executesql N'''
+                + REPLACE(@SqlText, N'''', N'''''') + N''', N'''
+                + REPLACE(@ParamDecls, N'''', N'''''') + N''', ' + @LocalArguments + N';';
+            SET @RemoteExec = @UseDb + @RemoteDeclarations + N'EXEC sp_executesql N'''
+                + REPLACE(@SqlText, N'''', N'''''') + N''', N'''
+                + REPLACE(@RemoteParamDecls, N'''', N'''''') + N''', ' + @RemoteArguments + N';';
+        END;
     END;
 
     /* Build the clickable XML. The column type is XML so SSMS renders it as a
@@ -2108,11 +2388,14 @@ BEGIN
            just the code rows without grabbing the wrapper tags. */
         DECLARE @ReproText NVARCHAR(MAX) =
               @CRLF + @CRLF
+            + CASE WHEN @ProcName IS NULL
+                   THEN N'/* Selected statement only; required batch setup must be supplied separately. */'
+                   ELSE N'/* Executes the full stored procedure, including its other statements. */' END + @CRLF
             + N'/* Local server ' + ISNULL(@LocalServerName, N'(unknown)') + N' */' + @CRLF
-            + @LocalExec + @CRLF
+            + @LocalExec + @CRLF + N'GO' + @CRLF
             + @CRLF
             + N'/* Remote server ' + ISNULL(@RemoteServerName, N'(unknown)') + N' */' + @CRLF
-            + @RemoteExec
+            + @RemoteExec + @CRLF + N'GO'
             + @CRLF + @CRLF;
 
         DECLARE @Repro XML =
@@ -2165,7 +2448,7 @@ CREATE TABLE #OpsLocal (
     ParentNodeId INT             NULL,
     PhysicalOp   VARCHAR(200)    NULL,
     LogicalOp    VARCHAR(200)    NULL,
-    ObjectSig    NVARCHAR(4000)  NULL,
+    ObjectSig    NVARCHAR(MAX)  NULL,
     ActualRows   BIGINT          NULL,
     EstRows      FLOAT           NULL,
     HasRuntime   BIT             NOT NULL DEFAULT 0,
@@ -2176,7 +2459,7 @@ CREATE TABLE #OpsRemote (
     ParentNodeId INT             NULL,
     PhysicalOp   VARCHAR(200)    NULL,
     LogicalOp    VARCHAR(200)    NULL,
-    ObjectSig    NVARCHAR(4000)  NULL,
+    ObjectSig    NVARCHAR(MAX)  NULL,
     ActualRows   BIGINT          NULL,
     EstRows      FLOAT           NULL,
     HasRuntime   BIT             NOT NULL DEFAULT 0,
@@ -2199,7 +2482,8 @@ BEGIN TRY
             rop.n.value('@NodeId',     'INT'),
             rop.n.value('@PhysicalOp', 'VARCHAR(200)'),
             rop.n.value('@LogicalOp',  'VARCHAR(200)'),
-            rop.n.value('sum(p:RunTimeInformation/p:RunTimeCountersPerThread/@ActualRows)', 'BIGINT'),
+            /* XQuery sum may serialize as scientific notation; parse FLOAT before BIGINT. */
+               CONVERT(BIGINT, rop.n.value('sum(p:RunTimeInformation/p:RunTimeCountersPerThread/@ActualRows)', 'FLOAT')),
             rop.n.value('@EstimateRows', 'FLOAT'),
             CASE WHEN rop.n.exist('p:RunTimeInformation') = 1 THEN 1 ELSE 0 END
         FROM @PlanXmlForEmit.nodes('//p:RelOp') AS rop(n);
@@ -2254,7 +2538,8 @@ BEGIN TRY
             rop.n.value('@NodeId',     'INT'),
             rop.n.value('@PhysicalOp', 'VARCHAR(200)'),
             rop.n.value('@LogicalOp',  'VARCHAR(200)'),
-            rop.n.value('sum(p:RunTimeInformation/p:RunTimeCountersPerThread/@ActualRows)', 'BIGINT'),
+            /* XQuery sum may serialize as scientific notation; parse FLOAT before BIGINT. */
+               CONVERT(BIGINT, rop.n.value('sum(p:RunTimeInformation/p:RunTimeCountersPerThread/@ActualRows)', 'FLOAT')),
             rop.n.value('@EstimateRows', 'FLOAT'),
             CASE WHEN rop.n.exist('p:RunTimeInformation') = 1 THEN 1 ELSE 0 END
         FROM @RemotePlanXml.nodes('//p:RelOp') AS rop(n);
@@ -2374,8 +2659,9 @@ IF @LocalOpCount > 0 AND @RemoteOpCount > 0
 BEGIN
     ;WITH pairs AS (
         SELECT l.NodeId, l.PhysicalOp, l.LogicalOp, l.ObjectSig, l.MaxInSubtree,
-               CASE WHEN @BothActual = 1 THEN l.ActualRows ELSE CAST(l.EstRows AS BIGINT) END AS LocalMetric,
-               CASE WHEN @BothActual = 1 THEN r.ActualRows ELSE CAST(r.EstRows AS BIGINT) END AS RemoteMetric
+               l.ActualRows AS LocalActualRows, r.ActualRows AS RemoteActualRows,
+               CASE WHEN @BothActual = 1 THEN CAST(l.ActualRows AS FLOAT) ELSE l.EstRows END AS LocalMetric,
+               CASE WHEN @BothActual = 1 THEN CAST(r.ActualRows AS FLOAT) ELSE r.EstRows END AS RemoteMetric
         FROM       #OpsLocal  l
         INNER JOIN #OpsRemote r ON r.NodeId = l.NodeId
     ),
@@ -2398,8 +2684,10 @@ BEGIN
            @Metric,
            'NodeId ' + CAST(NodeId AS VARCHAR(10)) + ': ' + ISNULL(PhysicalOp, '(unknown)')
             + CASE WHEN NULLIF(ObjectSig, '') IS NOT NULL THEN ' on ' + ObjectSig ELSE '' END,
-           CAST(LocalMetric  AS NVARCHAR(40)),
-           CAST(RemoteMetric AS NVARCHAR(40)),
+           CASE WHEN @BothActual = 1 THEN CONVERT(NVARCHAR(40), LocalActualRows)
+                ELSE CONVERT(NVARCHAR(40), LocalMetric, 3) END,
+           CASE WHEN @BothActual = 1 THEN CONVERT(NVARCHAR(40), RemoteActualRows)
+                ELSE CONVERT(NVARCHAR(40), RemoteMetric, 3) END,
            CASE WHEN @ShapeMatch = 1
                 THEN 'Walking the plan right-to-left, top-to-bottom, this is the first operator whose ' + @Metric
                      + ' differs by 25% or more. Upstream operators match; divergence starts here - this is where to focus.'

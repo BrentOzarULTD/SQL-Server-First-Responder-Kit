@@ -65,7 +65,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.34', @VersionDate = '20260702';
+	SELECT @Version = '8.35', @VersionDate = '20261114';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -119,7 +119,6 @@ END;    /* @Help = 1 */
 DECLARE  @ProductVersion NVARCHAR(128) = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128))
 		,@EngineEdition INT = CAST(SERVERPROPERTY('EngineEdition') AS INT)
 		,@ProductVersionMajor DECIMAL(10,2)
-		,@Platform NVARCHAR(8) /* Azure or NonAzure are acceptable */ = (SELECT CASE WHEN @@VERSION LIKE '%Azure%' THEN N'Azure' ELSE N'NonAzure' END AS [Platform])
 		,@AzureSQLDB BIT = (SELECT CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN 1 ELSE 0 END)
 		,@CanReadMSDB BIT = (SELECT COUNT(1) FROM fn_my_permissions(N'msdb.dbo.sysjobs', N'OBJECT') AS fmp WHERE fmp.permission_name = N'SELECT')
 		,@BlockingCheck NVARCHAR(MAX)
@@ -195,13 +194,13 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	  + @OutputDatabaseName
 	  + N'; IF EXISTS(SELECT * FROM '
 	  + @OutputDatabaseName
-	  + N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-	  + @OutputSchemaName
+	  + N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+	  + REPLACE(@OutputSchemaName, N'''', N'''''')
 	  + N''') AND NOT EXISTS (SELECT * FROM '
 	  + @OutputDatabaseName
-	  + N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-	  + @OutputSchemaName + N''' AND QUOTENAME(TABLE_NAME) = '''
-	  + @OutputTableName + N''') CREATE TABLE '
+	  + N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N'''
+	  + REPLACE(@OutputSchemaName, N'''', N'''''') + N''' AND QUOTENAME(TABLE_NAME) = N'''
+	  + REPLACE(@OutputTableName, N'''', N'''''') + N''') CREATE TABLE '
 	  + @OutputSchemaName + N'.'
 	  + @OutputTableName
 	  + N'(';
@@ -313,31 +312,31 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	/* If the table doesn't have the new JoinKey computed column, add it. See Github #2162. */
 	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
+		WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''JoinKey'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD JoinKey AS ServerName + CAST(CheckDate AS NVARCHAR(50));';
 	EXEC(@StringToExecute);
 
 	/* If the table doesn't have the new cached_parameter_info computed column, add it. See Github #2842. */
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''cached_parameter_info'')
+		WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''cached_parameter_info'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD cached_parameter_info NVARCHAR(MAX) NULL;';
 	EXEC(@StringToExecute);
 
 	/* If the table doesn't have the new live_parameter_info computed column, add it. See Github #2842. */
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''live_parameter_info'')
+		WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''live_parameter_info'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD live_parameter_info NVARCHAR(MAX) NULL;';
 	EXEC(@StringToExecute);
 
 	/* If the table doesn't have the new outer_command column, add it. See Github #2887. */
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''outer_command'')
+		WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''outer_command'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD outer_command NVARCHAR(4000) NULL;';
 	EXEC(@StringToExecute);
 
 	/* If the table doesn't have the new wait_resource column, add it. See Github #2970. */
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''wait_resource'')
+		WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''wait_resource'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD wait_resource NVARCHAR(MAX) NULL;';
 	EXEC(@StringToExecute);
 
@@ -345,8 +344,8 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	SET @OutputTableCleanupDate = CAST( (DATEADD(DAY, -1 * @OutputTableRetentionDays, GETDATE() ) ) AS DATE);
 	SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
 		+ @OutputDatabaseName
-		+ N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-		+ @OutputSchemaName + N''') DELETE '
+		+ N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+		+ REPLACE(@OutputSchemaName, N'''', N'''''') + N''') DELETE '
 		+ @OutputDatabaseName + '.'
 		+ @OutputSchemaName + '.'
 		+ @OutputTableName
@@ -367,15 +366,15 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
             BEGIN
             SET @StringToExecute = N'USE '
                 + @OutputDatabaseName
-                + N'; EXEC (''CREATE VIEW '
-                + @OutputSchemaName + '.'
-                + @OutputTableNameQueryStats_View + N' AS ' + @LineFeed
+                + N'; EXEC (N''CREATE VIEW '
+                + REPLACE(@OutputSchemaName, N'''', N'''''') + '.'
+                + REPLACE(@OutputTableNameQueryStats_View, N'''', N'''''') + N' AS ' + @LineFeed
 				+ N'WITH MaxQueryDuration AS ' + @LineFeed
 				+ N'( ' + @LineFeed
 				+ N'    SELECT ' + @LineFeed
 				+ N'        MIN([ID]) AS [MinID], ' + @LineFeed
 				+ N'		MAX([ID]) AS [MaxID] ' + @LineFeed
-				+ N'    FROM ' + @OutputSchemaName + '.' + @OutputTableName + '' + @LineFeed
+				+ N'    FROM ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableName, N'''', N'''''') + '' + @LineFeed
 				+ N'    GROUP BY [ServerName], ' + @LineFeed
 				+ N'    [session_id], ' + @LineFeed
 				+ N'    [database_name], ' + @LineFeed
@@ -584,7 +583,7 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 				+ N'			       [plan_handle], ' + @LineFeed 
 				+ N'			       [statement_start_offset], ' + @LineFeed 
 				+ N'			       [statement_end_offset] ' + @LineFeed
-				+ N'            FROM ' + @OutputSchemaName + '.' + @OutputTableName + '' + @LineFeed 
+				+ N'            FROM ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableName, N'''', N'''''') + '' + @LineFeed
 				+ N'        ) AS [BlitzWho] ' + @LineFeed
 				+ N'INNER JOIN [MaxQueryDuration] ON [BlitzWho].[ID] = [MaxQueryDuration].[MaxID]; ' + @LineFeed
 				+ N''');'
@@ -607,7 +606,9 @@ CREATE TABLE #WhoReadableDBs
 database_id INT
 );
 
-IF EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
+/* HADR views exist on standalone instances too; avoid invoking them unless HADR is enabled. */
+IF @AzureSQLDB = 0 AND SERVERPROPERTY('IsHadrEnabled') = 1
+    AND EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
 BEGIN
 	RAISERROR('Checking for Read intent databases to exclude',0,0) WITH NOWAIT;
 
@@ -644,25 +645,33 @@ SELECT @BlockingCheck = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						DECLARE @LiveQueryPlans TABLE
 						(
 							Session_Id INT NOT NULL,
-							Query_Plan XML NOT NULL
+							Query_Plan XML NULL
 						);
 
 						'
 IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_statistics_xml') AND name = 'query_plan' AND @GetLiveQueryPlan=1)
 BEGIN
 	SET @BlockingCheck = @BlockingCheck + N'
-							INSERT INTO @LiveQueryPlans
-							SELECT	s.session_id, query_plan 
-							FROM	sys.dm_exec_sessions AS s
-							CROSS APPLY sys.dm_exec_query_statistics_xml(s.session_id)
-							WHERE	s.session_id <> @@SPID;';
+							BEGIN TRY
+								INSERT INTO @LiveQueryPlans
+								SELECT s.session_id, query_plan
+								FROM sys.dm_exec_sessions AS s
+								CROSS APPLY sys.dm_exec_query_statistics_xml(s.session_id)
+								WHERE s.session_id <> @@SPID;
+							END TRY
+							BEGIN CATCH
+								/* The DMF can raise the XML depth error before a caller can TRY_CONVERT it. */
+								IF ERROR_NUMBER() <> 6335 THROW;
+								DELETE FROM @LiveQueryPlans;
+								RAISERROR(''Live query plans could not be retrieved because a plan exceeded the XML nesting limit. Continuing without live plans.'', 10, 1) WITH NOWAIT;
+							END CATCH;';
 END
 
 
 /* Think of the StringToExecute as starting with this, but we'll set this up later depending on whether we're doing an insert or a select:
 SELECT @StringToExecute = N'SELECT  GETDATE() AS run_date ,
 */
-SELECT @StringToExecute = N' CASE WHEN YEAR(s.last_request_start_time) = 1900 THEN NULL ELSE COALESCE( RIGHT(''00'' + CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), RIGHT(''00'' + CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114) ) END AS [elapsed_time] ,
+SELECT @StringToExecute = N' CASE WHEN YEAR(s.last_request_start_time) = 1900 THEN NULL ELSE COALESCE( RIGHT(''00'' + CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), RIGHT(''00'' + CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, @DmvNow) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, @DmvNow), 0), 114) ) END AS [elapsed_time] ,
 			       s.session_id ,
 					CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL 
 					THEN r.blocking_session_id
@@ -730,7 +739,7 @@ SELECT @StringToExecute = N' CASE WHEN YEAR(s.last_request_start_time) = 1900 TH
 			       s.host_name ,
 			       s.login_name ,
 			       s.nt_user_name ,'
-		IF @Platform = 'NonAzure' AND @CanReadMSDB = 1
+		IF @CanReadMSDB = 1
 		BEGIN
 		SET @StringToExecute +=
 				   N'program_name = COALESCE((
@@ -887,7 +896,9 @@ SELECT @StringToExecute = N' CASE WHEN YEAR(s.last_request_start_time) = 1900 TH
 					    OR s.session_id = b.blocking_session_id)
 		    ) AS blocked
 	    OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle, blocked.sql_handle)) AS dest
-	    OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS derp
+	    /* Retrieve the whole batch as text so oversized XML becomes NULL before output or parameter shredding. */
+	    OUTER APPLY sys.dm_exec_text_query_plan(r.plan_handle, 0, -1) AS text_plan
+	    OUTER APPLY (SELECT TRY_CONVERT(XML, text_plan.query_plan) AS query_plan) AS derp
 	    OUTER APPLY (
 			    SELECT CONVERT(DECIMAL(38,2), SUM( ((((tsu.user_objects_alloc_page_count - user_objects_dealloc_page_count) + (tsu.internal_objects_alloc_page_count - internal_objects_dealloc_page_count)) * 8) / 1024.)) ) AS tempdb_allocations_mb
 			    FROM sys.dm_db_task_space_usage tsu
@@ -996,7 +1007,7 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	BEGIN
 	SET @StringToExecute = N'USE '
 	  + @OutputDatabaseName + N'; '
-	  + @BlockingCheck + 
+	  + @BlockingCheck + N' DECLARE @DmvNow DATETIME = CASE WHEN @AzureSQLDB = 1 THEN GETUTCDATE() ELSE GETDATE() END; '
 	  + ' INSERT INTO '
 	  + @OutputSchemaName + N'.'
 	  + @OutputTableName
@@ -1102,7 +1113,8 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	+ @StringToExecute;
 	END
 ELSE
-	SET @StringToExecute = @BlockingCheck + N' SELECT  GETDATE() AS run_date , ' + @StringToExecute;
+	/* Capture after the live-plan preamble so newly sleeping requests cannot precede the clock. */
+	SET @StringToExecute = @BlockingCheck + N' DECLARE @DmvNow DATETIME = CASE WHEN @AzureSQLDB = 1 THEN GETUTCDATE() ELSE GETDATE() END; SELECT GETDATE() AS run_date , ' + @StringToExecute;
 
 /* If the server has > 50GB of memory, add a max grant hint to avoid getting a giant grant */
 IF 50000000 < (SELECT cntr_value
@@ -1128,8 +1140,8 @@ IF @Debug = 1
 	END
 
 EXEC sp_executesql @StringToExecute,
-	N'@CheckDateOverride DATETIMEOFFSET',
-	@CheckDateOverride;
+	N'@CheckDateOverride DATETIMEOFFSET, @AzureSQLDB BIT',
+	@CheckDateOverride = @CheckDateOverride, @AzureSQLDB = @AzureSQLDB;
 
 END
 GO 

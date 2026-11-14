@@ -8,6 +8,7 @@
 
 Navigation
  - [How to Install the Scripts](#how-to-install-the-scripts)
+ - [Permissions Required](#permissions-required)
  - [How to Get Support](#how-to-get-support)
  - Common Scripts:
    - [sp_Blitz: Overall Health Check](#sp_blitz-overall-health-check)
@@ -28,7 +29,11 @@ Navigation
  - Backups and Restores:
    - [sp_BlitzBackups: How Much Data Could You Lose](#sp_blitzbackups-how-much-data-could-you-lose)  
    - [sp_DatabaseRestore: Easier Multi-File Restores](#sp_databaserestore-easier-multi-file-restores)  
+ - Other Utilities:
+   - [sp_ineachdb: Run a Command in Each Database](#sp_ineachdb-run-a-command-in-each-database)
+   - [sp_BlitzUpdate: Update the First Responder Kit from GitHub](#sp_blitzupdate-update-the-first-responder-kit-from-github)
  - [Parameters Common to Many of the Stored Procedures](#parameters-common-to-many-of-the-stored-procedures)
+ - [Instructions for AI Agents](#ai-agents)
  - [License MIT](#license)
 
 You're a DBA, sysadmin, or developer who manages Microsoft SQL Servers. It's your fault if they're down or slow. These tools help you understand what's going on in your server.
@@ -60,6 +65,67 @@ If you hit an error when running Install-All-Scripts, it's likely because you're
 We recommend installing these stored procedures in the master database, but if you want to use another one, that's totally fine - they're all supported in any database - but just be aware that you can run into problems if you have these procs in multiple databases. You may not keep them all up to date, and you may hit an issue when you're running an older version.
 
 There are a couple of Install-Core scripts included for legacy purposes, for folks with installers they've built. You can ignore those.
+
+
+## Permissions Required
+
+After installing the kit, run this as sysadmin, replacing `UserLogin` with the existing login that will run the tools. The script finds its database user automatically.
+
+```sql
+USE master;
+
+GRANT VIEW SERVER STATE TO [UserLogin];
+GRANT CONNECT ANY DATABASE TO [UserLogin];
+GRANT VIEW ANY DEFINITION TO [UserLogin];
+
+-- If you installed the First Responder Kit scripts in a database
+-- other than master, uncomment this and enter that database's name:
+-- USE [KitDatabase];
+
+-- Reuse the user mapped to this login, even if its name differs.
+DECLARE @KitUser sysname =
+    (SELECT name FROM sys.database_principals
+     WHERE sid = SUSER_SID(N'UserLogin') AND type IN ('S', 'U', 'G', 'E', 'X'));
+
+IF @KitUser IS NULL
+BEGIN
+    IF USER_ID(N'UserLogin') IS NOT NULL
+        THROW 50000, 'This database user name belongs to another login. No procedure permissions were granted.', 1;
+    CREATE USER [UserLogin] FOR LOGIN [UserLogin];
+    SET @KitUser = N'UserLogin';
+END;
+
+-- The database owner already has these permissions.
+IF @KitUser = N'dbo' RETURN;
+
+DECLARE @Grants nvarchar(max) =
+    N'GRANT EXECUTE ON dbo.sp_Blitz TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_BlitzAnalysis TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_BlitzBackups TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_BlitzCache TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_BlitzFirst TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_BlitzIndex TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_BlitzLock TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_BlitzWho TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_DatabaseRestore TO ' + QUOTENAME(@KitUser) + N';'
+    + N'GRANT EXECUTE ON dbo.sp_ineachdb TO ' + QUOTENAME(@KitUser) + N';';
+EXEC sys.sp_executesql @Grants;
+```
+
+**Run it once per server.** It covers current and future databases; no per-database setup is needed.
+
+This enables most troubleshooting without making the login sysadmin. Some `sp_Blitz` checks still require sysadmin. Detailed statistics need table-read permissions, saving results needs write permissions, and administrative actions such as restoring databases require additional permissions.
+
+**What permissions this grants:**
+
+- **Connect to every database**, including databases created later.
+- **See server activity**, including other users’ query text, execution plans, and performance statistics.
+- **View object definitions**, including table structures, indexes, and stored procedure code.
+- **Run the listed kit procedures**, subject to any additional permissions their actions require.
+
+These grants do not make the login sysadmin or give it general permission to read or change the data stored in tables.
+
+[*Back to top*](#header1)
 
 
 ## How to Get Support
@@ -365,7 +431,9 @@ When the same query runs differently on two SQL Servers (fast on dev, slow on pr
 
 | Parameter | Type | Default | Purpose |
 |---|---|---|---|
-| `@DatabaseName` | `SYSNAME` | `NULL` | Scopes plan lookup (and `@StoredProcName` resolution) to this database. On Azure SQL DB you must be connected to this database — cross-DB `OBJECT_ID()` isn't supported. |
+| `@DatabaseName` | `SYSNAME` | `NULL` | Scopes plan lookup (and `@StoredProcName` resolution) to this database. With `@LinkedServer`, only an explicit `@DatabaseName` is forwarded to the remote lookup; a database inferred from a three-part `@StoredProcName` scopes the local side only. On Azure SQL DB you must be connected to this database — cross-DB `OBJECT_ID()` isn't supported. |
+
+**Exact cached-copy selectors:** `@PlanHandle VARBINARY(64)` selects a local cache entry; `@StatementStartOffset INT` selects a statement within it. Use the values returned in the candidate list when multiple copies have the same hash. These also work with `@CompareToXML`. For linked-server mode, `@RemotePlanHandle` and `@RemoteStatementStartOffset` independently select the remote entry. Handles belong to one server's current cache and cannot be copied between servers. The procedure never automatically chooses among different compile contexts.
 
 **Comparison source** (exactly one, or none for mode 1):
 
@@ -420,6 +488,8 @@ You get back a single `CallStack` column — a complete `EXEC dbo.sp_BlitzPlanCo
 
 How cross-server plan resolution works: the snapshot carries the stable `QueryHash` attribute (not just the `QueryPlanHash`). When the other server runs the compare, it looks up its own cached plan by `query_hash` — because the whole point of comparing is that the plan on the other server is probably *different*. That divergence is the mystery you're investigating.
 
+When a snapshot comes from an older procedure with an incompatible statistics format, the comparison returns a StatisticsNotCompared notice and continues comparing the other categories. Update the procedure on the source server and capture a new snapshot to compare statistics.
+
 ### Linked-server one-call workflow
 
 ```tsql
@@ -444,7 +514,7 @@ The local side passes its `query_hash` (not `query_plan_hash`) to the remote —
 | `Finding` | One-line explanation of the diff. |
 | `URL` | Link to more info. |
 | `Details` | Extra context - plan-source flags, shape-match verdict, operator metadata. |
-| `CallStack` | Typed XML — populated only on the `Parameter.Reproducer` row with a click-to-view reproducer containing two blocks of copy/paste-ready EXECs (one per server) that re-compile the proc/ad-hoc SQL with each side's sniffed parameter values. |
+| `CallStack` | Typed XML — populated only on the `Parameter.Reproducer` row with a click-to-view reproducer containing two blocks of copy/paste-ready EXECs (one per server) that execute with each side's sniffed parameter values. Procedure calls use `WITH RECOMPILE`; ad-hoc `sp_executesql` calls may reuse a cached plan. |
 
 **Second result set — the two plans** (one row per server):
 
@@ -464,10 +534,10 @@ The local side passes its `query_hash` (not `query_plan_hash`) to the remote —
 * **Database-scoped configurations**: the full row from `sys.database_scoped_configurations`, including `LEGACY_CARDINALITY_ESTIMATION`, `MAXDOP`, `LAST_QUERY_PLAN_STATS`.
 * **Objects, indexes, statistics**: presence, index definitions (type, unique, filter, key + included columns), stats headers (last update, modification counter, rows sampled), row counts and page counts.
 * **Forced plans**: Query Store forced plans + `sys.plan_guides`.
-* **Parameter sniffing**: compiled values per parameter. When any value differs, a `Parameter.Reproducer` row is emitted whose `CallStack` column is a clickable XML cell with copy/paste-ready `EXEC [db].[schema].[proc] @p = v` blocks for each server. For ad-hoc parameterized SQL, the reproducer uses `sp_executesql` form instead.
+* **Parameter sniffing**: compiled values per parameter. When any value differs, a `Parameter.Reproducer` row is emitted whose `CallStack` column is a clickable XML cell with copy/paste-ready `EXEC [db].[schema].[proc] @p = v` blocks for each server. For ad-hoc parameterized SQL, the reproducer uses `sp_executesql` form instead and may reuse a cached plan. Values are assigned to typed variables so Showplan expression syntax remains valid. Review the generated calls before running them: they execute the original workload, and batch setup may be required. Procedure reproducers are omitted unless both captured plans supply every declared procedure parameter; parameters used only by another statement (including optional parameters) cannot be safely reconstructed from a statement-scoped plan.
 * **Plan-level attributes**: DOP, memory grant, CompileTime/CompileMemory, CachedPlanSize, CardinalityEstimationModelVersion, OptimizerHardwareDependentProperties (estimated memory grant, pages cached, available DOP, max compile memory), StatementOptmLevel, RetrievedFromCache. Numeric deltas ≤ 25% are suppressed as noise; `CardinalityEstimationModelVersion` is exact-match regardless (70 vs 160 vs 170 all change optimizer behavior).
 * **Plan warnings**: spills, memory grant warnings, convert warnings, NoStats, WaitStats.
-* **Runtime totals (PlanRuntime)**: elapsed time, CPU time, granted memory, max used memory, UDF elapsed/CPU, spill count (exact-match — 0 vs 1 matters). Populated when both plans are actual (`LAST_QUERY_PLAN_STATS`). Sub-25% deltas suppressed except for spill count.
+* **Runtime totals (PlanRuntime)**: elapsed and CPU time come from the selected statement's last completed execution in `sys.dm_exec_query_stats`, converted from microseconds to milliseconds; these remain available with estimated plans. Cached Showplan timing attributes can be unreliable on some builds. Granted memory, max used memory, UDF elapsed/CPU, and spill count come from actual plans (`LAST_QUERY_PLAN_STATS`) when available. Sub-25% deltas are suppressed except for spill count (exact-match — 0 vs 1 matters).
 * **Wait stats (PlanWait)**: pulled from `sys.query_store_wait_stats` (not the plan XML — `dm_exec_query_plan_stats` doesn't populate `<WaitStats>`). Bucketed by `wait_category_desc`. Silently skipped when Query Store is off.
 * **Operator-by-operator row variance (OperatorVariance)**: if both plans have the same shape (same operators on the same objects at the same NodeIds), we walk the operators in post-order starting from the top-right leaf, working right-to-left and top-to-bottom toward the root, and report the **first** operator where actual rows (or estimated rows, if runtime data isn't available) differ by 25% or more. If shapes differ, only the root operator is compared - per-operator diffs aren't meaningful when operators don't line up. A `PlanShape` informational row always accompanies this analysis and tells you whether shapes match and which metric was used.
 * **Live state**: point-in-time snapshot of runnable tasks, worker count, blocked sessions, and top 5 wait types for the plan's query hash. Sub-25% deltas suppressed.
@@ -778,7 +848,12 @@ Useful parameters:
 * `@database_list`, `@exclude_list` - comma-separated lists of databases to include or exclude. Bracket-quote names that contain special characters.
 * `@name_pattern`, `@exclude_pattern` - LIKE patterns applied to database names.
 * `@system_only`, `@user_only` - limit to system DBs (master/model/msdb/tempdb/distribution) or user DBs.
-* `@recovery_model_desc`, `@compatibility_level`, `@is_read_only`, `@is_auto_close_on`, `@is_auto_shrink_on`, `@is_broker_enabled`, `@is_query_store_on`, `@user_access`, `@state_desc` - filter by database property.
+* `@is_read_only` - **defaults to 0, which skips read-only databases.** This one surprises people, so read carefully:
+  * `0` (the default) - only databases that are *not* read-only. This is the safe default because most commands you'd run in each database make writeable changes, and those would fail in a read-only database.
+  * `1` - only read-only databases.
+  * `NULL` - all databases, read-only or not. Pass this when you want a truly server-wide pass and your command is read-only, like `SELECT`s or `DBCC CHECKDB`.
+* `@state_desc` - defaults to `N'ONLINE'`, so offline, restoring, and recovering databases are skipped too. Pass `NULL` for all states.
+* `@recovery_model_desc`, `@compatibility_level`, `@is_auto_close_on`, `@is_auto_shrink_on`, `@is_broker_enabled`, `@is_query_store_on`, `@user_access` - filter by database property. These all default to `NULL`, meaning no filtering.
 * `@is_ag_writeable_copy = 1` - skip Availability Group secondaries.
 * `@print_dbname`, `@print_command`, `@print_command_only`, `@select_dbname` - diagnostics for debugging your command string without running it.
 
@@ -805,6 +880,65 @@ This means callers that already work with `sp_MSforeachdb` on box SQL (like `sp_
 
 
 
+## sp_BlitzUpdate: Update the First Responder Kit from GitHub
+
+`sp_BlitzUpdate` downloads a First Responder Kit file straight from GitHub and installs it in the current database, without sqlcmd, PowerShell, or RDP. It's for lab and dev servers you want to keep current with one command:
+
+```tsql
+USE master;
+GO
+EXEC dbo.sp_BlitzUpdate;
+```
+
+That grabs `Install-All-Scripts.sql` from the `main` branch and runs it, batch by batch.
+
+> **Installation:** sp_BlitzUpdate ships in the `OptionalScripts` folder and is **not** included in `Install-All-Scripts.sql` or `Install-Azure.sql`. Open `OptionalScripts/sp_BlitzUpdate.sql` in SSMS, switch to the database where you want it installed (typically `master`), and run it once. After that, call it whenever you want a refresh.
+
+### Requirements
+
+* **SQL Server 2025 or Azure SQL DB.** It's built on `sys.sp_invoke_external_rest_endpoint`, which doesn't exist in earlier versions. The script refuses to install on older builds, and the proc raises an error at runtime if it somehow got installed anyway.
+* On boxed SQL Server: `sp_configure 'external rest endpoint enabled', 1; RECONFIGURE;`
+* Outbound HTTPS to api.github.com on TCP 443. On Azure SQL DB, api.github.com has to be on the server's outbound REST allowlist (set in the Azure portal or via ARM at the server level), or you'll get `Msg 31612: Connections to the domain api.github.com are not allowed.`
+* The current database needs compatibility level 130 or higher, because the GitHub API payload is read with OPENJSON. SQL Server 2025 defaults to 170, so this only bites if you've manually downgraded a database.
+* CREATE/ALTER PROCEDURE rights in the target database, plus EXECUTE on `sys.sp_invoke_external_rest_endpoint`.
+
+### Parameters
+
+| Parameter | Type | Default | Purpose |
+|---|---|---|---|
+| `@Branch` | `NVARCHAR(128)` | `N'main'` | Branch or tag to pull from. Date-based release tags work too, like `N'20260407'`. |
+| `@Repository` | `NVARCHAR(128)` | `N'BrentOzarULTD/SQL-Server-First-Responder-Kit'` | `owner/repo` on GitHub. Point it at your fork if you maintain one. |
+| `@FileName` | `NVARCHAR(256)` | `N'Install-All-Scripts.sql'` | Path to the file inside the repo. Pass `N'sp_Blitz.sql'` (etc.) to update one proc at a time. |
+| `@WhatIf` | `BIT` | `0` | `1` fetches and parses the file, prints how many batches *would* run, and exits without installing anything. |
+| `@Debug` | `TINYINT` | `0` | `1` prints per-batch length and progress. |
+| `@Help` | `TINYINT` | `0` | `1` prints usage info and returns. |
+
+### Examples
+
+```tsql
+/* Pinned to a release tag, which is what you want for reproducible lab boxes: */
+EXEC dbo.sp_BlitzUpdate @Branch = N'20260407';
+
+/* Update a single proc: */
+EXEC dbo.sp_BlitzUpdate @FileName = N'sp_Blitz.sql';
+
+/* Preview without installing: */
+EXEC dbo.sp_BlitzUpdate @WhatIf = 1, @Debug = 1;
+
+/* From a fork: */
+EXEC dbo.sp_BlitzUpdate @Repository = N'yourname/SQL-Server-First-Responder-Kit', @Branch = N'dev';
+```
+
+### Things to look out for
+
+* **This executes whatever GitHub serves at the ref you ask for.** Anyone with write access to that branch of that repo can run code on your server. That's why it's a lab tool, and why you should pass a release tag to `@Branch` instead of leaving it on `main` when you care about what you're getting.
+* Run it from the database you want the procs installed into. Most people want `USE master;` first, matching the regular FRK install workflow.
+* GitHub's anonymous API rate limit is 60 requests per hour per source IP, and each call uses one or two requests. Plenty of headroom for routine lab use.
+
+[*Back to top*](#header1)
+
+
+
 ## Parameters Common to Many of the Stored Procedures
 
 * @Help = 1 - returns a result set or prints messages explaining the stored procedure's input and output. Make sure to check the Messages tab in SSMS to read it.
@@ -826,6 +960,88 @@ SELECT
 
 [*Back to top*](#header1)
 
+
+## Instructions for AI Agents
+
+In addition to the above, here are some instructions for how to do an overall health check, an overall performance check, and a right-now performance check. All of the below should work with all supported SQL Server versions, plus Amazon RDS and Azure SQL DB (all flavors).
+
+The scripts can be installed in any database with no reduction in functionality. You can even run each of them individually without installing them as stored procedures: change the stored proc creation commands to be declares of variables (so that it uses the same starting setup parameters), and then simply execute that code.
+
+The server may already have these scripts installed in the master database or a DBA utility database. If so, check the age of it using each script's built-in version checking:
+
+```tsql
+DECLARE @VersionOutput VARCHAR(30), @VersionDateOutput DATETIME;
+EXEC sp_Blitz 
+    @Version = @VersionOutput OUTPUT, 
+    @VersionDate = @VersionDateOutput OUTPUT,
+    @VersionCheckMode = 1;
+SELECT
+    @VersionOutput AS Version, 
+    @VersionDateOutput AS VersionDate;
+```
+
+If the script is more than 2 years old, it should be updated before being relied on. Offer to install the latest version before proceeding.
+
+Use the below steps as a starting point; adapt to the platform, workload, available permissions, and observed symptoms. Concisely report your findings, and include any steps you could not complete. Recommend changes with supporting evidence. The changes should include a simple T-SQL script that can be executed against the server or database. Do not modify anything as part of the check unless the user authorizes those changes.
+
+### How to Do an Overall Health Check
+
+Run sp_Blitz @CheckServerInfo = 1. The output is prioritized so that priorities 1-49 are very urgent and need to be taken care of right away. Priorities 50 and lower (down to the 250s) are less urgent and do not require immediate action. The URL column give more context to the warnings, and can be used to help the user understand what they're up against. The Details column gives more specifics of the problem. The QueryPlan, QueryPlanFiltered, and CheckID columns are not relevant to end users.
+
+### How to Do an Overall Performance Check
+
+First, run sp_Blitz @CheckServerInfo = 1 and look for any warnings that indicate urgent performance problems, like dangerous 3rd party DLLs installed.
+
+Next, run sp_BlitzFirst @SinceStartup = 1 to get performance metrics since the server started up. Focus on the first result set at first, Wait Stats, and examine this:
+
+* The "Hours Sample" column shows how much performance data is present since the last restart. If they've had less than a couple weekdays of uptime, let them know that the performance data probably isn't reliable since it represents a short sample.
+* The "Thread Time (Hours)" column shows how much time the server has spent running queries, including parallelism. If it's less than Hours Sample, that's an indicator that the server isn't too busy.
+* The "Wait Time (Hours)" column shows how much of that Thread Time (Hours) was spent waiting on something, like CPU or storage or locks. Work from the highest wait time down, keeping the comparison time in perspective. If the server had 100 hours of Thread Time, and 80 hours of it was spent waiting on one particular wait type, then that represents a big bang for the buck opportunity for performance improvement. Waits of 1-20% just won't be as meaningful.
+* The "Number of Waits" and "Avg ms Per Wait" (ms = millisecond) help to identify if a wait has only happened a few times. For example, on a Standard Edition server, nightly index rebuilds might cause just a few instances of blocking overnight while the rebuilds run, and won't represent a high bang for the buck improvement opportunity.
+* The "wait_type" column lists the official name of the wait type, and the "URL" column links to the SQLskills wait library with more technical details on that wait type.
+
+Based on the server's top wait types, consider these actions first:
+
+* For CX% wait types like CXPACKET, CXCONSUMER, CXSYNC_PORT, etc.: make sure they have good sane defaults for Cost Threshold for Parallelism and for MAXDOP per https://www.brentozar.com/go/cxpacket. Keep in mind that MAXDOP may have been set at the database level as well.
+* For PAGEIOLATCH% wait types: look at missing index recommendations with sp_BlitzIndex @GetAllDatabases = 1, and look at high-read queries using sp_BlitzCache @SortOrder = 'reads'.
+* For SOS_SCHEDULER_YIELD wait types: look at missing index recommendations with sp_BlitzIndex @GetAllDatabases = 1, and look at high-CPU queries using sp_BlitzCache @SortOrder = 'cpu'.
+* For LCK% wait types: look at the tables experiencing blocking with sp_BlitzIndex @GetAllDatabases = 1, and run the more-info query in the more-info column for those blocking/locking tables specifically. Remove unused indexes, deduplicate the remaining indexes, and add missing indexes without creating more duplicates. Look at the output of the last result set of sp_BlitzLock, looking for which tables and which queries show up the most frequently in deadlocks.
+* For WRITELOG, DBMIRROR_SEND, and HADR_SYNC_COMMIT wait types: look at the tables getting the most writes with sp_BlitzIndex @GetAllDatabases = 1, @Mode = 2, @SortOrder = 'writes' and ask questions about why we're writing to those tables so often. Look at high-write queries with sp_BlitzCache @SortOrder = 'writes'.
+
+For other wait types, do web research favoring popular, credible performance tuning sources.
+
+In the above instructions, when you run sp_BlitzIndex, here's how to interpret the results. If the server has a large number of user databases or partitions, sp_BlitzIndex will require you to use the @BringThePain = 1 parameter. That's just to help users understand that the query will take much longer to run, based on the number of objects. It won't block others.
+
+* Priority: the findings are organized by the D.E.A.T.H. Method that Brent teaches in his training classes. Deduplicate indexes, Eliminate unused indexes, Add missing indexes, Tune indexes for specific queries, and Heaps usually need clustered indexes. However, based on your specific performance issue, you may need to jump to a specific step in that method.
+* Finding, DatabaseName, Details: the index issue
+* More Info: gives you a more-info analysis query to be run separately, targeting just that one specific table, to see more information. In those results, the 1st result set describes the indexes that already exist on the table, and the 2nd result set describes the missing indexes that SQL Server wants, including (if available) a sample query plan that is triggering those missing indexes.
+
+In the above instructions, when you run sp_BlitzCache, here's how to interpret the results:
+
+First, check the 2nd result set, looking for Priority 1 warnings. If you see Priority 1 warnings, the list of top queries in the 1st result set may not be reliable. Read the Details column and the URL contents to learn more about the specific Priority 1 issue that the workload is facing. Barring that, check out these columns in the 1st result set:
+
+* Database, Query Text, Query Type: the query involved. Note that for multi-statement batches like stored procedures, the stored procedure will show up as a whole, plus the individual statements may show up if they hit the top 10 by your chosen sort order.
+* Warnings: a comma-delimited list of anti-patterns and performance issues we found after reviewing the query plan. The 2nd result set explains each warning in more detail - look up the warning name in the Finding column.
+* Query Plan: the raw XML if available, including the last actual query plan if that feature is turned on.
+* Missing Indexes: not just the ones in the XML, but also indexes we advised creating to fix Index Spool Eager Spool issues where SQL Server doesn't create an index.
+* Cost: only useful when you're trying to pick out which specific statement in a multi-statement batch is involved.
+* Many of the other columns (Executions, CPU, Reads, etc) describe the overhead of this query.
+* Last Execution & Last Completion: the last start & end of that query's execution. Keep in mind that some queries might be overnight or weekend maintenance jobs, happening after hours, and may not impact end users. If everything in the top 10 appears to be overnight or maintenance, but the user is concerned about current performance, you can use the @MinutesBack parameter to only catch queries that have run in the last minutes, like @MinutesBack = 180 will give you the last 3 hours.
+* Query Hash, SQL Handle, Plan Handle: useful if you need to track down the queries in other repositories like Query Store.
+
+### How to Do a Right-Now Performance Check
+
+If a database is having an issue RIGHT NOW, here's what to check.
+
+First, take a 30-second sample of activity by running sp_BlitzFirst @Seconds = 30, @ExpertMode = 1. The result sets will be:
+
+* 1st result set: currently running queries, gathered via sp_BlitzWho. Check the "elapsed_time" column to see if there's a long-running query like an out of control job or a long-running maintenance job.
+* 2nd result set: "headline news" result set that gives you prioritized findings about why the SQL Server is slow right now. Use the Priority, Finding, and Details columns to see more information.
+* 3rd result set: wait stats for the 30-second sample. Use the column & wait interpretation from the above "How to Do an Overall Performance Check" section to interpret these results.
+
+There are additional result sets, but those first 3 are the ones to focus on when building your analysis.
+
+[*Back to top*](#header1)
 
 
 ## License

@@ -24,22 +24,22 @@ CREATE TABLE dbo.Blitz_AI_Providers
 
 /* OpenAI - fast, cheap model, default: */
 INSERT INTO dbo.Blitz_AI_Providers (Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, Default_Model)
-VALUES (N'ChatGPT Fast', N'gpt-5-nano', N'https://api.openai.com/v1/chat/completions',
+VALUES (N'ChatGPT Fast', N'gpt-5.6-luna', N'https://api.openai.com/v1/chat/completions',
     N'https://api.openai.com/', 60, 1);
 
 /* OpenAI - highest quality, slowest, most expensive model: */
 INSERT INTO dbo.Blitz_AI_Providers (Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, Default_Model)
-VALUES (N'ChatGPT Slow', N'gpt-5.4', N'https://api.openai.com/v1/chat/completions',
+VALUES (N'ChatGPT Slow', N'gpt-6-astra', N'https://api.openai.com/v1/chat/completions',
     N'https://api.openai.com/', 230, 0);
 
 /* Gemini - fast, cheap model: */
 INSERT INTO dbo.Blitz_AI_Providers (Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, Default_Model)
-VALUES (N'Gemini Fast', N'gemini-3-flash-preview', N'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+VALUES (N'Gemini Fast', N'gemini-3.8-flash', N'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent',
     N'https://generativelanguage.googleapis.com/', 60, 0);
 
 /* Gemini - highest quality, slowest, most expensive model: */
 INSERT INTO dbo.Blitz_AI_Providers (Model_Nickname, AI_Model, AI_URL, AI_Database_Scoped_Credential_Name, Timeout_Seconds, Default_Model)
-VALUES (N'Gemini Slow', N'gemini-3-1-pro-preview', N'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+VALUES (N'Gemini Slow', N'gemini-3.1-pro-preview', N'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent',
     N'https://generativelanguage.googleapis.com/', 230, 0);
 
 
@@ -51,32 +51,24 @@ CREATE TABLE dbo.Blitz_AI_Prompts
  Default_Prompt BIT DEFAULT 0);
 
 INSERT INTO dbo.Blitz_AI_Prompts (Prompt_Nickname, Default_Prompt, AI_System_Prompt)
-  VALUES ('sp_BlitzCache Default', 1, 'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
+  VALUES ('sp_BlitzCache Default', 1, 'Review a poorly performing query for Microsoft SQL Server or Azure SQL Database. Focus on the query and index changes most likely to improve end-user performance; keep server configuration and routine statistics maintenance outside the plan.
 
-    You have a query that isn''t performing to end user expectations. You have been tasked with making serious improvements to it, quickly. You are not allowed to change server-level settings or make frivolous suggestions like updating statistics. Instead, you need to focus on query changes or index changes. 
-    
-    Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.');
+Return one self-contained Markdown response with prioritized findings, recommended changes, complete scripts, and validation or rollback steps. Keep the response focused.');
 
 INSERT INTO dbo.Blitz_AI_Prompts (Prompt_Nickname, Default_Prompt, AI_System_Prompt)
-  VALUES ('sp_BlitzCache Index Tuning', 0, 'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
+  VALUES ('sp_BlitzCache Index Tuning', 0, 'Review a poorly performing query for Microsoft SQL Server or Azure SQL Database. Produce only the index changes most likely to improve end-user performance; keep query text, server or database configuration, and routine statistics maintenance outside the plan.
 
-    You have a query that isn''t performing to end user expectations. You have been tasked with making serious improvements to it, quickly, but you are only allowed to make index changes. You are not allowed to make changes to the query, server-level settings, database settings, etc.
-    
-    Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.');
+Return one self-contained Markdown response with prioritized findings, recommended changes, complete scripts, and validation or rollback steps. Keep the response focused.');
 
 INSERT INTO dbo.Blitz_AI_Prompts (Prompt_Nickname, Default_Prompt, AI_System_Prompt)
-  VALUES ('sp_BlitzCache Deadlock Tuning', 0, 'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
+  VALUES ('sp_BlitzCache Deadlock Tuning', 0, 'Review a query experiencing blocking and deadlocks for Microsoft SQL Server or Azure SQL Database. Focus on query and index changes likely to reduce them; keep server or database configuration and routine statistics maintenance outside the plan.
 
-    You have a query that is experiencing deadlocks and blocking. You have been tasked with making serious improvements to it, quickly. You are not allowed to change server-level or database-level settings nor make frivolous suggestions like updating statistics. Instead, you need to focus on query changes or index changes that will reduce blocking and deadlocks.
-    
-    Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.');
+Return one self-contained Markdown response with prioritized findings, recommended changes, complete scripts, and validation or rollback steps. Keep the response focused.');
 
 INSERT INTO dbo.Blitz_AI_Prompts (Prompt_Nickname, Default_Prompt, AI_System_Prompt)
-  VALUES ('sp_BlitzCache Modernize', 0, 'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
+  VALUES ('sp_BlitzCache Modernize', 0, 'Modernize the supplied legacy query for Microsoft SQL Server or Azure SQL Database. Improve performance, readability, and maintainability using features through SQL Server 2025 where helpful. Keep the work in the query text; keep server or database configuration, indexes, and statistics maintenance outside the plan.
 
-    You have been given a legacy query that needs to be modernized. Our goals are to make the query run faster, make it easier to understand, easier to maintain, and to take advantage of new features up to and including SQL Server 2025. You have been tasked with making serious improvements to it, quickly, without touching server-level settings, database-level settings, indexes, or statistics.
-    
-    Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.');
+Return one self-contained Markdown response with the rewritten query, prioritized rationale, complete supporting scripts, and validation or rollback steps. Keep the response focused.');
 GO
 
 
@@ -141,7 +133,7 @@ GO
 /* Or if you used Gemini, use this, pointed at your config table: */
 sp_BlitzCache @AI = 1, @Top = 1,
 	@AIConfigTable = 'DBAtools.dbo.Blitz_AI_Providers',
-	@AIModel = 'gemini-3-flash-preview';
+	@AIModel = 'gemini-3.8-flash';
 GO
 
 /* Scroll across to the AI Advice column, and make sure you got advice.

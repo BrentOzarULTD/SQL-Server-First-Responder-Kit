@@ -72,7 +72,7 @@ BEGIN
 	SOFTWARE.
 	*/
 
-	SELECT @Version = '8.34', @VersionDate = '20260702';
+	SELECT @Version = '8.35', @VersionDate = '20261114';
 
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -105,7 +105,7 @@ Parameters:
     Kill sessions from this application (supports LIKE wildcards).
 
   @DatabaseName NVARCHAR(256) = NULL
-    Kill sessions using this database.
+    Kill sessions using this database. Azure SQL DB is always limited to the current database.
 
   @HostName NVARCHAR(256) = NULL
     Kill sessions from this host.
@@ -190,6 +190,7 @@ For more info, visit http://FirstResponderKit.org
 		,@CallerLoginName NVARCHAR(128) = ORIGINAL_LOGIN()
 		,@CallerHostName NVARCHAR(128) = HOST_NAME()
 		,@ParametersUsed NVARCHAR(4000)
+		,@KillFailures INT = 0
 		,@KillCount INT = 0
 		,@TotalKills INT = 0
 		,@CurrentSPID INT
@@ -472,7 +473,10 @@ For more info, visit http://FirstResponderKit.org
 	+ N'
 	WHERE s.session_id <> @OurSessionID
 		AND s.session_id > 50
-		AND s.is_user_process = 1
+		AND s.is_user_process = 1'
+	+ CASE WHEN @AzureSQLDB = 1 THEN N'
+		AND s.database_id = DB_ID()
+		AND (r.session_id IS NULL OR r.database_id = DB_ID())' ELSE N'' END + N'
 	OPTION (MAXDOP 1);';
 
 	IF @Debug = 1
@@ -491,6 +495,9 @@ For more info, visit http://FirstResponderKit.org
 		SET @msg = N'Collected ' + CAST(@@ROWCOUNT AS NVARCHAR(10)) + N' sessions.';
 		RAISERROR(@msg, 0, 1) WITH NOWAIT;
 	END;
+
+	/* Azure DMV timestamps stay UTC even when the session uses a local time zone. */
+	DECLARE @DmvNow DATETIME = CASE WHEN @AzureSQLDB = 1 THEN GETUTCDATE() ELSE GETDATE() END;
 
 	/*-------------------------------------------------------
 	  Section 7: Kill Recommendation Logic
@@ -562,7 +569,7 @@ For more info, visit http://FirstResponderKit.org
 			AND (@ReadOnly IS NULL OR is_read_only = 1)
 			AND (@SPIDState IS NULL OR (@SPIDState = 'S' AND [status] = 'sleeping') OR (@SPIDState = 'R' AND [status] = 'running'))
 			AND (@HasOpenTran IS NULL OR ISNULL(open_transaction_count, 0) > 0)
-			AND (@RequestsOlderThanSeconds IS NULL OR last_request_start_time <= DATEADD(SECOND, -@RequestsOlderThanSeconds, GETDATE()))
+			AND (@RequestsOlderThanSeconds IS NULL OR last_request_start_time <= DATEADD(SECOND, -@RequestsOlderThanSeconds, @DmvNow))
 			AND (@OmitLogin IS NULL OR login_name <> @OmitLogin)
 			AND (@LeadBlockers IS NULL OR (
 				EXISTS (SELECT 1 FROM #hitlist blocked WHERE blocked.blocking_session_id = h.session_id)
@@ -597,7 +604,7 @@ For more info, visit http://FirstResponderKit.org
 	SET Reason = N'Sleeping session with '
 		+ CAST(open_transaction_count AS NVARCHAR(10))
 		+ N' open transaction(s), idle for '
-		+ CAST(ISNULL(DATEDIFF(SECOND, last_request_end_time, GETDATE()), 0) AS NVARCHAR(10))
+		+ CAST(ISNULL(DATEDIFF(SECOND, last_request_end_time, @DmvNow), 0) AS NVARCHAR(10))
 		+ N' seconds.'
 	WHERE KillRecommended = 1
 	AND [status] = 'sleeping'
@@ -607,7 +614,7 @@ For more info, visit http://FirstResponderKit.org
 	/* Long-running read-only */
 	UPDATE #hitlist
 	SET Reason = N'Long-running read-only query: running for '
-		+ CAST(ISNULL(DATEDIFF(SECOND, COALESCE(start_time, last_request_start_time), GETDATE()), 0) AS NVARCHAR(10))
+		+ CAST(ISNULL(DATEDIFF(SECOND, COALESCE(start_time, last_request_start_time), @DmvNow), 0) AS NVARCHAR(10))
 		+ N' seconds'
 		+ CASE WHEN memory_grant_mb IS NOT NULL AND memory_grant_mb > 0
 			THEN N', using ' + CAST(memory_grant_mb AS NVARCHAR(20)) + N' MB memory grant'
@@ -621,7 +628,7 @@ For more info, visit http://FirstResponderKit.org
 	/* Long-running write queries */
 	UPDATE #hitlist
 	SET Reason = N'Long-running query: running for '
-		+ CAST(ISNULL(DATEDIFF(SECOND, COALESCE(start_time, last_request_start_time), GETDATE()), 0) AS NVARCHAR(10))
+		+ CAST(ISNULL(DATEDIFF(SECOND, COALESCE(start_time, last_request_start_time), @DmvNow), 0) AS NVARCHAR(10))
 		+ N' seconds, writes: ' + CAST(ISNULL(writes, 0) AS NVARCHAR(20))
 		+ CASE WHEN memory_grant_mb IS NOT NULL AND memory_grant_mb > 0
 			THEN N', memory: ' + CAST(memory_grant_mb AS NVARCHAR(20)) + N' MB'
@@ -650,7 +657,7 @@ For more info, visit http://FirstResponderKit.org
 	;WITH cte AS (
 		SELECT Id, OrderByNum,
 			ROW_NUMBER() OVER (ORDER BY
-				CASE WHEN @OrderBy = 'duration' THEN CAST(ISNULL(DATEDIFF(SECOND, COALESCE(start_time, last_request_start_time), GETDATE()), 0) AS BIGINT) END DESC,
+				CASE WHEN @OrderBy = 'duration' THEN CAST(ISNULL(DATEDIFF(SECOND, COALESCE(start_time, last_request_start_time), @DmvNow), 0) AS BIGINT) END DESC,
 				CASE WHEN @OrderBy = 'cpu' THEN ISNULL(cpu_time_ms, 0) END DESC,
 				CASE WHEN @OrderBy = 'reads' THEN ISNULL(reads, 0) + ISNULL(logical_reads, 0) END DESC,
 				CASE WHEN @OrderBy = 'writes' THEN ISNULL(writes, 0) END DESC,
@@ -691,13 +698,13 @@ For more info, visit http://FirstResponderKit.org
 		/* Create table if it doesn't exist */
 		IF @AzureSQLDB = 1
 			SET @StringToExecute = N'
-				IF EXISTS(SELECT * FROM INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = ''' + @OutputSchemaName + N''')
-				AND NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = ''' + @OutputSchemaName + N''' AND QUOTENAME(TABLE_NAME) = ''' + @OutputTableName + N''')
+				IF EXISTS(SELECT * FROM INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N''' + REPLACE(@OutputSchemaName, N'''', N'''''') + N''')
+				AND NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N''' + REPLACE(@OutputSchemaName, N'''', N'''''') + N''' AND QUOTENAME(TABLE_NAME) = N''' + REPLACE(@OutputTableName, N'''', N'''''') + N''')
 				CREATE TABLE ' + @ObjectFullName + N' (';
 		ELSE
 			SET @StringToExecute = N'
-				IF EXISTS(SELECT * FROM ' + @OutputDatabaseName + N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = ''' + @OutputSchemaName + N''')
-				AND NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = ''' + @OutputSchemaName + N''' AND QUOTENAME(TABLE_NAME) = ''' + @OutputTableName + N''')
+				IF EXISTS(SELECT * FROM ' + @OutputDatabaseName + N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N''' + REPLACE(@OutputSchemaName, N'''', N'''''') + N''')
+				AND NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N''' + REPLACE(@OutputSchemaName, N'''', N'''''') + N''' AND QUOTENAME(TABLE_NAME) = N''' + REPLACE(@OutputTableName, N'''', N'''''') + N''')
 				CREATE TABLE ' + @ObjectFullName + N' (';
 
 		SET @StringToExecute = @StringToExecute + N'
@@ -816,6 +823,9 @@ For more info, visit http://FirstResponderKit.org
 					SELECT 1 FROM sys.dm_exec_sessions s
 					LEFT JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
 					WHERE s.session_id = @CurrentSPID
+					AND s.is_user_process = 1
+					AND (@AzureSQLDB = 0 OR (s.database_id = DB_ID()
+					    AND (r.session_id IS NULL OR r.database_id = DB_ID())))
 					AND (
 						/* Running session: match sql_handle and start_time */
 						(r.sql_handle = @CurrentSqlHandle AND r.start_time = @CurrentStartTime)
@@ -840,6 +850,7 @@ For more info, visit http://FirstResponderKit.org
 						EXEC(@KillSQL);
 					END TRY
 					BEGIN CATCH
+						SET @KillFailures = @KillFailures + 1;
 						SET @KillError = ERROR_MESSAGE();
 						SET @msg = N'Error killing SPID ' + CAST(@CurrentSPID AS NVARCHAR(10)) + N': ' + @KillError;
 						RAISERROR(@msg, 0, 1) WITH NOWAIT;
@@ -923,5 +934,9 @@ For more info, visit http://FirstResponderKit.org
 	FROM #hitlist
 	ORDER BY KillRecommended DESC, ISNULL(OrderByNum, 2147483647), session_id;
 
+	/* Finish logging and returning results before surfacing actual KILL failures.
+	   Sessions skipped because their query changed are not KILL failures. */
+	IF @KillFailures > 0
+		RAISERROR('%d session kill(s) failed. See KillError in the results.', 16, 1, @KillFailures);
 END;
 GO

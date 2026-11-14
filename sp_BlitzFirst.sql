@@ -48,7 +48,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.34', @VersionDate = '20260702';
+SELECT @Version = '8.35', @VersionDate = '20261114';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -109,6 +109,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ';
+    PRINT 'History view upgrade: run the first collection as the output database owner, and give the collector VIEW DEFINITION on each configured _Deltas view. See Documentation/sp_BlitzFirst_History_View_Upgrade.md.';
+
 RETURN;
 END;    /* @Help = 1 */
 
@@ -224,8 +226,8 @@ IF @LogMessage IS NOT NULL
         SET @LogMessageCheckDate = SYSDATETIMEOFFSET();
     SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
         + @OutputDatabaseName
-        + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-        + @OutputSchemaName + ''') INSERT '
+        + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+        + REPLACE(@OutputSchemaName, N'''', N'''''') + ''') INSERT '
         + @OutputDatabaseName + '.'
         + @OutputSchemaName + '.'
         + @OutputTableName
@@ -262,8 +264,8 @@ BEGIN
 
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName + ''') SELECT CheckDate, [Priority], [FindingsGroup], [Finding], [URL], CAST([Details] AS [XML]) AS Details,'
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''') SELECT CheckDate, [Priority], [FindingsGroup], [Finding], [URL], CASE WHEN [Details] IS NULL THEN NULL ELSE (SELECT [Details] AS [text()] FOR XML PATH(''''), TYPE) END AS Details,'
             + '[HowToStopIt], [CheckID], [StartTime], [LoginName], [NTUserName], [OriginalLoginName], [ProgramName], [HostName], [DatabaseID],'
             + '[DatabaseName], [OpenTransactionCount], [QueryPlan], [QueryText] FROM '
             + @OutputDatabaseName + '.'
@@ -298,7 +300,7 @@ BEGIN
 		BEGIN
 		/* Use the most accurate (but undocumented) DMV if it's available: */
 		IF EXISTS(SELECT * FROM sys.all_columns ac WHERE ac.object_id = OBJECT_ID('sys.dm_cloud_database_epoch') AND ac.name = 'last_role_transition_time')
-			SELECT @StartSampleTime = DATEADD(MINUTE,DATEDIFF(MINUTE, GETDATE(), GETUTCDATE()),last_role_transition_time) , @FinishSampleTime = SYSDATETIMEOFFSET()
+			SELECT @StartSampleTime = TODATETIMEOFFSET(last_role_transition_time, '+00:00') , @FinishSampleTime = SYSDATETIMEOFFSET()
 				FROM sys.dm_cloud_database_epoch;
 		ELSE
 			WITH WaitTimes AS (
@@ -319,7 +321,7 @@ BEGIN
     ELSE
         SELECT @StartSampleTime = SYSDATETIMEOFFSET(),
                 @FinishSampleTime = DATEADD(ss, @Seconds, SYSDATETIMEOFFSET()),
-                @FinishSampleTimeWaitFor = DATEADD(ss, @Seconds, GETDATE());
+                @FinishSampleTimeWaitFor = DATEADD(ss, @Seconds, CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END);
 
 
 	SELECT @logical_processors = COUNT(*)
@@ -1761,7 +1763,7 @@ BEGIN
     END;
 	
     /* Query Problems - Plan Cache Erased Recently - CheckID 7 */
-    IF DATEADD(mi, -15, SYSDATETIME()) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
+    IF DATEADD(mi, -15, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END)) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
     BEGIN
 		IF (@Debug = 1)
 		BEGIN
@@ -1829,7 +1831,7 @@ BEGIN
             INNER JOIN #BlitzFirstTmpSession AS db ON s.spid = db.request_session_id
             WHERE s.status = 'sleeping'
             AND s.open_tran > 0
-            AND s.last_batch < DATEADD(ss, -10, SYSDATETIME())
+            AND s.last_batch < DATEADD(ss, -10, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END))
             AND EXISTS(SELECT * FROM sys.dm_tran_locks WHERE request_session_id = s.spid
             AND NOT (resource_type = N'DATABASE' AND request_mode = N'S' AND request_status = N'GRANT' AND request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'));
 	END
@@ -2096,7 +2098,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		+ 'Total WorkSpace(MB): ' + CAST(ISNULL(@MaxWorkspace, 0) AS NVARCHAR(50)) + @LineFeed  
 		+ 'Granted workspace: ' + CAST(ISNULL((CAST(SUM(Grants.granted_memory_kb) / 1024 AS MONEY)
 		                              / CAST(@MaxWorkspace AS MONEY)) * 100, 0) AS NVARCHAR(50)) + '%' + @LineFeed
-		+ 'Oldest Grant in seconds: ' + CAST(ISNULL(DATEDIFF(SECOND, MIN(Grants.request_time), GETDATE()), 0) AS NVARCHAR(50)) AS Details,
+		+ 'Oldest Grant in seconds: ' + CAST(ISNULL(DATEDIFF(SECOND, MIN(Grants.request_time), (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)), 0) AS NVARCHAR(50)) AS Details,
 		(SELECT COUNT(*) FROM sys.dm_exec_query_memory_grants WHERE queue_id IS NULL) AS DetailsInt,
 		'https://www.brentozar.com/askbrent/' AS URL
 	FROM sys.dm_exec_query_memory_grants AS Grants;
@@ -2563,7 +2565,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                                     '    FROM sys.objects AS obj WITH (NOLOCK)' + @LineFeed +
                                     '    INNER JOIN sys.stats AS stat WITH (NOLOCK) ON stat.object_id = obj.object_id  ' + @LineFeed +
                                     '    CROSS APPLY sys.dm_db_stats_properties(stat.object_id, stat.stats_id) AS sp  ' + @LineFeed +
-                                    '    WHERE sp.last_updated > DATEADD(MI, -15, GETDATE())' + @LineFeed +
+                                    '    WHERE sp.last_updated > DATEADD(MI, -15, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END))' + @LineFeed +
                                     '    AND obj.is_ms_shipped = 0' + @LineFeed +
                                     '    AND ''[?]'' <> ''[tempdb]'';' + @LineFeed +
                                     'END TRY' + @LineFeed +
@@ -2594,7 +2596,9 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			IF SERVERPROPERTY('EngineEdition') <> 5 /*SERVERPROPERTY('Edition') <> 'SQL Azure'*/
 			BEGIN
 				BEGIN TRY
-					EXEC sp_MSforeachdb @StringToExecute;
+					/* Avoid binding this SQL Server-only dependency on Azure SQL DB. */
+					DECLARE @ForEachDatabase sysname = N'sp_MSforeachdb';
+					EXEC @ForEachDatabase @StringToExecute;
 				END TRY
 				BEGIN CATCH
 					IF (ERROR_NUMBER() = 1222)
@@ -2734,8 +2738,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 							SELECT TOP (5)
 								ConnectionGroup = HostName,
 								ConnectionCount = COUNT(*),
-								MostRecentSec   = DATEDIFF(SECOND, MAX(LastFinish), GETDATE()),
-								OldestSec       = DATEDIFF(SECOND, MIN(LastFinish), GETDATE())
+								MostRecentSec   = DATEDIFF(SECOND, MAX(LastFinish), (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)),
+								OldestSec       = DATEDIFF(SECOND, MIN(LastFinish), (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
 							FROM @ConnSessions
 							GROUP BY HostName
 							ORDER BY COUNT(*) DESC, HostName
@@ -2771,8 +2775,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 							SELECT TOP (5)
 								ConnectionGroup = LoginName,
 								ConnectionCount = COUNT(*),
-								MostRecentSec   = DATEDIFF(SECOND, MAX(LastFinish), GETDATE()),
-								OldestSec       = DATEDIFF(SECOND, MIN(LastFinish), GETDATE())
+								MostRecentSec   = DATEDIFF(SECOND, MAX(LastFinish), (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)),
+								OldestSec       = DATEDIFF(SECOND, MIN(LastFinish), (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
 							FROM @ConnSessions
 							GROUP BY LoginName
 							ORDER BY COUNT(*) DESC, LoginName
@@ -2808,8 +2812,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 							SELECT TOP (5)
 								ConnectionGroup = AppName,
 								ConnectionCount = COUNT(*),
-								MostRecentSec   = DATEDIFF(SECOND, MAX(LastFinish), GETDATE()),
-								OldestSec       = DATEDIFF(SECOND, MIN(LastFinish), GETDATE())
+								MostRecentSec   = DATEDIFF(SECOND, MAX(LastFinish), (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)),
+								OldestSec       = DATEDIFF(SECOND, MIN(LastFinish), (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
 							FROM @ConnSessions
 							GROUP BY AppName
 							ORDER BY COUNT(*) DESC, AppName
@@ -3083,7 +3087,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                                         WHERE qs.last_execution_time >= @StartSampleTimeText;';
 		*/
         SET @ParmDefinitions = N'@StartSampleTimeText NVARCHAR(100)';
-        SET @Parm1 = CONVERT(NVARCHAR(100), CAST(@StartSampleTime AS DATETIME), 127);
+        SET @Parm1 = CONVERT(NVARCHAR(100), CAST(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SWITCHOFFSET(@StartSampleTime, '+00:00') ELSE @StartSampleTime END AS DATETIME), 127);
 
         EXECUTE sp_executesql @StringToExecute, @ParmDefinitions, @StartSampleTimeText = @Parm1;
 
@@ -3608,7 +3612,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + N'Max session percent: ' + CAST(max_session_percent AS NVARCHAR(50)) AS Details,
             'Tune your queries or indexes with sp_BlitzCache or sp_BlitzIndex, or consider upgrading to a higher DTU level.' AS HowToStopIt
         FROM sys.dm_db_resource_stats s
-        WHERE s.end_time >= DATEADD(MI, -5, GETDATE())
+        WHERE s.end_time >= DATEADD(MI, -5, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
           AND (avg_cpu_percent > 90
                OR avg_data_io_percent >= 90
                OR avg_log_write_percent >=90
@@ -3739,8 +3743,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         'Server Info' AS FindingGroup,
         'Batch Requests per Sec' AS Finding,
         'https://www.brentozar.com/go/measure' AS URL,
-        CAST(CAST(ps.value_delta AS MONEY) / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS NVARCHAR(20)) AS Details,
-        ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS DetailsInt
+        CAST(CAST(ps.value_delta AS MONEY) / NULLIF(DATEDIFF(ss, ps1.SampleTime, ps.SampleTime), 0) AS NVARCHAR(20)) AS Details,
+        ps.value_delta / NULLIF(DATEDIFF(ss, ps1.SampleTime, ps.SampleTime), 0) AS DetailsInt
     FROM #PerfmonStats ps
         INNER JOIN #PerfmonStats ps1 ON ps.object_name = ps1.object_name AND ps.counter_name = ps1.counter_name AND ps1.Pass = 1
     WHERE ps.Pass = 2
@@ -3765,8 +3769,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		    'Server Info' AS FindingGroup,
 		    'SQL Compilations per Sec' AS Finding,
 		    'https://www.brentozar.com/go/measure' AS URL,
-		    CAST(ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS NVARCHAR(20)) AS Details,
-		    ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS DetailsInt
+		    CAST(ps.value_delta / NULLIF(DATEDIFF(ss, ps1.SampleTime, ps.SampleTime), 0) AS NVARCHAR(20)) AS Details,
+		    ps.value_delta / NULLIF(DATEDIFF(ss, ps1.SampleTime, ps.SampleTime), 0) AS DetailsInt
 		FROM #PerfmonStats ps
 		    INNER JOIN #PerfmonStats ps1 ON ps.object_name = ps1.object_name AND ps.counter_name = ps1.counter_name AND ps1.Pass = 1
 		WHERE ps.Pass = 2
@@ -3788,8 +3792,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		    'Server Info' AS FindingGroup,
 		    'SQL Re-Compilations per Sec' AS Finding,
 		    'https://www.brentozar.com/go/measure' AS URL,
-		    CAST(ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS NVARCHAR(20)) AS Details,
-		    ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS DetailsInt
+		    CAST(ps.value_delta / NULLIF(DATEDIFF(ss, ps1.SampleTime, ps.SampleTime), 0) AS NVARCHAR(20)) AS Details,
+		    ps.value_delta / NULLIF(DATEDIFF(ss, ps1.SampleTime, ps.SampleTime), 0) AS DetailsInt
 		FROM #PerfmonStats ps
 		    INNER JOIN #PerfmonStats ps1 ON ps.object_name = ps1.object_name AND ps.counter_name = ps1.counter_name AND ps1.Pass = 1
 		WHERE ps.Pass = 2
@@ -3924,6 +3928,33 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         ) AS OsCpu;
 
 	END; /* IF @Seconds >= 30 */
+
+    /* Server Performance - TempDB Over Half Full - CheckID 55 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 55',10,1) WITH NOWAIT;
+	END
+
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    SELECT 55 AS CheckID,
+        10 AS Priority,
+        'Server Performance' AS FindingGroup,
+        'TempDB Over Half Full' AS Finding,
+        'https://www.brentozar.com/archive/2025/10/tempdb-filling-up-try-resource-governor/' AS URL,
+        CAST(CAST(u.used_pct AS DECIMAL(5,1)) AS NVARCHAR(10)) + N'% of TempDB''s ' + CAST(u.total_mb AS NVARCHAR(30)) + N' MB of data file space is in use: ' + @LineFeed
+            + CAST(u.user_mb AS NVARCHAR(30)) + N' MB user objects (temp tables, table variables), ' + @LineFeed
+            + CAST(u.internal_mb AS NVARCHAR(30)) + N' MB internal objects (sorts, hashes, spools), ' + @LineFeed
+            + CAST(u.version_mb AS NVARCHAR(30)) + N' MB version store.' + @LineFeed AS Details,
+        N'Run sp_BlitzWho and look at tempdb_allocations_mb to find the sessions using TempDB, then tune or kill the offending query. On SQL Server 2025 and newer, Resource Governor can cap TempDB usage per workload group - see the URL.' AS HowToStopIt
+    FROM (
+        SELECT SUM(fsu.total_page_count) * 8 / 1024 AS total_mb,
+            SUM(fsu.user_object_reserved_page_count) * 8 / 1024 AS user_mb,
+            SUM(fsu.internal_object_reserved_page_count) * 8 / 1024 AS internal_mb,
+            SUM(fsu.version_store_reserved_page_count) * 8 / 1024 AS version_mb,
+            100.0 * (SUM(fsu.total_page_count) - SUM(fsu.unallocated_extent_page_count)) / NULLIF(SUM(fsu.total_page_count), 0) AS used_pct
+        FROM tempdb.sys.dm_db_file_space_usage fsu
+        ) u
+    WHERE u.used_pct > 50;
 
 	IF /* Let people on <2016 know about the thread time column */
 	(
@@ -4067,9 +4098,9 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 /* Get the most recent sp_BlitzCache execution before this one - don't use sp_BlitzFirst because user logs are added in there at any time */
                 SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
                     + @OutputDatabaseName
-                    + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-                    + @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
-                    + QUOTENAME(@OutputTableNameBlitzCache) + ''') SELECT TOP 1 @BlitzCacheMinutesBack = DATEDIFF(MI,CheckDate,SYSDATETIMEOFFSET()) FROM '
+                    + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N'''
+                    + REPLACE(@OutputSchemaName, N'''', N'''''') + ''' AND QUOTENAME(TABLE_NAME) = N'''
+                    + REPLACE(QUOTENAME(@OutputTableNameBlitzCache), N'''', N'''''') + ''') SELECT TOP 1 @BlitzCacheMinutesBack = DATEDIFF(MI,CheckDate,SYSDATETIMEOFFSET()) FROM '
                     + @OutputDatabaseName + '.'
                     + @OutputSchemaName + '.'
                     + QUOTENAME(@OutputTableNameBlitzCache)
@@ -4112,8 +4143,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 /* Delete history older than @OutputTableRetentionDays */
                 SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
                     + @OutputDatabaseName
-                    + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-                    + @OutputSchemaName + ''') DELETE '
+                    + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+                    + REPLACE(@OutputSchemaName, N'''', N'''''') + ''') DELETE '
                     + @OutputDatabaseName + '.'
                     + @OutputSchemaName + '.'
                     + QUOTENAME(@OutputTableNameBlitzCache)
@@ -4166,13 +4197,13 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             + @OutputDatabaseName
             + '; IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''')
             + ''') AND NOT EXISTS (SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-            + @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
-            + @OutputTableName + ''') CREATE TABLE '
+            + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''' AND QUOTENAME(TABLE_NAME) = N'''
+            + REPLACE(@OutputTableName, N'''', N'''''') + ''') CREATE TABLE '
             + @OutputSchemaName + '.'
             + @OutputTableName
             + ' (ID INT IDENTITY(1,1) NOT NULL,
@@ -4206,21 +4237,21 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         /* If the table doesn't have the new QueryHash column, add it. See Github #2162. */
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
         SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-            WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''QueryHash'')
+            WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''QueryHash'')
             ALTER TABLE ' + @ObjectFullName + N' ADD QueryHash BINARY(8) NULL;';
         EXEC(@StringToExecute);
 
         /* If the table doesn't have the new JoinKey computed column, add it. See Github #2164. */
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
         SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-            WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
+            WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''JoinKey'')
             ALTER TABLE ' + @ObjectFullName + N' ADD JoinKey AS ServerName + CAST(CheckDate AS NVARCHAR(50));';
         EXEC(@StringToExecute);
 
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName + ''') INSERT '
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''') INSERT '
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableName
@@ -4234,8 +4265,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         /* Delete history older than @OutputTableRetentionDays */
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName + ''') DELETE '
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''') DELETE '
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableName
@@ -4248,8 +4279,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     END;
     ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
     BEGIN
-        SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
-            + @OutputTableName
+        SET @StringToExecute = N' IF (OBJECT_ID(N''tempdb..'
+            + REPLACE(@OutputTableName, N'''', N'''''')
             + ''') IS NULL) CREATE TABLE '
             + @OutputTableName
             + ' (ID INT IDENTITY(1,1) NOT NULL,
@@ -4288,7 +4319,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     END;
     ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
     BEGIN
-        RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
+        RAISERROR('Due to the nature of Dynamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
     END;
 
     /* @OutputTableNameFileStats lets us export the results to a permanent table */
@@ -4305,13 +4336,13 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             + @OutputDatabaseName
             + '; IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''')
             + ''') AND NOT EXISTS (SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-            + @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
-            + @OutputTableNameFileStats + ''') CREATE TABLE '
+            + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''' AND QUOTENAME(TABLE_NAME) = N'''
+            + REPLACE(@OutputTableNameFileStats, N'''', N'''''') + ''') CREATE TABLE '
             + @OutputSchemaName + '.'
             + @OutputTableNameFileStats
             + ' (ID INT IDENTITY(1,1) NOT NULL,
@@ -4336,39 +4367,31 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableNameFileStats_View;
 
-        /* If the view exists without the most recently added columns, drop it. See Github #2162. */
-        IF OBJECT_ID(@ObjectFullName) IS NOT NULL
-            BEGIN
-            SET @StringToExecute = N'USE ' + @OutputDatabaseName + N'; IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
-                DROP VIEW ' + @OutputSchemaName + N'.' + @OutputTableNameFileStats_View + N';';
-
-            EXEC(@StringToExecute);
-            END
-
-        /* Create the view */
-        IF OBJECT_ID(@ObjectFullName) IS NULL
-            BEGIN
-            SET @StringToExecute = 'USE '
+        /* Upgrade existing views in place to preserve permissions. */
+        BEGIN
+            SET @StringToExecute = CONVERT(nvarchar(max), N'USE ')
                 + @OutputDatabaseName
-                + '; EXEC (''CREATE VIEW '
-                + @OutputSchemaName + '.'
-                + @OutputTableNameFileStats_View + ' AS ' + @LineFeed
+                + '; IF NOT EXISTS (SELECT 1 FROM sys.sql_modules'
+                + ' WHERE object_id = OBJECT_ID(@ViewName)'
+                + ' AND CHARINDEX(''/* FRK_ServerScopedDeltas_v1 */'', definition) > 0)'
+                + ' EXEC (N''CREATE OR ALTER VIEW '
+                + REPLACE(@OutputSchemaName, N'''', N'''''') + '.'
+                + REPLACE(@OutputTableNameFileStats_View, N'''', N'''''') + ' AS /* FRK_ServerScopedDeltas_v1 */ ' + @LineFeed
                 + 'WITH RowDates as' + @LineFeed
                 + '(' + @LineFeed
                 + '        SELECT ' + @LineFeed
-                + '                ROW_NUMBER() OVER (ORDER BY [ServerName], [CheckDate]) ID,' + @LineFeed
-                + '                [CheckDate]' + @LineFeed
-                + '        FROM ' + @OutputSchemaName + '.' + @OutputTableNameFileStats + '' + @LineFeed
+                + '                ROW_NUMBER() OVER (PARTITION BY [ServerName] ORDER BY [CheckDate]) ID,' + @LineFeed
+                + '                [ServerName], [CheckDate]' + @LineFeed
+                + '        FROM ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNameFileStats, N'''', N'''''') + '' + @LineFeed
                 + '        GROUP BY [ServerName], [CheckDate]' + @LineFeed
                 + '),' + @LineFeed
                 + 'CheckDates as' + @LineFeed
                 + '(' + @LineFeed
-                + '        SELECT ThisDate.CheckDate,' + @LineFeed
+                + '        SELECT ThisDate.ServerName, ThisDate.CheckDate,' + @LineFeed
                 + '               LastDate.CheckDate as PreviousCheckDate' + @LineFeed
                 + '        FROM RowDates ThisDate' + @LineFeed
                 + '        JOIN RowDates LastDate' + @LineFeed
-                + '        ON ThisDate.ID = LastDate.ID + 1' + @LineFeed
+                + '        ON ThisDate.ID = LastDate.ID + 1 AND ThisDate.ServerName = LastDate.ServerName' + @LineFeed
                 + ')' + @LineFeed
                 + '     SELECT f.ServerName,' + @LineFeed
                 + '            f.CheckDate,' + @LineFeed
@@ -4398,9 +4421,9 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '            (f.num_of_writes - fPrior.num_of_writes) AS num_of_writes,' + @LineFeed
                 + '            (f.bytes_written - fPrior.bytes_written) / 1024.0 / 1024.0 AS megabytes_written, ' + @LineFeed
                 + '            f.ServerName + CAST(f.CheckDate AS NVARCHAR(50)) AS JoinKey' + @LineFeed
-                + '     FROM   ' + @OutputSchemaName + '.' + @OutputTableNameFileStats + ' f' + @LineFeed
-                + '            INNER HASH JOIN CheckDates DATES ON f.CheckDate = DATES.CheckDate' + @LineFeed
-                + '            INNER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameFileStats + ' fPrior ON f.ServerName =                 fPrior.ServerName' + @LineFeed
+                + '     FROM   ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNameFileStats, N'''', N'''''') + ' f' + @LineFeed
+                + '            INNER HASH JOIN CheckDates DATES ON f.CheckDate = DATES.CheckDate AND f.ServerName = DATES.ServerName' + @LineFeed
+                + '            INNER JOIN ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNameFileStats, N'''', N'''''') + ' fPrior ON f.ServerName =                 fPrior.ServerName' + @LineFeed
                 + '                                                              AND f.DatabaseID = fPrior.DatabaseID' +     @LineFeed
                 + '                                                              AND f.FileID = fPrior.FileID' + @LineFeed
                 + '                                                              AND fPrior.CheckDate =   DATES.PreviousCheckDate'   +           @LineFeed
@@ -4409,14 +4432,14 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '            AND f.num_of_writes >= fPrior.num_of_writes' + @LineFeed
                 + '            AND DATEDIFF(MI, fPrior.CheckDate, f.CheckDate) BETWEEN 1 AND 60;'')'
 
-			EXEC(@StringToExecute);
+			EXEC sys.sp_executesql @StringToExecute, N'@ViewName nvarchar(776)', @ViewName = @ObjectFullName;
             END;
 
 
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName + ''') INSERT '
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''') INSERT '
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableNameFileStats
@@ -4430,8 +4453,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         /* Delete history older than @OutputTableRetentionDays */
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName + ''') DELETE '
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''') DELETE '
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableNameFileStats
@@ -4444,8 +4467,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     END;
     ELSE IF (SUBSTRING(@OutputTableNameFileStats, 2, 2) = '##')
     BEGIN
-        SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
-            + @OutputTableNameFileStats
+        SET @StringToExecute = N' IF (OBJECT_ID(N''tempdb..'
+            + REPLACE(@OutputTableNameFileStats, N'''', N'''''')
             + ''') IS NULL) CREATE TABLE '
             + @OutputTableNameFileStats
             + ' (ID INT IDENTITY(1,1) NOT NULL,
@@ -4477,7 +4500,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     END;
     ELSE IF (SUBSTRING(@OutputTableNameFileStats, 2, 1) = '#')
     BEGIN
-        RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
+        RAISERROR('Due to the nature of Dynamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
     END;
 
 
@@ -4495,13 +4518,13 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             + @OutputDatabaseName
             + '; IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''')
             + ''') AND NOT EXISTS (SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-            + @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
-            + @OutputTableNamePerfmonStats + ''') CREATE TABLE '
+            + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''' AND QUOTENAME(TABLE_NAME) = N'''
+            + REPLACE(@OutputTableNamePerfmonStats, N'''', N'''''') + ''') CREATE TABLE '
             + @OutputSchemaName + '.'
             + @OutputTableNamePerfmonStats
             + ' (ID INT IDENTITY(1,1) NOT NULL,
@@ -4520,39 +4543,31 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableNamePerfmonStats_View;
 
-        /* If the view exists without the most recently added columns, drop it. See Github #2162. */
-        IF OBJECT_ID(@ObjectFullName) IS NOT NULL
-            BEGIN
-            SET @StringToExecute = N'USE ' + @OutputDatabaseName + N'; IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
-                DROP VIEW ' + @OutputSchemaName + N'.' + @OutputTableNamePerfmonStats_View + N';';
-
-            EXEC(@StringToExecute);
-            END
-
-        /* Create the view */
-        IF OBJECT_ID(@ObjectFullName) IS NULL
-            BEGIN
-            SET @StringToExecute = 'USE '
+        /* Upgrade existing views in place to preserve permissions. */
+        BEGIN
+            SET @StringToExecute = CONVERT(nvarchar(max), N'USE ')
                 + @OutputDatabaseName
-                + '; EXEC (''CREATE VIEW '
-                + @OutputSchemaName + '.'
-                + @OutputTableNamePerfmonStats_View + ' AS ' + @LineFeed
+                + '; IF NOT EXISTS (SELECT 1 FROM sys.sql_modules'
+                + ' WHERE object_id = OBJECT_ID(@ViewName)'
+                + ' AND CHARINDEX(''/* FRK_ServerScopedDeltas_v1 */'', definition) > 0)'
+                + ' EXEC (N''CREATE OR ALTER VIEW '
+                + REPLACE(@OutputSchemaName, N'''', N'''''') + '.'
+                + REPLACE(@OutputTableNamePerfmonStats_View, N'''', N'''''') + ' AS /* FRK_ServerScopedDeltas_v1 */ ' + @LineFeed
                 + 'WITH RowDates as' + @LineFeed
                 + '(' + @LineFeed
                 + '        SELECT ' + @LineFeed
-                + '                ROW_NUMBER() OVER (ORDER BY [ServerName], [CheckDate]) ID,' + @LineFeed
-                + '                [CheckDate]' + @LineFeed
-                + '        FROM ' + @OutputSchemaName + '.' +@OutputTableNamePerfmonStats + '' + @LineFeed
+                + '                ROW_NUMBER() OVER (PARTITION BY [ServerName] ORDER BY [CheckDate]) ID,' + @LineFeed
+                + '                [ServerName], [CheckDate]' + @LineFeed
+                + '        FROM ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' +REPLACE(@OutputTableNamePerfmonStats, N'''', N'''''') + '' + @LineFeed
                 + '        GROUP BY [ServerName], [CheckDate]' + @LineFeed
                 + '),' + @LineFeed
                 + 'CheckDates as' + @LineFeed
                 + '(' + @LineFeed
-                + '        SELECT ThisDate.CheckDate,' + @LineFeed
+                + '        SELECT ThisDate.ServerName, ThisDate.CheckDate,' + @LineFeed
                 + '               LastDate.CheckDate as PreviousCheckDate' + @LineFeed
                 + '        FROM RowDates ThisDate' + @LineFeed
                 + '        JOIN RowDates LastDate' + @LineFeed
-                + '        ON ThisDate.ID = LastDate.ID + 1' + @LineFeed
+                + '        ON ThisDate.ID = LastDate.ID + 1 AND ThisDate.ServerName = LastDate.ServerName' + @LineFeed
                 + ')' + @LineFeed
                 + 'SELECT' + @LineFeed
                 + '       pMon.[ServerName]' + @LineFeed
@@ -4566,10 +4581,10 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '      ,(pMon.[cntr_value] - pMonPrior.[cntr_value]) AS cntr_delta' + @LineFeed
                 + '      ,(pMon.cntr_value - pMonPrior.cntr_value) * 1.0 / DATEDIFF(ss, pMonPrior.CheckDate, pMon.CheckDate) AS cntr_delta_per_second' + @LineFeed
                 + '      ,pMon.ServerName + CAST(pMon.CheckDate AS NVARCHAR(50)) AS JoinKey' + @LineFeed
-                + '  FROM ' + @OutputSchemaName + '.' +@OutputTableNamePerfmonStats + ' pMon' + @LineFeed
+                + '  FROM ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' +REPLACE(@OutputTableNamePerfmonStats, N'''', N'''''') + ' pMon' + @LineFeed
                 + '  INNER HASH JOIN CheckDates Dates' + @LineFeed
-                + '  ON Dates.CheckDate = pMon.CheckDate' + @LineFeed
-                + '  JOIN ' + @OutputSchemaName + '.' +@OutputTableNamePerfmonStats + ' pMonPrior' + @LineFeed
+                + '  ON Dates.CheckDate = pMon.CheckDate AND Dates.ServerName = pMon.ServerName' + @LineFeed
+                + '  JOIN ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' +REPLACE(@OutputTableNamePerfmonStats, N'''', N'''''') + ' pMonPrior' + @LineFeed
                 + '  ON  Dates.PreviousCheckDate = pMonPrior.CheckDate' + @LineFeed
                 + '      AND pMon.[ServerName]    = pMonPrior.[ServerName]   ' + @LineFeed
                 + '      AND pMon.[object_name]   = pMonPrior.[object_name]  ' + @LineFeed
@@ -4577,7 +4592,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '      AND pMon.[instance_name] = pMonPrior.[instance_name]' + @LineFeed
                 + '    WHERE DATEDIFF(MI, pMonPrior.CheckDate, pMon.CheckDate) BETWEEN 1 AND 60;'')'
 
-			EXEC(@StringToExecute);
+			EXEC sys.sp_executesql @StringToExecute, N'@ViewName nvarchar(776)', @ViewName = @ObjectFullName;
             END
 
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableNamePerfmonStatsActuals_View;
@@ -4586,7 +4601,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         IF OBJECT_ID(@ObjectFullName) IS NOT NULL
             BEGIN
             SET @StringToExecute = N'USE ' + @OutputDatabaseName + N'; IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
+                WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''JoinKey'')
                 DROP VIEW ' + @OutputSchemaName + N'.' + @OutputTableNamePerfmonStatsActuals_View + N';';
 
             EXEC(@StringToExecute);
@@ -4597,9 +4612,9 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             BEGIN
             SET @StringToExecute = 'USE '
                 + @OutputDatabaseName
-                + '; EXEC (''CREATE VIEW '
-                + @OutputSchemaName + '.'
-                + @OutputTableNamePerfmonStatsActuals_View + ' AS ' + @LineFeed
+                + '; EXEC (N''CREATE VIEW '
+                + REPLACE(@OutputSchemaName, N'''', N'''''') + '.'
+                + REPLACE(@OutputTableNamePerfmonStatsActuals_View, N'''', N'''''') + ' AS ' + @LineFeed
                 + 'WITH PERF_AVERAGE_BULK AS' + @LineFeed
                 + '(' + @LineFeed
                 + '    SELECT ServerName,' + @LineFeed
@@ -4609,7 +4624,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '           CASE WHEN CHARINDEX(''''('''', counter_name) = 0 THEN counter_name ELSE LEFT (counter_name, CHARINDEX(''''('''',counter_name)-1) END    AS   counter_join,' + @LineFeed
                 + '           CheckDate,' + @LineFeed
                 + '           cntr_delta' + @LineFeed
-                + '    FROM   ' + @OutputSchemaName + '.' + @OutputTableNamePerfmonStats_View + @LineFeed
+                + '    FROM   ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNamePerfmonStats_View, N'''', N'''''') + @LineFeed
                 + '    WHERE  cntr_type IN(1073874176)' + @LineFeed
                 + '    AND cntr_delta <> 0' + @LineFeed
                 + '),' + @LineFeed
@@ -4621,7 +4636,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '           LEFT(counter_name, CHARINDEX(''''BASE'''', UPPER(counter_name))-1) AS counter_join,' + @LineFeed
                 + '           CheckDate,' + @LineFeed
                 + '           cntr_delta' + @LineFeed
-                + '    FROM   ' + @OutputSchemaName + '.' + @OutputTableNamePerfmonStats_View + '' + @LineFeed
+                + '    FROM   ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNamePerfmonStats_View, N'''', N'''''') + '' + @LineFeed
                 + '    WHERE  cntr_type IN(1073939712)' + @LineFeed
                 + '    AND cntr_delta <> 0' + @LineFeed
                 + '),' + @LineFeed
@@ -4634,7 +4649,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '           counter_name AS counter_join,' + @LineFeed
                 + '           CheckDate,' + @LineFeed
                 + '           cntr_delta' + @LineFeed
-                + '    FROM   ' + @OutputSchemaName + '.' + @OutputTableNamePerfmonStats_View + '' + @LineFeed
+                + '    FROM   ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNamePerfmonStats_View, N'''', N'''''') + '' + @LineFeed
                 + '    WHERE  cntr_type IN(537003264)' + @LineFeed
                 + '    AND cntr_delta <> 0' + @LineFeed
                 + '),' + @LineFeed
@@ -4646,7 +4661,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '           counter_name,' + @LineFeed
                 + '           CheckDate,' + @LineFeed
                 + '           cntr_delta / ElapsedSeconds AS cntr_value' + @LineFeed
-                + '    FROM   ' + @OutputSchemaName + '.' + @OutputTableNamePerfmonStats_View + '' + @LineFeed
+                + '    FROM   ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNamePerfmonStats_View, N'''', N'''''') + '' + @LineFeed
                 + '    WHERE  cntr_type IN(272696576, 272696320)' + @LineFeed
                 + '    AND cntr_delta <> 0' + @LineFeed
                 + '),' + @LineFeed
@@ -4658,7 +4673,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '           counter_name,' + @LineFeed
                 + '           CheckDate,' + @LineFeed
                 + '           cntr_value' + @LineFeed
-                + '    FROM   ' + @OutputSchemaName + '.' + @OutputTableNamePerfmonStats_View + '' + @LineFeed
+                + '    FROM   ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNamePerfmonStats_View, N'''', N'''''') + '' + @LineFeed
                 + '    WHERE  cntr_type IN(65792, 65536)' + @LineFeed
                 + ')' + @LineFeed
                 + '' + @LineFeed
@@ -4722,8 +4737,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName + ''') INSERT '
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''') INSERT '
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableNamePerfmonStats
@@ -4737,8 +4752,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         /* Delete history older than @OutputTableRetentionDays */
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName + ''') DELETE '
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''') DELETE '
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableNamePerfmonStats
@@ -4753,8 +4768,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     END;
     ELSE IF (SUBSTRING(@OutputTableNamePerfmonStats, 2, 2) = '##')
     BEGIN
-        SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
-            + @OutputTableNamePerfmonStats
+        SET @StringToExecute = N' IF (OBJECT_ID(N''tempdb..'
+            + REPLACE(@OutputTableNamePerfmonStats, N'''', N'''''')
             + ''') IS NULL) CREATE TABLE '
             + @OutputTableNamePerfmonStats
             + ' (ID INT IDENTITY(1,1) NOT NULL,
@@ -4771,7 +4786,6 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             + ' INSERT '
             + @OutputTableNamePerfmonStats
             + ' (ServerName, CheckDate, object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second) SELECT '
-            + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
             + ' @SrvName, @CheckDate, object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second FROM #PerfmonStats WHERE Pass = 2';
 
 		EXEC sp_executesql @StringToExecute,
@@ -4780,7 +4794,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     END;
     ELSE IF (SUBSTRING(@OutputTableNamePerfmonStats, 2, 1) = '#')
     BEGIN
-        RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
+        RAISERROR('Due to the nature of Dynamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
     END;
 
 
@@ -4798,13 +4812,13 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             + @OutputDatabaseName
             + '; IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''')
             + ''') AND NOT EXISTS (SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-            + @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
-            + @OutputTableNameWaitStats + ''') ' + @LineFeed
+            + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''' AND QUOTENAME(TABLE_NAME) = N'''
+            + REPLACE(@OutputTableNameWaitStats, N'''', N'''''') + ''') ' + @LineFeed
 			+ 'BEGIN' + @LineFeed
 			+ 'CREATE TABLE '
             + @OutputSchemaName + '.'
@@ -4829,9 +4843,9 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             BEGIN
             SET @StringToExecute = 'USE '
                 + @OutputDatabaseName
-                + '; EXEC (''CREATE TABLE '
-                + @OutputSchemaName + '.'
-                + @OutputTableNameWaitStats_Categories + ' (WaitType NVARCHAR(60) PRIMARY KEY CLUSTERED, WaitCategory NVARCHAR(128) NOT NULL, Ignorable BIT DEFAULT 0);'')';
+                + '; EXEC (N''CREATE TABLE '
+                + REPLACE(@OutputSchemaName, N'''', N'''''') + '.'
+                + REPLACE(@OutputTableNameWaitStats_Categories, N'''', N'''''') + ' (WaitType NVARCHAR(60) PRIMARY KEY CLUSTERED, WaitCategory NVARCHAR(128) NOT NULL, Ignorable BIT DEFAULT 0);'')';
 
 			EXEC(@StringToExecute);
             END;
@@ -4839,10 +4853,10 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		/* Make sure the wait stats category table has the current number of rows */
 		SET @StringToExecute = 'USE '
             + @OutputDatabaseName
-            + '; EXEC (''IF (SELECT COALESCE(SUM(1),0) FROM ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats_Categories + ') <> (SELECT COALESCE(SUM(1),0) FROM ##WaitCategories)' + @LineFeed
+            + '; EXEC (N''IF (SELECT COALESCE(SUM(1),0) FROM ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNameWaitStats_Categories, N'''', N'''''') + ') <> (SELECT COALESCE(SUM(1),0) FROM ##WaitCategories)' + @LineFeed
 			+ 'BEGIN ' + @LineFeed
-			+ 'TRUNCATE TABLE '  + @OutputSchemaName + '.' + @OutputTableNameWaitStats_Categories + @LineFeed
-			+ 'INSERT INTO ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats_Categories + ' (WaitType, WaitCategory, Ignorable) SELECT WaitType, WaitCategory, Ignorable FROM ##WaitCategories;' + @LineFeed
+			+ 'TRUNCATE TABLE '  + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNameWaitStats_Categories, N'''', N'''''') + @LineFeed
+			+ 'INSERT INTO ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNameWaitStats_Categories, N'''', N'''''') + ' (WaitType, WaitCategory, Ignorable) SELECT WaitType, WaitCategory, Ignorable FROM ##WaitCategories;' + @LineFeed
 			+ 'END'')';
 
 		EXEC(@StringToExecute);
@@ -4850,40 +4864,31 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableNameWaitStats_View;
 
-        /* If the view exists without the most recently added columns, drop it. See Github #2162. */
-        IF OBJECT_ID(@ObjectFullName) IS NOT NULL
-            BEGIN
-            SET @StringToExecute = N'USE ' + @OutputDatabaseName + N'; IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
-                DROP VIEW ' + @OutputSchemaName + N'.' + @OutputTableNameWaitStats_View + N';';
-
-            EXEC(@StringToExecute);
-            END
-
-
-        /* Create the wait stats view */
-        IF OBJECT_ID(@ObjectFullName) IS NULL
-            BEGIN
-            SET @StringToExecute = 'USE '
+        /* Upgrade existing views in place to preserve permissions. */
+        BEGIN
+            SET @StringToExecute = CONVERT(nvarchar(max), N'USE ')
                 + @OutputDatabaseName
-                + '; EXEC (''CREATE VIEW '
-                + @OutputSchemaName + '.'
-                + @OutputTableNameWaitStats_View + ' AS ' + @LineFeed
+                + '; IF NOT EXISTS (SELECT 1 FROM sys.sql_modules'
+                + ' WHERE object_id = OBJECT_ID(@ViewName)'
+                + ' AND CHARINDEX(''/* FRK_ServerScopedDeltas_v1 */'', definition) > 0)'
+                + ' EXEC (N''CREATE OR ALTER VIEW '
+                + REPLACE(@OutputSchemaName, N'''', N'''''') + '.'
+                + REPLACE(@OutputTableNameWaitStats_View, N'''', N'''''') + ' AS /* FRK_ServerScopedDeltas_v1 */ ' + @LineFeed
                 + 'WITH RowDates as' + @LineFeed
                 + '(' + @LineFeed
                 + '        SELECT ' + @LineFeed
-                + '                ROW_NUMBER() OVER (ORDER BY [ServerName], [CheckDate]) ID,' + @LineFeed
-                + '                [CheckDate]' + @LineFeed
-                + '        FROM ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + @LineFeed
+                + '                ROW_NUMBER() OVER (PARTITION BY [ServerName] ORDER BY [CheckDate]) ID,' + @LineFeed
+                + '                [ServerName], [CheckDate]' + @LineFeed
+                + '        FROM ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNameWaitStats, N'''', N'''''') + @LineFeed
                 + '        GROUP BY [ServerName], [CheckDate]' + @LineFeed
                 + '),' + @LineFeed
                 + 'CheckDates as' + @LineFeed
                 + '(' + @LineFeed
-                + '        SELECT ThisDate.CheckDate,' + @LineFeed
+                + '        SELECT ThisDate.ServerName, ThisDate.CheckDate,' + @LineFeed
                 + '               LastDate.CheckDate as PreviousCheckDate' + @LineFeed
                 + '        FROM RowDates ThisDate' + @LineFeed
                 + '        JOIN RowDates LastDate' + @LineFeed
-                + '        ON ThisDate.ID = LastDate.ID + 1' + @LineFeed
+                + '        ON ThisDate.ID = LastDate.ID + 1 AND ThisDate.ServerName = LastDate.ServerName' + @LineFeed
                 + ')' + @LineFeed
                 + 'SELECT w.ServerName, w.CheckDate, w.wait_type, COALESCE(wc.WaitCategory, ''''Other'''') AS WaitCategory, COALESCE(wc.Ignorable,0) AS Ignorable' + @LineFeed
                 + ', DATEDIFF(ss, wPrior.CheckDate, w.CheckDate) AS ElapsedSeconds' + @LineFeed
@@ -4893,22 +4898,22 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + ', (w.signal_wait_time_ms - wPrior.signal_wait_time_ms) AS signal_wait_time_ms_delta' + @LineFeed
                 + ', (w.waiting_tasks_count - wPrior.waiting_tasks_count) AS waiting_tasks_count_delta' + @LineFeed
                 + ', w.ServerName + CAST(w.CheckDate AS NVARCHAR(50)) AS JoinKey' + @LineFeed
-                + 'FROM ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + ' w' + @LineFeed
+                + 'FROM ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNameWaitStats, N'''', N'''''') + ' w' + @LineFeed
                 + 'INNER HASH JOIN CheckDates Dates' + @LineFeed
-                + 'ON Dates.CheckDate = w.CheckDate' + @LineFeed
-                + 'INNER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + ' wPrior ON w.ServerName = wPrior.ServerName AND w.wait_type = wPrior.wait_type AND Dates.PreviousCheckDate = wPrior.CheckDate' + @LineFeed
-			 + 'LEFT OUTER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats_Categories + ' wc ON w.wait_type = wc.WaitType' + @LineFeed
+                + 'ON Dates.CheckDate = w.CheckDate AND Dates.ServerName = w.ServerName' + @LineFeed
+                + 'INNER JOIN ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNameWaitStats, N'''', N'''''') + ' wPrior ON w.ServerName = wPrior.ServerName AND w.wait_type = wPrior.wait_type AND Dates.PreviousCheckDate = wPrior.CheckDate' + @LineFeed
+			 + 'LEFT OUTER JOIN ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNameWaitStats_Categories, N'''', N'''''') + ' wc ON w.wait_type = wc.WaitType' + @LineFeed
                 + 'WHERE DATEDIFF(MI, wPrior.CheckDate, w.CheckDate) BETWEEN 1 AND 60' + @LineFeed
                 + 'AND [w].[wait_time_ms] >= [wPrior].[wait_time_ms];'')'
 
-			EXEC(@StringToExecute);
+			EXEC sys.sp_executesql @StringToExecute, N'@ViewName nvarchar(776)', @ViewName = @ObjectFullName;
             END;
 
 
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName + ''') INSERT '
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''') INSERT '
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableNameWaitStats
@@ -4922,8 +4927,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         /* Delete history older than @OutputTableRetentionDays */
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName + ''') DELETE '
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''') DELETE '
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableNameWaitStats
@@ -4936,8 +4941,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     END;
     ELSE IF (SUBSTRING(@OutputTableNameWaitStats, 2, 2) = '##')
     BEGIN
-        SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
-            + @OutputTableNameWaitStats
+        SET @StringToExecute = N' IF (OBJECT_ID(N''tempdb..'
+            + REPLACE(@OutputTableNameWaitStats, N'''', N'''''')
             + ''') IS NULL) CREATE TABLE '
             + @OutputTableNameWaitStats
             + ' (ID INT IDENTITY(1,1) NOT NULL,
@@ -4959,7 +4964,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     END;
     ELSE IF (SUBSTRING(@OutputTableNameWaitStats, 2, 1) = '#')
     BEGIN
-        RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
+        RAISERROR('Due to the nature of Dynamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
     END;
 
 
@@ -5073,7 +5078,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                         CAST((wd2.wait_time_ms-wd1.wait_time_ms)/
                             (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) AS NUMERIC(12,1))
                     ELSE 0 END AS [Avg ms Per Wait],
-					CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Hour],
+					CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / NULLIF(DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime), 0) AS DECIMAL(18,1)) AS [Per Core Per Hour],
                     (wd2.waiting_tasks_count - wd1.waiting_tasks_count) AS [Number of Waits]
                 FROM  max_batch b
                 JOIN #WaitStats wd2 ON
@@ -5218,7 +5223,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                         CAST((wd2.wait_time_ms-wd1.wait_time_ms)/
                             (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) AS NUMERIC(12,1))
                     ELSE 0 END AS [Avg ms Per Wait],
-                    CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Hour],
+                    CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / NULLIF(DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime), 0) AS DECIMAL(18,1)) AS [Per Core Per Hour],
                     CAST(c.[Signal Wait Time (Seconds)] / 60.0 / 60 AS DECIMAL(18,1)) AS [Signal Wait Time (Hours)],
                     CASE WHEN c.[Wait Time (Seconds)] > 0
                      THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) AS NUMERIC(4,1))
@@ -5262,7 +5267,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                         CAST((wd2.wait_time_ms-wd1.wait_time_ms)/
                             (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) AS NUMERIC(12,1))
                     ELSE 0 END AS [Avg ms Per Wait],
-                    CAST((CAST(wd2.wait_time_ms - wd1.wait_time_ms AS MONEY)) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Second],
+                    CAST((CAST(wd2.wait_time_ms - wd1.wait_time_ms AS MONEY)) / 1000.0 / cores.cpu_count / NULLIF(DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime), 0) AS DECIMAL(18,1)) AS [Per Core Per Second],
                     c.[Signal Wait Time (Seconds)],
                     CASE WHEN c.[Wait Time (Seconds)] > 0
                      THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) AS NUMERIC(4,1))
@@ -5354,10 +5359,10 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 pFirst.SampleTime AS FirstSampleTime, pFirst.cntr_value AS FirstSampleValue,
                 pLast.SampleTime AS LastSampleTime, pLast.cntr_value AS LastSampleValue,
                 pLast.cntr_value - pFirst.cntr_value AS ValueDelta,
-                ((1.0 * pLast.cntr_value - pFirst.cntr_value) / DATEDIFF(ss, pFirst.SampleTime, pLast.SampleTime)) AS ValuePerSecond
+                ((1.0 * pLast.cntr_value - pFirst.cntr_value) / NULLIF(DATEDIFF(ss, pFirst.SampleTime, pLast.SampleTime), 0)) AS ValuePerSecond
                 FROM #PerfmonStats pLast
                     INNER JOIN #PerfmonStats pFirst ON pFirst.[object_name] = pLast.[object_name] AND pFirst.counter_name = pLast.counter_name AND (pFirst.instance_name = pLast.instance_name OR (pFirst.instance_name IS NULL AND pLast.instance_name IS NULL))
-                    AND pLast.ID > pFirst.ID
+                    AND pLast.Pass = 2 AND pFirst.Pass = 1
 				WHERE pLast.cntr_value <> pFirst.cntr_value
                 ORDER BY Pattern, pLast.[object_name], pLast.counter_name, pLast.instance_name;
 

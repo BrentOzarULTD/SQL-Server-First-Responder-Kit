@@ -61,7 +61,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @Help TINYINT = 0,
 	@Debug BIT = 0,
     @AI TINYINT = 0, /* 1 = ask for advice, 2 = build prompt but don't actually call AI. Only works with a single query plan: automatically sets @ExpertMode = 1, @KeepCRLF = 1. */
-    @AIModel VARCHAR(200) = NULL, /* Defaults to gpt-4.1-mini */
+    @AIModel VARCHAR(200) = NULL, /* Defaults to gpt-5.6-luna */
     @AIURL VARCHAR(200) = NULL, /* Defaults to https://api.openai.com/v1/chat/completions */
     @AICredential VARCHAR(200) = NULL, /* Defaults to 'https://api.openai.com/' or the root of your AIURL, trailing slash included */
     @AIConfigTable NVARCHAR(500) = NULL, /* Table where AI provider config is stored - can be in the format db.schema.table, schema.table, or just table. */
@@ -77,7 +77,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.34', @VersionDate = '20260702';
+SELECT @Version = '8.35', @VersionDate = '20261114';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -157,6 +157,9 @@ DECLARE @collation NVARCHAR(256);
 DECLARE @NumDatabases INT;
 DECLARE @LineFeed NVARCHAR(5);
 DECLARE @DaysUptimeInsertValue NVARCHAR(256);
+DECLARE @AGName NVARCHAR(128);
+DECLARE @AGRole NVARCHAR(9);
+DECLARE @AGUptimeContext NVARCHAR(80) = N'';
 DECLARE @DatabaseToIgnore NVARCHAR(MAX);
 DECLARE @ColumnList NVARCHAR(MAX);
 DECLARE @ColumnListWithApostrophes NVARCHAR(MAX);
@@ -318,6 +321,13 @@ END;
 IF(@UsualStatisticsSamplingPercent <= 0 OR @UsualStatisticsSamplingPercent > 100)
 BEGIN
     RAISERROR('Invalid value for parameter @UsualStatisticsSamplingPercent. Expected: 1 to 100',12,1);
+    RETURN;
+END;
+
+/* Azure SQL DB cannot use linked-server output, including its own server name. */
+IF @AzureSQLDB = 1 AND @OutputServerName IS NOT NULL
+BEGIN
+    RAISERROR('Azure SQL Database does not support @OutputServerName. Output to a table in the current database instead.', 12, 1);
     RETURN;
 END;
 
@@ -1066,7 +1076,7 @@ BEGIN
     DECLARE @AIModelRequested NVARCHAR(200) = @AIModel;
     DECLARE @AIFallbackModel NVARCHAR(200);
     SELECT TOP 1 @AIFallbackModel = AI_Model FROM #ai_providers WHERE Default_Model = 1 ORDER BY Id;
-    IF @AIFallbackModel IS NULL SET @AIFallbackModel = N'gpt-5-nano';
+    IF @AIFallbackModel IS NULL SET @AIFallbackModel = N'gpt-5.6-luna';
     RAISERROR('@AIModel "%s" was not found in configuration table %s. Using "%s" instead.',
         10, 1, @AIModelRequested, @AIConfigTable, @AIFallbackModel) WITH NOWAIT;
     SET @AIModel = NULL;
@@ -1136,7 +1146,7 @@ IF @AI > 0
             ORDER BY Id;
 
     IF @AIModel IS NULL
-        SET @AIModel = N'gpt-5-nano';
+        SET @AIModel = N'gpt-5.6-luna';
 
     IF @AIURL IS NULL OR @AIURL NOT LIKE N'http%'
         SET @AIURL = CASE
@@ -1153,19 +1163,11 @@ IF @AI > 0
 
     IF @AISystemPrompt IS NULL OR @AISystemPrompt = N''
     BEGIN
-            SET @AISystemPrompt = N'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment. Do not describe the table: you are working with other very senior database developers who understand SQL Server deeply, so get straight to the point with your recommendations and scripts.
+            SET @AISystemPrompt = N'Review the supplied Microsoft SQL Server or Azure SQL Database table metadata. Use existing index usage counters and SQL Server missing-index suggestions to produce a prioritized nonclustered rowstore index plan. Cover indexes to add, remove as redundant or harmful, or modify.
 
-    You have been given the existing indexes, missing index suggestions from SQL Server, column data types, and foreign keys for a table. Your job is to recommend index changes: which indexes to add, which to remove as redundant or harmful, and which to modify. Focus on practical changes that will improve the most common query patterns shown by the usage statistics.
+Treat unused indexes as removal candidates. Merge duplicate or near-duplicate indexes when appropriate, or keep the wider useful index. Different leading columns make indexes distinct. Treat missing-index column order as a starting point and optimize it for the workload.
 
-	If indexes are not being used, drop them. If duplicate or near-duplicate indexes exist, merge them together or keep the widest ones. Existing indexes that start with different leading columns should not be considered duplicates.
-
-	Include CREATE INDEX and DROP INDEX scripts. Include undo scripts in comments to back out your work if something goes wrong. Use the /* */ style for comments, not --, to make it easier for the customer to copy and paste your scripts without accidentally missing a line.
-
-	When working with missing index suggestions from SQL Server, keep in mind that they are ordered equality vs inequality search in the query, then by the column order of the table. The column order is nowhere near scientific, and can be rearranged if necessary for performance.
-
-	Focus only on nonclustered rowstore indexes. Do not suggest changes for clustered indexes, columnstore indexes, memory-optimized indexes, XML indexes, JSON indexes, or other specialized index types.
-
-    Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.';
+Return one self-contained Markdown response with the prioritized plan, complete CREATE INDEX and DROP INDEX scripts, and a /* */ rollback comment after each change. Keep clustered, columnstore, memory-optimized, XML, JSON, and other specialized index types outside the plan.';
     END;
 
     IF @AIModel LIKE 'gemini%' AND @AIPayloadTemplate IS NULL
@@ -1452,7 +1454,7 @@ IF @BringThePain = 0 AND @SkipPartitions = 0 AND @TableName IS NULL
         BEGIN
             /* Count the total number of partitions */
             SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-                    SELECT @RowcountOUT = SUM(1) FROM ' + QUOTENAME(@DatabaseName) + '.sys.partitions WHERE partition_number > 1 OPTION    ( RECOMPILE );';
+                    SELECT @RowcountOUT = SUM(1) FROM ' + CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE QUOTENAME(@DatabaseName) + N'.' END + N'sys.partitions WHERE partition_number > 1 OPTION    ( RECOMPILE );';
             EXEC sp_executesql @dsql, N'@RowcountOUT BIGINT OUTPUT', @RowcountOUT = @Rowcount OUTPUT;
             IF @Rowcount > 100
                 BEGIN
@@ -1480,12 +1482,12 @@ FROM #Ignore_Databases i;
 /* Last startup */
 IF COLUMNPROPERTY(OBJECT_ID('sys.dm_os_sys_info'),'sqlserver_start_time','ColumnID') IS NOT NULL
 BEGIN
-	SELECT @DaysUptime = CAST(DATEDIFF(HOUR, sqlserver_start_time, GETDATE()) / 24. AS NUMERIC (23,2))
+	SELECT @DaysUptime = CAST(DATEDIFF(HOUR, sqlserver_start_time, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) / 24. AS NUMERIC (23,2))
 	FROM sys.dm_os_sys_info;
 END
 ELSE
 BEGIN
-	SELECT  @DaysUptime = CAST(DATEDIFF(HOUR, create_date, GETDATE()) / 24. AS NUMERIC (23,2))
+	SELECT  @DaysUptime = CAST(DATEDIFF(HOUR, create_date, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) / 24. AS NUMERIC (23,2))
 	FROM    sys.databases
 	WHERE   database_id = 2;
 END
@@ -1524,6 +1526,45 @@ FROM     sys.databases
          WHERE [name] = @DatabaseName
          AND user_access_desc='MULTI_USER'
          AND state_desc = 'ONLINE';
+
+/* Current AG roles provide context, not a counter reset or failover timestamp.
+   Keep HADR references dynamic so Azure SQL Database does not bind them. */
+IF @AzureSQLDB = 0 AND SERVERPROPERTY('IsHadrEnabled') = 1
+BEGIN
+    SELECT @AGName = NULL, @AGRole = NULL;
+    BEGIN TRY
+        SET @dsql = N'SELECT @AGNameOUT = ag.name,
+                            @AGRoleOUT = CASE WHEN rs.role_desc IN (N''PRIMARY'', N''SECONDARY'', N''RESOLVING'')
+                                             THEN rs.role_desc ELSE N''UNKNOWN'' END
+                     FROM sys.databases AS d
+                     LEFT JOIN sys.dm_hadr_availability_replica_states AS rs
+                         ON rs.replica_id = d.replica_id AND rs.is_local = 1
+                     LEFT JOIN sys.availability_groups AS ag ON ag.group_id = rs.group_id
+                     WHERE d.database_id = @DatabaseID_IN
+                       AND d.name = @DatabaseName_IN
+                       AND (d.replica_id IS NOT NULL OR d.group_database_id IS NOT NULL);';
+        EXEC sp_executesql @dsql,
+             N'@DatabaseID_IN INT, @DatabaseName_IN NVARCHAR(128), @AGNameOUT NVARCHAR(128) OUTPUT, @AGRoleOUT NVARCHAR(9) OUTPUT',
+             @DatabaseID_IN = @DatabaseID, @DatabaseName_IN = @DatabaseName,
+             @AGNameOUT = @AGName OUTPUT, @AGRoleOUT = @AGRole OUTPUT;
+
+        IF @AGRole IS NOT NULL
+        BEGIN
+            SET @AGName = COALESCE(@AGName, N'UNKNOWN');
+            SET @AGUptimeContext = CASE WHEN @GetAllDatabases = 1 THEN N' | AG: per database'
+                                       ELSE N' | AG role: ' + @AGRole END;
+            RAISERROR(N'Database %s: AG %s, current local role %s. Local index usage history may differ from SQL Server uptime; counters do not combine activity across replicas. Role changes and counter resets can limit the observation period. Failover history was not collected.',
+                      0, 1, @DatabaseName, @AGName, @AGRole) WITH NOWAIT;
+        END;
+    END TRY
+    BEGIN CATCH
+        /* AG context is optional: do not fail index analysis if it is unavailable. */
+        SET @AGUptimeContext = CASE WHEN @GetAllDatabases = 1 THEN N' | AG: per database'
+                                   ELSE N' | AG context: UNKNOWN' END;
+        RAISERROR(N'Database %s: unable to collect AG context. Local index usage history may differ from SQL Server uptime; AG membership, role and failover history are not established by this check.',
+                  0, 1, @DatabaseName) WITH NOWAIT;
+    END CATCH;
+END;
 
 ----------------------------------------
 --STEP 1: OBSERVE THE PATIENT
@@ -1865,7 +1906,7 @@ BEGIN TRY
             BEGIN
                 /* Count the total number of partitions */
                 SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-                        SELECT @RowcountOUT = SUM(1) FROM ' + QUOTENAME(@DatabaseName) + '.sys.partitions WHERE partition_number > 1 OPTION    ( RECOMPILE );';
+                        SELECT @RowcountOUT = SUM(1) FROM ' + CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE QUOTENAME(@DatabaseName) + N'.' END + N'sys.partitions WHERE partition_number > 1 OPTION    ( RECOMPILE );';
                 EXEC sp_executesql @dsql, N'@RowcountOUT BIGINT OUTPUT', @RowcountOUT = @Rowcount OUTPUT;
                 IF @Rowcount > 100
                     BEGIN
@@ -1911,6 +1952,7 @@ BEGIN TRY
 				, reserved_row_overflow_MB NUMERIC(29,2)
 				, lock_escalation_desc nvarchar(60)
 				, data_compression_desc nvarchar(60)
+                , reserved_dictionary_MB NUMERIC(29,2)
 			)
 
 			-- get relevant info from sys.dm_db_index_operational_stats
@@ -1952,7 +1994,7 @@ BEGIN TRY
                         SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                         INSERT INTO #dm_db_partition_stats_etc
                         (
-                            database_id, object_id, sname, index_id, partition_number, partition_id, row_count, reserved_MB, reserved_LOB_MB, reserved_row_overflow_MB, lock_escalation_desc, data_compression_desc
+                            database_id, object_id, sname, index_id, partition_number, partition_id, row_count, reserved_MB, reserved_LOB_MB, reserved_row_overflow_MB, lock_escalation_desc, data_compression_desc, reserved_dictionary_MB
                         )
                         SELECT  ' + CAST(@DatabaseID AS NVARCHAR(10)) + N' AS database_id,
                                 ps.object_id, 
@@ -1965,7 +2007,10 @@ BEGIN TRY
                                 ps.lob_reserved_page_count * 8. / 1024. AS reserved_LOB_MB,
                                 ps.row_overflow_reserved_page_count * 8. / 1024. AS reserved_row_overflow_MB,
 								le.lock_escalation_desc,
-                            par.data_compression_desc
+                            par.data_compression_desc,
+                            COALESCE((SELECT SUM(dict.on_disk_size / 1024.0 / 1024)
+                                      FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_dictionaries AS dict
+                                      WHERE dict.partition_id = ps.partition_id), 0) AS reserved_dictionary_MB
 ';
 
             SET @dsql = @dsql + N'
@@ -2218,11 +2263,11 @@ BEGIN TRY
 								SUM(os.page_latch_wait_in_ms),
 								SUM(os.page_io_latch_wait_count),								
 								SUM(os.page_io_latch_wait_in_ms)
-                                ,COALESCE((SELECT SUM (dict.on_disk_size / 1024.0 / 1024) FROM sys.column_store_dictionaries dict WHERE dict.partition_id = h.partition_id),0) AS reserved_dictionary_MB 
+                                ,h.reserved_dictionary_MB
                     from #dm_db_partition_stats_etc h
                     left JOIN #dm_db_index_operational_stats as os ON
                         h.object_id=os.object_id and h.index_id=os.index_id and h.partition_number=os.partition_number 
-                    group by h.database_id, h.object_id, h.sname, h.index_id, h.partition_number, h.partition_id, h.row_count, h.reserved_MB, h.reserved_LOB_MB, h.reserved_row_overflow_MB, h.lock_escalation_desc, h.data_compression_desc                          
+                    group by h.database_id, h.object_id, h.sname, h.index_id, h.partition_number, h.partition_id, h.row_count, h.reserved_MB, h.reserved_LOB_MB, h.reserved_row_overflow_MB, h.lock_escalation_desc, h.data_compression_desc, h.reserved_dictionary_MB
                 
 		END; --End Check For @SkipPartitions = 0
 
@@ -2637,22 +2682,31 @@ OPTION (RECOMPILE);';
                 JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s
                     ON s.schema_id = fk.schema_id
                 WHERE fk.is_disabled = 0
-                AND   EXISTS
-                      (
-                          SELECT  
-                              1/0
-                          FROM ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_key_columns fkc
-                          WHERE fkc.constraint_object_id = fk.object_id
-                          AND NOT EXISTS
-                              (
-                                  SELECT  
-                                      1/0
-                                  FROM  ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns ic
-                                  WHERE ic.object_id = fkc.parent_object_id
-                                  AND   ic.column_id = fkc.parent_column_id
-                                  AND   ic.index_column_id = fkc.constraint_column_id
-                              )
-                      )
+                AND NOT EXISTS
+                    (
+                        SELECT 1
+                        FROM ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS i
+                        WHERE i.object_id = fk.parent_object_id
+                        AND i.type IN (1, 2)
+                        AND i.is_disabled = 0
+                        AND i.is_hypothetical = 0
+                        AND i.has_filter = 0
+                        AND NOT EXISTS
+                            (
+                                SELECT 1
+                                FROM ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_key_columns AS fkc
+                                WHERE fkc.constraint_object_id = fk.object_id
+                                AND NOT EXISTS
+                                    (
+                                        SELECT 1
+                                        FROM ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns AS ic
+                                        WHERE ic.object_id = i.object_id
+                                        AND ic.index_id = i.index_id
+                                        AND ic.column_id = fkc.parent_column_id
+                                        AND ic.key_ordinal = fkc.constraint_column_id
+                                    )
+                            )
+                    )
 				OPTION (RECOMPILE);'
         IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
@@ -2710,7 +2764,7 @@ OPTION (RECOMPILE);';
 			        ca.column_names AS column_names,
 			        s.name AS statistics_name,
 			        CONVERT(DATETIME, ddsp.last_updated) AS last_statistics_update,
-			        DATEDIFF(DAY, ddsp.last_updated, GETDATE()) AS days_since_last_stats_update,
+			        DATEDIFF(DAY, ddsp.last_updated, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) AS days_since_last_stats_update,
 			        ddsp.rows,
 			        ddsp.rows_sampled,
 			        CAST(ddsp.rows_sampled / ( 1. * NULLIF(ddsp.rows, 0) ) * 100 AS DECIMAL(18, 1)) AS percent_sampled,
@@ -3087,6 +3141,13 @@ END CATCH;
  FETCH NEXT FROM c1 INTO @DatabaseName;
 END;
 DEALLOCATE c1;
+
+/* This banner covers the requested databases, not the last database in the loop.
+   Leave @DaysUptime and all benefit calculations unchanged. The longest suffix
+   fits NVARCHAR(256), including a 128-character server name and NUMERIC(23,2). */
+IF @AGUptimeContext <> N''
+    SET @DaysUptimeInsertValue = @DaysUptimeInsertValue + @AGUptimeContext
+                              + N' | Local usage history may differ from uptime';
 
 
 
@@ -3669,7 +3730,7 @@ BEGIN
 						SELECT i.database_id,
 							   i.schema_name,
 							   i.[object_id], 
-							   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, SYSDATETIME())), 0), 1) AS create_days
+							   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END))), 0), 1) AS create_days
 						FROM #IndexSanity AS i
 						GROUP BY i.database_id, i.schema_name, i.object_id
 						)
@@ -3846,7 +3907,7 @@ BEGIN
 
         /* Closing instruction */
         SET @CurrentAIPrompt = @CurrentAIPrompt + CHAR(13) + CHAR(10)
-            + N'Based on the above data, please provide index recommendations for this table. Consider which indexes are redundant, which missing indexes should be created, and whether the current indexing strategy is appropriate for the workload pattern shown by the usage statistics.';
+            + N'Based on the metadata above, provide index recommendations for this table. Consider which indexes are redundant, which missing indexes should be created, and whether the current indexing strategy fits the observed index usage counters and SQL Server missing-index suggestions.';
 
         /* @AI = 1: Call the AI provider */
         IF @AI = 1
@@ -4335,7 +4396,7 @@ BEGIN
 					END;
 				ELSE IF EXISTS (SELECT server_id FROM sys.servers WHERE QUOTENAME([name]) = @OutputServerName)
 					BEGIN
-						SET @LinkedServerDBCheck = 'SELECT 1 WHERE EXISTS (SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = '''+@OutputDatabaseName+''')';
+						SET @LinkedServerDBCheck = 'SELECT 1 WHERE EXISTS (SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = N'''+REPLACE(@OutputDatabaseName, N'''', N'''''')+''')';
 						INSERT INTO @tmpdbchk EXEC sys.sp_executesql @LinkedServerDBCheck;
 						SET @ValidLinkedServerDB = (SELECT COUNT(*) FROM @tmpdbchk);
 						IF (@ValidLinkedServerDB > 0)
@@ -4355,7 +4416,8 @@ BEGIN
 			BEGIN
 				IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
 					BEGIN
-						SET @StringToExecute = N' IF (OBJECT_ID(''[tempdb].[dbo].@@@OutputTableName@@@'') IS NOT NULL) DROP TABLE @@@OutputTableName@@@';
+						SET @StringToExecute = N' IF (OBJECT_ID(N''[tempdb].[dbo].@@@OutputTableNameLiteral@@@'') IS NOT NULL) DROP TABLE @@@OutputTableName@@@';
+						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableNameLiteral@@@', REPLACE(@OutputTableName, N'''', N''''''));
 						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
 						EXEC(@StringToExecute);
 						
@@ -4366,7 +4428,7 @@ BEGIN
 					END;
 				ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
 					BEGIN
-						RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
+						RAISERROR('Due to the nature of Dynamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
 					END;
 				ELSE IF @OutputDatabaseName IS NOT NULL
 					AND @OutputSchemaName IS NOT NULL
@@ -4413,35 +4475,35 @@ BEGIN
 				SET @StringToExecute = 
 					N'SET @SchemaExists = 0;
 					SET @TableExists = 0;
-					IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = ''@@@OutputSchemaName@@@'') 
+					IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N''@@@OutputSchemaName@@@'')
 						SET @SchemaExists = 1
-					IF EXISTS (SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = ''@@@OutputSchemaName@@@'' AND QUOTENAME(TABLE_NAME) = ''@@@OutputTableName@@@'')
+					IF EXISTS (SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N''@@@OutputSchemaName@@@'' AND QUOTENAME(TABLE_NAME) = N''@@@OutputTableName@@@'')
 					BEGIN
 						SET @TableExists = 1
-						IF NOT EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.COLUMNS WHERE QUOTENAME(TABLE_SCHEMA) = ''@@@OutputSchemaName@@@''
-										AND QUOTENAME(TABLE_NAME) = ''@@@OutputTableName@@@'' AND QUOTENAME(COLUMN_NAME) = ''[total_forwarded_fetch_count]'')
+						IF NOT EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.COLUMNS WHERE QUOTENAME(TABLE_SCHEMA) = N''@@@OutputSchemaName@@@''
+										AND QUOTENAME(TABLE_NAME) = N''@@@OutputTableName@@@'' AND QUOTENAME(COLUMN_NAME) = ''[total_forwarded_fetch_count]'')
 							EXEC @@@OutputServerName@@@.@@@OutputDatabaseName@@@.dbo.sp_executesql N''ALTER TABLE @@@OutputSchemaName@@@.@@@OutputTableName@@@ ADD [total_forwarded_fetch_count] BIGINT''
 					END';
 	
-				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
-				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
-				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName);
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', REPLACE(@OutputSchemaName, N'''', N''''''));
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', REPLACE(@OutputTableName, N'''', N''''''));
 	
 				EXEC sp_executesql @StringToExecute, N'@TableExists BIT OUTPUT, @SchemaExists BIT OUTPUT', @TableExists OUTPUT, @SchemaExists OUTPUT;
 
 
 				SET @TableExistsSql = 
-					N'IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = ''@@@OutputSchemaName@@@'') 
-						AND NOT EXISTS (SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = ''@@@OutputSchemaName@@@'' AND QUOTENAME(TABLE_NAME) = ''@@@OutputTableName@@@'')
+					N'IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N''@@@OutputSchemaName@@@'')
+						AND NOT EXISTS (SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N''@@@OutputSchemaName@@@'' AND QUOTENAME(TABLE_NAME) = N''@@@OutputTableName@@@'')
 						SET @TableExists = 0
 					ELSE
 						SET @TableExists = 1';
 				
-				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputServerName@@@', @OutputServerName);
+				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
-				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputSchemaName@@@', @OutputSchemaName); 
-				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputTableName@@@', @OutputTableName); 
+				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputSchemaName@@@', REPLACE(@OutputSchemaName, N'''', N''''''));
+				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputTableName@@@', REPLACE(@OutputTableName, N'''', N''''''));
 
 			END
 
@@ -5145,7 +5207,7 @@ BEGIN
 									i.schema_name,
 									i.[object_id], 
                                     MAX(i.index_sanity_id) AS index_sanity_id,
-									ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, SYSDATETIME())), 0), 1) AS create_days,
+									ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END))), 0), 1) AS create_days,
                                 ISNULL (
                                     CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN 1 ELSE 0 END)
                                          AS NVARCHAR(30))+ N' NC indexes exist (' + 
@@ -5362,7 +5424,7 @@ BEGIN
 				'N/A' AS index_usage_summary,
 				'N/A' AS index_size_summary
 		FROM #Statistics AS s
-		WHERE s.last_statistics_update <= CONVERT(DATETIME, GETDATE() - 30) 
+		WHERE s.last_statistics_update <= CONVERT(DATETIME, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END) - 30)
 		AND s.percent_modifications >= 10. 
 		AND s.rows >= 10000
 		OPTION    ( RECOMPILE );
@@ -5528,16 +5590,16 @@ BEGIN
                                 WHERE   i.index_id NOT IN ( 0, 1 )
                                         AND i.is_unique = 0
                                         /*Skipping tables created in the last week, or modified in past 2 days*/
-                                        AND i.create_date < DATEADD(dd,-7,GETDATE())
-                                        AND i.modify_date < DATEADD(dd,-2,GETDATE())
+                                        AND i.create_date < DATEADD(dd,-7,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
+                                        AND i.modify_date < DATEADD(dd,-2,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                                 GROUP BY i.database_name
                              ) AS perc ON i.database_name = perc.database_name
                         WHERE    i.index_id NOT IN ( 0, 1 )
                                 AND i.is_unique = 0
                                 AND i.total_reads = 0
                                 /*Skipping tables created in the last week, or modified in past 2 days*/
-                                AND	i.create_date < DATEADD(dd,-7,GETDATE())
-                                AND i.modify_date < DATEADD(dd,-2,GETDATE())
+                                AND	i.create_date < DATEADD(dd,-7,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
+                                AND i.modify_date < DATEADD(dd,-2,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                                 AND perc.percent_NC_indexes_unused >= 5
                                 AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                         GROUP BY i.database_name
@@ -5798,8 +5860,8 @@ BEGIN
                         AND i.is_unique = 0
                         AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                         /*Skipping tables created in the last week, or modified in past 2 days*/
-                        AND	i.create_date < DATEADD(dd,-7,GETDATE()) 
-                        AND i.modify_date < DATEADD(dd,-2,GETDATE())
+                        AND	i.create_date < DATEADD(dd,-7,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
+                        AND i.modify_date < DATEADD(dd,-2,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                 ORDER BY i.db_schema_object_indexid
                 OPTION    ( RECOMPILE );
 
@@ -5828,8 +5890,9 @@ BEGIN
                                 NULL AS index_sanity_id, 
                                 250 AS Priority,
                                 N'Omitted Index Features' AS findings_group,
-								database_name AS [Database Name],
-                                N'No Indexes Use Includes' AS finding, 'https://www.brentozar.com/go/IndexFeatures' AS URL,
+                                N'No Indexes Use Includes' AS finding,
+                                database_name AS [Database Name],
+                                'https://www.brentozar.com/go/IndexFeatures' AS URL,
                                 N'No Indexes Use Includes' AS details,
                                 database_name + N' (Entire database)' AS index_definition, 
                                 N'' AS secret_columns, 
@@ -6171,7 +6234,7 @@ BEGIN
                             ISNULL(sz.index_size_summary,'') AS index_size_summary
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
-                    WHERE i.create_date >= DATEADD(dd,-7,GETDATE())
+                    WHERE i.create_date >= DATEADD(dd,-7,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                     AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                     OPTION    ( RECOMPILE );
 
@@ -6195,9 +6258,9 @@ BEGIN
                             ISNULL(sz.index_size_summary,'') AS index_size_summary
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
-                    WHERE i.modify_date > DATEADD(dd,-2,GETDATE())
+                    WHERE i.modify_date > DATEADD(dd,-2,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                     AND /*Exclude recently created tables.*/
-                    i.create_date < DATEADD(dd,-7,GETDATE())
+                    i.create_date < DATEADD(dd,-7,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                     AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                     OPTION    ( RECOMPILE );
 
@@ -6756,7 +6819,7 @@ BEGIN
 						IF @ValidOutputServer = 1
 							BEGIN
 								SET @StringToExecute = REPLACE(@StringToExecute,'''','''''');
-								EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+								EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
 							END;   
 						ELSE
 							BEGIN
@@ -6820,7 +6883,7 @@ BEGIN
 					ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
 					OPTION (RECOMPILE);';
 	
-				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
@@ -6929,7 +6992,7 @@ BEGIN
 						IF @ValidOutputServer = 1
 							BEGIN
 								SET @StringToExecute = REPLACE(@StringToExecute,'''','''''');
-								EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+								EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
 							END;   
 						ELSE
 							BEGIN
@@ -6990,7 +7053,7 @@ BEGIN
 							-- Below should be a copy/paste of the real query
 							-- Make sure all quotes are escaped
 							-- NOTE! information line is skipped from output and the query below
-							-- NOTE! initial columns are not casted to nvarchar due to not outputing informational line
+							-- NOTE! initial columns are not casted to nvarchar due to not outputting informational line
 							DB_NAME(i.database_id) AS [Database Name],
 								COUNT(*) AS [Number Objects],
 								CAST(SUM(sz.total_reserved_MB)/
@@ -7040,7 +7103,7 @@ BEGIN
 							ORDER BY [Display Order] ASC
 							OPTION (RECOMPILE);';
 	
-					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
 					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
 					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
@@ -7227,7 +7290,7 @@ BEGIN
 								IF @ValidOutputServer = 1
 									BEGIN
 										SET @StringToExecute = REPLACE(@StringToExecute,'''','''''');
-										EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+										EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
 									END;   
 								ELSE
 									BEGIN
@@ -7417,7 +7480,7 @@ BEGIN
 									ORDER BY [Database Name], [Schema Name], [Object Name], [Index ID]
 									OPTION (RECOMPILE);';
 	
-								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
+								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
 								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
 								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
@@ -7652,7 +7715,7 @@ BEGIN
 						IF @ValidOutputServer = 1
 							BEGIN
 								SET @StringToExecute = REPLACE(@StringToExecute,'''','''''');
-								EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+								EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
 							END;   
 						ELSE
 							BEGIN
@@ -7674,7 +7737,7 @@ BEGIN
 									SELECT i.database_id,
 										   i.schema_name,
 										   i.[object_id], 
-										   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, SYSDATETIME())), 0), 1) AS create_days
+										   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END))), 0), 1) AS create_days
 									FROM #IndexSanity AS i
 									GROUP BY i.database_id, i.schema_name, i.object_id
 									)
@@ -7741,7 +7804,7 @@ BEGIN
 						ORDER BY [Display Order] ASC, [Magic Benefit Number] DESC
 						OPTION (RECOMPILE);';
 	
-					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
 					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
 					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
@@ -7759,7 +7822,7 @@ BEGIN
 						SELECT i.database_id,
 							   i.schema_name,
 							   i.[object_id], 
-							   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, SYSDATETIME())), 0), 1) AS create_days
+							   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END))), 0), 1) AS create_days
 						FROM #IndexSanity AS i
 						GROUP BY i.database_id, i.schema_name, i.object_id
 						)

@@ -6,8 +6,8 @@ Before adding a new check, make sure to add a Github issue for it first, and hav
 
 If you want to change anything about a check - the priority, finding, URL, or ID - open a Github issue first. The relevant scripts have to be updated too.
 
-CURRENT HIGH CHECKID: 275.
-If you want to add a new one, start at 276.
+CURRENT HIGH CHECKID: 278.
+If you want to add a new one, start at 279.
 
 | Priority | FindingsGroup | Finding | URL | CheckID |
 |----------|-----------------------------|---------------------------------------------------------|------------------------------------------------------------------------|----------|
@@ -27,6 +27,7 @@ If you want to add a new one, start at 276.
 | 1 | Performance | Memory Dangerously Low | https://www.BrentOzar.com/go/max | 51 |
 | 1 | Performance | Memory Dangerously Low in NUMA Nodes | https://www.BrentOzar.com/go/max | 159 |
 | 1 | Performance | Memory Dangerously Low Recently | https://www.BrentOzar.com/go/memhistory | 270 |
+| 1 | Performance | TempDB Over Half Full | https://www.brentozar.com/archive/2025/10/tempdb-filling-up-try-resource-governor/ | 278 |
 | 1 | Reliability | Evaluation Edition | https://www.BrentOzar.com/go/workgroup | 229 |
 | 1 | Reliability | Last good DBCC CHECKDB over 2 weeks old | https://www.BrentOzar.com/go/checkdb | 68 |
 | 1 | Security | Dangerous Service Account | https://vladdba.com/SQLServerSvcAccount | 258 |
@@ -167,6 +168,7 @@ If you want to add a new one, start at 276.
 | 200 | Monitoring | Alerts Disabled | https://www.BrentOzar.com/go/alerts/ | 98 |
 | 200 | Monitoring | Alerts Without Event Descriptions | https://www.brentozar.com/go/alert | 219 |
 | 200 | Monitoring | Extended Events Hyperextension | https://www.BrentOzar.com/go/xe | 176 |
+| 200 | Monitoring | Availability Group Without AlwaysOn\_health | https://learn.microsoft.com/en-us/sql/database-engine/availability-groups/windows/always-on-extended-events#the-alwayson_health-session | 276 |
 | 200 | Monitoring | No Alerts for Corruption | https://www.BrentOzar.com/go/alert | 96 |
 | 200 | Monitoring | No Alerts for Sev 19-25 | https://www.BrentOzar.com/go/alert | 61 |
 | 200 | Monitoring | No failsafe operator configured | https://www.BrentOzar.com/go/failsafe | 73 |
@@ -323,6 +325,7 @@ If you want to add a new one, start at 276.
 | 250 | Server Info | Windows Version |  | 172 |
 | 250 | Server Info | Power Plan |  | 211 |
 | 250 | Server Info | Stacked Instances | https://www.brentozar.com/go/babygotstacked/ | 212 |
+| 250 | Server Info | Virtualization-Based Security (VBS) Enabled | https://www.brentozar.com/go/vbs | 277 |
 | 253 | First Responder Kit | Version Check Failed | http://FirstResponderKit.org | 226 |
 | 253 | First Responder Kit | Component Missing | http://FirstResponderKit.org | 227 |
 | 253 | First Responder Kit | Component Outdated | http://FirstResponderKit.org | 228 |

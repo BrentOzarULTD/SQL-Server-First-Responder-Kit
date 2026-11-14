@@ -30,14 +30,15 @@ ALTER PROCEDURE [dbo].[sp_ineachdb]
   @VersionDate          datetime       = NULL OUTPUT,
   @VersionCheckMode     bit            = 0,
   @is_ag_writeable_copy bit            = 0,
-  @is_query_store_on	bit            = NULL
+  @is_query_store_on	bit            = NULL,
+  @database_order       nvarchar(10)   = NULL -- DEFAULT = ID order, NAME = alphabetical order
 -- WITH EXECUTE AS OWNER – maybe not a great idea, depending on the security of your system
 AS
 BEGIN
   SET NOCOUNT ON;
   SET STATISTICS XML OFF;
 
-  SELECT @Version = '8.34', @VersionDate = '20260702';
+  SELECT @Version = '8.35', @VersionDate = '20261114';
   
   IF(@VersionCheckMode = 1)
   BEGIN
@@ -96,12 +97,12 @@ BEGIN
 		RETURN -1;
 	END
 
-  DECLARE @exec   nvarchar(150),
+  DECLARE @exec   nvarchar(276),
           @sx     nvarchar(18) = N'.sys.sp_executesql',
           @db     sysname,
-          @dbq    sysname,
+          @dbq    nvarchar(258),
           @cmd    nvarchar(max),
-          @thisdb sysname,
+          @thisdb nvarchar(258),
           @cr     char(2) = CHAR(13) + CHAR(10),
 		  @SQLVersion	AS tinyint = (@@microsoftversion / 0x1000000) & 0xff,	     -- Stores the SQL Server Version Number(8(2000),9(2005),10(2008 & 2008R2),11(2012),12(2014),13(2016),14(2017),15(2019)
 		  @ServerName	AS sysname = CONVERT(sysname, SERVERPROPERTY('ServerName')), -- Stores the SQL Server Instance name.
@@ -182,15 +183,6 @@ BEGIN
 3)If we find a [, we begin to accumulate the result until we reach closing ], (jumping over escaped ]]).
 4)Finally, tabs, line breaks and spaces are removed from unquoted names
 */
-IF @IsAzureSqlDb = 1
-BEGIN
-  /* Azure SQL DB: the session is bound to one user database. Seed with it and
-     let the downstream filter DELETEs decide whether it survives. */
-  INSERT #ineachdb(id, name, is_distributor)
-  SELECT DB_ID(), DB_NAME(), 0;
-END
-ELSE
-BEGIN
 ;WITH C
 AS (SELECT V.SrcList
          , CAST('' AS nvarchar(MAX)) AS Name
@@ -237,13 +229,21 @@ INSERT #ineachdb(id,name,is_distributor)
 SELECT d.database_id
      , d.name
      , d.is_distributor
-FROM sys.databases AS d
+FROM
+(
+  SELECT database_id, name, is_distributor
+  FROM sys.databases
+  WHERE @IsAzureSqlDb = 0
+  UNION ALL
+  /* Azure SQL DB can only execute commands in the current database. */
+  SELECT DB_ID(), DB_NAME(), 0
+  WHERE @IsAzureSqlDb = 1
+) AS d
 WHERE (   EXISTS (SELECT NULL FROM F WHERE F.name = d.name AND F.SrcList = 'In')
           OR @database_list IS NULL)
       AND NOT EXISTS (SELECT NULL FROM F WHERE F.name = d.name AND F.SrcList = 'Out')
 OPTION (MAXRECURSION 0);
-END
-;
+
   -- next, let's delete any that *don't* match various criteria passed in
   DELETE dbs FROM #ineachdb AS dbs
   WHERE (@system_only = 1 AND (id NOT IN (1,2,3,4) AND is_distributor <> 1))
@@ -354,7 +354,10 @@ END
   -- ok, now, let's go through what we have left
   DECLARE dbs CURSOR LOCAL FAST_FORWARD
     FOR SELECT DB_NAME(id), QUOTENAME(DB_NAME(id))
-    FROM #ineachdb;
+    FROM #ineachdb
+	ORDER BY
+		CASE @database_order WHEN N'NAME' THEN name END ASC -- fall back to ID order
+		, id ASC;
 
   OPEN dbs;
 

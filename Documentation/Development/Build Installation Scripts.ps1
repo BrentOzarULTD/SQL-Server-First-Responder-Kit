@@ -7,15 +7,28 @@
 .PARAMETER ServerInstance
     SQL Server instance to test against. Default: localhost
 
+.PARAMETER TestDatabase
+    Database containing dbo.Users for the table-specific sp_BlitzIndex tests.
+    Must already exist, be online, and allow MULTI_USER access.
+    For the FRK VM, use StackOverflow2010.
+
 .PARAMETER Database
     Database where the procs are installed. Default: master
+
+.NOTES
+    Run only on a test instance. DBAtools must already exist, be online and
+    writable, and allow creation of dbo tables. The workflow drops its named
+    test tables. Create DBAtools explicitly before running this release script.
 
 .EXAMPLE
     & "Documentation\Development\Build Installation Scripts.ps1"
 #>
 param(
     [string]$ServerInstance = "localhost",
-    [string]$Database       = "master"
+    [string]$Database       = "master",
+    [ValidateNotNullOrEmpty()]
+    [ValidateLength(1, 128)]
+    [string]$TestDatabase   = "StackOverflow"
 )
 
 $ErrorActionPreference = "Stop"
@@ -37,7 +50,7 @@ function Invoke-SqlCmd-String {
 
     $prevPref = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
-    $output = & sqlcmd -S $ServerInstance -E -d $Database -C -i $tmpFile -b -r 1 2>&1
+    $output = & sqlcmd -S $ServerInstance -E -d $Database -C -x -f i:65001 -i $tmpFile -b -r 1 2>&1
     $exitCode = $LASTEXITCODE
     $ErrorActionPreference = $prevPref
     Remove-Item $tmpFile -ErrorAction SilentlyContinue
@@ -46,7 +59,7 @@ function Invoke-SqlCmd-String {
         Output = ($output -join "`n")
         ExitCode = $exitCode
         Label = $Label
-        Command = "sqlcmd -S `"$ServerInstance`" -E -d `"$Database`" -C -i `"$tmpFile`" -b -r 1"
+        Command = "sqlcmd -S `"$ServerInstance`" -E -d `"$Database`" -C -x -f i:65001 -i `"$tmpFile`" -b -r 1"
     }
 }
 
@@ -56,7 +69,7 @@ function Invoke-SqlCmd-File {
 
     $prevPref = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
-    $output = & sqlcmd -S $ServerInstance -E -d $Database -C -i $FilePath -b -r 1 2>&1
+    $output = & sqlcmd -S $ServerInstance -E -d $Database -C -x -f i:65001 -i $FilePath -b -r 1 2>&1
     $exitCode = $LASTEXITCODE
     $ErrorActionPreference = $prevPref
 
@@ -65,7 +78,7 @@ function Invoke-SqlCmd-File {
         ExitCode = $exitCode
         Label = $Label
         FilePath = $FilePath
-        Command = "sqlcmd -S `"$ServerInstance`" -E -d `"$Database`" -C -i `"$FilePath`" -b -r 1"
+        Command = "sqlcmd -S `"$ServerInstance`" -E -d `"$Database`" -C -x -f i:65001 -i `"$FilePath`" -b -r 1"
     }
 }
 
@@ -78,17 +91,35 @@ function Get-SqlCmdErrorSummary {
     }
 
     $lines = $Output -split "`r?`n"
-    $errorLines = $lines | Where-Object {
-        $_ -match "^(Msg\s+\d+|Sqlcmd:\s+Error:|Sqlcmd:\s+Warning:)" -or
-        $_ -match "\b(Level|State|Line)\b" -or
-        $_ -match "(Incorrect syntax|Invalid object|Cannot|Could not|failed|error)"
-    } | Select-Object -First 20
-
-    if ($errorLines.Count -eq 0) {
-        $errorLines = $lines | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Last 20
+    $summary = New-Object 'System.Collections.Generic.List[string]'
+    $headerPattern = '^\s*(Msg\s+\d+,\s*Level\s+\d+,|Sqlcmd:\s+(Error|Warning):)'
+    for ($i = 0; $i -lt $lines.Count -and $summary.Count -lt 20; $i++) {
+        if ($lines[$i] -notmatch $headerPattern) { continue }
+        # Do not admit a final header if its first message line would be lost.
+        $hasContext = $i + 1 -lt $lines.Count -and
+            -not [string]::IsNullOrWhiteSpace($lines[$i + 1]) -and
+            $lines[$i + 1] -notmatch $headerPattern
+        if ($hasContext -and $summary.Count -gt 18) { break }
+        $summary.Add($lines[$i].Trim())
+        # sqlcmd puts the SQL error message AFTER the Msg header. Preserve that
+        # context even when it contains none of the usual error keywords.
+        for ($j = $i + 1; $j -lt $lines.Count -and $j -le $i + 4 -and $summary.Count -lt 20; $j++) {
+            if ([string]::IsNullOrWhiteSpace($lines[$j]) -or $lines[$j] -match $headerPattern) { break }
+            $summary.Add($lines[$j].Trim())
+        }
     }
 
-    return ($errorLines -join "`n")
+    if ($summary.Count -eq 0) {
+        # Native-client failures need not contain a SQL Msg header.
+        foreach ($line in ($lines | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Last 5)) {
+            $summary.Add($line.Trim())
+        }
+    }
+
+    # Full, unmodified output remains in the error log.
+    return (($summary | ForEach-Object {
+        if ($_.Length -gt 500) { $_.Substring(0, 500) + " ... [see full log]" } else { $_ }
+    }) -join "`n")
 }
 
 # ── Helper: write actionable failure details to console and log ──────────────
@@ -135,6 +166,23 @@ $Details
     Write-Host "  FAIL: $Label" -ForegroundColor Red
 }
 
+# Validate the fixture before changing versions, rebuilding, or dropping test tables.
+$TestDatabaseSql = $TestDatabase.Replace("'", "''")
+$fixtureSql = @"
+DECLARE @Fixture sysname = N'$TestDatabaseSql';
+IF DB_ID(@Fixture) IS NULL OR ISNULL(CONVERT(nvarchar(60), DATABASEPROPERTYEX(@Fixture, 'Status')), N'') <> N'ONLINE'
+    THROW 51000, 'The test database must exist and be online. Specify -TestDatabase.', 1;
+IF ISNULL(CONVERT(nvarchar(60), DATABASEPROPERTYEX(@Fixture, 'UserAccess')), N'') <> N'MULTI_USER'
+    THROW 51000, 'The test database must allow MULTI_USER access.', 1;
+IF OBJECT_ID(QUOTENAME(@Fixture) + N'.dbo.Users', N'U') IS NULL
+    THROW 51000, 'The test database must contain dbo.Users.', 1;
+"@
+$fixtureResult = Invoke-SqlCmd-String -Sql $fixtureSql -Label "Test database prerequisite"
+if ($fixtureResult.ExitCode -ne 0) {
+    Report-SqlCmdFailure -Result $fixtureResult
+    throw "Test database prerequisite failed; no release files were changed."
+}
+
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 1 — Determine current version and compute new version
 # ══════════════════════════════════════════════════════════════════════════════
@@ -157,6 +205,27 @@ if ($newVersion -notmatch "\.\d{2}$") { $newVersion = "{0:F2}" -f [double]$newVe
 
 Write-Host "  Current: v$currentVersion ($currentDate)"
 Write-Host "  New:     v$newVersion ($Today)"
+
+# Fail before changing source files or dropping tables if output cannot be saved.
+$outputPrerequisite = Invoke-SqlCmd-String -Label "DBAtools prerequisite" -Sql @"
+IF DB_ID(N'DBAtools') IS NULL
+    THROW 51000, 'Create the DBAtools test output database before running the release script.', 1;
+IF ISNULL(CONVERT(nvarchar(60), DATABASEPROPERTYEX(N'DBAtools', 'Status')), N'') <> N'ONLINE'
+    OR ISNULL(CONVERT(nvarchar(60), DATABASEPROPERTYEX(N'DBAtools', 'Updateability')), N'') <> N'READ_WRITE'
+    THROW 51000, 'DBAtools must be online and writable for release output tests.', 1;
+EXEC(N'USE DBAtools;
+IF ISNULL(HAS_PERMS_BY_NAME(DB_NAME(), ''DATABASE'', ''CREATE TABLE''), 0) <> 1
+    OR ISNULL(HAS_PERMS_BY_NAME(DB_NAME(), ''DATABASE'', ''CREATE VIEW''), 0) <> 1
+    OR ISNULL(HAS_PERMS_BY_NAME(N''dbo'', ''SCHEMA'', ''ALTER''), 0) <> 1
+    OR ISNULL(HAS_PERMS_BY_NAME(N''dbo'', ''SCHEMA'', ''SELECT''), 0) <> 1
+    OR ISNULL(HAS_PERMS_BY_NAME(N''dbo'', ''SCHEMA'', ''INSERT''), 0) <> 1
+    OR ISNULL(HAS_PERMS_BY_NAME(N''dbo'', ''SCHEMA'', ''DELETE''), 0) <> 1
+    THROW 51000, ''Release tests require CREATE TABLE, CREATE VIEW, and ALTER, SELECT, INSERT, DELETE on schema dbo in DBAtools.'', 1;');
+"@
+if ($outputPrerequisite.ExitCode -ne 0) {
+    Report-SqlCmdFailure -Result $outputPrerequisite
+    throw "DBAtools prerequisite failed; no release files were changed."
+}
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 2 — Update version numbers and dates in all sp_*.sql files
@@ -185,6 +254,7 @@ $InstallAzurePath = Join-Path $RepoRoot "Install-Azure.sql"
 # sp_ineachdb.sql must come first because sp_Blitz calls it at runtime.
 # All sp_Blitz*.sql except sp_BlitzBackups.sql, sp_DatabaseRestore.sql, sp_BlitzFirst.sql.
 # sp_BlitzBackups and sp_DatabaseRestore depend on xp_cmdshell / msdb backup history.
+# sp_kill is included because the Azure release tests exercise it.
 # sp_BlitzFirst is appended last (same as Install-All-Scripts.sql).
 $IneachdbPath = Join-Path $RepoRoot "sp_ineachdb.sql"
 $azureContent = @()
@@ -194,6 +264,8 @@ if (Test-Path $IneachdbPath) {
 $azureContent += Get-ChildItem -Path $RepoRoot -Filter "sp_Blitz*.sql" |
     Where-Object { $_.Name -notlike "*BlitzBackups*" -and $_.Name -notlike "*DatabaseRestore*" -and $_.Name -notlike "*BlitzFirst*" } |
     ForEach-Object { Get-Content $_.FullName -Raw -Encoding UTF8 }
+
+$azureContent += Get-Content -Path (Join-Path $RepoRoot "sp_kill.sql") -Raw -Encoding UTF8
 
 if (Test-Path $BlitzFirstPath) {
     $azureContent += Get-Content -Path $BlitzFirstPath -Raw -Encoding UTF8
@@ -274,6 +346,7 @@ DROP TABLE IF EXISTS DBAtools.dbo.BlitzLock;
         },
         @{
             Label = "sp_Blitz (output to table)"
+            ExpectedTables = @("Blitz")
             Sql   = "EXEC dbo.sp_Blitz @CheckUserDatabaseObjects = 1, @CheckServerInfo = 1, @OutputDatabaseName = 'DBAtools', @OutputSchemaName = 'dbo', @OutputTableName = 'Blitz';"
         },
         @{
@@ -294,6 +367,7 @@ DROP TABLE IF EXISTS DBAtools.dbo.BlitzLock;
         },
         @{
             Label = "sp_BlitzCache (output to table)"
+            ExpectedTables = @("BlitzCache")
             Sql   = "EXEC dbo.sp_BlitzCache @OutputDatabaseName = 'DBAtools', @OutputSchemaName = 'dbo', @OutputTableName = 'BlitzCache';"
         },
         @{
@@ -310,6 +384,7 @@ DROP TABLE IF EXISTS DBAtools.dbo.BlitzLock;
         },
         @{
             Label = "sp_BlitzFirst (output to tables)"
+            ExpectedTables = @("BlitzFirst", "BlitzFirst_FileStats", "BlitzFirst_PerfmonStats", "BlitzFirst_WaitStats", "BlitzCache", "BlitzWho")
             Sql   = @"
 EXEC dbo.sp_BlitzFirst @OutputDatabaseName = 'DBAtools',
                        @OutputSchemaName = 'dbo',
@@ -342,12 +417,12 @@ EXEC dbo.sp_BlitzFirst @OutputDatabaseName = 'DBAtools',
             Sql   = "EXEC dbo.sp_BlitzIndex @GetAllDatabases = 1, @Mode = 4;"
         },
         @{
-            Label = "sp_BlitzIndex @DatabaseName = 'StackOverflow', @TableName = 'Users'"
-            Sql   = "EXEC dbo.sp_BlitzIndex @DatabaseName = 'StackOverflow', @TableName = 'Users';"
+            Label = "sp_BlitzIndex @DatabaseName = '$TestDatabase', @ObjectName = N'dbo.Users'"
+            Sql   = "EXEC dbo.sp_BlitzIndex @DatabaseName = N'$TestDatabaseSql', @ObjectName = N'dbo.Users';"
         },
         @{
-            Label = "sp_BlitzIndex @DatabaseName = 'StackOverflow', @TableName = 'Users', @AI = 2"
-            Sql   = "EXEC dbo.sp_BlitzIndex @DatabaseName = 'StackOverflow', @TableName = 'Users', @AI = 2;"
+            Label = "sp_BlitzIndex @DatabaseName = '$TestDatabase', @ObjectName = N'dbo.Users', @AI = 2"
+            Sql   = "EXEC dbo.sp_BlitzIndex @DatabaseName = N'$TestDatabaseSql', @ObjectName = N'dbo.Users', @AI = 2;"
         },
         @{
             Label = "sp_BlitzLock"
@@ -355,6 +430,7 @@ EXEC dbo.sp_BlitzFirst @OutputDatabaseName = 'DBAtools',
         },
         @{
             Label = "sp_BlitzLock (output to table)"
+            ExpectedTables = @("BlitzLock")
             Sql   = "EXEC dbo.sp_BlitzLock @OutputDatabaseName = 'DBAtools', @OutputSchemaName = 'dbo', @OutputTableName = 'BlitzLock';"
         },
         @{
@@ -367,6 +443,7 @@ EXEC dbo.sp_BlitzFirst @OutputDatabaseName = 'DBAtools',
         },
         @{
             Label = "sp_BlitzWho (output to table)"
+            ExpectedTables = @("BlitzWho_Results")
             Sql   = "EXEC dbo.sp_BlitzWho @OutputDatabaseName = 'DBAtools', @OutputSchemaName = 'dbo', @OutputTableName = 'BlitzWho_Results';"
         }
     )
@@ -375,7 +452,14 @@ EXEC dbo.sp_BlitzFirst @OutputDatabaseName = 'DBAtools',
     foreach ($test in $testCalls) {
         $testNumber++
         Write-Host "  [$testNumber/$($testCalls.Count)] $($test.Label)..." -NoNewline
-        $result = Invoke-SqlCmd-String -Sql $test.Sql -Label $test.Label
+        $testSql = $test.Sql
+        foreach ($table in $test.ExpectedTables) {
+            $testSql += "`nIF OBJECT_ID(N'DBAtools.dbo.[$table]', N'U') IS NULL THROW 51000, 'Expected output table DBAtools.dbo.$table was not created.', 1;"
+        }
+        if ($test.ExpectedTables -contains "BlitzFirst_FileStats") {
+            $testSql += "`nEXEC(N'IF NOT EXISTS (SELECT 1 FROM DBAtools.dbo.BlitzFirst_FileStats) THROW 51000, ''No file statistics were persisted.'', 1;');"
+        }
+        $result = Invoke-SqlCmd-String -Sql $testSql -Label $test.Label
         if ($result.ExitCode -ne 0) {
             Report-SqlCmdFailure -Result $result
         } else {
