@@ -4,7 +4,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $source = Get-Content $BuildScriptPath -Raw -Encoding UTF8
-$prefix = $source.Substring(0, $source.LastIndexOf('# ═', $source.IndexOf('# STEP 1')))
+$prefix = $source.Substring(0, $source.LastIndexOf('#', $source.IndexOf('# STEP 1') - 2))
 $temp = Join-Path ([IO.Path]::GetTempPath()) ('frk-live-' + [guid]::NewGuid())
 $dir = New-Item (Join-Path $temp 'Documentation/Development') -ItemType Directory -Force
 $scriptPath = Join-Path $dir 'Prerequisite.ps1'
