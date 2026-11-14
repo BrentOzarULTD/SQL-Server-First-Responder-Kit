@@ -9,7 +9,8 @@
 
 .PARAMETER TestDatabase
     Database containing dbo.Users for the table-specific sp_BlitzIndex tests.
-    Must already exist and be online. For the FRK VM, use StackOverflow2010.
+    Must already exist, be online, and allow MULTI_USER access.
+    For the FRK VM, use StackOverflow2010.
 
 .PARAMETER Database
     Database where the procs are installed. Default: master
@@ -44,7 +45,7 @@ function Invoke-SqlCmd-String {
 
     $prevPref = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
-    $output = & sqlcmd -S $ServerInstance -E -d $Database -C -f i:65001 -i $tmpFile -b -r 1 2>&1
+    $output = & sqlcmd -S $ServerInstance -E -d $Database -C -x -f i:65001 -i $tmpFile -b -r 1 2>&1
     $exitCode = $LASTEXITCODE
     $ErrorActionPreference = $prevPref
     Remove-Item $tmpFile -ErrorAction SilentlyContinue
@@ -53,7 +54,7 @@ function Invoke-SqlCmd-String {
         Output = ($output -join "`n")
         ExitCode = $exitCode
         Label = $Label
-        Command = "sqlcmd -S `"$ServerInstance`" -E -d `"$Database`" -C -f i:65001 -i `"$tmpFile`" -b -r 1"
+        Command = "sqlcmd -S `"$ServerInstance`" -E -d `"$Database`" -C -x -f i:65001 -i `"$tmpFile`" -b -r 1"
     }
 }
 
@@ -63,7 +64,7 @@ function Invoke-SqlCmd-File {
 
     $prevPref = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
-    $output = & sqlcmd -S $ServerInstance -E -d $Database -C -f i:65001 -i $FilePath -b -r 1 2>&1
+    $output = & sqlcmd -S $ServerInstance -E -d $Database -C -x -f i:65001 -i $FilePath -b -r 1 2>&1
     $exitCode = $LASTEXITCODE
     $ErrorActionPreference = $prevPref
 
@@ -72,7 +73,7 @@ function Invoke-SqlCmd-File {
         ExitCode = $exitCode
         Label = $Label
         FilePath = $FilePath
-        Command = "sqlcmd -S `"$ServerInstance`" -E -d `"$Database`" -C -f i:65001 -i `"$FilePath`" -b -r 1"
+        Command = "sqlcmd -S `"$ServerInstance`" -E -d `"$Database`" -C -x -f i:65001 -i `"$FilePath`" -b -r 1"
     }
 }
 
@@ -148,6 +149,8 @@ $fixtureSql = @"
 DECLARE @Fixture sysname = N'$TestDatabaseSql';
 IF DB_ID(@Fixture) IS NULL OR ISNULL(CONVERT(nvarchar(60), DATABASEPROPERTYEX(@Fixture, 'Status')), N'') <> N'ONLINE'
     THROW 51000, 'The test database must exist and be online. Specify -TestDatabase.', 1;
+IF ISNULL(CONVERT(nvarchar(60), DATABASEPROPERTYEX(@Fixture, 'UserAccess')), N'') <> N'MULTI_USER'
+    THROW 51000, 'The test database must allow MULTI_USER access.', 1;
 IF OBJECT_ID(QUOTENAME(@Fixture) + N'.dbo.Users', N'U') IS NULL
     THROW 51000, 'The test database must contain dbo.Users.', 1;
 "@
@@ -364,12 +367,12 @@ EXEC dbo.sp_BlitzFirst @OutputDatabaseName = 'DBAtools',
             Sql   = "EXEC dbo.sp_BlitzIndex @GetAllDatabases = 1, @Mode = 4;"
         },
         @{
-            Label = "sp_BlitzIndex @DatabaseName = '$TestDatabase', @TableName = 'Users'"
-            Sql   = "EXEC dbo.sp_BlitzIndex @DatabaseName = N'$TestDatabaseSql', @TableName = 'Users';"
+            Label = "sp_BlitzIndex @DatabaseName = '$TestDatabase', @ObjectName = N'dbo.Users'"
+            Sql   = "EXEC dbo.sp_BlitzIndex @DatabaseName = N'$TestDatabaseSql', @ObjectName = N'dbo.Users';"
         },
         @{
-            Label = "sp_BlitzIndex @DatabaseName = '$TestDatabase', @TableName = 'Users', @AI = 2"
-            Sql   = "EXEC dbo.sp_BlitzIndex @DatabaseName = N'$TestDatabaseSql', @TableName = 'Users', @AI = 2;"
+            Label = "sp_BlitzIndex @DatabaseName = '$TestDatabase', @ObjectName = N'dbo.Users', @AI = 2"
+            Sql   = "EXEC dbo.sp_BlitzIndex @DatabaseName = N'$TestDatabaseSql', @ObjectName = N'dbo.Users', @AI = 2;"
         },
         @{
             Label = "sp_BlitzLock"
