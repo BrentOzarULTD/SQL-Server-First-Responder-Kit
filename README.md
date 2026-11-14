@@ -33,6 +33,7 @@ Navigation
    - [sp_ineachdb: Run a Command in Each Database](#sp_ineachdb-run-a-command-in-each-database)
    - [sp_BlitzUpdate: Update the First Responder Kit from GitHub](#sp_blitzupdate-update-the-first-responder-kit-from-github)
  - [Parameters Common to Many of the Stored Procedures](#parameters-common-to-many-of-the-stored-procedures)
+ - [Instructions for AI Agents](#ai-agents)
  - [License MIT](#license)
 
 You're a DBA, sysadmin, or developer who manages Microsoft SQL Servers. It's your fault if they're down or slow. These tools help you understand what's going on in your server.
@@ -959,6 +960,88 @@ SELECT
 
 [*Back to top*](#header1)
 
+
+## Instructions for AI Agents
+
+In addition to the above, here are some instructions for how to do an overall health check, an overall performance check, and a right-now performance check. All of the below should work with all supported SQL Server versions, plus Amazon RDS and Azure SQL DB (all flavors).
+
+The scripts can be installed in any database with no reduction in functionality. You can even run each of them individually without installing them as stored procedures: change the stored proc creation commands to be declares of variables (so that it uses the same starting setup parameters), and then simply execute that code.
+
+The server may already have these scripts installed in the master database or a DBA utility database. If so, check the age of it using each script's built-in version checking:
+
+```tsql
+DECLARE @VersionOutput VARCHAR(30), @VersionDateOutput DATETIME;
+EXEC sp_Blitz 
+    @Version = @VersionOutput OUTPUT, 
+    @VersionDate = @VersionDateOutput OUTPUT,
+    @VersionCheckMode = 1;
+SELECT
+    @VersionOutput AS Version, 
+    @VersionDateOutput AS VersionDate;
+```
+
+If the script is more than 2 years old, it should be updated before being relied on. Offer to install the latest version before proceeding.
+
+Use the below steps as a starting point; adapt to the platform, workload, available permissions, and observed symptoms. Concisely report your findings, and include any steps you could not complete. Recommend changes with supporting evidence. The changes should include a simple T-SQL script that can be executed against the server or database. Do not modify anything as part of the check unless the user authorizes those changes.
+
+### How to Do an Overall Health Check
+
+Run sp_Blitz @CheckServerInfo = 1. The output is prioritized so that priorities 1-49 are very urgent and need to be taken care of right away. Priorities 50 and lower (down to the 250s) are less urgent and do not require immediate action. The URL column give more context to the warnings, and can be used to help the user understand what they're up against. The Details column gives more specifics of the problem. The QueryPlan, QueryPlanFiltered, and CheckID columns are not relevant to end users.
+
+### How to Do an Overall Performance Check
+
+First, run sp_Blitz @CheckServerInfo = 1 and look for any warnings that indicate urgent performance problems, like dangerous 3rd party DLLs installed.
+
+Next, run sp_BlitzFirst @SinceStartup = 1 to get performance metrics since the server started up. Focus on the first result set at first, Wait Stats, and examine this:
+
+* The "Hours Sample" column shows how much performance data is present since the last restart. If they've had less than a couple weekdays of uptime, let them know that the performance data probably isn't reliable since it represents a short sample.
+* The "Thread Time (Hours)" column shows how much time the server has spent running queries, including parallelism. If it's less than Hours Sample, that's an indicator that the server isn't too busy.
+* The "Wait Time (Hours)" column shows how much of that Thread Time (Hours) was spent waiting on something, like CPU or storage or locks. Work from the highest wait time down, keeping the comparison time in perspective. If the server had 100 hours of Thread Time, and 80 hours of it was spent waiting on one particular wait type, then that represents a big bang for the buck opportunity for performance improvement. Waits of 1-20% just won't be as meaningful.
+* The "Number of Waits" and "Avg ms Per Wait" (ms = millisecond) help to identify if a wait has only happened a few times. For example, on a Standard Edition server, nightly index rebuilds might cause just a few instances of blocking overnight while the rebuilds run, and won't represent a high bang for the buck improvement opportunity.
+* The "wait_type" column lists the official name of the wait type, and the "URL" column links to the SQLskills wait library with more technical details on that wait type.
+
+Based on the server's top wait types, consider these actions first:
+
+* For CX% wait types like CXPACKET, CXCONSUMER, CXSYNC_PORT, etc.: make sure they have good sane defaults for Cost Threshold for Parallelism and for MAXDOP per https://www.brentozar.com/go/cxpacket. Keep in mind that MAXDOP may have been set at the database level as well.
+* For PAGEIOLATCH% wait types: look at missing index recommendations with sp_BlitzIndex @GetAllDatabases = 1, and look at high-read queries using sp_BlitzCache @SortOrder = 'reads'.
+* For SOS_SCHEDULER_YIELD wait types: look at missing index recommendations with sp_BlitzIndex @GetAllDatabases = 1, and look at high-CPU queries using sp_BlitzCache @SortOrder = 'cpu'.
+* For LCK% wait types: look at the tables experiencing blocking with sp_BlitzIndex @GetAllDatabases = 1, and run the more-info query in the more-info column for those blocking/locking tables specifically. Remove unused indexes, deduplicate the remaining indexes, and add missing indexes without creating more duplicates. Look at the output of the last result set of sp_BlitzLock, looking for which tables and which queries show up the most frequently in deadlocks.
+* For WRITELOG, DBMIRROR_SEND, and HADR_SYNC_COMMIT wait types: look at the tables getting the most writes with sp_BlitzIndex @GetAllDatabases = 1, @Mode = 2, @SortOrder = 'writes' and ask questions about why we're writing to those tables so often. Look at high-write queries with sp_BlitzCache @SortOrder = 'writes'.
+
+For other wait types, do web research favoring popular, credible performance tuning sources.
+
+In the above instructions, when you run sp_BlitzIndex, here's how to interpret the results. If the server has a large number of user databases or partitions, sp_BlitzIndex will require you to use the @BringThePain = 1 parameter. That's just to help users understand that the query will take much longer to run, based on the number of objects. It won't block others.
+
+* Priority: the findings are organized by the D.E.A.T.H. Method that Brent teaches in his training classes. Deduplicate indexes, Eliminate unused indexes, Add missing indexes, Tune indexes for specific queries, and Heaps usually need clustered indexes. However, based on your specific performance issue, you may need to jump to a specific step in that method.
+* Finding, DatabaseName, Details: the index issue
+* More Info: gives you a more-info analysis query to be run separately, targeting just that one specific table, to see more information. In those results, the 1st result set describes the indexes that already exist on the table, and the 2nd result set describes the missing indexes that SQL Server wants, including (if available) a sample query plan that is triggering those missing indexes.
+
+In the above instructions, when you run sp_BlitzCache, here's how to interpret the results:
+
+First, check the 2nd result set, looking for Priority 1 warnings. If you see Priority 1 warnings, the list of top queries in the 1st result set may not be reliable. Read the Details column and the URL contents to learn more about the specific Priority 1 issue that the workload is facing. Barring that, check out these columns in the 1st result set:
+
+* Database, Query Text, Query Type: the query involved. Note that for multi-statement batches like stored procedures, the stored procedure will show up as a whole, plus the individual statements may show up if they hit the top 10 by your chosen sort order.
+* Warnings: a comma-delimited list of anti-patterns and performance issues we found after reviewing the query plan. The 2nd result set explains each warning in more detail - look up the warning name in the Finding column.
+* Query Plan: the raw XML if available, including the last actual query plan if that feature is turned on.
+* Missing Indexes: not just the ones in the XML, but also indexes we advised creating to fix Index Spool Eager Spool issues where SQL Server doesn't create an index.
+* Cost: only useful when you're trying to pick out which specific statement in a multi-statement batch is involved.
+* Many of the other columns (Executions, CPU, Reads, etc) describe the overhead of this query.
+* Last Execution & Last Completion: the last start & end of that query's execution. Keep in mind that some queries might be overnight or weekend maintenance jobs, happening after hours, and may not impact end users. If everything in the top 10 appears to be overnight or maintenance, but the user is concerned about current performance, you can use the @MinutesBack parameter to only catch queries that have run in the last minutes, like @MinutesBack = 180 will give you the last 3 hours.
+* Query Hash, SQL Handle, Plan Handle: useful if you need to track down the queries in other repositories like Query Store.
+
+### How to Do a Right-Now Performance Check
+
+If a database is having an issue RIGHT NOW, here's what to check.
+
+First, take a 30-second sample of activity by running sp_BlitzFirst @Seconds = 30, @ExpertMode = 1. The result sets will be:
+
+* 1st result set: currently running queries, gathered via sp_BlitzWho. Check the "elapsed_time" column to see if there's a long-running query like an out of control job or a long-running maintenance job.
+* 2nd result set: "headline news" result set that gives you prioritized findings about why the SQL Server is slow right now. Use the Priority, Finding, and Details columns to see more information.
+* 3rd result set: wait stats for the 30-second sample. Use the column & wait interpretation from the above "How to Do an Overall Performance Check" section to interpret these results.
+
+There are additional result sets, but those first 3 are the ones to focus on when building your analysis.
+
+[*Back to top*](#header1)
 
 
 ## License
