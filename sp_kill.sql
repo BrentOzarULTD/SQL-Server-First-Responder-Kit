@@ -105,7 +105,7 @@ Parameters:
     Kill sessions from this application (supports LIKE wildcards).
 
   @DatabaseName NVARCHAR(256) = NULL
-    Kill sessions using this database.
+    Kill sessions using this database. Azure SQL DB is always limited to the current database.
 
   @HostName NVARCHAR(256) = NULL
     Kill sessions from this host.
@@ -190,6 +190,7 @@ For more info, visit http://FirstResponderKit.org
 		,@CallerLoginName NVARCHAR(128) = ORIGINAL_LOGIN()
 		,@CallerHostName NVARCHAR(128) = HOST_NAME()
 		,@ParametersUsed NVARCHAR(4000)
+		,@KillFailures INT = 0
 		,@KillCount INT = 0
 		,@TotalKills INT = 0
 		,@CurrentSPID INT
@@ -472,7 +473,10 @@ For more info, visit http://FirstResponderKit.org
 	+ N'
 	WHERE s.session_id <> @OurSessionID
 		AND s.session_id > 50
-		AND s.is_user_process = 1
+		AND s.is_user_process = 1'
+	+ CASE WHEN @AzureSQLDB = 1 THEN N'
+		AND s.database_id = DB_ID()
+		AND (r.session_id IS NULL OR r.database_id = DB_ID())' ELSE N'' END + N'
 	OPTION (MAXDOP 1);';
 
 	IF @Debug = 1
@@ -819,6 +823,9 @@ For more info, visit http://FirstResponderKit.org
 					SELECT 1 FROM sys.dm_exec_sessions s
 					LEFT JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
 					WHERE s.session_id = @CurrentSPID
+					AND s.is_user_process = 1
+					AND (@AzureSQLDB = 0 OR (s.database_id = DB_ID()
+					    AND (r.session_id IS NULL OR r.database_id = DB_ID())))
 					AND (
 						/* Running session: match sql_handle and start_time */
 						(r.sql_handle = @CurrentSqlHandle AND r.start_time = @CurrentStartTime)
@@ -843,6 +850,7 @@ For more info, visit http://FirstResponderKit.org
 						EXEC(@KillSQL);
 					END TRY
 					BEGIN CATCH
+						SET @KillFailures = @KillFailures + 1;
 						SET @KillError = ERROR_MESSAGE();
 						SET @msg = N'Error killing SPID ' + CAST(@CurrentSPID AS NVARCHAR(10)) + N': ' + @KillError;
 						RAISERROR(@msg, 0, 1) WITH NOWAIT;
@@ -926,5 +934,9 @@ For more info, visit http://FirstResponderKit.org
 	FROM #hitlist
 	ORDER BY KillRecommended DESC, ISNULL(OrderByNum, 2147483647), session_id;
 
+	/* Finish logging and returning results before surfacing actual KILL failures.
+	   Sessions skipped because their query changed are not KILL failures. */
+	IF @KillFailures > 0
+		RAISERROR('%d session kill(s) failed. See KillError in the results.', 16, 1, @KillFailures);
 END;
 GO

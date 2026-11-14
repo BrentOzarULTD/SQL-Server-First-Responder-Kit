@@ -156,6 +156,10 @@ for script in sp_ineachdb sp_Blitz sp_BlitzIndex; do
   fi
 done
 
+echo "=== Verifying Azure kill candidate scope ==="
+"$SQLCMD" "${SQLCMD_ARGS[@]}" -i "$REPO_ROOT/sp_kill.sql" > "$WORK_DIR/sp_kill.log" 2>&1
+"$SQLCMD" "${SQLCMD_ARGS[@]}" -i "$REPO_ROOT/.github/scripts/azure-kill-scope-regression.sql"
+
 echo "=== Verifying Azure index output ==="
 "$SQLCMD" "${SQLCMD_ARGS[@]}" -i "$REPO_ROOT/.github/scripts/azure-index-output-regression.sql"
 echo "=== Verifying Azure database include/exclude lists ==="
