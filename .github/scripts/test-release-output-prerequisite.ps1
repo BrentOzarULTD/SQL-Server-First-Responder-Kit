@@ -29,6 +29,9 @@ try {
          $global:CapturedSql -notlike '*CREATE TABLE*' -or $global:CapturedSql -notlike '*SCHEMA*') {
         throw 'DBAtools state or permissions were not validated.'
     }
+    foreach ($permission in 'CREATE TABLE', 'CREATE VIEW', 'ALTER', 'SELECT', 'INSERT', 'DELETE') {
+        if ($global:CapturedSql -notlike "*''$permission''*") { throw "Missing permission check: $permission" }
+    }
     Write-Host 'PASS: missing prerequisite stops release preparation; valid prerequisite continues.'
 } finally {
     Remove-Item $temp -Recurse -Force

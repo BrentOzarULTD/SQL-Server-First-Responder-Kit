@@ -172,8 +172,12 @@ IF ISNULL(CONVERT(nvarchar(60), DATABASEPROPERTYEX(N'DBAtools', 'Status')), N'')
     THROW 51000, 'DBAtools must be online and writable for release output tests.', 1;
 EXEC(N'USE DBAtools;
 IF ISNULL(HAS_PERMS_BY_NAME(DB_NAME(), ''DATABASE'', ''CREATE TABLE''), 0) <> 1
+    OR ISNULL(HAS_PERMS_BY_NAME(DB_NAME(), ''DATABASE'', ''CREATE VIEW''), 0) <> 1
     OR ISNULL(HAS_PERMS_BY_NAME(N''dbo'', ''SCHEMA'', ''ALTER''), 0) <> 1
-    THROW 51000, ''Release tests require CREATE TABLE and ALTER on schema dbo in DBAtools.'', 1;');
+    OR ISNULL(HAS_PERMS_BY_NAME(N''dbo'', ''SCHEMA'', ''SELECT''), 0) <> 1
+    OR ISNULL(HAS_PERMS_BY_NAME(N''dbo'', ''SCHEMA'', ''INSERT''), 0) <> 1
+    OR ISNULL(HAS_PERMS_BY_NAME(N''dbo'', ''SCHEMA'', ''DELETE''), 0) <> 1
+    THROW 51000, ''Release tests require CREATE TABLE, CREATE VIEW, and ALTER, SELECT, INSERT, DELETE on schema dbo in DBAtools.'', 1;');
 "@
 if ($outputPrerequisite.ExitCode -ne 0) {
     Report-SqlCmdFailure -Result $outputPrerequisite
