@@ -9,19 +9,35 @@ DROP TABLE IF EXISTS dbo.BlitzLock;
 GO
 EXEC dbo.sp_BlitzCache @SortOrder = 'all';
 GO
-EXEC dbo.sp_BlitzCache @OutputSchemaName = 'dbo', @OutputTableName = 'BlitzCache';
+DECLARE @OutputDatabase sysname = DB_NAME();
+EXEC dbo.sp_BlitzCache @OutputDatabaseName = @OutputDatabase, @OutputSchemaName = 'dbo', @OutputTableName = 'BlitzCache';
+IF OBJECT_ID(N'dbo.BlitzCache', N'U') IS NULL
+    THROW 51000, 'sp_BlitzCache did not create its output table.', 1;
 GO
 EXEC dbo.sp_BlitzFirst @Seconds = 5, @ExpertMode = 1;
 GO
 EXEC dbo.sp_BlitzFirst @SinceStartup = 1;
 GO
-EXEC dbo.sp_BlitzFirst @OutputSchemaName = 'dbo',
+DECLARE @OutputDatabase sysname = DB_NAME();
+EXEC dbo.sp_BlitzFirst @OutputDatabaseName = @OutputDatabase, @OutputSchemaName = 'dbo',
                        @OutputTableName = 'BlitzFirst',
                        @OutputTableNameFileStats = 'BlitzFirst_FileStats',
                        @OutputTableNamePerfmonStats = 'BlitzFirst_PerfmonStats',
                        @OutputTableNameWaitStats = 'BlitzFirst_WaitStats',
                        @OutputTableNameBlitzCache = 'BlitzCache',
                        @OutputTableNameBlitzWho = 'BlitzWho';
+IF EXISTS
+(
+    SELECT 1 FROM (VALUES (N'BlitzFirst'), (N'BlitzFirst_FileStats'),
+        (N'BlitzFirst_PerfmonStats'), (N'BlitzFirst_WaitStats'),
+        (N'BlitzCache'), (N'BlitzWho')) AS expected(name)
+    WHERE OBJECT_ID(N'dbo.' + QUOTENAME(expected.name), N'U') IS NULL
+)
+    THROW 51000, 'sp_BlitzFirst did not create all requested output tables.', 1;
+/* Session/wait/cache outputs may be empty on an idle database. File statistics
+   must contain at least one sample, so also prove that rows were persisted. */
+EXEC(N'IF NOT EXISTS (SELECT 1 FROM dbo.BlitzFirst_FileStats)
+    THROW 51000, ''sp_BlitzFirst did not persist file statistics.'', 1;');
 GO
 EXEC dbo.sp_BlitzIndex @Mode = 0;
 GO
