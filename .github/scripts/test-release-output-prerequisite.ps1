@@ -24,7 +24,7 @@ try {
     try { & $scriptPath  } catch { $failed = $_.Exception.Message -like '*prerequisite failed*' }
     if (-not $failed) { throw 'Missing prerequisite did not stop release preparation.' }
     $global:NativeExit = 0
-    & $scriptPath 
+    & $scriptPath
     if ($global:CapturedSql -notlike "*DB_ID(N'DBAtools')*" -or $global:CapturedSql -notlike '*READ_WRITE*' -or
          $global:CapturedSql -notlike '*CREATE TABLE*' -or $global:CapturedSql -notlike '*SCHEMA*') {
         throw 'DBAtools state or permissions were not validated.'
