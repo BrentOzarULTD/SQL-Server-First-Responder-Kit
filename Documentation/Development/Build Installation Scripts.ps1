@@ -44,7 +44,7 @@ function Invoke-SqlCmd-String {
 
     $prevPref = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
-    $output = & sqlcmd -S $ServerInstance -E -d $Database -C -i $tmpFile -b -r 1 2>&1
+    $output = & sqlcmd -S $ServerInstance -E -d $Database -C -f i:65001 -i $tmpFile -b -r 1 2>&1
     $exitCode = $LASTEXITCODE
     $ErrorActionPreference = $prevPref
     Remove-Item $tmpFile -ErrorAction SilentlyContinue
@@ -53,7 +53,7 @@ function Invoke-SqlCmd-String {
         Output = ($output -join "`n")
         ExitCode = $exitCode
         Label = $Label
-        Command = "sqlcmd -S `"$ServerInstance`" -E -d `"$Database`" -C -i `"$tmpFile`" -b -r 1"
+        Command = "sqlcmd -S `"$ServerInstance`" -E -d `"$Database`" -C -f i:65001 -i `"$tmpFile`" -b -r 1"
     }
 }
 
@@ -63,7 +63,7 @@ function Invoke-SqlCmd-File {
 
     $prevPref = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
-    $output = & sqlcmd -S $ServerInstance -E -d $Database -C -i $FilePath -b -r 1 2>&1
+    $output = & sqlcmd -S $ServerInstance -E -d $Database -C -f i:65001 -i $FilePath -b -r 1 2>&1
     $exitCode = $LASTEXITCODE
     $ErrorActionPreference = $prevPref
 
@@ -72,7 +72,7 @@ function Invoke-SqlCmd-File {
         ExitCode = $exitCode
         Label = $Label
         FilePath = $FilePath
-        Command = "sqlcmd -S `"$ServerInstance`" -E -d `"$Database`" -C -i `"$FilePath`" -b -r 1"
+        Command = "sqlcmd -S `"$ServerInstance`" -E -d `"$Database`" -C -f i:65001 -i `"$FilePath`" -b -r 1"
     }
 }
 

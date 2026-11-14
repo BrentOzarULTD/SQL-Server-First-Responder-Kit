@@ -13,6 +13,8 @@ Set-Content $scriptPath $prefix
 $global:CapturedSql = ''
 $global:NativeExit = 1
 function sqlcmd {
+    $encodingIndex = [array]::IndexOf($args, '-f') + 1
+    if ($encodingIndex -eq 0 -or $args[$encodingIndex] -ne 'i:65001') { throw 'sqlcmd input encoding must be UTF-8.' }
     $fileIndex = [array]::IndexOf($args, '-i') + 1
     $global:CapturedSql = Get-Content $args[$fileIndex] -Raw
     $global:LASTEXITCODE = $global:NativeExit
@@ -27,6 +29,9 @@ try {
     if ($global:CapturedSql -notlike "*N'StackOverflow''雪]'*" -or $global:CapturedSql -notlike '*dbo.Users*') {
         throw 'Fixture identifier was not escaped or dbo.Users was not validated.'
     }
+    . $scriptPath -TestDatabase "StackOverflow'雪]"
+    $fileResult = Invoke-SqlCmd-File -FilePath $scriptPath -Label 'File encoding'
+    if ($fileResult.Command -notlike '*-f i:65001*') { throw 'Logged file command omits encoding.' }
     Write-Host 'PASS: missing prerequisite stops release preparation; valid prerequisite continues.'
 } finally {
     Remove-Item $temp -Recurse -Force
