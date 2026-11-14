@@ -30,14 +30,15 @@ ALTER PROCEDURE [dbo].[sp_ineachdb]
   @VersionDate          datetime       = NULL OUTPUT,
   @VersionCheckMode     bit            = 0,
   @is_ag_writeable_copy bit            = 0,
-  @is_query_store_on	bit            = NULL
+  @is_query_store_on	bit            = NULL,
+  @database_order       nvarchar(10)   = NULL -- DEFAULT = ID order, NAME = alphabetical order
 -- WITH EXECUTE AS OWNER – maybe not a great idea, depending on the security of your system
 AS
 BEGIN
   SET NOCOUNT ON;
   SET STATISTICS XML OFF;
 
-  SELECT @Version = '8.34', @VersionDate = '20260702';
+  SELECT @Version = '8.35', @VersionDate = '20261114';
   
   IF(@VersionCheckMode = 1)
   BEGIN
@@ -96,12 +97,12 @@ BEGIN
 		RETURN -1;
 	END
 
-  DECLARE @exec   nvarchar(150),
+  DECLARE @exec   nvarchar(276),
           @sx     nvarchar(18) = N'.sys.sp_executesql',
           @db     sysname,
-          @dbq    sysname,
+          @dbq    nvarchar(258),
           @cmd    nvarchar(max),
-          @thisdb sysname,
+          @thisdb nvarchar(258),
           @cr     char(2) = CHAR(13) + CHAR(10),
 		  @SQLVersion	AS tinyint = (@@microsoftversion / 0x1000000) & 0xff,	     -- Stores the SQL Server Version Number(8(2000),9(2005),10(2008 & 2008R2),11(2012),12(2014),13(2016),14(2017),15(2019)
 		  @ServerName	AS sysname = CONVERT(sysname, SERVERPROPERTY('ServerName')), -- Stores the SQL Server Instance name.
@@ -182,15 +183,6 @@ BEGIN
 3)If we find a [, we begin to accumulate the result until we reach closing ], (jumping over escaped ]]).
 4)Finally, tabs, line breaks and spaces are removed from unquoted names
 */
-IF @IsAzureSqlDb = 1
-BEGIN
-  /* Azure SQL DB: the session is bound to one user database. Seed with it and
-     let the downstream filter DELETEs decide whether it survives. */
-  INSERT #ineachdb(id, name, is_distributor)
-  SELECT DB_ID(), DB_NAME(), 0;
-END
-ELSE
-BEGIN
 ;WITH C
 AS (SELECT V.SrcList
          , CAST('' AS nvarchar(MAX)) AS Name
@@ -237,13 +229,21 @@ INSERT #ineachdb(id,name,is_distributor)
 SELECT d.database_id
      , d.name
      , d.is_distributor
-FROM sys.databases AS d
+FROM
+(
+  SELECT database_id, name, is_distributor
+  FROM sys.databases
+  WHERE @IsAzureSqlDb = 0
+  UNION ALL
+  /* Azure SQL DB can only execute commands in the current database. */
+  SELECT DB_ID(), DB_NAME(), 0
+  WHERE @IsAzureSqlDb = 1
+) AS d
 WHERE (   EXISTS (SELECT NULL FROM F WHERE F.name = d.name AND F.SrcList = 'In')
           OR @database_list IS NULL)
       AND NOT EXISTS (SELECT NULL FROM F WHERE F.name = d.name AND F.SrcList = 'Out')
 OPTION (MAXRECURSION 0);
-END
-;
+
   -- next, let's delete any that *don't* match various criteria passed in
   DELETE dbs FROM #ineachdb AS dbs
   WHERE (@system_only = 1 AND (id NOT IN (1,2,3,4) AND is_distributor <> 1))
@@ -354,7 +354,10 @@ END
   -- ok, now, let's go through what we have left
   DECLARE dbs CURSOR LOCAL FAST_FORWARD
     FOR SELECT DB_NAME(id), QUOTENAME(DB_NAME(id))
-    FROM #ineachdb;
+    FROM #ineachdb
+	ORDER BY
+		CASE @database_order WHEN N'NAME' THEN name END ASC -- fall back to ID order
+		, id ASC;
 
   OPEN dbs;
 
@@ -483,7 +486,7 @@ BEGIN
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '8.34', @VersionDate = '20260702';
+	SELECT @Version = '8.35', @VersionDate = '20261114';
 	SET @OutputType = UPPER(@OutputType);
 
     IF(@VersionCheckMode = 1)
@@ -606,6 +609,11 @@ BEGIN
 			,@IsWindowsOperatingSystem BIT
 			-- Flag for Azure SQL Database (EngineEdition 5) - used to skip incompatible checks and guard email / linked-server output paths
 			,@IsAzureSQLDB BIT
+			/* Helpers for cross-database checks that have to be executed dynamically
+			   so that Azure SQL DB can compile this module at all. Issue #4040. */
+			,@CrossDBExists BIT
+			,@CrossDBCount INT
+			,@CrossDBDate DATETIME
 			,@DaysUptime NUMERIC(23,2)
             /* For First Responder Kit consistency check:*/
             ,@spBlitzFullName                VARCHAR(1024)
@@ -644,9 +652,8 @@ BEGIN
 			,@SkipXPFixedDrives bit = 0
 			,@SkipXPCMDShell bit = 0
 			,@SkipMaster bit = 0
-			,@SkipMSDB_objs bit = 0
-            ,@SkipMSDB_jobs bit = 0
-			,@SkipModel bit = 0
+            ,@PermissionObjectName NVARCHAR(776)
+            ,@PermissionColumnList NVARCHAR(1000)
 			,@SkipTempDB bit = 0
 			,@SkipValidateLogins bit = 0
       ,@SkipGetAlertInfo bit = 0
@@ -667,10 +674,19 @@ BEGIN
             SELECT
                 database_name =
 				    DB_NAME(d.database_id),
-                fmp.permission_name
+                permission_name = N'SELECT'
             FROM sys.databases AS d
-            CROSS APPLY fn_my_permissions(d.name, 'DATABASE') AS fmp
-            WHERE fmp.permission_name = N'SELECT'; /*Databases where we don't have read permissions*/
+            /* fn_my_permissions evaluates DATABASE permissions in the current database.
+               HAS_PERMS_BY_NAME can evaluate the named database from here. #4194 */
+            WHERE HAS_PERMS_BY_NAME(d.name, N'DATABASE', N'SELECT') = 1;
+
+            DECLARE @CheckReadPermissions TABLE
+            (
+                CheckID INT NOT NULL,
+                ObjectName NVARCHAR(776) NOT NULL,
+                ColumnList NVARCHAR(1000) NOT NULL,
+                CanSelect BIT NOT NULL DEFAULT (0)
+            );
             
             /* End of declarations for First Responder Kit consistency check:*/
         ;
@@ -790,99 +806,87 @@ BEGIN
 			    SET @SkipGetAlertInfo = 1;
 			END; /*Need execute on sp_MSgetalertinfo*/
 
-			IF ISNULL(@SkipModel, 0) != 1 /*If @SkipModel hasn't been set to 1 by the caller*/
-			BEGIN
-				IF EXISTS
-            	(
-            	    SELECT 1/0
-            	    FROM @db_perms
-            	    WHERE database_name = N'model'
-            	)
-            	BEGIN
-            	    BEGIN TRY
-            	        IF EXISTS
-            	        (
-            	            SELECT 1/0
-            	            FROM model.sys.objects
-            	        )
-            	        BEGIN
-                            SET @SkipModel = 0; /*We have read permissions in the model database, and can view the objects*/
-            	        END;
-            	    END TRY
-            	    BEGIN CATCH
-            	        SET @SkipModel = 1; /*We have read permissions in the model database ... oh wait we got tricked, we can't view the objects*/
-            	    END CATCH;
-            	END;
-            	ELSE
-            	BEGIN
-            	    SET @SkipModel = 1; /*We don't have read permissions in the model database*/
-            	END;
-			END;
+            /* These checks read specific objects, so database-wide SELECT is not
+               a prerequisite. Keep each check disabled until all of its reads succeed.
+               Probe empty tables too: the presence of rows is not a permission test. */
+            INSERT @CheckReadPermissions (CheckID, ObjectName, ColumnList)
+            VALUES
+                (28, N'[msdb].[sys].[tables]', N'name, create_date, is_ms_shipped'),
+                (29, N'[model].[sys].[tables]', N'name, create_date, is_ms_shipped'),
+                (6, N'[msdb].[dbo].[sysjobs]', N'name, enabled, owner_sid'),
+                (57, N'[msdb].[dbo].[sysjobs]', N'job_id, name'),
+                (57, N'[msdb].[dbo].[sysjobschedules]', N'schedule_id, job_id'),
+                (57, N'[msdb].[dbo].[sysschedules]', N'schedule_id, freq_type, enabled'),
+                (79, N'[msdb].[dbo].[sysjobs]', N'job_id, name, enabled'),
+                (79, N'[msdb].[dbo].[sysjobsteps]', N'job_id, step_id, step_name, command'),
+                (79, N'[msdb].[dbo].[sysjobschedules]', N'job_id, schedule_id'),
+                (79, N'[msdb].[dbo].[sysschedules]', N'schedule_id, enabled, name'),
+                (79, N'[msdb].[dbo].[sysjobhistory]', N'job_id, step_id, run_date, run_time'),
+                (94, N'[msdb].[dbo].[sysjobs]', N'job_id, name, enabled, notify_email_operator_id, notify_netsend_operator_id, notify_page_operator_id, category_id'),
+                (94, N'[msdb].[dbo].[sysjobhistory]', N'instance_id, job_id, run_status, step_id, run_date, run_time'),
+                (123, N'[msdb].[dbo].[sysjobactivity]', N'start_execution_date'),
+                (180, N'[msdb].[dbo].[sysssispackages]', N'name, id, packagedata, packagetype'),
+                (180, N'[msdb].[dbo].[sysmaintplan_subplans]', N'plan_id, job_id'),
+                (180, N'[msdb].[dbo].[sysjobs]', N'job_id, enabled'),
+                (180, N'[msdb].[dbo].[sysjobsteps]', N'job_id, step_id'),
+                (180, N'[msdb].[dbo].[sysjobschedules]', N'job_id, schedule_id'),
+                (180, N'[msdb].[dbo].[sysschedules]', N'schedule_id, enabled, name'),
+                (180, N'[msdb].[dbo].[sysjobhistory]', N'job_id, step_id, run_date, run_time'),
+                (181, N'[msdb].[dbo].[sysssispackages]', N'name, packagedata, packagetype'),
+                (30, N'[msdb].[dbo].[sysalerts]', N'severity'),
+                (59, N'[msdb].[dbo].[sysalerts]', N'enabled, has_notification, job_id'),
+                (61, N'[msdb].[dbo].[sysalerts]', N'severity'),
+                (96, N'[msdb].[dbo].[sysalerts]', N'message_id'),
+                (98, N'[msdb].[dbo].[sysalerts]', N'name, enabled'),
+                (219, N'[msdb].[dbo].[sysalerts]', N'name, enabled, include_event_description'),
+                (31, N'[msdb].[dbo].[sysoperators]', N'enabled');
 
-			IF ISNULL(@SkipMSDB_objs, 0) != 1 /*If @SkipMSDB_objs hasn't been set to 1 by the caller*/
-			BEGIN
-				IF EXISTS
-				(
-					SELECT	1/0
-            	    FROM	@db_perms
-            	    WHERE	database_name = N'msdb'
-				)
-				BEGIN
-					BEGIN TRY
-						IF EXISTS
-						(
-            	            SELECT	1/0
-            	            FROM	msdb.sys.objects
-						)
-						BEGIN
-							SET @SkipMSDB_objs = 0; /*We have read permissions in the msdb database, and can view the objects*/
-						END;
-					END TRY
-					BEGIN CATCH
-						SET @SkipMSDB_objs = 1; /*We have read permissions in the msdb database ... oh wait we got tricked, we can't view the objects*/
-					END CATCH;
-				END;
-				ELSE
-				BEGIN
-					SET @SkipMSDB_objs = 1; /*We don't have read permissions in the msdb database*/
-				END;
-			END;
+            /* Cross-database names stay dynamic for Azure SQL DB compilation. #4040 */
+            IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5
+            BEGIN
+                DECLARE CheckReadPermissionsCursor CURSOR LOCAL FAST_FORWARD FOR
+                    SELECT DISTINCT ObjectName, ColumnList
+                    FROM @CheckReadPermissions;
 
-            IF ISNULL(@SkipMSDB_jobs, 0) != 1 /*If @SkipMSDB_jobs hasn't been set to 1 by the caller*/
-			BEGIN
-				IF EXISTS
-				(
-					SELECT	1/0
-            	    FROM	@db_perms
-            	    WHERE	database_name = N'msdb'
-				)
-				BEGIN
-					BEGIN TRY
-						IF EXISTS
-						(
-            	            SELECT	1/0
-            	            FROM	msdb.dbo.sysjobs
-						)
-						BEGIN
-							SET @SkipMSDB_jobs = 0; /*We have read permissions in the msdb database, and can view the objects*/
-						END;
-					END TRY
-					BEGIN CATCH
-						SET @SkipMSDB_jobs = 1; /*We have read permissions in the msdb database ... oh wait we got tricked, we can't view the objects*/
-					END CATCH;
-				END;
-				ELSE
-				BEGIN
-					SET @SkipMSDB_jobs = 1; /*We don't have read permissions in the msdb database*/
-				END;
-			END;
+                OPEN CheckReadPermissionsCursor;
+                FETCH NEXT FROM CheckReadPermissionsCursor INTO @PermissionObjectName, @PermissionColumnList;
+
+                WHILE @@FETCH_STATUS = 0
+                BEGIN
+                    BEGIN TRY
+                        /* SELECT INTO consumes the projection without returning a result set.
+                           Its dynamic-scope temp table is dropped when the batch ends.
+                           Name every required column so column grants and DENYs count. */
+                        SET @StringToExecute = N'SELECT TOP (0) ' + @PermissionColumnList
+                            + N' INTO #BlitzPermissionProbe FROM ' + @PermissionObjectName + N';';
+                        EXEC sys.sp_executesql @StringToExecute;
+
+                        UPDATE @CheckReadPermissions
+                        SET CanSelect = 1
+                        WHERE ObjectName = @PermissionObjectName
+                          AND ColumnList = @PermissionColumnList;
+                    END TRY
+                    BEGIN CATCH
+                        /* Leave checks requiring this object disabled on a failed read. */
+                        UPDATE @CheckReadPermissions
+                        SET CanSelect = 0
+                        WHERE ObjectName = @PermissionObjectName
+                          AND ColumnList = @PermissionColumnList;
+                    END CATCH;
+
+                    FETCH NEXT FROM CheckReadPermissionsCursor INTO @PermissionObjectName, @PermissionColumnList;
+                END;
+
+                CLOSE CheckReadPermissionsCursor;
+                DEALLOCATE CheckReadPermissionsCursor;
+            END;
 		END;
 
 		SET @crlf = NCHAR(13) + NCHAR(10);
 		SET @ResultText = 'sp_Blitz Results: ' + @crlf;
 
 		/* Last startup */
-		SELECT @DaysUptime = CAST(DATEDIFF(HOUR, create_date, GETDATE()) / 24. AS NUMERIC(23, 2))
+		SELECT @DaysUptime = CAST(DATEDIFF(HOUR, create_date, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) / 24. AS NUMERIC(23, 2))
 		FROM   sys.databases
 		WHERE  database_id = 2;
 		
@@ -1025,44 +1029,11 @@ BEGIN
 			WHERE dp.database_name = DB_NAME(d.database_id)
 		);
 
-		/*Skip individual checks where we don't have permissions*/
-        INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
-        SELECT
-            v.*
-        FROM (VALUES(NULL, 29, NULL)) AS v (DatabaseName, CheckID, ServerName) /*Looks for user tables in model*/
-        WHERE @SkipModel = 1;
-
-		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
-		SELECT
-			v.*
-		FROM (VALUES(NULL,  28, NULL)) AS v (DatabaseName, CheckID, ServerName) /*Tables in the MSDB Database*/
-		WHERE @SkipMSDB_objs = 1;
-
-        INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
-		SELECT
-			v.*
-		FROM (VALUES
-					/*sysjobs checks*/
-					(NULL,   6, NULL), /*Jobs Owned By Users*/
-					(NULL,  57, NULL), /*SQL Agent Job Runs at Startup*/
-					(NULL,  79, NULL), /*Shrink Database Job*/
-					(NULL,  94, NULL), /*Agent Jobs Without Failure Emails*/
-					(NULL, 123, NULL), /*Agent Jobs Starting Simultaneously*/
-					(NULL, 180, NULL), /*Shrink Database Step In Maintenance Plan*/
-					(NULL, 181, NULL), /*Repetitive Maintenance Tasks*/
-					
-					/*sysalerts checks*/
-					(NULL,  30, NULL), /*Not All Alerts Configured*/
-					(NULL,  59, NULL), /*Alerts Configured without Follow Up*/
-                    (NULL,  61, NULL), /*No Alerts for Sev 19-25*/
-					(NULL,  96, NULL), /*No Alerts for Corruption*/
-					(NULL,  98, NULL), /*Alerts Disabled*/
-					(NULL, 219, NULL), /*Alerts Without Event Descriptions*/
-
-					/*sysoperators*/
-					(NULL,  31, NULL)  /*No Operators Configured/Enabled*/
-            ) AS v (DatabaseName, CheckID, ServerName)
-		WHERE @SkipMSDB_jobs = 1;
+        /* Skip only checks whose required object reads failed. #4194 */
+        INSERT #SkipChecks (CheckID)
+        SELECT DISTINCT CheckID
+        FROM @CheckReadPermissions
+        WHERE CanSelect = 0;
 
 		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
 		SELECT
@@ -1091,7 +1062,7 @@ BEGIN
 		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
 		SELECT
 		    v.*
-		FROM (VALUES(NULL, 211, NULL)) AS v (DatabaseName, CheckID, ServerName) /*xp_regread*/
+		FROM (VALUES(NULL, 211, NULL), (NULL, 277, NULL)) AS v (DatabaseName, CheckID, ServerName) /*xp_regread*/
 		WHERE @sa = 0;
 
 		INSERT #SkipChecks (DatabaseName, CheckID, ServerName)
@@ -1214,13 +1185,21 @@ BEGIN
 					'https://www.BrentOzar.com/blitz/' AS URL ,
 					'Since you have databases with compatibility_level < 90, we can''t run @CheckUserDatabaseObjects = 1. To find them: SELECT * FROM sys.databases WHERE compatibility_level < 90' AS Details;
 		END;
+		/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+		SET @CrossDBExists = 0;
+		IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+		BEGIN
+		EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS (SELECT * FROM master.sys.all_objects WHERE name IN (''rds_startup_tasks'', ''rds_help_revlogin'', ''rds_hexadecimal'', ''rds_failover_tracking'', ''rds_database_tracking'', ''rds_track_change''));',
+		    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+		END;
+
 
 		/* --TOURSTOP08-- */
 		/* If the server is Amazon RDS, skip checks that it doesn't allow */
 		IF LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
 		   AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
 		   AND db_id('rdsadmin') IS NOT NULL
-		   AND EXISTS(SELECT * FROM master.sys.all_objects WHERE name IN ('rds_startup_tasks', 'rds_help_revlogin', 'rds_hexadecimal', 'rds_failover_tracking', 'rds_database_tracking', 'rds_track_change'))
+		   AND (@CrossDBExists = 1)
 			BEGIN
 						INSERT INTO #SkipChecks (CheckID) VALUES (6); /* Security - Jobs Owned By Users per https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1919 */
 						INSERT INTO #SkipChecks (CheckID) VALUES (29); /* tables in model database created by users - not allowed */
@@ -1240,6 +1219,7 @@ BEGIN
 
 						INSERT INTO #SkipChecks (CheckID) VALUES (211); /* xp_regread not allowed - checking for power saving */
 						INSERT INTO #SkipChecks (CheckID) VALUES (212); /* xp_regread not allowed - checking for additional instances */
+						INSERT INTO #SkipChecks (CheckID) VALUES (277); /* xp_regread not allowed - checking for Virtualization-Based Security */
 						INSERT INTO #SkipChecks (CheckID) VALUES (2301); /* sp_validatelogins called by Invalid login defined with Windows Authentication */
 
 						-- Following are skipped due to limited permissions in msdb/SQLAgent in RDS
@@ -1315,6 +1295,7 @@ BEGIN
 						INSERT INTO #SkipChecks (CheckID) VALUES (192);  /* IFI can not be set for data files and is always used for log files in MI */
 						INSERT INTO #SkipChecks (CheckID) VALUES (199);  /* Default trace, details here: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1481 */
 						INSERT INTO #SkipChecks (CheckID) VALUES (211);  /*Power Plan */
+						INSERT INTO #SkipChecks (CheckID) VALUES (277);  /* Virtualization-Based Security - xp_regread not available */
 						INSERT INTO #SkipChecks (CheckID, DatabaseName) VALUES (80, 'master');  /* Max file size set */
 						INSERT INTO #SkipChecks (CheckID, DatabaseName) VALUES (80, 'model');  /* Max file size set */
 						INSERT INTO #SkipChecks (CheckID, DatabaseName) VALUES (80, 'msdb');  /* Max file size set */
@@ -1381,6 +1362,34 @@ BEGIN
 						INSERT INTO #SkipChecks (CheckID) VALUES (74);   /* Trace flags - DBCC TRACESTATUS */
 						INSERT INTO #SkipChecks (CheckID) VALUES (97);   /* Unusual SQL Server Edition */
 						INSERT INTO #SkipChecks (CheckID) VALUES (2301); /* sp_validatelogins */
+						INSERT INTO #SkipChecks (CheckID) VALUES (8);   /* sys.dm_server_audit_status is not available on Azure SQL DB */
+						INSERT INTO #SkipChecks (CheckID) VALUES (11);  /* uses sys.server_triggers which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (34);  /* uses sys.dm_db_mirroring_auto_page_repair which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (37);  /* uses sys.master_files which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (49);  /* uses sys.linked_logins, sys.servers which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (51);  /* uses sys.dm_os_sys_memory which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (75);  /* uses sys.master_files which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (83);  /* uses sys.dm_server_services which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (89);  /* uses sys.dm_hadr_auto_page_repair which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (104); /* uses sys.server_permissions which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (106); /* uses sys.master_files, sys.traces which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (111); /* uses sys.database_mirroring which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (119); /* reads master.sys.certificates */
+						INSERT INTO #SkipChecks (CheckID) VALUES (148); /* uses sys.master_files which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (149); /* uses sys.fn_trace_gettable, sys.master_files which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (166); /* uses sys.dm_server_services, sys.xp_readerrorlog which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (174); /* uses sys.dm_os_buffer_pool_extension_configuration which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (175); /* sys.master_files is not available on Azure SQL DB */
+						INSERT INTO #SkipChecks (CheckID) VALUES (176); /* uses sys.dm_xe_sessions which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (179); /* uses sys.dm_os_loaded_modules which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (184); /* uses sys.dm_os_cluster_nodes which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (187); /* uses sys.database_mirroring_endpoints, sys.dm_server_services which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (191); /* uses sys.master_files which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (213); /* SUSER_SNAME cannot be invoked with parameters on Azure SQL DB */
+						INSERT INTO #SkipChecks (CheckID) VALUES (235); /* per-database command joins master.sys.databases, which Azure SQL DB forbids */
+						INSERT INTO #SkipChecks (CheckID) VALUES (256); /* reads master.sys.databases, which Azure SQL DB forbids */
+						INSERT INTO #SkipChecks (CheckID) VALUES (266); /* uses sys.servers which Azure SQL DB does not have */
+						INSERT INTO #SkipChecks (CheckID) VALUES (271); /* uses sys.master_files which Azure SQL DB does not have */
 
 						/* File layout / tempdb - cannot read tempdb or system DBs cross-DB from a user DB, and sys.master_files is unavailable */
 						INSERT INTO #SkipChecks (CheckID) VALUES (21);  /* Database encrypted - always true on Azure SQL DB */
@@ -1405,6 +1414,7 @@ BEGIN
 						INSERT INTO #SkipChecks (CheckID) VALUES (199); /* Default trace */
 						INSERT INTO #SkipChecks (CheckID) VALUES (211); /* Power plan - xp_regread */
 						INSERT INTO #SkipChecks (CheckID) VALUES (212); /* Additional instances - xp_regread */
+						INSERT INTO #SkipChecks (CheckID) VALUES (277); /* Virtualization-Based Security - xp_regread */
 						INSERT INTO #SkipChecks (CheckID) VALUES (224); /* SSRS/SSAS/SSIS Installed */
 						INSERT INTO #SkipChecks (CheckID) VALUES (258); /* SQL Server service running as LocalSystem */
 						INSERT INTO #SkipChecks (CheckID) VALUES (259); /* Agent service running as LocalSystem */
@@ -1447,10 +1457,10 @@ BEGIN
 
         DROP TABLE IF EXISTS #Recompile;
         CREATE TABLE #Recompile(
-            DBName varchar(200),
-            ProcName varchar(300),
+            DBName nvarchar(128),
+            ProcName nvarchar(128),
             RecompileFlag varchar(1),
-            SPSchema varchar(50)
+            SPSchema nvarchar(128)
         );
 
 		DROP TABLE IF EXISTS #DatabaseDefaults;
@@ -1672,7 +1682,7 @@ BEGIN
 
 		IF @Debug IN (1, 2) RAISERROR('Setting @MsSinceWaitsCleared', 0, 1) WITH NOWAIT;
 
-        SELECT @MsSinceWaitsCleared = DATEDIFF(MINUTE, create_date, CURRENT_TIMESTAMP) * 60000.0
+        SELECT @MsSinceWaitsCleared = DATEDIFF(MINUTE, create_date, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE CURRENT_TIMESTAMP END)) * 60000.0
             FROM    sys.databases
             WHERE   name = 'tempdb';
 
@@ -1683,7 +1693,6 @@ BEGIN
 				IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 185) WITH NOWAIT;
 
 				SET @MsSinceWaitsCleared = (SELECT MAX(wait_time_ms) FROM sys.dm_os_wait_stats WHERE wait_type IN ('SP_SERVER_DIAGNOSTICS_SLEEP', 'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP', 'REQUEST_FOR_DEADLOCK_SEARCH', 'HADR_FILESTREAM_IOMGR_IOCOMPLETION', 'LAZYWRITER_SLEEP', 'SQLTRACE_INCREMENTAL_FLUSH_SLEEP', 'DIRTY_PAGE_POLL', 'LOGMGR_QUEUE'));
-				IF @MsSinceWaitsCleared = 0 SET @MsSinceWaitsCleared = 1;
 				INSERT  INTO #BlitzResults
 						(   CheckID ,
 							Priority ,
@@ -1701,6 +1710,9 @@ BEGIN
 									+ CONVERT(NVARCHAR(100), 
 										DATEADD(MINUTE, (-1. * (@MsSinceWaitsCleared) / 1000. / 60.), GETDATE()), 120));
 			END;
+
+		/* Uptime can round down to zero during the first minute after startup. */
+		IF @MsSinceWaitsCleared = 0 SET @MsSinceWaitsCleared = 1;
 
 		/* @CpuMsSinceWaitsCleared is used for waits stats calculations */
 		
@@ -1825,6 +1837,10 @@ BEGIN
 
                         IF SERVERPROPERTY('EngineEdition') <> 8 /* Azure Managed Instances need a special query */
                             BEGIN
+						    /* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						    IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						    BEGIN
+						    EXEC sys.sp_executesql N'
 						    INSERT  INTO #BlitzResults
 								    ( CheckID ,
 								      DatabaseName ,
@@ -1837,15 +1853,15 @@ BEGIN
 								    SELECT  1 AS CheckID ,
 										    d.[name] AS DatabaseName ,
 										    1 AS Priority ,
-										    'Backup' AS FindingsGroup ,
-										    'Backups Not Performed Recently' AS Finding ,
-										    'https://www.brentozar.com/go/nobak' AS URL ,
-										    'Last backed up: '
-										    + COALESCE(CAST(MAX(b.backup_finish_date) AS VARCHAR(25)),'never') AS Details
+										    ''Backup'' AS FindingsGroup ,
+										    ''Backups Not Performed Recently'' AS Finding ,
+										    ''https://www.brentozar.com/go/nobak'' AS URL ,
+										    ''Last backed up: ''
+										    + COALESCE(CAST(MAX(b.backup_finish_date) AS VARCHAR(25)),''never'') AS Details
 								    FROM    master.sys.databases d
 										    LEFT OUTER JOIN msdb.dbo.backupset b ON d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
-																      AND b.type = 'D'
-																      AND b.server_name = SERVERPROPERTY('ServerName') /*Backupset ran on current server  */
+																      AND b.type = ''D''
+																      AND b.server_name = SERVERPROPERTY(''ServerName'') /*Backupset ran on current server  */
 								    WHERE   d.database_id <> 2  /* Bonus points if you know what that means */
 										    AND d.state NOT IN(1, 6, 10) /* Not currently offline or restoring, like log shipping databases */
 										    AND d.is_in_standby = 0 /* Not a log shipping target database */
@@ -1855,16 +1871,21 @@ BEGIN
 															    FROM  #SkipChecks
 															    WHERE CheckID IS NULL OR CheckID = 1)
 										    /*
-										    The above NOT IN filters out the databases we're not supposed to check.
+										    The above NOT IN filters out the databases we''re not supposed to check.
 										    */
 								    GROUP BY d.name
 								    HAVING  MAX(b.backup_finish_date) <= DATEADD(dd,
 																      -7, GETDATE())
-                                            OR MAX(b.backup_finish_date) IS NULL;
+                                            OR MAX(b.backup_finish_date) IS NULL;';
+						    END;
                                 END;
 
                         ELSE /* SERVERPROPERTY('EngineName') must be 8, Azure Managed Instances */
                             BEGIN
+						    /* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						    IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						    BEGIN
+						    EXEC sys.sp_executesql N'
 						    INSERT  INTO #BlitzResults
 								    ( CheckID ,
 								      DatabaseName ,
@@ -1877,14 +1898,14 @@ BEGIN
 								    SELECT  1 AS CheckID ,
 										    d.[name] AS DatabaseName ,
 										    1 AS Priority ,
-										    'Backup' AS FindingsGroup ,
-										    'Backups Not Performed Recently' AS Finding ,
-										    'https://www.brentozar.com/go/nobak' AS URL ,
-										    'Last backed up: '
-										    + COALESCE(CAST(MAX(b.backup_finish_date) AS VARCHAR(25)),'never') AS Details
+										    ''Backup'' AS FindingsGroup ,
+										    ''Backups Not Performed Recently'' AS Finding ,
+										    ''https://www.brentozar.com/go/nobak'' AS URL ,
+										    ''Last backed up: ''
+										    + COALESCE(CAST(MAX(b.backup_finish_date) AS VARCHAR(25)),''never'') AS Details
 								    FROM    master.sys.databases d
 										    LEFT OUTER JOIN msdb.dbo.backupset b ON d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
-																      AND b.type = 'D'
+																      AND b.type = ''D''
 								    WHERE   d.database_id <> 2  /* Bonus points if you know what that means */
 										    AND d.state NOT IN(1, 6, 10) /* Not currently offline or restoring, like log shipping databases */
 										    AND d.is_in_standby = 0 /* Not a log shipping target database */
@@ -1894,12 +1915,13 @@ BEGIN
 															    FROM  #SkipChecks
 															    WHERE CheckID IS NULL OR CheckID = 1)
 										    /*
-										    The above NOT IN filters out the databases we're not supposed to check.
+										    The above NOT IN filters out the databases we''re not supposed to check.
 										    */
 								    GROUP BY d.name
 								    HAVING  MAX(b.backup_finish_date) <= DATEADD(dd,
 																      -7, GETDATE())
-                                            OR MAX(b.backup_finish_date) IS NULL;
+                                            OR MAX(b.backup_finish_date) IS NULL;';
+						    END;
                                 END;
 
 
@@ -1928,6 +1950,10 @@ BEGIN
 					BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 2) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -1942,12 +1968,12 @@ BEGIN
 										2 AS CheckID ,
 										d.name AS DatabaseName ,
 										1 AS Priority ,
-										'Backup' AS FindingsGroup ,
-										'Full Recovery Model w/o Log Backups' AS Finding ,
-										'https://www.brentozar.com/go/biglogs' AS URL ,
-										( 'The ' + CAST(CAST((SELECT ((SUM([mf].[size]) * 8.) / 1024.) FROM sys.[master_files] AS [mf] WHERE [mf].[database_id] = d.[database_id] AND [mf].[type_desc] = 'LOG') AS DECIMAL(18,2)) AS VARCHAR(30)) + 'MB log file has not been backed up in the last week.' ) AS Details
+										''Backup'' AS FindingsGroup ,
+										''Full Recovery Model w/o Log Backups'' AS Finding ,
+										''https://www.brentozar.com/go/biglogs'' AS URL ,
+										( ''The '' + CAST(CAST((SELECT ((SUM([mf].[size]) * 8.) / 1024.) FROM sys.[master_files] AS [mf] WHERE [mf].[database_id] = d.[database_id] AND [mf].[type_desc] = ''LOG'') AS DECIMAL(18,2)) AS VARCHAR(30)) + ''MB log file has not been backed up in the last week.'' ) AS Details
 								FROM    master.sys.databases d
-								LEFT JOIN #DBCCs ll On ll.DbName = d.name And ll.Field = 'dbi_LastLogBackupTime'
+								LEFT JOIN #DBCCs ll On ll.DbName = d.name And ll.Field = ''dbi_LastLogBackupTime''
 								WHERE   d.recovery_model IN ( 1, 2 )
 										AND d.database_id NOT IN ( 2, 3 )
 										AND d.source_database_id IS NULL
@@ -1960,12 +1986,12 @@ BEGIN
 															WHERE CheckID IS NULL OR CheckID = 2)
 										AND	(
 												(
-													/* We couldn't get a value from the DBCC DBINFO data so let's check the msdb backup history information */
+													/* We couldn''t get a value from the DBCC DBINFO data so let''s check the msdb backup history information */
 														[ll].[Value] Is Null
 													AND NOT EXISTS ( SELECT *
 																	 FROM   msdb.dbo.backupset b
 																	 WHERE  d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
-																				AND b.type = 'L'
+																				AND b.type = ''L''
 																				AND b.backup_finish_date >= DATEADD(dd,-7, GETDATE())
 																	)
 												)
@@ -1974,7 +2000,8 @@ BEGIN
 													Convert(datetime,ll.Value,21) < DATEADD(dd,-7, GETDATE())
 												)
 
-											);
+											);';
+						END;
 					END;
 
 				/*
@@ -1987,6 +2014,10 @@ BEGIN
 					BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 256) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2001,18 +2032,18 @@ BEGIN
 										256 AS CheckID ,
 										d.name AS DatabaseName,
 										1 AS Priority ,
-										'Backup' AS FindingsGroup ,
-										'Log Backups to NUL' AS Finding ,
-										'https://www.brentozar.com/go/nul' AS URL ,
-										N'The transaction log file has been backed up ' +  CAST((SELECT count(*)
+										''Backup'' AS FindingsGroup ,
+										''Log Backups to NUL'' AS Finding ,
+										''https://www.brentozar.com/go/nul'' AS URL ,
+										N''The transaction log file has been backed up '' +  CAST((SELECT count(*)
 														 FROM   msdb.dbo.backupset AS b INNER JOIN
 																msdb.dbo.backupmediafamily AS bmf
 																	ON	b.media_set_id = bmf.media_set_id
 														 WHERE  b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS = d.name COLLATE SQL_Latin1_General_CP1_CI_AS
-																AND bmf.physical_device_name = 'NUL'
-																AND b.type = 'L'
+																AND bmf.physical_device_name = ''NUL''
+																AND b.type = ''L''
 																AND b.backup_finish_date >= DATEADD(dd,
-																  -7, GETDATE())) AS NVARCHAR(8)) + ' time(s) to ''NUL'' in the last week, which means the backup does not exist. This breaks point-in-time recovery.' AS Details
+																  -7, GETDATE())) AS NVARCHAR(8)) + '' time(s) to ''''NUL'''' in the last week, which means the backup does not exist. This breaks point-in-time recovery.'' AS Details
 								FROM    master.sys.databases AS d
 								WHERE   d.recovery_model IN ( 1, 2 )
 										AND d.database_id NOT IN ( 2, 3 )
@@ -2029,10 +2060,11 @@ BEGIN
 																msdb.dbo.backupmediafamily AS bmf
 																	ON	b.media_set_id = bmf.media_set_id
 														 WHERE  d.name COLLATE SQL_Latin1_General_CP1_CI_AS = b.database_name COLLATE SQL_Latin1_General_CP1_CI_AS
-																AND bmf.physical_device_name = 'NUL'
-																AND b.type = 'L'
+																AND bmf.physical_device_name = ''NUL''
+																AND b.type = ''L''
 																AND b.backup_finish_date >= DATEADD(dd,
-																  -7, GETDATE()) );
+																  -7, GETDATE()) );';
+						END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -2079,6 +2111,10 @@ BEGIN
 					BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 93) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2091,20 +2127,20 @@ BEGIN
 								SELECT
 										93 AS CheckID ,
 										1 AS Priority ,
-										'Backup' AS FindingsGroup ,
-										'Backing Up to Same Drive Where Databases Reside' AS Finding ,
-										'https://www.brentozar.com/go/backup' AS URL ,
-										CAST(COUNT(1) AS VARCHAR(50)) + ' backups done on drive '
+										''Backup'' AS FindingsGroup ,
+										''Backing Up to Same Drive Where Databases Reside'' AS Finding ,
+										''https://www.brentozar.com/go/backup'' AS URL ,
+										CAST(COUNT(1) AS VARCHAR(50)) + '' backups done on drive ''
 										+ UPPER(LEFT(bmf.physical_device_name, 3))
-										+ ' in the last two weeks, where database files also live. This represents a serious risk if that array fails.' Details
+										+ '' in the last two weeks, where database files also live. This represents a serious risk if that array fails.'' Details
 								FROM    msdb.dbo.backupmediafamily AS bmf
 										INNER JOIN msdb.dbo.backupset AS bs ON bmf.media_set_id = bs.media_set_id
 																  AND bs.backup_start_date >= ( DATEADD(dd,
 																  -14, GETDATE()) )
 										/* Filter out databases that were recently restored: */
 										LEFT OUTER JOIN msdb.dbo.restorehistory rh ON bs.database_name = rh.destination_database_name AND rh.restore_date > DATEADD(dd, -14, GETDATE())
-								WHERE   UPPER(LEFT(bmf.physical_device_name, 3)) <> 'HTT' AND
-                                        bmf.physical_device_name NOT LIKE '\\%' AND -- GitHub Issue #2141
+								WHERE   UPPER(LEFT(bmf.physical_device_name, 3)) <> ''HTT'' AND
+                                        bmf.physical_device_name NOT LIKE ''\\%'' AND -- GitHub Issue #2141
                                         @IsWindowsOperatingSystem = 1 AND -- GitHub Issue #1995
                                         UPPER(LEFT(bmf.physical_device_name COLLATE SQL_Latin1_General_CP1_CI_AS, 3)) IN (
 										SELECT DISTINCT
@@ -2112,7 +2148,10 @@ BEGIN
 										FROM    sys.master_files AS mf
 									    WHERE mf.database_id <> 2 )
 										AND rh.destination_database_name IS NULL
-								GROUP BY UPPER(LEFT(bmf.physical_device_name, 3));
+								GROUP BY UPPER(LEFT(bmf.physical_device_name, 3));',
+							N'@IsWindowsOperatingSystem BIT',
+							@IsWindowsOperatingSystem = @IsWindowsOperatingSystem;
+						END;
 					END;
 
 					IF NOT EXISTS ( SELECT  1
@@ -2134,13 +2173,26 @@ BEGIN
 								''https://www.brentozar.com/go/tde'' AS URL,
 								''The certificate '' + c.name + '' is used to encrypt database '' + db_name(dek.database_id) + ''. Last backup date: '' + COALESCE(CAST(c.pvt_key_last_backup_date AS VARCHAR(100)), ''Never'') AS Details
 								FROM master.sys.certificates c INNER JOIN sys.dm_database_encryption_keys dek ON c.thumbprint = dek.encryptor_thumbprint
-								WHERE pvt_key_last_backup_date IS NULL OR pvt_key_last_backup_date <= DATEADD(dd, -30, GETDATE())  OPTION (RECOMPILE);';
+								WHERE pvt_key_last_backup_date IS NULL OR pvt_key_last_backup_date <= DATEADD(dd, -30, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END))  OPTION (RECOMPILE);';
 							
 							IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
 							IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
 							
 							EXECUTE(@StringToExecute);
 						END;
+                     /* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+                     SET @CrossDBExists = 0;
+                     IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+                     	AND NOT EXISTS ( SELECT  1
+                     	                 FROM    #SkipChecks
+                     	                 WHERE   DatabaseName IS NULL AND CheckID = 202 )
+                     BEGIN
+                     EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS ( SELECT *
+									 FROM   msdb.INFORMATION_SCHEMA.COLUMNS c
+									 WHERE  c.TABLE_NAME = ''backupset'' AND c.COLUMN_NAME = ''encryptor_thumbprint'' );',
+                         N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+                     END;
+
 
                      IF NOT EXISTS ( SELECT  1
 									FROM    #SkipChecks
@@ -2148,9 +2200,7 @@ BEGIN
 						AND EXISTS ( SELECT *
 									 FROM   sys.all_columns c
 									 WHERE  c.name = 'pvt_key_last_backup_date' )
-						AND EXISTS ( SELECT *
-									 FROM   msdb.INFORMATION_SCHEMA.COLUMNS c
-									 WHERE  c.TABLE_NAME = 'backupset' AND c.COLUMN_NAME = 'encryptor_thumbprint' )
+						AND (@CrossDBExists = 1)
 						BEGIN
 
 							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 202) WITH NOWAIT;
@@ -2164,7 +2214,7 @@ BEGIN
 								''The certificate '' + c.name + '' is used to encrypt database backups. Last backup date: '' + COALESCE(CAST(c.pvt_key_last_backup_date AS VARCHAR(100)), ''Never'') AS Details
 								FROM sys.certificates c
                                 INNER JOIN msdb.dbo.backupset bs ON c.thumbprint = bs.encryptor_thumbprint
-                                WHERE pvt_key_last_backup_date IS NULL OR pvt_key_last_backup_date <= DATEADD(dd, -30, GETDATE()) OPTION (RECOMPILE);';
+                                WHERE pvt_key_last_backup_date IS NULL OR pvt_key_last_backup_date <= DATEADD(dd, -30, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) OPTION (RECOMPILE);';
 							
 							IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
 							IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
@@ -2176,11 +2226,23 @@ BEGIN
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 3 )
 					BEGIN
-						IF DATEADD(dd, -60, GETDATE()) > (SELECT TOP 1 backup_start_date FROM msdb.dbo.backupset ORDER BY backup_start_date)
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						SET @CrossDBDate = NULL;
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'SELECT @r = (SELECT TOP 1 backup_start_date FROM msdb.dbo.backupset ORDER BY backup_start_date);',
+						    N'@r DATETIME OUTPUT', @r = @CrossDBDate OUTPUT;
+						END;
+
+						IF DATEADD(dd, -60, GETDATE()) > @CrossDBDate
 
 						BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 3) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2193,17 +2255,18 @@ BEGIN
 								)
 								SELECT TOP 1
 										3 AS CheckID ,
-										'msdb' ,
+										''msdb'' ,
 										200 AS Priority ,
-										'Backup' AS FindingsGroup ,
-										'MSDB Backup History Not Purged' AS Finding ,
-										'https://www.brentozar.com/go/history' AS URL ,
-										( 'Database backup history retained back to '
+										''Backup'' AS FindingsGroup ,
+										''MSDB Backup History Not Purged'' AS Finding ,
+										''https://www.brentozar.com/go/history'' AS URL ,
+										( ''Database backup history retained back to ''
 										  + CAST(bs.backup_start_date AS VARCHAR(20)) ) AS Details
 								FROM    msdb.dbo.backupset bs
                                 LEFT OUTER JOIN msdb.dbo.restorehistory rh ON bs.database_name = rh.destination_database_name
                                 WHERE rh.destination_database_name IS NULL
-								ORDER BY bs.backup_start_date ASC;
+								ORDER BY bs.backup_start_date ASC;';
+						END;
 						END;
 					END;
 
@@ -2211,11 +2274,23 @@ BEGIN
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 186 )
 					BEGIN
-						IF DATEADD(dd, -2, GETDATE()) < (SELECT TOP 1 backup_start_date FROM msdb.dbo.backupset ORDER BY backup_start_date)
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						SET @CrossDBDate = NULL;
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'SELECT @r = (SELECT TOP 1 backup_start_date FROM msdb.dbo.backupset ORDER BY backup_start_date);',
+						    N'@r DATETIME OUTPUT', @r = @CrossDBDate OUTPUT;
+						END;
+
+						IF DATEADD(dd, -2, GETDATE()) < @CrossDBDate
 
 						BEGIN
 							
 							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 186) WITH NOWAIT;
+							/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+							IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+							BEGIN
+							EXEC sys.sp_executesql N'
 							
 							INSERT  INTO #BlitzResults
 									( CheckID ,
@@ -2228,30 +2303,46 @@ BEGIN
 									)
 									SELECT TOP 1
 											186 AS CheckID ,
-											'msdb' ,
+											''msdb'' ,
 											200 AS Priority ,
-											'Backup' AS FindingsGroup ,
-											'MSDB Backup History Purged Too Frequently' AS Finding ,
-											'https://www.brentozar.com/go/history' AS URL ,
-											( 'Database backup history only retained back to '
+											''Backup'' AS FindingsGroup ,
+											''MSDB Backup History Purged Too Frequently'' AS Finding ,
+											''https://www.brentozar.com/go/history'' AS URL ,
+											( ''Database backup history only retained back to ''
 											  + CAST(bs.backup_start_date AS VARCHAR(20)) ) AS Details
 									FROM    msdb.dbo.backupset bs
-									ORDER BY backup_start_date ASC;
+									ORDER BY backup_start_date ASC;';
+							END;
 						END;
 					END;
+				/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+				SET @CrossDBExists = 0;
+				IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+					AND NOT EXISTS ( SELECT  1
+					                 FROM    #SkipChecks
+					                 WHERE   DatabaseName IS NULL AND CheckID = 178 )
+				BEGIN
+				EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS (SELECT *
+									FROM msdb.dbo.backupset bs
+									WHERE bs.type = ''D''
+									AND bs.backup_size >= 50000000000 /* At least 50GB */
+									AND DATEDIFF(SECOND, bs.backup_start_date, bs.backup_finish_date) <= 60 /* Backup took less than 60 seconds */
+									AND bs.backup_finish_date >= DATEADD(DAY, -14, GETDATE()) /* In the last 2 weeks */);',
+				    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+				END;
+
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 178 )
-					AND EXISTS (SELECT *
-									FROM msdb.dbo.backupset bs
-									WHERE bs.type = 'D'
-									AND bs.backup_size >= 50000000000 /* At least 50GB */
-									AND DATEDIFF(SECOND, bs.backup_start_date, bs.backup_finish_date) <= 60 /* Backup took less than 60 seconds */
-									AND bs.backup_finish_date >= DATEADD(DAY, -14, GETDATE()) /* In the last 2 weeks */)
+					AND (@CrossDBExists = 1)
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 178) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 						
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2263,15 +2354,16 @@ BEGIN
 								)
 								SELECT 178 AS CheckID ,
 										200 AS Priority ,
-										'Performance' AS FindingsGroup ,
-										'Snapshot Backups Occurring' AS Finding ,
-										'https://www.brentozar.com/go/snaps' AS URL ,
-										( CAST(COUNT(*) AS VARCHAR(20)) + ' snapshot-looking backups have occurred in the last two weeks, indicating that IO may be freezing up.') AS Details
+										''Performance'' AS FindingsGroup ,
+										''Snapshot Backups Occurring'' AS Finding ,
+										''https://www.brentozar.com/go/snaps'' AS URL ,
+										( CAST(COUNT(*) AS VARCHAR(20)) + '' snapshot-looking backups have occurred in the last two weeks, indicating that IO may be freezing up.'') AS Details
 								FROM msdb.dbo.backupset bs
-								WHERE bs.type = 'D'
+								WHERE bs.type = ''D''
 								AND bs.backup_size >= 50000000000 /* At least 50GB */
 								AND DATEDIFF(SECOND, bs.backup_start_date, bs.backup_finish_date) <= 60 /* Backup took less than 60 seconds */
-								AND bs.backup_finish_date >= DATEADD(DAY, -14, GETDATE()); /* In the last 2 weeks */
+								AND bs.backup_finish_date >= DATEADD(DAY, -14, GETDATE());';
+						END; /* In the last 2 weeks */
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -2280,6 +2372,10 @@ BEGIN
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 236) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 						
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2291,16 +2387,17 @@ BEGIN
 								)
 								SELECT TOP 1 236 AS CheckID ,
 										50 AS Priority ,
-										'Performance' AS FindingsGroup ,
-										'Snapshotting Too Many Databases' AS Finding ,
-										'https://www.brentozar.com/go/toomanysnaps' AS URL ,
-										( CAST(SUM(1) AS VARCHAR(20)) + ' databases snapshotted at once in the last two weeks, indicating that IO may be freezing up. Microsoft does not recommend VSS snaps for 35 or more databases.') AS Details
+										''Performance'' AS FindingsGroup ,
+										''Snapshotting Too Many Databases'' AS Finding ,
+										''https://www.brentozar.com/go/toomanysnaps'' AS URL ,
+										( CAST(SUM(1) AS VARCHAR(20)) + '' databases snapshotted at once in the last two weeks, indicating that IO may be freezing up. Microsoft does not recommend VSS snaps for 35 or more databases.'') AS Details
 								FROM msdb.dbo.backupset bs
-								WHERE bs.type = 'D'
+								WHERE bs.type = ''D''
 								AND bs.backup_finish_date >= DATEADD(DAY, -14, GETDATE()) /* In the last 2 weeks */
 								GROUP BY bs.backup_finish_date
 								HAVING SUM(1) >= 35
-								ORDER BY SUM(1) DESC;
+								ORDER BY SUM(1) DESC;';
+						END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -2309,6 +2406,10 @@ BEGIN
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 4) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 						
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2320,17 +2421,18 @@ BEGIN
 								)
 								SELECT  4 AS CheckID ,
 										230 AS Priority ,
-										'Security' AS FindingsGroup ,
-										'Sysadmins' AS Finding ,
-										'https://www.brentozar.com/go/sa' AS URL ,
-										( 'Login [' + l.name
-										  + '] is a sysadmin - meaning they can do absolutely anything in SQL Server, including dropping databases or hiding their tracks.' ) AS Details
+										''Security'' AS FindingsGroup ,
+										''Sysadmins'' AS Finding ,
+										''https://www.brentozar.com/go/sa'' AS URL ,
+										( ''Login ['' + l.name
+										  + ''] is a sysadmin - meaning they can do absolutely anything in SQL Server, including dropping databases or hiding their tracks.'' ) AS Details
 								FROM    master.sys.syslogins l
 								WHERE   l.sysadmin = 1
 										AND l.name <> SUSER_SNAME(0x01)
 										AND l.denylogin = 0
-										AND l.name NOT LIKE 'NT SERVICE\%'
-										AND l.name <> 'l_certSignSmDetach'; /* Added in SQL 2016 */
+										AND l.name NOT LIKE ''NT SERVICE\%''
+										AND l.name <> ''l_certSignSmDetach'';';
+						END; /* Added in SQL 2016 */
 					END;
 
                     IF NOT EXISTS ( SELECT  1
@@ -2376,6 +2478,10 @@ BEGIN
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 5) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 						
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2387,15 +2493,16 @@ BEGIN
 								)
 								SELECT  5 AS CheckID ,
 										230 AS Priority ,
-										'Security' AS FindingsGroup ,
-										'Security Admins' AS Finding ,
-										'https://www.brentozar.com/go/sa' AS URL ,
-										( 'Login [' + l.name
-										  + '] is a security admin - meaning they can give themselves permission to do absolutely anything in SQL Server, including dropping databases or hiding their tracks.' ) AS Details
+										''Security'' AS FindingsGroup ,
+										''Security Admins'' AS Finding ,
+										''https://www.brentozar.com/go/sa'' AS URL ,
+										( ''Login ['' + l.name
+										  + ''] is a security admin - meaning they can give themselves permission to do absolutely anything in SQL Server, including dropping databases or hiding their tracks.'' ) AS Details
 								FROM    master.sys.syslogins l
 								WHERE   l.securityadmin = 1
 										AND l.name <> SUSER_SNAME(0x01)
-										AND l.denylogin = 0;
+										AND l.denylogin = 0;';
+						END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -2440,6 +2547,10 @@ BEGIN
 						
 						IF @UsualOwnerOfJobs IS NULL
 							SET @UsualOwnerOfJobs = SUSER_SNAME(0x01);
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2451,15 +2562,18 @@ BEGIN
 								)
 								SELECT  6 AS CheckID ,
 										230 AS Priority ,
-										'Security' AS FindingsGroup ,
-										'Jobs Owned By Users' AS Finding ,
-										'https://www.brentozar.com/go/owners' AS URL ,
-										( 'Job [' + j.name + '] is owned by ['
+										''Security'' AS FindingsGroup ,
+										''Jobs Owned By Users'' AS Finding ,
+										''https://www.brentozar.com/go/owners'' AS URL ,
+										( ''Job ['' + j.name + ''] is owned by [''
 										  + SUSER_SNAME(j.owner_sid)
-										  + '] - meaning if their login is disabled or not available due to Active Directory problems, the job will stop working.' ) AS Details
+										  + ''] - meaning if their login is disabled or not available due to Active Directory problems, the job will stop working.'' ) AS Details
 								FROM    msdb.dbo.sysjobs j
 								WHERE   j.enabled = 1
-										AND SUSER_SNAME(j.owner_sid) <> @UsualOwnerOfJobs;
+										AND SUSER_SNAME(j.owner_sid) <> @UsualOwnerOfJobs;',
+						    N'@UsualOwnerOfJobs SYSNAME',
+						    @UsualOwnerOfJobs = @UsualOwnerOfJobs;
+						END;
 					END;
 
 				/* --TOURSTOP06-- */
@@ -2470,6 +2584,10 @@ BEGIN
 						/* --TOURSTOP02-- */
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 7) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 						
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -2481,16 +2599,17 @@ BEGIN
 								)
 								SELECT  7 AS CheckID ,
 										230 AS Priority ,
-										'Security' AS FindingsGroup ,
-										'Stored Procedure Runs at Startup' AS Finding ,
-										'https://www.brentozar.com/go/startup' AS URL ,
-										( 'Stored procedure [master].['
-										  + r.SPECIFIC_SCHEMA + '].['
+										''Security'' AS FindingsGroup ,
+										''Stored Procedure Runs at Startup'' AS Finding ,
+										''https://www.brentozar.com/go/startup'' AS URL ,
+										( ''Stored procedure [master].[''
+										  + r.SPECIFIC_SCHEMA + ''].[''
 										  + r.SPECIFIC_NAME
-										  + '] runs automatically when SQL Server starts up.  Make sure you know exactly what this stored procedure is doing, because it could pose a security risk.' ) AS Details
+										  + ''] runs automatically when SQL Server starts up.  Make sure you know exactly what this stored procedure is doing, because it could pose a security risk.'' ) AS Details
 								FROM    master.INFORMATION_SCHEMA.ROUTINES r
 								WHERE   OBJECTPROPERTY(OBJECT_ID(ROUTINE_NAME),
-													   'ExecIsStartup') = 1;
+													   ''ExecIsStartup'') = 1;';
+						END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -3164,6 +3283,10 @@ BEGIN
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 27) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 						
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -3175,19 +3298,20 @@ BEGIN
 								  Details
 								)
 								SELECT  27 AS CheckID ,
-										'master' AS DatabaseName ,
+										''master'' AS DatabaseName ,
 										200 AS Priority ,
-										'Informational' AS FindingsGroup ,
-										'Tables in the Master Database' AS Finding ,
-										'https://www.brentozar.com/go/mastuser' AS URL ,
-										( 'The ' + name
-										  + ' table in the master database was created by end users on '
+										''Informational'' AS FindingsGroup ,
+										''Tables in the Master Database'' AS Finding ,
+										''https://www.brentozar.com/go/mastuser'' AS URL ,
+										( ''The '' + name
+										  + '' table in the master database was created by end users on ''
 										  + CAST(create_date AS VARCHAR(20))
-										  + '. Tables in the master database may not be restored in the event of a disaster.' ) AS Details
+										  + ''. Tables in the master database may not be restored in the event of a disaster.'' ) AS Details
 								FROM    master.sys.tables
 								WHERE   is_ms_shipped = 0
-                                  AND   name NOT IN ('CommandLog','SqlServerVersions','$ndo$srvproperty')
-								  AND	name NOT LIKE 'rds^_%' ESCAPE '^';
+                                  AND   name NOT IN (''CommandLog'',''SqlServerVersions'',''$ndo$srvproperty'')
+								  AND	name NOT LIKE ''rds^_%'' ESCAPE ''^'';';
+						END;
 								  /* That last one is the Dynamics NAV licensing table: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2426 */
 					END;
 
@@ -3197,6 +3321,10 @@ BEGIN
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 28) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 						
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -3208,17 +3336,18 @@ BEGIN
 								  Details
 								)
 								SELECT  28 AS CheckID ,
-								        'msdb' AS DatabaseName ,
+								        ''msdb'' AS DatabaseName ,
 										200 AS Priority ,
-										'Informational' AS FindingsGroup ,
-										'Tables in the MSDB Database' AS Finding ,
-										'https://www.brentozar.com/go/msdbuser' AS URL ,
-										( 'The ' + name
-										  + ' table in the msdb database was created by end users on '
+										''Informational'' AS FindingsGroup ,
+										''Tables in the MSDB Database'' AS Finding ,
+										''https://www.brentozar.com/go/msdbuser'' AS URL ,
+										( ''The '' + name
+										  + '' table in the msdb database was created by end users on ''
 										  + CAST(create_date AS VARCHAR(20))
-										  + '. Tables in the msdb database may not be restored in the event of a disaster.' ) AS Details
+										  + ''. Tables in the msdb database may not be restored in the event of a disaster.'' ) AS Details
 								FROM    msdb.sys.tables
-								WHERE   is_ms_shipped = 0 AND name NOT LIKE '%DTA_%';
+								WHERE   is_ms_shipped = 0 AND name NOT LIKE ''%DTA_%'';';
+						END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -3227,6 +3356,10 @@ BEGIN
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 29) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 						
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -3238,27 +3371,36 @@ BEGIN
 								  Details
 								)
 								SELECT  29 AS CheckID ,
-								        'model' AS DatabaseName ,
+								        ''model'' AS DatabaseName ,
 										200 AS Priority ,
-										'Informational' AS FindingsGroup ,
-										'Tables in the Model Database' AS Finding ,
-										'https://www.brentozar.com/go/model' AS URL ,
-										( 'The ' + name
-										  + ' table in the model database was created by end users on '
+										''Informational'' AS FindingsGroup ,
+										''Tables in the Model Database'' AS Finding ,
+										''https://www.brentozar.com/go/model'' AS URL ,
+										( ''The '' + name
+										  + '' table in the model database was created by end users on ''
 										  + CAST(create_date AS VARCHAR(20))
-										  + '. Tables in the model database are automatically copied into all new databases.' ) AS Details
+										  + ''. Tables in the model database are automatically copied into all new databases.'' ) AS Details
 								FROM    model.sys.tables
-								WHERE   is_ms_shipped = 0;
+								WHERE   is_ms_shipped = 0;';
+						END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 30 )
 					BEGIN
-						IF ( SELECT COUNT(*)
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						SET @CrossDBCount = NULL;
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'SELECT @r = ( SELECT COUNT(*)
 							 FROM   msdb.dbo.sysalerts
 							 WHERE  severity BETWEEN 19 AND 25
-						   ) < 7
+						   );',
+						    N'@r INT OUTPUT', @r = @CrossDBCount OUTPUT;
+						END;
+
+						IF @CrossDBCount < 7
 
 						   BEGIN
 
@@ -3285,11 +3427,19 @@ BEGIN
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 59 )
 					BEGIN
-						IF EXISTS ( SELECT  *
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						SET @CrossDBExists = 0;
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS ( SELECT  *
 									FROM    msdb.dbo.sysalerts
 									WHERE   enabled = 1
 											AND COALESCE(has_notification, 0) = 0
-											AND (job_id IS NULL OR job_id = 0x))
+											AND (job_id IS NULL OR job_id = 0x));',
+						    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+						END;
+
+						IF (@CrossDBExists = 1)
 
 							BEGIN
 							
@@ -3317,9 +3467,17 @@ BEGIN
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 96 )
 					BEGIN
-						IF NOT EXISTS ( SELECT  *
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						SET @CrossDBExists = 0;
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS ( SELECT  *
 										FROM    msdb.dbo.sysalerts
-										WHERE   message_id IN ( 823, 824, 825 ) )
+										WHERE   message_id IN ( 823, 824, 825 ) );',
+						    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+						END;
+
+						IF NOT (@CrossDBExists = 1)
 							
 							BEGIN;
 							
@@ -3347,9 +3505,17 @@ BEGIN
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 61 )
 					BEGIN
-						IF NOT EXISTS ( SELECT  *
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						SET @CrossDBExists = 0;
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS ( SELECT  *
 										FROM    msdb.dbo.sysalerts
-										WHERE   severity BETWEEN 19 AND 25 )
+										WHERE   severity BETWEEN 19 AND 25 );',
+						    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+						END;
+
+						IF NOT (@CrossDBExists = 1)
 							
 							BEGIN
 							
@@ -3379,13 +3545,25 @@ BEGIN
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 98 )
 					BEGIN
-						IF EXISTS ( SELECT  name
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						SET @CrossDBExists = 0;
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS ( SELECT  name
 									FROM    msdb.dbo.sysalerts
-									WHERE   enabled = 0 )
+									WHERE   enabled = 0 );',
+						    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+						END;
+
+						IF (@CrossDBExists = 1)
 							
 							BEGIN
 							
 							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 98) WITH NOWAIT;
+							/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+							IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+							BEGIN
+							EXEC sys.sp_executesql N'
 							
 							INSERT  INTO #BlitzResults
 									( CheckID ,
@@ -3397,13 +3575,14 @@ BEGIN
 									)
 									SELECT  98 AS CheckID ,
 											200 AS Priority ,
-											'Monitoring' AS FindingsGroup ,
-											'Alerts Disabled' AS Finding ,
-											'https://www.brentozar.com/go/alert' AS URL ,
-											( 'The following Alert is disabled, please review and enable if desired: '
+											''Monitoring'' AS FindingsGroup ,
+											''Alerts Disabled'' AS Finding ,
+											''https://www.brentozar.com/go/alert'' AS URL ,
+											( ''The following Alert is disabled, please review and enable if desired: ''
 											  + name ) AS Details
 									FROM    msdb.dbo.sysalerts
-									WHERE   enabled = 0;
+									WHERE   enabled = 0;';
+							END;
 			END;
 		END;
 
@@ -3419,6 +3598,10 @@ BEGIN
 			BEGIN;
 				RAISERROR ('Running CheckId [%d].', 0, 1, 219) WITH NOWAIT;
 			END;
+			/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+			IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+			BEGIN
+			EXEC sys.sp_executesql N'
 
 			INSERT INTO #BlitzResults (
 				CheckID
@@ -3430,15 +3613,16 @@ BEGIN
 				)
 			SELECT 219 AS CheckID
 				,200 AS [Priority]
-				,'Monitoring' AS FindingsGroup
-				,'Alerts Without Event Descriptions' AS Finding
-				,'https://www.brentozar.com/go/alert' AS [URL]
-				,('The following Alert is not including detailed event descriptions in its output messages: ' + QUOTENAME([name])
-				+ '. You can fix it by ticking the relevant boxes in its Properties --> Options page.') AS Details
+				,''Monitoring'' AS FindingsGroup
+				,''Alerts Without Event Descriptions'' AS Finding
+				,''https://www.brentozar.com/go/alert'' AS [URL]
+				,(''The following Alert is not including detailed event descriptions in its output messages: '' + QUOTENAME([name])
+				+ ''. You can fix it by ticking the relevant boxes in its Properties --> Options page.'') AS Details
 			FROM msdb.dbo.sysalerts
 			WHERE [enabled] = 1
 			  AND include_event_description = 0 --bitmask: 1 = email, 2 = pager, 4 = net send
-			;
+			;';
+			END;
 		END;
 
 		--check whether we have NO ENABLED operators!
@@ -3446,9 +3630,17 @@ BEGIN
 						FROM    #SkipChecks
 						WHERE   DatabaseName IS NULL AND CheckID = 31 )
 		BEGIN;
-						IF NOT EXISTS ( SELECT  *
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						SET @CrossDBExists = 0;
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS ( SELECT  *
 										FROM    msdb.dbo.sysoperators
-										WHERE   enabled = 1 )
+										WHERE   enabled = 1 );',
+						    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+						END;
+
+						IF NOT (@CrossDBExists = 1)
 							
 							BEGIN
 							
@@ -3507,7 +3699,7 @@ BEGIN
 			WHERE db2.[state] = 1
 			) ) as rp
 		  INNER JOIN master.sys.databases db ON rp.database_id = db.database_id
-		  WHERE   rp.modification_time >= DATEADD(dd, -30, GETDATE())  OPTION (RECOMPILE);';
+		  WHERE   rp.modification_time >= DATEADD(dd, -30, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END))  OPTION (RECOMPILE);';
 
 								IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
 								IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
@@ -3545,7 +3737,7 @@ BEGIN
 		  ( ''Availability Groups has automatically repaired at least one corrupt page in the last 30 days. For more information, query the DMV sys.dm_hadr_auto_page_repair.'' ) AS Details
 		  FROM    sys.dm_hadr_auto_page_repair rp
 		  INNER JOIN master.sys.databases db ON rp.database_id = db.database_id
-		  WHERE   rp.modification_time >= DATEADD(dd, -30, GETDATE()) OPTION (RECOMPILE) ;';
+		  WHERE   rp.modification_time >= DATEADD(dd, -30, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) OPTION (RECOMPILE) ;';
 								
 								IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
 								IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
@@ -3558,9 +3750,17 @@ BEGIN
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 90 )
 					BEGIN
-						IF EXISTS ( SELECT  *
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						SET @CrossDBExists = 0;
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS ( SELECT  *
 									FROM    msdb.sys.all_objects
-									WHERE   name = 'suspect_pages' )
+									WHERE   name = ''suspect_pages'' );',
+						    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+						END;
+
+						IF (@CrossDBExists = 1)
 							BEGIN
 
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 90) WITH NOWAIT;
@@ -3583,7 +3783,7 @@ BEGIN
 		  ( ''SQL Server has detected at least one corrupt page in the last 30 days. For more information, query the system table msdb.dbo.suspect_pages.'' ) AS Details
 		  FROM    msdb.dbo.suspect_pages sp
 		  INNER JOIN master.sys.databases db ON sp.database_id = db.database_id
-		  WHERE   sp.last_update_date >= DATEADD(dd, -30, GETDATE())  OPTION (RECOMPILE);';
+		  WHERE   sp.last_update_date >= DATEADD(dd, -30, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END))  OPTION (RECOMPILE);';
 
 								IF @Debug = 2 AND @StringToExecute IS NOT NULL PRINT @StringToExecute;
 								IF @Debug = 2 AND @StringToExecute IS NULL PRINT '@StringToExecute has gone NULL, for some reason.';
@@ -4090,6 +4290,10 @@ BEGIN
 					BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 57) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -4101,16 +4305,17 @@ BEGIN
 								)
 								SELECT  57 AS CheckID ,
 										230 AS Priority ,
-										'Security' AS FindingsGroup ,
-										'SQL Agent Job Runs at Startup' AS Finding ,
-										'https://www.brentozar.com/go/startup' AS URL ,
-										( 'Job [' + j.name
-										  + '] runs automatically when SQL Server Agent starts up.  Make sure you know exactly what this job is doing, because it could pose a security risk.' ) AS Details
+										''Security'' AS FindingsGroup ,
+										''SQL Agent Job Runs at Startup'' AS Finding ,
+										''https://www.brentozar.com/go/startup'' AS URL ,
+										( ''Job ['' + j.name
+										  + ''] runs automatically when SQL Server Agent starts up.  Make sure you know exactly what this job is doing, because it could pose a security risk.'' ) AS Details
 								FROM    msdb.dbo.sysschedules sched
 										JOIN msdb.dbo.sysjobschedules jsched ON sched.schedule_id = jsched.schedule_id
 										JOIN msdb.dbo.sysjobs j ON jsched.job_id = j.job_id
 								WHERE   sched.freq_type = 64
-								        AND sched.enabled = 1;
+								        AND sched.enabled = 1;';
+						END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -4146,7 +4351,7 @@ BEGIN
 				IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
 								WHERE   DatabaseName IS NULL AND CheckID = 154 )
-                    AND SERVERPROPERTY('EngineEdition') <> 8
+                    AND SERVERPROPERTY('EngineEdition') NOT IN (5, 8) /* Azure SQL DB and Managed Instance */
 					BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 154) WITH NOWAIT;
@@ -4209,7 +4414,11 @@ BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 94) WITH NOWAIT;
 
-						;WITH las_job_run AS (
+						;
+/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+BEGIN
+EXEC sys.sp_executesql N'WITH las_job_run AS (
 											SELECT  MAX(instance_id) AS instance_id, 
 													job_id, COUNT_BIG(*) AS job_executions,
 													SUM(CASE WHEN run_status = 0 THEN 1 ELSE 0 END) AS failed_executions
@@ -4227,30 +4436,30 @@ BEGIN
 								)
 								SELECT  94 AS CheckID ,
 										200 AS [Priority] ,
-										'Monitoring' AS FindingsGroup ,
-										'Agent Jobs Without Failure Emails' AS Finding ,
-										'https://www.brentozar.com/go/alerts' AS URL ,
-										'The job ' + [name]
-										+ ' has not been set up to notify an operator if it fails.' 
+										''Monitoring'' AS FindingsGroup ,
+										''Agent Jobs Without Failure Emails'' AS Finding ,
+										''https://www.brentozar.com/go/alerts'' AS URL ,
+										''The job '' + [name]
+										+ '' has not been set up to notify an operator if it fails.'' 
 										+ CASE 
-											WHEN jh.run_date IS NULL OR jh.run_time IS NULL OR jh.run_status IS NULL THEN ''
-											ELSE N' Executions: '+ CAST(ljr.job_executions AS VARCHAR(30)) 
+											WHEN jh.run_date IS NULL OR jh.run_time IS NULL OR jh.run_status IS NULL THEN ''''
+											ELSE N'' Executions: ''+ CAST(ljr.job_executions AS VARCHAR(30)) 
 												+ CASE ljr.failed_executions
-													WHEN 0 THEN N''
-													ELSE N' ('+CAST(ljr.failed_executions AS NVARCHAR(10)) + N' failed)'
+													WHEN 0 THEN N''''
+													ELSE N'' (''+CAST(ljr.failed_executions AS NVARCHAR(10)) + N'' failed)''
 													END
-												+ N' - last execution started on '
+												+ N'' - last execution started on ''
 												+ CAST(CONVERT(DATE,CAST(jh.run_date AS NVARCHAR(8)),113) AS NVARCHAR(10)) 
-												+ N', at ' 
-												+ STUFF(STUFF(RIGHT(N'000000' + CAST(jh.run_time AS varchar(6)),6),3,0,N':'),6,0,N':')
-												+ N', with status "'
+												+ N'', at '' 
+												+ STUFF(STUFF(RIGHT(N''000000'' + CAST(jh.run_time AS varchar(6)),6),3,0,N'':''),6,0,N'':'')
+												+ N'', with status "''
 												+ CASE jh.run_status 
-														WHEN 0 THEN N'Failed'
-														WHEN 1 THEN N'Succeeded'
-														WHEN 2 THEN N'Retry'
-														WHEN 3 THEN N'Canceled'
-														WHEN 4 THEN N'In Progress'
-													END +N'".'
+														WHEN 0 THEN N''Failed''
+														WHEN 1 THEN N''Succeeded''
+														WHEN 2 THEN N''Retry''
+														WHEN 3 THEN N''Canceled''
+														WHEN 4 THEN N''In Progress''
+													END +N''".''
 											END	AS Details
 								FROM    msdb.[dbo].[sysjobs] j
 										LEFT JOIN las_job_run ljr 
@@ -4261,7 +4470,8 @@ BEGIN
 										AND j.notify_email_operator_id = 0
 										AND j.notify_netsend_operator_id = 0
 										AND j.notify_page_operator_id = 0
-										AND j.category_id <> 100; /* Exclude SSRS category */
+										AND j.category_id <> 100;';
+END; /* Exclude SSRS category */
 					END;
 
 				IF EXISTS ( SELECT  1
@@ -4320,7 +4530,7 @@ BEGIN
 					IF NOT EXISTS ( SELECT  1
 									FROM    #SkipChecks
 									WHERE   DatabaseName IS NULL AND CheckID = 110 )
-								AND EXISTS (SELECT * FROM master.sys.all_objects WHERE name = 'dm_os_memory_nodes')
+								AND EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_os_memory_nodes')
 						BEGIN
 
 							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 110) WITH NOWAIT;
@@ -4379,15 +4589,30 @@ BEGIN
 								FROM    sys.databases
 								WHERE   state > 1;
 					END;
+				/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+				SET @CrossDBExists = 0;
+				IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+					AND NOT EXISTS ( SELECT  1
+					                 FROM    #SkipChecks
+					                 WHERE   DatabaseName IS NULL AND CheckID = 105 )
+				BEGIN
+				EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS ( SELECT  *
+							FROM    master.sys.extended_procedures );',
+				    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+				END;
 
-				IF EXISTS ( SELECT  *
-							FROM    master.sys.extended_procedures )
+
+				IF (@CrossDBExists = 1)
 					AND NOT EXISTS ( SELECT 1
 									 FROM   #SkipChecks
 									 WHERE  DatabaseName IS NULL AND CheckID = 105 )
 					BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 105) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -4399,14 +4624,15 @@ BEGIN
 								  Details
 								)
 								SELECT  105 AS CheckID ,
-										'master' ,
+										''master'' ,
 										200 AS Priority ,
-										'Reliability' AS FindingGroup ,
-										'Extended Stored Procedures in Master' AS Finding ,
-										'https://www.brentozar.com/go/clr' AS URL ,
-										'The [' + name
-										+ '] extended stored procedure is in the master database. CLR may be in use, and the master database now needs to be part of your backup/recovery planning.'
-								FROM    master.sys.extended_procedures;
+										''Reliability'' AS FindingGroup ,
+										''Extended Stored Procedures in Master'' AS Finding ,
+										''https://www.brentozar.com/go/clr'' AS URL ,
+										''The ['' + name
+										+ ''] extended stored procedure is in the master database. CLR may be in use, and the master database now needs to be part of your backup/recovery planning.''
+								FROM    master.sys.extended_procedures;';
+						END;
 					END;
 
 					IF NOT EXISTS ( SELECT 1
@@ -4433,7 +4659,7 @@ BEGIN
 									FROM sys.[dm_os_wait_stats]
 									WHERE wait_type IN('IO_QUEUE_LIMIT', 'IO_RETRY', 'LOG_RATE_GOVERNOR', 'POOL_LOG_RATE_GOVERNOR', 'PREEMPTIVE_DEBUG', 'RESMGR_THROTTLED', 'RESOURCE_SEMAPHORE', 'RESOURCE_SEMAPHORE_QUERY_COMPILE','SE_REPL_CATCHUP_THROTTLE','SE_REPL_COMMIT_ACK','SE_REPL_COMMIT_TURN','SE_REPL_ROLLBACK_ACK','SE_REPL_SLOW_SECONDARY_THROTTLE','THREADPOOL')
 									GROUP BY wait_type
-								    HAVING SUM([wait_time_ms]) > (SELECT 5000 * datediff(HH,create_date,CURRENT_TIMESTAMP) AS hours_since_startup FROM sys.databases WHERE name='tempdb')
+								    HAVING SUM([wait_time_ms]) > (SELECT 5000 * datediff(HH,create_date,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE CURRENT_TIMESTAMP END)) AS hours_since_startup FROM sys.databases WHERE name='tempdb')
 									AND SUM([wait_time_ms]) > 60000;
 						END;
 
@@ -4462,7 +4688,7 @@ BEGIN
 											+ N' severity level memory issues reported in the last 4 hours in sys.dm_os_memory_health_history.'
 									FROM sys.dm_os_memory_health_history
 									WHERE severity_level > 1
-									AND snapshot_time >= DATEADD(HOUR, -4, GETDATE())
+									AND snapshot_time >= DATEADD(HOUR, -4, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
 									GROUP BY severity_level, severity_level_desc;
 						END;
 
@@ -4493,7 +4719,7 @@ BEGIN
 											CONVERT(VARCHAR(10), (SUM([wait_time_ms]) / 1000) / 86400) + ':' + CONVERT(VARCHAR(20), DATEADD(s, (SUM([wait_time_ms]) / 1000), 0), 108) + ' of LCK_M_R% waits have been recorded. This wait often indicates killer performance problems.'
 									FROM sys.[dm_os_wait_stats]
 									WHERE wait_type IN ('LCK_M_RS_S', 'LCK_M_RS_U', 'LCK_M_RIn_NL','LCK_M_RIn_S', 'LCK_M_RIn_U','LCK_M_RIn_X', 'LCK_M_RX_S', 'LCK_M_RX_U','LCK_M_RX_X')
-								    HAVING SUM([wait_time_ms]) > (SELECT 5000 * datediff(HH,create_date,CURRENT_TIMESTAMP) AS hours_since_startup FROM sys.databases WHERE name='tempdb')
+								    HAVING SUM([wait_time_ms]) > (SELECT 5000 * datediff(HH,create_date,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE CURRENT_TIMESTAMP END)) AS hours_since_startup FROM sys.databases WHERE name='tempdb')
 									AND SUM([wait_time_ms]) > 60000;
 						END;
 
@@ -4504,6 +4730,10 @@ BEGIN
 						BEGIN
 
 							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 111) WITH NOWAIT;
+							/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+							IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+							BEGIN
+							EXEC sys.sp_executesql N'
 
 							INSERT  INTO #BlitzResults
 									( CheckID ,
@@ -4516,11 +4746,11 @@ BEGIN
 									)
 									SELECT  111 AS CheckID ,
 											50 AS Priority ,
-											'Reliability' AS FindingGroup ,
-											'Possibly Broken Log Shipping'  AS Finding ,
+											''Reliability'' AS FindingGroup ,
+											''Possibly Broken Log Shipping''  AS Finding ,
 											d.[name] ,
-											'https://www.brentozar.com/go/shipping' AS URL ,
-											d.[name] + ' is in a restoring state, but has not had a backup applied in the last two days. This is a possible indication of a broken transaction log shipping setup.'
+											''https://www.brentozar.com/go/shipping'' AS URL ,
+											d.[name] + '' is in a restoring state, but has not had a backup applied in the last two days. This is a possible indication of a broken transaction log shipping setup.''
 											FROM [master].sys.databases d
 											INNER JOIN [master].sys.database_mirroring dm ON d.database_id = dm.database_id
 												AND dm.mirroring_role IS NULL
@@ -4529,14 +4759,15 @@ BEGIN
 											AND NOT EXISTS(SELECT * FROM msdb.dbo.restorehistory rh
 											INNER JOIN msdb.dbo.backupset bs ON rh.backup_set_id = bs.backup_set_id
 											WHERE d.[name] COLLATE SQL_Latin1_General_CP1_CI_AS = rh.destination_database_name COLLATE SQL_Latin1_General_CP1_CI_AS
-											AND rh.restore_date >= DATEADD(dd, -2, GETDATE()));
+											AND rh.restore_date >= DATEADD(dd, -2, GETDATE()));';
+							END;
 
 						END;
 
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 112 )
-									AND EXISTS (SELECT * FROM master.sys.all_objects WHERE name = 'change_tracking_databases')
+									AND EXISTS (SELECT * FROM sys.all_objects WHERE name = 'change_tracking_databases')
 							BEGIN
 
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 112) WITH NOWAIT;
@@ -4562,11 +4793,22 @@ BEGIN
 										
 										EXECUTE(@StringToExecute);
 							END;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						SET @CrossDBExists = 0;
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+							AND NOT EXISTS ( SELECT  1
+							                 FROM    #SkipChecks
+							                 WHERE   DatabaseName IS NULL AND CheckID = 116 )
+						BEGIN
+						EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS (SELECT * FROM msdb.sys.all_columns WHERE name = ''compressed_backup_size'');',
+						    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+						END;
+
 
 						IF NOT EXISTS ( SELECT 1
 										 FROM   #SkipChecks
 										 WHERE  DatabaseName IS NULL AND CheckID = 116 )
-									AND EXISTS (SELECT * FROM msdb.sys.all_columns WHERE name = 'compressed_backup_size')
+									AND (@CrossDBExists = 1)
 						BEGIN
 
 							IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 116) WITH NOWAIT
@@ -4598,7 +4840,7 @@ BEGIN
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 117 )
-									AND EXISTS (SELECT * FROM master.sys.all_objects WHERE name = 'dm_exec_query_resource_semaphores')
+									AND EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_exec_query_resource_semaphores')
 							BEGIN
 								
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 117) WITH NOWAIT;
@@ -4650,10 +4892,10 @@ BEGIN
 								WHERE RTRIM(p.counter_name) = 'Number of Deadlocks/sec'
 									AND RTRIM(p.instance_name) = '_Total'
 									AND p.cntr_value > 0
-									AND (1.0 * p.cntr_value / NULLIF(datediff(DD,create_date,CURRENT_TIMESTAMP),0)) > 10;
+									AND (1.0 * p.cntr_value / NULLIF(datediff(DD,create_date,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE CURRENT_TIMESTAMP END)),0)) > 10;
 							END;
 
-						IF DATEADD(mi, -15, GETDATE()) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
+						IF DATEADD(mi, -15, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
 						AND NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 125 )
@@ -5466,7 +5708,7 @@ IF NOT EXISTS ( SELECT  1
 						  FROM
 							[sys].[dm_server_services]
 						  WHERE [status_desc] <> 'Running'
-						  AND [servicename] LIKE 'SQL Server Agent%'
+						  AND [servicename] LIKE 'SQL Server_Agent%'
 						  AND CAST(SERVERPROPERTY('Edition') AS VARCHAR(1000)) NOT LIKE '%xpress%';
 
 					END;
@@ -5504,7 +5746,7 @@ IF @IsWindowsOperatingSystem = 1
 						  WHERE ([service_account] = 'LocalSystem'
 						    OR LOWER([service_account]) = 'nt authority\system')
 						  AND [servicename] LIKE 'SQL Server%'
-						  AND [servicename] NOT LIKE 'SQL Server Agent%';
+						  AND [servicename] NOT LIKE 'SQL Server_Agent%';
 					END;
 				END;
 
@@ -5540,7 +5782,7 @@ IF @IsWindowsOperatingSystem = 1
 							[sys].[dm_server_services]
 						  WHERE ([service_account] = 'LocalSystem'
 						    OR LOWER([service_account]) = 'nt authority\system')
-						  AND [servicename] LIKE 'SQL Server Agent%';
+						  AND [servicename] LIKE 'SQL Server_Agent%';
 					END;
 				END;
 
@@ -5614,7 +5856,7 @@ IF @IsWindowsOperatingSystem = 1
 							[sys].[dm_server_services]
 						  WHERE [service_account] LIKE 'NT Service%'
 						  AND [servicename] LIKE 'SQL Server%'
-						  AND [servicename] NOT LIKE 'SQL Server Agent%'
+						  AND [servicename] NOT LIKE 'SQL Server_Agent%'
 						  AND [servicename] NOT LIKE 'SQL Server Launchpad%';
 
 					END;
@@ -5653,7 +5895,7 @@ IF @IsWindowsOperatingSystem = 1
 						  FROM
 							[sys].[dm_server_services]
 						  WHERE [service_account] LIKE 'NT Service%'
-						  AND [servicename] LIKE 'SQL Server Agent%';
+						  AND [servicename] LIKE 'SQL Server_Agent%';
 
 					END;
 					END;
@@ -5946,7 +6188,7 @@ BEGIN
                     'Version Check Failed (unexpectedly modified checks ordering)' AS Finding ,
                     'http://FirstResponderKit.org' AS URL ,
                     'Download an updated First Responder Kit. Version check failed because "Mandatory" check has not been completed before for current component' + @crlf +
-                    'Error: version check mode happenned before "Mandatory" check for component called "' + @CurrentComponentFullName + '"'
+                    'Error: version check mode happened before "Mandatory" check for component called "' + @CurrentComponentFullName + '"'
                 ;
                 
                 -- we will stop the test because it's possible to get the same message for other components
@@ -6029,7 +6271,7 @@ BEGIN
                     'Version Check Failed (unexpectedly modified checks ordering)' AS Finding ,
                     'http://FirstResponderKit.org' AS URL ,
                     'Download an updated First Responder Kit. Version check failed because "VersionCheckMode" check has not been completed before for component called "' + @CurrentComponentFullName + '"' + @crlf +
-                    'Error: VersionCheck happenned before "VersionCheckMode" check for component called "' + @CurrentComponentFullName + '"'
+                    'Error: VersionCheck happened before "VersionCheckMode" check for component called "' + @CurrentComponentFullName + '"'
                 ;
                 
                 -- we will stop the test because it's possible to get the same message for other components
@@ -6273,6 +6515,44 @@ IF NOT EXISTS ( SELECT  1
 
 					END;
 
+/* CheckID 278 - Performance - TempDB Over Half Full. #4150 */
+			IF NOT EXISTS ( SELECT  1
+								FROM    #SkipChecks
+								WHERE   DatabaseName IS NULL AND CheckID = 278 )
+					BEGIN
+
+						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 278) WITH NOWAIT;
+
+						INSERT  INTO #BlitzResults
+								( CheckID ,
+								  DatabaseName ,
+								  Priority ,
+								  FindingsGroup ,
+								  Finding ,
+								  URL ,
+								  Details
+								)
+								SELECT  278 AS CheckID ,
+										'tempdb' AS DatabaseName ,
+										1 AS Priority ,
+										'Performance' AS FindingsGroup ,
+										'TempDB Over Half Full' AS Finding ,
+										'https://www.brentozar.com/archive/2025/10/tempdb-filling-up-try-resource-governor/' AS URL ,
+										CAST(CAST(u.used_pct AS DECIMAL(5,1)) AS VARCHAR(10)) + '% of TempDB''s ' + CAST(u.total_mb AS VARCHAR(30)) + ' MB of data file space is in use right now: '
+											+ CAST(u.user_mb AS VARCHAR(30)) + ' MB user objects (temp tables, table variables), '
+											+ CAST(u.internal_mb AS VARCHAR(30)) + ' MB internal objects (sorts, hashes, spools), '
+											+ CAST(u.version_mb AS VARCHAR(30)) + ' MB version store. '
+											+ 'Run sp_BlitzWho to find the sessions allocating TempDB space before it fills up. SQL Server 2025 and newer can cap TempDB usage per workload group with Resource Governor - see the URL.' AS Details
+								FROM    ( SELECT  SUM(fsu.total_page_count) * 8 / 1024 AS total_mb ,
+													SUM(fsu.user_object_reserved_page_count) * 8 / 1024 AS user_mb ,
+													SUM(fsu.internal_object_reserved_page_count) * 8 / 1024 AS internal_mb ,
+													SUM(fsu.version_store_reserved_page_count) * 8 / 1024 AS version_mb ,
+													100.0 * (SUM(fsu.total_page_count) - SUM(fsu.unallocated_extent_page_count)) / NULLIF(SUM(fsu.total_page_count), 0) AS used_pct
+										  FROM    tempdb.sys.dm_db_file_space_usage fsu
+										) u
+								WHERE   u.used_pct > 50;
+					END;
+
 /*Check for too many tempdb files*/
 			IF NOT EXISTS ( SELECT  1
 								FROM    #SkipChecks
@@ -6336,7 +6616,7 @@ IF NOT EXISTS ( SELECT  1
 													'https://www.brentozar.com/go/xe' AS URL ,
 													'Hey big spender, you have ' + CAST(COUNT_BIG(*) AS VARCHAR(30)) + ' Extended Events sessions running. You sure you meant to do that?' AS Details
 											    FROM sys.dm_xe_sessions
-												WHERE [name] NOT IN
+												WHERE [name] COLLATE SQL_Latin1_General_CP1_CI_AS NOT IN
 												( 'AlwaysOn_health', 
 												  'system_health', 
 												  'telemetry_xevents', 
@@ -6345,6 +6625,45 @@ IF NOT EXISTS ( SELECT  1
 												  'hkenginexesession' )
 												AND name NOT LIKE '%$A%'
 											  HAVING COUNT_BIG(*) >= 2;
+								END;	
+								END;
+			
+/*Check for availability groups existing while AlwaysOn_health is either disabled or missing*/
+			IF NOT EXISTS ( SELECT  1
+											FROM    #SkipChecks
+											WHERE   DatabaseName IS NULL AND CheckID = 276 )
+								BEGIN
+			
+			IF EXISTS ( SELECT  1
+														FROM    sys.all_objects
+														WHERE   name = 'dm_xe_sessions' )
+            AND EXISTS ( SELECT  1
+														FROM    sys.all_objects
+														WHERE   name = 'availability_groups' )
+								
+								BEGIN
+									
+									IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 276) WITH NOWAIT;
+
+                                    IF NOT EXISTS (SELECT 1 FROM sys.dm_xe_sessions WHERE [name] COLLATE SQL_Latin1_General_CP1_CI_AS = 'AlwaysOn_health')
+                                    AND EXISTS (SELECT 1 FROM sys.availability_groups) 
+									INSERT  INTO #BlitzResults
+											( CheckID ,
+											  DatabaseName ,
+											  Priority ,
+											  FindingsGroup ,
+											  Finding ,
+											  URL ,
+											  Details
+											)
+													SELECT
+													276 AS CheckID ,
+													'' AS DatabaseName ,
+													200 AS Priority ,
+													'Monitoring' AS FindingsGroup ,
+													'Availability Group Without AlwaysOn_health' AS Finding ,
+													'https://learn.microsoft.com/en-us/sql/database-engine/availability-groups/windows/always-on-extended-events#the-alwayson_health-session' AS URL ,
+													'This server has availability groups, but the AlwaysOn_health Extended Event is either missing or disabled. Do you have what you need to debug an outage?' AS Details
 								END;	
 								END;
 			
@@ -6433,11 +6752,15 @@ IF NOT EXISTS ( SELECT  1
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 180) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 					
-						WITH XMLNAMESPACES ('www.microsoft.com/SqlServer/Dts' AS [dts])
+						WITH XMLNAMESPACES (''www.microsoft.com/SqlServer/Dts'' AS [dts])
 						,[maintenance_plan_steps] AS (
 							SELECT [name]
-								, [id] -- ID required to link maintenace plan with jobs and jobhistory (sp_Blitz Issue #776)							
+								, [id] -- ID required to link maintenance plan with jobs and jobhistory (sp_Blitz Issue #776)									
 								, CAST(CAST([packagedata] AS VARBINARY(MAX)) AS XML) AS [maintenance_plan_xml]
 							FROM [msdb].[dbo].[sysssispackages]
 							WHERE [packagetype] = 6
@@ -6453,18 +6776,18 @@ IF NOT EXISTS ( SELECT  1
 						180 AS [CheckID] ,
 						-- sp_Blitz Issue #776
 						-- Job has history and was executed in the last 30 days
-						CASE WHEN (cast(datediff(dd, substring(cast(sjh.run_date as nvarchar(10)), 1, 4) + '-' + substring(cast(sjh.run_date as nvarchar(10)), 5, 2) + '-' + substring(cast(sjh.run_date as nvarchar(10)), 7, 2), GETDATE()) AS INT) < 30) OR (j.[enabled] = 1 AND ssc.[enabled] = 1 )THEN
+						CASE WHEN (cast(datediff(dd, substring(cast(sjh.run_date as nvarchar(10)), 1, 4) + ''-'' + substring(cast(sjh.run_date as nvarchar(10)), 5, 2) + ''-'' + substring(cast(sjh.run_date as nvarchar(10)), 7, 2), GETDATE()) AS INT) < 30) OR (j.[enabled] = 1 AND ssc.[enabled] = 1 )THEN
 						    100
 						ELSE -- no job history (implicit) AND job not run in the past 30 days AND (Job disabled OR Job Schedule disabled)
 					        200
 						END AS Priority,
-						'Performance' AS [FindingsGroup] ,
-						'Shrink Database Step In Maintenance Plan' AS [Finding] ,
-						'https://www.brentozar.com/go/autoshrink' AS [URL] ,									
-						'The maintenance plan ' + [mps].[name] + ' has a step to shrink databases in it. Shrinking databases is as outdated as maintenance plans.'
-						+ CASE WHEN COALESCE(ssc.name,'0') != '0' THEN + ' (Schedule: [' + ssc.name + '])' ELSE + '' END AS [Details]
+						''Performance'' AS [FindingsGroup] ,
+						''Shrink Database Step In Maintenance Plan'' AS [Finding] ,
+						''https://www.brentozar.com/go/autoshrink'' AS [URL] ,									
+						''The maintenance plan '' + [mps].[name] + '' has a step to shrink databases in it. Shrinking databases is as outdated as maintenance plans.''
+						+ CASE WHEN COALESCE(ssc.name,''0'') != ''0'' THEN + '' (Schedule: ['' + ssc.name + ''])'' ELSE + '''' END AS [Details]
 						FROM [maintenance_plan_steps] [mps]
-							CROSS APPLY [maintenance_plan_xml].[nodes]('//dts:Executables/dts:Executable') [t]([c])
+							CROSS APPLY [maintenance_plan_xml].[nodes](''//dts:Executables/dts:Executable'') [t]([c])
                     	join msdb.dbo.sysmaintplan_subplans as sms
                     		on mps.id = sms.plan_id
                     	JOIN msdb.dbo.sysjobs j
@@ -6481,7 +6804,8 @@ IF NOT EXISTS ( SELECT  1
                     		AND step.step_id = sjh.step_id
                     		AND sjh.run_date IN (SELECT max(sjh2.run_date) FROM msdb.dbo.sysjobhistory AS sjh2 WHERE sjh2.job_id = j.job_id) -- get the latest entry date
                     		AND sjh.run_time IN (SELECT max(sjh3.run_time) FROM msdb.dbo.sysjobhistory AS sjh3 WHERE sjh3.job_id = j.job_id AND sjh3.run_date = sjh.run_date) -- get the latest entry time
-						WHERE [c].[value]('(@dts:ObjectName)', 'VARCHAR(128)') = 'Shrink Database Task';
+						WHERE [c].[value](''(@dts:ObjectName)'', ''VARCHAR(128)'') = ''Shrink Database Task'';';
+						END;
 
 						END;
 
@@ -6492,8 +6816,12 @@ IF NOT EXISTS ( SELECT  1
 						AND CONVERT(VARCHAR(128), SERVERPROPERTY ('productversion')) LIKE '1%' /* Only run on 2008+ */
 				BEGIN
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 181) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 
-						WITH XMLNAMESPACES ('www.microsoft.com/SqlServer/Dts' AS [dts])
+						WITH XMLNAMESPACES (''www.microsoft.com/SqlServer/Dts'' AS [dts])
 						,[maintenance_plan_steps] AS (
 							SELECT [name]
 								, CAST(CAST([packagedata] AS VARBINARY(MAX)) AS XML) AS [maintenance_plan_xml]
@@ -6501,12 +6829,12 @@ IF NOT EXISTS ( SELECT  1
 							WHERE [packagetype] = 6
 							), [maintenance_plan_table] AS (
 						SELECT [mps].[name]
-							,[c].[value]('(@dts:ObjectName)', 'NVARCHAR(128)') AS [step_name]
+							,[c].[value](''(@dts:ObjectName)'', ''NVARCHAR(128)'') AS [step_name]
 						FROM [maintenance_plan_steps] [mps]
-							CROSS APPLY [maintenance_plan_xml].[nodes]('//dts:Executables/dts:Executable') [t]([c])
+							CROSS APPLY [maintenance_plan_xml].[nodes](''//dts:Executables/dts:Executable'') [t]([c])
 						), [mp_steps_pretty] AS (SELECT DISTINCT [m1].[name] ,
-								STUFF((SELECT N', ' + [m2].[step_name]  FROM [maintenance_plan_table] AS [m2] WHERE [m1].[name] = [m2].[name]
-								FOR XML PATH(N'')), 1, 2, N'') AS [maintenance_plan_steps]
+								STUFF((SELECT N'', '' + [m2].[step_name]  FROM [maintenance_plan_table] AS [m2] WHERE [m1].[name] = [m2].[name]
+								FOR XML PATH(N'''')), 1, 2, N'''') AS [maintenance_plan_steps]
 						FROM [maintenance_plan_table] AS [m1])
 						
 							INSERT    INTO [#BlitzResults]
@@ -6520,13 +6848,14 @@ IF NOT EXISTS ( SELECT  1
 						SELECT
 						181 AS [CheckID] ,
 						100 AS [Priority] ,
-						'Performance' AS [FindingsGroup] ,
-						'Repetitive Steps In Maintenance Plans' AS [Finding] ,
-						'https://ola.hallengren.com/' AS [URL] ,
-						'The maintenance plan ' + [m].[name] + ' is doing repetitive work on indexes and statistics. Perhaps it''s time to try something more modern?' AS [Details]
+						''Performance'' AS [FindingsGroup] ,
+						''Repetitive Steps In Maintenance Plans'' AS [Finding] ,
+						''https://ola.hallengren.com/'' AS [URL] ,
+						''The maintenance plan '' + [m].[name] + '' is doing repetitive work on indexes and statistics. Perhaps it''''s time to try something more modern?'' AS [Details]
 						FROM [mp_steps_pretty] m
-						WHERE m.[maintenance_plan_steps] LIKE '%Rebuild%Reorganize%'
-						OR m.[maintenance_plan_steps] LIKE '%Rebuild%Update%';
+						WHERE m.[maintenance_plan_steps] LIKE ''%Rebuild%Reorganize%''
+						OR m.[maintenance_plan_steps] LIKE ''%Rebuild%Update%'';';
+						END;
 
 						END;
 			
@@ -6561,12 +6890,22 @@ IF NOT EXISTS ( SELECT  1
 					END;
 
 		/* Reliability - TempDB File Error */
+		SET @CrossDBCount = 0;
+		IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+			AND NOT EXISTS ( SELECT  1
+			                 FROM    #SkipChecks
+			                 WHERE   DatabaseName IS NULL AND CheckID = 191 )
+		BEGIN
+			EXEC sys.sp_executesql
+			    N'SELECT @r = (SELECT COUNT(*) FROM sys.master_files WHERE database_id = 2);',
+			    N'@r INT OUTPUT', @r = @CrossDBCount OUTPUT;
+		END;
 		IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 191 )
-			AND (SELECT COUNT(*) FROM sys.master_files WHERE database_id = 2) <> (SELECT COUNT(*) FROM tempdb.sys.database_files)
+			AND @CrossDBCount <> (SELECT COUNT(*) FROM tempdb.sys.database_files)
 			/* User may have no permissions to see tempdb files in sys.master_files. In that case count returned will be 0 and we want to skip the check */
-			AND (SELECT COUNT(*) FROM sys.master_files WHERE database_id = 2) <> 0
+			AND @CrossDBCount <> 0
 				BEGIN
 					
 					IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 191) WITH NOWAIT
@@ -7112,6 +7451,10 @@ IF NOT EXISTS ( SELECT  1
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 234) WITH NOWAIT;
+							/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+							IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+							BEGIN
+							EXEC sys.sp_executesql N'
 						
 							INSERT  INTO #BlitzResults
 									( CheckID ,
@@ -7125,14 +7468,15 @@ IF NOT EXISTS ( SELECT  1
 							SELECT 234 AS CheckID,
 							       100 AS Priority,
 								   db_name(f.database_id) AS DatabaseName,
-							       'Reliability' AS FindingsGroup,
-							       'SQL Server Update May Fail' AS Finding,
-							       'https://desertdba.com/failovers-cant-serve-two-masters/' AS URL,
-							       'This database has a file with a logical name of ''master'', which can break SQL Server updates. Rename it in SSMS by right-clicking on the database, go into Properties, and rename the file. Takes effect instantly.' AS details
+							       ''Reliability'' AS FindingsGroup,
+							       ''SQL Server Update May Fail'' AS Finding,
+							       ''https://desertdba.com/failovers-cant-serve-two-masters/'' AS URL,
+							       ''This database has a file with a logical name of ''''master'''', which can break SQL Server updates. Rename it in SSMS by right-clicking on the database, go into Properties, and rename the file. Takes effect instantly.'' AS details
 							FROM master.sys.master_files f
-							WHERE (f.name = N'master')
+							WHERE (f.name = N''master'')
 							  AND f.database_id > 4
-							  AND db_name(f.database_id) <> 'master'; /* Thanks Michaels3 for catching this */
+							  AND db_name(f.database_id) <> ''master'';';
+							END; /* Thanks Michaels3 for catching this */
 					END;
 
 
@@ -7195,31 +7539,45 @@ IF NOT EXISTS ( SELECT  1
 						EXEC @ExecRet = sp_executesql @tsql, N'@ExecRet_Out INT OUTPUT', @ExecRet_Out = @ExecRet OUTPUT;
 						IF @ExecRet > 0
 							BEGIN
-							DECLARE @TempDBfiles TABLE (config VARCHAR(50), data_files INT)
+							IF OBJECT_ID('tempdb..#BlitzTempDBfiles') IS NOT NULL DROP TABLE #BlitzTempDBfiles;
+							CREATE TABLE #BlitzTempDBfiles (config VARCHAR(50), data_files INT);
+							/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+							IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+							BEGIN
+							EXEC sys.sp_executesql N'
 							/* Valid configs */
-							INSERT INTO @TempDBfiles
-								SELECT 'Fixed predictable growth' AS config, SUM(1) AS data_files
+							INSERT INTO #BlitzTempDBfiles
+								SELECT ''Fixed predictable growth'' AS config, SUM(1) AS data_files
 									FROM master.sys.master_files
-									WHERE database_id = DB_ID('tempdb')
+									WHERE database_id = DB_ID(''tempdb'')
 									  AND type = 0 /* data */
 									  AND max_size <> -1 /* only limited ones */
 									  AND growth <> 0 /* growth is set */
 									HAVING SUM(1) > 0
 								UNION ALL
-								SELECT 'Growth turned off' AS config, SUM(1) AS data_files
+								SELECT ''Growth turned off'' AS config, SUM(1) AS data_files
 									FROM master.sys.master_files
-									WHERE database_id = DB_ID('tempdb')
+									WHERE database_id = DB_ID(''tempdb'')
 									  AND type = 0 /* data */
 									  AND max_size = -1 /* unlimited */
 									  AND growth = 0
-									HAVING SUM(1) > 0;
-
-							IF 1 <> (SELECT COUNT(*) FROM @TempDBfiles)
-								OR (SELECT SUM(data_files) FROM @TempDBfiles) <> 
-									(SELECT SUM(1)
+									HAVING SUM(1) > 0;';
+							END;
+							/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+							SET @CrossDBCount = NULL;
+							IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+							BEGIN
+							EXEC sys.sp_executesql N'SELECT @r = (SELECT SUM(1)
 										FROM master.sys.master_files
-										WHERE database_id = DB_ID('tempdb')
-										  AND type = 0 /* data */)
+										WHERE database_id = DB_ID(''tempdb'')
+										  AND type = 0 /* data */);',
+							    N'@r INT OUTPUT', @r = @CrossDBCount OUTPUT;
+							END;
+
+
+							IF 1 <> (SELECT COUNT(*) FROM #BlitzTempDBfiles)
+								OR (SELECT SUM(data_files) FROM #BlitzTempDBfiles) <> 
+									@CrossDBCount
 								BEGIN
 									INSERT INTO #BlitzResults
 										( CheckID ,
@@ -7358,7 +7716,23 @@ IF NOT EXISTS ( SELECT  1
 		                              ''Performance'',
 		                              ''Query Store Effectively Disabled'',
 		                              ''https://learn.microsoft.com/en-us/sql/relational-databases/performance/best-practice-with-the-query-store#Verify'',
-		                              (''Query Store is not in a state where it is writing, so it is effectively disabled. Check your Query Store settings.'')
+		                              (''Query Store is not in a state where it is writing, so it is effectively disabled. Check your Query Store settings.'' + CASE WHEN actual_state = 1 THEN
+                                        '' Read-only reasons (readonly_reason = '' + CONVERT(NVARCHAR(20), readonly_reason) + ''): ''
+                                        + CASE WHEN readonly_reason = 0 THEN
+                                            CASE WHEN desired_state = 1 THEN ''Query Store is configured READ_ONLY.''
+                                                 ELSE ''No automatic read-only reason is reported.'' END
+                                          ELSE STUFF(
+                                              CASE WHEN (readonly_reason & 1) = 1 THEN ''; Database is read-only'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 2) = 2 THEN ''; Database is in single-user mode'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 4) = 4 THEN ''; Database is in emergency mode'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 8) = 8 THEN ''; Database is a secondary replica'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 65536) = 65536 THEN ''; Query Store reached MAX_STORAGE_SIZE_MB'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 131072) = 131072 THEN ''; Distinct statements reached the internal memory limit'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 262144) = 262144 THEN ''; In-memory items awaiting persistence reached the internal memory limit (temporary)'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 524288) = 524288 THEN ''; Database reached its disk size limit'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & ~983055) <> 0 THEN ''; Unrecognized read-only reason bits (see readonly_reason)'' ELSE '''' END,
+                                            1, 2, '''') END
+                                    ELSE '''' END)
 		                              FROM [?].sys.database_query_store_options
 									  WHERE desired_state <> 0
 									  AND actual_state <> 2
@@ -7390,7 +7764,23 @@ IF NOT EXISTS ( SELECT  1
 		                              ''Performance'',
 		                              ''Undesired Query Store State'',
 		                              ''https://learn.microsoft.com/en-us/sql/relational-databases/performance/best-practice-with-the-query-store#Verify'',
-		                              (''You have asked for Query Store to be in '' + desired_state_desc + '' mode, but it is in '' + actual_state_desc + '' mode.'')
+		                              (''You have asked for Query Store to be in '' + desired_state_desc + '' mode, but it is in '' + actual_state_desc + '' mode.'' + CASE WHEN actual_state = 1 THEN
+                                        '' Read-only reasons (readonly_reason = '' + CONVERT(NVARCHAR(20), readonly_reason) + ''): ''
+                                        + CASE WHEN readonly_reason = 0 THEN
+                                            CASE WHEN desired_state = 1 THEN ''Query Store is configured READ_ONLY.''
+                                                 ELSE ''No automatic read-only reason is reported.'' END
+                                          ELSE STUFF(
+                                              CASE WHEN (readonly_reason & 1) = 1 THEN ''; Database is read-only'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 2) = 2 THEN ''; Database is in single-user mode'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 4) = 4 THEN ''; Database is in emergency mode'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 8) = 8 THEN ''; Database is a secondary replica'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 65536) = 65536 THEN ''; Query Store reached MAX_STORAGE_SIZE_MB'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 131072) = 131072 THEN ''; Distinct statements reached the internal memory limit'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 262144) = 262144 THEN ''; In-memory items awaiting persistence reached the internal memory limit (temporary)'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & 524288) = 524288 THEN ''; Database reached its disk size limit'' ELSE '''' END
+                                            + CASE WHEN (readonly_reason & ~983055) <> 0 THEN ''; Unrecognized read-only reason bits (see readonly_reason)'' ELSE '''' END,
+                                            1, 2, '''') END
+                                    ELSE '''' END)
 		                              FROM [?].sys.database_query_store_options
 									  WHERE desired_state <> 0
 									  AND desired_state <> actual_state 
@@ -7456,7 +7846,7 @@ IF NOT EXISTS ( SELECT  1
 		                              ''AI'',
 		                              ''Constitution.md Present'',
 		                              ''https://www.brentozar.com/go/constitution'',
-		                              ''The instructions in the Consitution.md extended property will influence the behavior of AI agents like Copilot, and change the advice they give to end users querying this database. To see the instructions, run the query in the URL.''
+		                              ''The instructions in the Constitution.md extended property will influence the behavior of AI agents like Copilot, and change the advice they give to end users querying this database. To see the instructions, run the query in the URL.''
 		                              FROM [?].sys.extended_properties
 									  WHERE class = 0 AND class_desc = ''DATABASE'' AND UPPER(name) = ''CONSTITUTION.MD''
 									  OPTION (RECOMPILE)';
@@ -8023,10 +8413,10 @@ IF NOT EXISTS ( SELECT  1
 								EXECUTE dbo.sp_ineachdb @suppress_quotename = 1, @command = 'USE [?];
                                     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                                     INSERT INTO #Recompile
-                                    SELECT DISTINCT DBName = DB_Name(), SPName = SO.name, SM.is_recompiled, ISR.SPECIFIC_SCHEMA
+                                    SELECT DBName = DB_Name(), SPName = SO.name, SM.is_recompiled, S.name
                                     FROM sys.sql_modules AS SM
-                                    LEFT OUTER JOIN dbo.sysobjects AS SO ON SM.object_id = SO.id and type = ''P''
-                                    LEFT OUTER JOIN INFORMATION_SCHEMA.ROUTINES AS ISR on ISR.Routine_Name = SO.name AND ISR.SPECIFIC_CATALOG = DB_Name()
+                                    INNER JOIN sys.procedures AS SO ON SM.object_id = SO.object_id
+                                    INNER JOIN sys.schemas AS S ON SO.schema_id = S.schema_id
                                     WHERE SM.is_recompiled=1  OPTION (RECOMPILE); /* oh the rich irony of recompile here */
                                     ';
                                 INSERT INTO #BlitzResults
@@ -8060,7 +8450,7 @@ IF NOT EXISTS ( SELECT  1
 								EXEC dbo.sp_ineachdb @suppress_quotename = 1, @command = 'USE [?]; INSERT INTO #BlitzResults (CheckID, DatabaseName, Priority, FindingsGroup, Finding, URL, Details) SELECT DISTINCT 86, DB_NAME(), 230, ''Security'', ''Elevated Permissions on a Database'', ''https://www.brentozar.com/go/elevated'', (''In ['' + DB_NAME() + ''], user ['' + u.name + '']  has the role ['' + g.name + ''].  This user can perform tasks beyond just reading and writing data.'') FROM (SELECT memberuid = convert(int, member_principal_id), groupuid = convert(int, role_principal_id) FROM [?].sys.database_role_members) m inner join [?].dbo.sysusers u on m.memberuid = u.uid inner join sysusers g on m.groupuid = g.uid where u.name <> ''dbo'' and g.name in (''db_owner'' , ''db_accessadmin'' , ''db_securityadmin'' , ''db_ddladmin'') OPTION (RECOMPILE);';
 							END;
 
-							/*Check for non-aligned indexes in partioned databases*/
+							/*Check for non-aligned indexes in partitioned databases*/
 
 										IF NOT EXISTS ( SELECT  1
 														FROM    #SkipChecks
@@ -8136,7 +8526,7 @@ IF NOT EXISTS ( SELECT  1
 							  ''Full Text Indexes Not Updating'',
 							  ''https://www.brentozar.com/go/fulltext'',
 							  (''At least one full text index in this database has not been crawled in the last week.'')
-							  from [?].sys.fulltext_indexes i WHERE change_tracking_state_desc <> ''AUTO'' AND i.is_enabled = 1 AND i.crawl_end_date < DATEADD(dd, -7, GETDATE())  OPTION (RECOMPILE);';
+							  from [?].sys.fulltext_indexes i WHERE change_tracking_state_desc <> ''AUTO'' AND i.is_enabled = 1 AND i.crawl_end_date < DATEADD(dd, -7, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END))  OPTION (RECOMPILE);';
 												END;
 
 						IF NOT EXISTS ( SELECT  1
@@ -8284,7 +8674,7 @@ IF NOT EXISTS ( SELECT  1
 
 								DELETE br
 								FROM #BlitzResults br
-								INNER JOIN #SkipChecks sc ON sc.CheckID = 80 AND br.DatabaseName = sc.DatabaseName;
+								INNER JOIN #SkipChecks sc ON sc.CheckID = 80 AND br.CheckID = sc.CheckID AND br.DatabaseName = sc.DatabaseName;
 					        END;
                             
 	
@@ -8546,7 +8936,7 @@ EXEC dbo.sp_ineachdb @suppress_quotename = 1, @command = 'USE [?]; SET TRANSACTI
 								FROM     #DBCCs
 								INNER JOIN sys.databases d ON #DBCCs.DbName = d.name
 								WHERE    Field = 'dbi_dbccLastKnownGood'
-									AND d.create_date < DATEADD(dd, -14, GETDATE())
+									AND d.create_date < DATEADD(dd, -14, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
 								)
 					INSERT  INTO #BlitzResults
 							( CheckID ,
@@ -8581,7 +8971,7 @@ EXEC dbo.sp_ineachdb @suppress_quotename = 1, @command = 'USE [?]; SET TRANSACTI
 															WHERE   is_read_only = 1)
 									AND CONVERT(DATETIME, DB2.Value, 121) < DATEADD(DD,
 															-14,
-															CURRENT_TIMESTAMP);
+															(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE CURRENT_TIMESTAMP END));
 			END;
 
 		END; /* IF @CheckUserDatabaseObjects = 1 */
@@ -9009,9 +9399,14 @@ EXEC dbo.sp_ineachdb @suppress_quotename = 1, @command = 'USE [?]; SET TRANSACTI
 					BEGIN
 
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 73) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 
 						INSERT INTO #AlertInfo
-						EXEC [master].[dbo].[sp_MSgetalertinfo] @includeaddresses = 0;
+						EXEC [master].[dbo].[sp_MSgetalertinfo] @includeaddresses = 0;';
+						END;
 						
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -9171,7 +9566,7 @@ EXEC dbo.sp_ineachdb @suppress_quotename = 1, @command = 'USE [?]; SET TRANSACTI
 							WHERE n.node_id = 0 AND n.online_scheduler_count >= 8
 								AND EXISTS (SELECT * FROM sys.dm_os_nodes WHERE node_id > 0 AND node_state_desc NOT LIKE '%DAC')
 							GROUP BY w.wait_type, ts.status
-							HAVING SUM([wait_time_ms]) > (SELECT 5000 * datediff(HH,create_date,CURRENT_TIMESTAMP) AS hours_since_startup FROM sys.databases WHERE name='tempdb')
+							HAVING SUM([wait_time_ms]) > (SELECT 5000 * datediff(HH,create_date,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE CURRENT_TIMESTAMP END)) AS hours_since_startup FROM sys.databases WHERE name='tempdb')
 							AND SUM([wait_time_ms]) > 60000;
 				END;
 
@@ -9300,6 +9695,10 @@ EXEC dbo.sp_ineachdb @suppress_quotename = 1, @command = 'USE [?]; SET TRANSACTI
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 79) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 						
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -9312,18 +9711,18 @@ EXEC dbo.sp_ineachdb @suppress_quotename = 1, @command = 'USE [?]; SET TRANSACTI
 								SELECT  79 AS CheckID ,
 										-- sp_Blitz Issue #776
 										-- Job has history and was executed in the last 30 days OR Job is enabled AND Job Schedule is enabled
-                						CASE WHEN (cast(datediff(dd, substring(cast(sjh.run_date as nvarchar(10)), 1, 4) + '-' + substring(cast(sjh.run_date as nvarchar(10)), 5, 2) + '-' + substring(cast(sjh.run_date as nvarchar(10)), 7, 2), GETDATE()) AS INT) < 30) OR (j.[enabled] = 1 AND ssc.[enabled] = 1 )THEN
+                						CASE WHEN (cast(datediff(dd, substring(cast(sjh.run_date as nvarchar(10)), 1, 4) + ''-'' + substring(cast(sjh.run_date as nvarchar(10)), 5, 2) + ''-'' + substring(cast(sjh.run_date as nvarchar(10)), 7, 2), GETDATE()) AS INT) < 30) OR (j.[enabled] = 1 AND ssc.[enabled] = 1 )THEN
                 						    100
                 						ELSE -- no job history (implicit) AND job not run in the past 30 days AND (Job disabled OR Job Schedule disabled)
             						        200
                 						END AS Priority,
-										'Performance' AS FindingsGroup ,
-										'Shrink Database Job' AS Finding ,
-										'https://www.brentozar.com/go/autoshrink' AS URL ,
-										'In the [' + j.[name] + '] job, step ['
+										''Performance'' AS FindingsGroup ,
+										''Shrink Database Job'' AS Finding ,
+										''https://www.brentozar.com/go/autoshrink'' AS URL ,
+										''In the ['' + j.[name] + ''] job, step [''
 										+ step.[step_name]
-										+ '] has SHRINKDATABASE or SHRINKFILE, which may be causing database fragmentation.'
-										+ CASE WHEN COALESCE(ssc.name,'0') != '0' THEN + ' (Schedule: [' + ssc.name + '])' ELSE + '' END AS Details
+										+ ''] has SHRINKDATABASE or SHRINKFILE, which may be causing database fragmentation.''
+										+ CASE WHEN COALESCE(ssc.name,''0'') != ''0'' THEN + '' (Schedule: ['' + ssc.name + ''])'' ELSE + '''' END AS Details
 								FROM    msdb.dbo.sysjobs j
 										INNER JOIN msdb.dbo.sysjobsteps step ON j.job_id = step.job_id
 										LEFT OUTER JOIN msdb.dbo.sysjobschedules AS sjsc
@@ -9336,8 +9735,9 @@ EXEC dbo.sp_ineachdb @suppress_quotename = 1, @command = 'USE [?]; SET TRANSACTI
 										    AND step.step_id = sjh.step_id
 										    AND sjh.run_date IN (SELECT max(sjh2.run_date) FROM msdb.dbo.sysjobhistory AS sjh2 WHERE sjh2.job_id = j.job_id) -- get the latest entry date
 										    AND sjh.run_time IN (SELECT max(sjh3.run_time) FROM msdb.dbo.sysjobhistory AS sjh3 WHERE sjh3.job_id = j.job_id AND sjh3.run_date = sjh.run_date) -- get the latest entry time
-								WHERE   step.command LIKE N'%SHRINKDATABASE%'
-										OR step.command LIKE N'%SHRINKFILE%';
+								WHERE   step.command LIKE N''%SHRINKDATABASE%''
+										OR step.command LIKE N''%SHRINKFILE%'';';
+						END;
 					END;
 
 				IF NOT EXISTS ( SELECT  1
@@ -9376,6 +9776,10 @@ EXEC dbo.sp_ineachdb @suppress_quotename = 1, @command = 'USE [?]; SET TRANSACTI
 					BEGIN
 						
 						IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 123) WITH NOWAIT;
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'
 						
 						INSERT  INTO #BlitzResults
 								( CheckID ,
@@ -9387,13 +9791,14 @@ EXEC dbo.sp_ineachdb @suppress_quotename = 1, @command = 'USE [?]; SET TRANSACTI
 								)
 								SELECT TOP 1 123 AS CheckID ,
 										200 AS Priority ,
-										'Informational' AS FindingsGroup ,
-										'Agent Jobs Starting Simultaneously' AS Finding ,
-										'https://www.brentozar.com/go/busyagent/' AS URL ,
-										( 'Multiple SQL Server Agent jobs are configured to start simultaneously. For detailed schedule listings, see the query in the URL.' ) AS Details
+										''Informational'' AS FindingsGroup ,
+										''Agent Jobs Starting Simultaneously'' AS Finding ,
+										''https://www.brentozar.com/go/busyagent/'' AS URL ,
+										( ''Multiple SQL Server Agent jobs are configured to start simultaneously. For detailed schedule listings, see the query in the URL.'' ) AS Details
 								FROM    msdb.dbo.sysjobactivity
 								WHERE start_execution_date > DATEADD(dd, -14, GETDATE())
-								GROUP BY start_execution_date HAVING COUNT(*) > 1;
+								GROUP BY start_execution_date HAVING COUNT(*) > 1;';
+						END;
 					END;
 
 				IF @CheckServerInfo = 1
@@ -9592,18 +9997,31 @@ IF NOT EXISTS ( SELECT  1
 						/* We couldn't get the instant_file_initialization_enabled column from sys.dm_server_services, fall back to read error log */
     					BEGIN
        						SET @IFIReadDMVFailed = 1;
+       						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+       						SET @CrossDBExists = 0;
+       						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+       						BEGIN
+       						EXEC sys.sp_executesql N'SELECT @r = 1 WHERE EXISTS ( SELECT 1/0
+       					    			 FROM   master.sys.all_objects
+       					    			 WHERE  name IN (''rds_startup_tasks'', ''rds_help_revlogin'', ''rds_hexadecimal'', ''rds_failover_tracking'', ''rds_database_tracking'', ''rds_track_change'')
+       								   );',
+       						    N'@r BIT OUTPUT', @r = @CrossDBExists OUTPUT;
+       						END;
+
        						/* If this is Amazon RDS, we'll use the rdsadmin.dbo.rds_read_error_log */
        						IF LEFT(CAST(SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
        						AND LEFT(CAST(SERVERPROPERTY('MachineName') AS VARCHAR(8000)), 8) = 'EC2AMAZ-'
        						AND db_id('rdsadmin') IS NOT NULL
-       						AND EXISTS ( SELECT 1/0
-       					    			 FROM   master.sys.all_objects
-       					    			 WHERE  name IN ('rds_startup_tasks', 'rds_help_revlogin', 'rds_hexadecimal', 'rds_failover_tracking', 'rds_database_tracking', 'rds_track_change')
-       								   )
+       						AND (@CrossDBExists = 1)
        						BEGIN
+           						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+           						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+           						BEGIN
+           						EXEC sys.sp_executesql N'
            						/* Amazon RDS detected, read rdsadmin.dbo.rds_read_error_log */
            						INSERT INTO #ErrorLog
-           						EXEC rdsadmin.dbo.rds_read_error_log 0, 1, N'Database Instant File Initialization: enabled';
+           						EXEC rdsadmin.dbo.rds_read_error_log 0, 1, N''Database Instant File Initialization: enabled'';';
+           						END;
        						END
        						ELSE
        						BEGIN
@@ -9890,10 +10308,15 @@ IF NOT EXISTS ( SELECT  1
 							BEGIN
 								
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 92) WITH NOWAIT;
+								/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+								IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+								BEGIN
+								EXEC sys.sp_executesql N'
 								
 								INSERT  INTO #driveInfo
 										( drive, available_MB )
-										EXEC master..xp_fixeddrives;
+										EXEC master..xp_fixeddrives;';
+								END;
 								
 								IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_os_volume_stats')
 								BEGIN
@@ -10056,6 +10479,9 @@ IF NOT EXISTS ( SELECT  1
 							END;
 								
 
+						/* Resolve the Windows registry reader only when a registry check runs. */
+						DECLARE @RegistryReader sysname = N'xp_regread';
+
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 211 )
@@ -10072,20 +10498,20 @@ IF NOT EXISTS ( SELECT  1
 								IF @sa = 0 RAISERROR('The errors: ''xp_regread() returned error 5, ''Access is denied.'''' can be safely ignored', 0, 1) WITH NOWAIT;
 
 									/* Get power plan if set by group policy [Git Hub Issue #1620] */						
-									EXEC xp_regread @rootkey	= N'HKEY_LOCAL_MACHINE',
+									EXEC @RegistryReader @rootkey	= N'HKEY_LOCAL_MACHINE',
 													@key		= N'SOFTWARE\Policies\Microsoft\Power\PowerSettings',
 													@value_name	= N'ActivePowerScheme',
 													@value		= @powerScheme OUTPUT,
 													@no_output	= N'no_output';
 
 									IF @powerScheme IS NULL /* If power plan was not set by group policy, get local value [Git Hub Issue #1620]*/
-									EXEC xp_regread @rootkey	= N'HKEY_LOCAL_MACHINE',
+									EXEC @RegistryReader @rootkey	= N'HKEY_LOCAL_MACHINE',
 													@key		= N'SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes',
 													@value_name	= N'ActivePowerScheme',
 													@value		= @powerScheme OUTPUT;
 								
 									/* Get the cpu speed*/
-									EXEC @ExecResult = xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+									EXEC @ExecResult = @RegistryReader @rootkey		= N'HKEY_LOCAL_MACHINE',
 					                							  @key			= N'HARDWARE\DESCRIPTION\System\CentralProcessor\0',
 					                							  @value_name	= N'~MHz',
 					                							  @value		= @cpu_speed_mhz OUTPUT;
@@ -10125,18 +10551,141 @@ IF NOT EXISTS ( SELECT  1
 								
 								END;
 
+						/* CheckID 277 - Server Info - Virtualization-Based Security (VBS). #4136 */
+						IF NOT EXISTS ( SELECT  1
+										FROM    #SkipChecks
+										WHERE   DatabaseName IS NULL AND CheckID = 277 )
+								BEGIN
+
+								DECLARE
+									@vbs_policy_enabled int
+									,@vbs_hvci_enabled int
+									,@vbs_secure_kernel_running int
+									,@vbs_credguard_enabled int
+									,@vbs_lsa_cfg_flags int
+									,@vbs_gpo_enabled int
+									,@vbs_gpo_hvci int
+									,@vbs_gpo_lsa_cfg_flags int
+									,@vbs_features nvarchar(400);
+
+								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 277) WITH NOWAIT;
+
+								/* With @no_output passed, xp_regread returns 0 and leaves @value NULL when the key or value is missing,
+								   so test the outputs rather than the return code. Windows only exposes the running state via WMI,
+								   which we can't reach from T-SQL, so we read the policy values plus the secure kernel status flag. */
+
+								/* VBS turned on by policy (Group Policy / Intune / manual) */
+								EXEC @RegistryReader @rootkey		= N'HKEY_LOCAL_MACHINE',
+															@key		= N'SYSTEM\CurrentControlSet\Control\DeviceGuard',
+															@value_name	= N'EnableVirtualizationBasedSecurity',
+															@value		= @vbs_policy_enabled OUTPUT,
+															@no_output	= N'no_output';
+
+								/* Memory Integrity (HVCI) - on by default on new installs of Windows Server 2022+ and Windows 11 */
+								EXEC @RegistryReader @rootkey		= N'HKEY_LOCAL_MACHINE',
+															@key		= N'SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity',
+															@value_name	= N'Enabled',
+															@value		= @vbs_hvci_enabled OUTPUT,
+															@no_output	= N'no_output';
+
+								/* The secure kernel only runs when VBS is actually running (Windows Server 2025+) */
+								EXEC @RegistryReader @rootkey		= N'HKEY_LOCAL_MACHINE',
+															@key		= N'SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\KeyGuard\Status',
+															@value_name	= N'IsSecureKernelRunning',
+															@value		= @vbs_secure_kernel_running OUTPUT,
+															@no_output	= N'no_output';
+
+								/* Credential Guard, both the DeviceGuard scenario flag and the LSA flag (1 = on with UEFI lock, 2 = on without lock) */
+								EXEC @RegistryReader @rootkey		= N'HKEY_LOCAL_MACHINE',
+															@key		= N'SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\CredentialGuard',
+															@value_name	= N'Enabled',
+															@value		= @vbs_credguard_enabled OUTPUT,
+															@no_output	= N'no_output';
+
+								EXEC @RegistryReader @rootkey		= N'HKEY_LOCAL_MACHINE',
+															@key		= N'SYSTEM\CurrentControlSet\Control\Lsa',
+															@value_name	= N'LsaCfgFlags',
+															@value		= @vbs_lsa_cfg_flags OUTPUT,
+															@no_output	= N'no_output';
+
+								/* The same settings as pushed by Group Policy / Intune live under the Policies hive, which the power plan check also reads first.
+								   HypervisorEnforcedCodeIntegrity and LsaCfgFlags there are 0 = off, 1 = on with UEFI lock, 2 = on without lock. */
+								EXEC @RegistryReader @rootkey		= N'HKEY_LOCAL_MACHINE',
+															@key		= N'SOFTWARE\Policies\Microsoft\Windows\DeviceGuard',
+															@value_name	= N'EnableVirtualizationBasedSecurity',
+															@value		= @vbs_gpo_enabled OUTPUT,
+															@no_output	= N'no_output';
+
+								EXEC @RegistryReader @rootkey		= N'HKEY_LOCAL_MACHINE',
+															@key		= N'SOFTWARE\Policies\Microsoft\Windows\DeviceGuard',
+															@value_name	= N'HypervisorEnforcedCodeIntegrity',
+															@value		= @vbs_gpo_hvci OUTPUT,
+															@no_output	= N'no_output';
+
+								EXEC @RegistryReader @rootkey		= N'HKEY_LOCAL_MACHINE',
+															@key		= N'SOFTWARE\Policies\Microsoft\Windows\DeviceGuard',
+															@value_name	= N'LsaCfgFlags',
+															@value		= @vbs_gpo_lsa_cfg_flags OUTPUT,
+															@no_output	= N'no_output';
+
+								IF @vbs_policy_enabled = 1
+									OR @vbs_hvci_enabled = 1
+									OR @vbs_secure_kernel_running = 1
+									OR @vbs_credguard_enabled = 1
+									OR @vbs_lsa_cfg_flags IN (1, 2)
+									OR @vbs_gpo_enabled = 1
+									OR @vbs_gpo_hvci IN (1, 2)
+									OR @vbs_gpo_lsa_cfg_flags IN (1, 2)
+									BEGIN
+										SET @vbs_features = STUFF(
+											  CASE WHEN @vbs_policy_enabled = 1 OR @vbs_gpo_enabled = 1 THEN N', VBS enabled by policy' ELSE N'' END
+											+ CASE WHEN @vbs_hvci_enabled = 1 OR @vbs_gpo_hvci IN (1, 2) THEN N', Memory Integrity (HVCI)' ELSE N'' END
+											+ CASE WHEN @vbs_credguard_enabled = 1 OR @vbs_lsa_cfg_flags IN (1, 2) OR @vbs_gpo_lsa_cfg_flags IN (1, 2) THEN N', Credential Guard' ELSE N'' END
+											+ CASE WHEN @vbs_secure_kernel_running = 1 THEN N', secure kernel running' ELSE N'' END
+											, 1, 2, N'');
+
+										INSERT  INTO #BlitzResults
+											( CheckID ,
+											  Priority ,
+											  FindingsGroup ,
+											  Finding ,
+											  URL ,
+											  Details
+											)
+										SELECT  277 AS CheckId,
+												250 AS Priority,
+												'Server Info' AS FindingsGroup,
+												'Virtualization-Based Security (VBS) Enabled' AS Finding,
+												'https://www.brentozar.com/go/vbs' AS URL,
+												N'Windows Virtualization-Based Security is '
+												+ CASE WHEN @vbs_secure_kernel_running = 1 THEN N'running' ELSE N'configured' END
+												+ N' on this server ('
+												+ @vbs_features
+												+ N'). '
+												+ CASE WHEN @vbs_secure_kernel_running = 1 THEN N''
+													   ELSE N'The registry only shows configuration, so confirm it is actually running: msinfo32 should say Virtualization-based security: Running. ' END
+												+ N'VBS runs Windows itself under Hyper-V, and the extra layer can cost SQL Server noticeable CPU throughput. Benchmark with it off before deciding whether the security tradeoff is worth it.' AS Details;
+									END;
+
+								END;
+
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 212 )
 								BEGIN																		
 								
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 212) WITH NOWAIT;
+						        /* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						        IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						        BEGIN
+						        EXEC sys.sp_executesql N'
 
 						        INSERT INTO #Instances (Instance_Number, Instance_Name, Data_Field)
-								EXEC master.sys.xp_regread @rootkey = 'HKEY_LOCAL_MACHINE',
-								                           @key = 'SOFTWARE\Microsoft\Microsoft SQL Server',
-								                           @value_name = 'InstalledInstances'
-								
+								EXEC master.sys.xp_regread @rootkey = ''HKEY_LOCAL_MACHINE'',
+								                           @key = ''SOFTWARE\Microsoft\Microsoft SQL Server'',
+								                           @value_name = ''InstalledInstances'';';
+						        END;
+
                                 IF (SELECT COUNT(*) FROM #Instances) > 1
                                 BEGIN
 
@@ -10172,6 +10721,7 @@ IF NOT EXISTS ( SELECT  1
 
 								IF @Debug IN (1, 2) RAISERROR('Running CheckId [%d].', 0, 1, 106) WITH NOWAIT;
 								
+								BEGIN TRY
 								INSERT  INTO #BlitzResults
 										( CheckID ,
 										  Priority ,
@@ -10192,6 +10742,15 @@ IF NOT EXISTS ( SELECT  1
 												) as Details
 										FROM    ::fn_trace_gettable( @base_tracefilename, default )
 										WHERE EventClass BETWEEN 65500 and 65600;
+                                END TRY
+                                BEGIN CATCH
+                                    /* The live trace can roll over or be mid-write after the earlier read succeeded. */
+                                    SET @TraceFileIssue = 1;
+                                    INSERT INTO #BlitzResults (CheckID, Priority, FindingsGroup, Finding, URL, Details)
+                                    VALUES (106, 250, 'Server Info', 'Default Trace Could Not Be Read',
+                                        'https://www.brentozar.com/go/trace',
+                                        'Unable to read the default trace. Other checks will continue. Error: ' + ERROR_MESSAGE());
+                                END CATCH;
 							END; /* CheckID 106 */
 
 							IF NOT EXISTS ( SELECT  1
@@ -10549,7 +11108,7 @@ IF NOT EXISTS ( SELECT  1
 					END; /* IF @CheckServerInfo = 1 */
 			END; /* IF ( ( SERVERPROPERTY('ServerName') NOT IN ( SELECT ServerName */
 
-				/* Delete priorites they wanted to skip. */
+				/* Delete priorities they wanted to skip. */
 				IF @IgnorePrioritiesAbove IS NOT NULL
 					DELETE  #BlitzResults
 					WHERE   [Priority] > @IgnorePrioritiesAbove AND CheckID <> -1;
@@ -10663,12 +11222,15 @@ IF NOT EXISTS ( SELECT  1
 						SET @StringToExecute = 'SET NOCOUNT ON;SELECT [Priority] , [FindingsGroup] , [Finding] , [DatabaseName] , [URL] ,  [Details] , CheckID FROM ##BlitzResults ORDER BY Priority , FindingsGroup , Finding , DatabaseName , Details; SET NOCOUNT OFF;';
 						SET @EmailSubject = 'sp_Blitz Results for ' + @@SERVERNAME;
 						SET @EmailBody = 'sp_Blitz ' + CAST(CONVERT(DATETIME, @VersionDate, 102) AS VARCHAR(100)) + '. http://FirstResponderKit.org';
-						IF @EmailProfile IS NULL
+						/* Cross-database read: Azure SQL DB rejects these names at compile time, so this runs dynamically. #4040 */
+						IF CONVERT(INT, SERVERPROPERTY('EngineEdition')) <> 5 /* not Azure SQL DB */
+						BEGIN
+						EXEC sys.sp_executesql N'IF @EmailProfile IS NULL
 							EXEC msdb.dbo.sp_send_dbmail
 								@recipients = @EmailRecipients,
 								@subject = @EmailSubject,
 								@body = @EmailBody,
-								@query_attachment_filename = 'sp_Blitz-Results.csv',
+								@query_attachment_filename = ''sp_Blitz-Results.csv'',
 								@attach_query_result_as_file = 1,
 								@query_result_header = 1,
 								@query_result_width = 32767,
@@ -10682,14 +11244,17 @@ IF NOT EXISTS ( SELECT  1
 								@recipients = @EmailRecipients,
 								@subject = @EmailSubject,
 								@body = @EmailBody,
-								@query_attachment_filename = 'sp_Blitz-Results.csv',
+								@query_attachment_filename = ''sp_Blitz-Results.csv'',
 								@attach_query_result_as_file = 1,
 								@query_result_header = 1,
 								@query_result_width = 32767,
 								@append_query_error = 1,
 								@query_result_no_padding = 1,
 								@query_result_separator = @query_result_separator,
-								@query = @StringToExecute;
+								@query = @StringToExecute;',
+						    N'@EmailProfile SYSNAME, @EmailRecipients VARCHAR(MAX), @EmailSubject NVARCHAR(255), @EmailBody NVARCHAR(MAX), @StringToExecute NVARCHAR(4000), @query_result_separator CHAR(1)',
+						    @EmailProfile = @EmailProfile, @EmailRecipients = @EmailRecipients, @EmailSubject = @EmailSubject, @EmailBody = @EmailBody, @StringToExecute = @StringToExecute, @query_result_separator = @query_result_separator;
+						END;
 						IF (OBJECT_ID('tempdb..##BlitzResults', 'U') IS NOT NULL) DROP TABLE ##BlitzResults;
 						END;
 				END;
@@ -10714,7 +11279,7 @@ IF NOT EXISTS ( SELECT  1
 
 						IF EXISTS (SELECT server_id FROM sys.servers WHERE QUOTENAME([name]) = @OutputServerName)
 							BEGIN
-								SET @LinkedServerDBCheck = 'SELECT 1 WHERE EXISTS (SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = '''+@OutputDatabaseName+''')';
+								SET @LinkedServerDBCheck = 'SELECT 1 WHERE EXISTS (SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = N'''+REPLACE(@OutputDatabaseName, N'''', N'''''')+''')';
 								INSERT INTO @tmpdbchk EXEC sys.sp_executesql @LinkedServerDBCheck;
 								SET @ValidLinkedServerDB = (SELECT COUNT(*) FROM @tmpdbchk);
 								IF (@ValidLinkedServerDB > 0)
@@ -10763,13 +11328,13 @@ IF NOT EXISTS ( SELECT  1
 							+ @OutputDatabaseName
 							+ '; IF EXISTS(SELECT * FROM '
 							+ @OutputDatabaseName
-							+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-							+ @OutputSchemaName
+							+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+							+ REPLACE(@OutputSchemaName, N'''', N'''''')
 							+ ''') AND NOT EXISTS (SELECT * FROM '
 							+ @OutputDatabaseName
-							+ '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-							+ @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
-							+ @OutputTableName + ''') CREATE TABLE '
+							+ '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N'''
+							+ REPLACE(@OutputSchemaName, N'''', N'''''') + ''' AND QUOTENAME(TABLE_NAME) = N'''
+							+ REPLACE(@OutputTableName, N'''', N'''''') + ''') CREATE TABLE '
 							+ @OutputSchemaName + '.'
 							+ @OutputTableName
 							+ ' (ID INT IDENTITY(1,1) NOT NULL,
@@ -10787,10 +11352,9 @@ IF NOT EXISTS ( SELECT  1
 								CONSTRAINT [PK_' + CAST(NEWID() AS CHAR(36)) + '] PRIMARY KEY CLUSTERED (ID ASC));';
 						IF @ValidOutputServer = 1
 							BEGIN
-								SET @StringToExecute = REPLACE(@StringToExecute,''''+@OutputSchemaName+'''',''''''+@OutputSchemaName+'''''');
-								SET @StringToExecute = REPLACE(@StringToExecute,''''+@OutputTableName+'''',''''''+@OutputTableName+'''''');
+								SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
 								SET @StringToExecute = REPLACE(@StringToExecute,'[XML]','[NVARCHAR](MAX)');
-								EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+								EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
 							END;
 						ELSE
 							BEGIN
@@ -10805,8 +11369,8 @@ IF NOT EXISTS ( SELECT  1
 								SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
 								+ @OutputServerName + '.'
 								+ @OutputDatabaseName
-								+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-								+ @OutputSchemaName + ''') INSERT '
+								+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+								+ REPLACE(@OutputSchemaName, N'''', N'''''') + ''') INSERT '
 								+ @OutputServerName + '.'
 								+ @OutputDatabaseName + '.'
 								+ @OutputSchemaName + '.'
@@ -10823,8 +11387,8 @@ IF NOT EXISTS ( SELECT  1
 								BEGIN
 									SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
 								+ @OutputDatabaseName
-								+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-								+ @OutputSchemaName + ''') INSERT '
+								+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+								+ REPLACE(@OutputSchemaName, N'''', N'''''') + ''') INSERT '
 								+ @OutputDatabaseName + '.'
 								+ @OutputSchemaName + '.'
 								+ @OutputTableName
@@ -10836,8 +11400,8 @@ IF NOT EXISTS ( SELECT  1
                                 begin
 								SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
 								+ @OutputDatabaseName
-								+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-								+ @OutputSchemaName + ''') INSERT '
+								+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+								+ REPLACE(@OutputSchemaName, N'''', N'''''') + ''') INSERT '
 								+ @OutputDatabaseName + '.'
 								+ @OutputSchemaName + '.'
 								+ @OutputTableName
@@ -10857,8 +11421,8 @@ IF NOT EXISTS ( SELECT  1
 							END;
 						ELSE
 							BEGIN
-								SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
-									+ @OutputTableName
+								SET @StringToExecute = N' IF (OBJECT_ID(N''tempdb..'
+									+ REPLACE(@OutputTableName, N'''', N'''''')
 									+ ''') IS NOT NULL) DROP TABLE ' + @OutputTableName + ';'
 									+ 'CREATE TABLE '
 									+ @OutputTableName
@@ -10886,7 +11450,7 @@ IF NOT EXISTS ( SELECT  1
 					END;
 				ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
 					BEGIN
-						RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
+						RAISERROR('Due to the nature of Dynamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
 					END;
 
 				DECLARE @separator AS VARCHAR(1);
@@ -10951,8 +11515,8 @@ IF NOT EXISTS ( SELECT  1
 																   END
 																   + CASE WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding <> COALESCE(rNext.Finding,N'') THEN N'- ' + COALESCE(r.Finding,N'') + N' ' + COALESCE(r.DatabaseName, N'') + N' - ' + COALESCE(r.Details,N'') + @crlf
 																	      WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding = rNext.Finding AND r.Details = rNext.Details THEN N'- ' + COALESCE(r.Finding,N'') + N' - ' + COALESCE(r.Details,N'') + @crlf + @crlf + N'    * ' + COALESCE(r.DatabaseName, N'') + @crlf
-																	      WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding = rNext.Finding THEN N'- ' + COALESCE(r.Finding,N'') + @crlf + @crlf + CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,N'') END + CASE WHEN r.Details <> rPrior.Details THEN N'  - ' + COALESCE(r.Details,N'') + @crlf ELSE '' END
-																	      ELSE CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,N'') END + CASE WHEN r.Details <> rPrior.Details THEN N'  - ' + COALESCE(r.Details,N'') + @crlf ELSE N'' + @crlf END
+																	      WHEN r.Finding <> COALESCE(rPrior.Finding,N'') AND r.Finding = rNext.Finding THEN N'- ' + COALESCE(r.Finding,N'') + @crlf + @crlf + CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,N'') END + CASE WHEN COALESCE(r.Details, N'') <> COALESCE(rPrior.Details, N'') THEN N'  - ' + COALESCE(r.Details,N'') + @crlf ELSE '' END
+																	      ELSE CASE WHEN r.DatabaseName IS NULL THEN N'' ELSE  N'    * ' + COALESCE(r.DatabaseName,N'') END + CASE WHEN COALESCE(r.Details, N'') <> COALESCE(rPrior.Details, N'') THEN N'  - ' + COALESCE(r.Details,N'') + @crlf ELSE N'' + @crlf END
 																   END + @crlf
 															     FROM Results r
 															     LEFT OUTER JOIN Results rPrior ON r.rownum = rPrior.rownum + 1
@@ -11105,14 +11669,15 @@ ALTER PROCEDURE [dbo].[sp_BlitzAnalysis] (
 @VersionCheckMode BIT = 0,
 @BringThePain BIT = 0,
 @Maxdop INT = 1,
-@Debug BIT = 0
+@Debug BIT = 0,
+@BlitzWhoStartTimeUtc BIT = NULL
 )
 AS 
 BEGIN
 SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 
-SELECT @Version = '8.34', @VersionDate = '20260702';
+SELECT @Version = '8.35', @VersionDate = '20261114';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -11141,6 +11706,7 @@ BEGIN
 
 /*
 Additional parameters:
+@BlitzWhoStartTimeUtc BIT /* NULL: infer UTC for this Azure database''s own logs only; 1: UTC source (including centralized Azure logs); 0: local SQL Server/MI start_time */
 @ReadLatencyThreshold INT		/* Default: 100 - Sets the threshold in ms to compare against io_stall_read_average_ms in your filestats table */
 @WriteLatencyThreshold INT		/* Default: 100 - Sets the threshold in ms to compare against io_stall_write_average_ms in your filestats table */
 @BringThePain BIT		/* Default: 0 - If you are getting more than 4 hours of data with blitzcachesortorder set to ''all'' you will need to set BringThePain to 1 */
@@ -11165,6 +11731,12 @@ IF (DB_ID(@OutputDatabaseName) IS NULL)
 BEGIN
 	RAISERROR('Invalid database name provided for parameter @OutputDatabaseName: %s',11,0,@OutputDatabaseName);
 	RETURN;
+END
+
+/* Default to dbo schema if NULL is passed in */
+IF (@OutputSchemaName IS NULL)
+BEGIN
+	SET @OutputSchemaName = 'dbo';
 END
 
 /* Set fully qualified table names */
@@ -11257,12 +11829,6 @@ BEGIN
 		SET @EndDate = SYSDATETIMEOFFSET();
 	END
 END 
-
-/* Default to dbo schema if NULL is passed in */
-IF (@OutputSchemaName IS NULL) 
-BEGIN 
-	SET @OutputSchemaName = 'dbo';
-END
 
 /* Prompt the user for @BringThePain = 1 if they are searching a timeframe greater than 4 hours and they are using BlitzCacheSortorder = 'all' */
 IF(@BlitzCacheSortorder = 'all' AND DATEDIFF(HOUR,@StartDate,@EndDate) > 4 AND @BringThePain = 0)
@@ -11449,7 +12015,7 @@ CASE
 	WHEN MAX([io_stall_write_ms_average]) > @WriteLatencyThreshold THEN ''Yes''
 	ELSE ''No'' 
 END AS [io_stall_ms_breached],
-LEFT([PhysicalName],LEN([PhysicalName])-CHARINDEX(''\'',REVERSE([PhysicalName]))+1) AS [PhysicalPath],
+LEFT([PhysicalName],LEN([PhysicalName])-PATINDEX(''%[\/]%'',REVERSE([PhysicalName]))+1) AS [PhysicalPath],
 SUM([SizeOnDiskMB]) AS [SizeOnDiskMB], 
 SUM([SizeOnDiskMBgrowth]) AS [SizeOnDiskMBgrowth], 
 MAX([io_stall_read_ms]) AS [max_io_stall_read_ms], 
@@ -11474,7 +12040,7 @@ END
 +N'GROUP BY 
 [ServerName], 
 [CheckDate],
-LEFT([PhysicalName],LEN([PhysicalName])-CHARINDEX(''\'',REVERSE([PhysicalName]))+1)
+LEFT([PhysicalName],LEN([PhysicalName])-PATINDEX(''%[\/]%'',REVERSE([PhysicalName]))+1)
 ORDER BY 
 [CheckDate] ASC
 OPTION (RECOMPILE, MAXDOP '+CAST(@Maxdop AS NVARCHAR(2))+N');'
@@ -11820,6 +12386,14 @@ END
 
 
 /* BlitzWho data */
+/* The source server determines start_time's convention, not the logging host.
+   NULL infers UTC only for this Azure database's own logs. Centralized Azure
+   logs require @BlitzWhoStartTimeUtc = 1; SQL Server/MI local logs use 0. */
+IF @BlitzWhoStartTimeUtc IS NULL
+    SET @BlitzWhoStartTimeUtc = CASE WHEN SERVERPROPERTY('EngineEdition') = 5
+                                      AND @Servername = @@SERVERNAME THEN 1 ELSE 0 END;
+DECLARE @BlitzWhoStartDate DATETIME, @BlitzWhoEndDate DATETIME;
+
 SET @Sql = N'
 SELECT [ServerName]
       ,[CheckDate]
@@ -11919,7 +12493,7 @@ SELECT [ServerName]
       ,[statement_end_offset]
   FROM '+@FullOutputTableNameBlitzWho+N'
   WHERE [ServerName] = @Servername
-  AND ([CheckDate] BETWEEN @StartDate AND @EndDate OR [start_time] BETWEEN CAST(@StartDate AS DATETIME) AND CAST(@EndDate AS DATETIME))
+  AND ([CheckDate] BETWEEN @StartDate AND @EndDate OR [start_time] BETWEEN @BlitzWhoStartDate AND @BlitzWhoEndDate)
   '
   +CASE
 	WHEN @Databasename IS NOT NULL THEN N'AND [database_name] = @Databasename
@@ -11951,13 +12525,22 @@ BEGIN
 END
 ELSE
 BEGIN 
+	/* Only convert boundaries when BlitzWho data will actually be queried. */
+	SET @BlitzWhoStartDate = CAST(CASE WHEN @BlitzWhoStartTimeUtc = 1
+	    THEN SWITCHOFFSET(@StartDate, '+00:00') ELSE @StartDate END AS DATETIME);
+	SET @BlitzWhoEndDate = CAST(CASE WHEN @BlitzWhoStartTimeUtc = 1
+	    THEN SWITCHOFFSET(@EndDate, '+00:00') ELSE @EndDate END AS DATETIME);
 	EXEC sp_executesql @Sql,
 	N'@StartDate DATETIMEOFFSET(7),
 	@EndDate DATETIMEOFFSET(7),
+	@BlitzWhoStartDate DATETIME,
+	@BlitzWhoEndDate DATETIME,
 	@Servername NVARCHAR(128),
 	@Databasename NVARCHAR(128)',
 	@StartDate=@StartDate, 
 	@EndDate=@EndDate,
+	@BlitzWhoStartDate=@BlitzWhoStartDate,
+	@BlitzWhoEndDate=@BlitzWhoEndDate,
 	@Servername=@Servername,
 	@Databasename = @Databasename;
 END
@@ -12045,7 +12628,7 @@ CREATE TABLE ##BlitzCacheProcs (
         PercentWritesByType MONEY,
         WritesPerMinute MONEY,
         PlanCreationTime DATETIME,
-		PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, SYSDATETIME()),
+		PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END)),
         LastExecutionTime DATETIME,
 		LastCompletionTime DATETIME,
         PlanHandle VARBINARY(64),
@@ -12250,7 +12833,7 @@ ALTER PROCEDURE dbo.sp_BlitzCache
 	@CheckDateOverride DATETIMEOFFSET = NULL,
 	@MinutesBack INT = NULL,
     @AI TINYINT = 0, /* 1 = ask for advice, 2 = build prompt but don't actually call AI. Only works with a single query plan: automatically sets @ExpertMode = 1, @KeepCRLF = 1. */
-    @AIModel VARCHAR(200) = NULL, /* Defaults to gpt-4.1-mini */
+    @AIModel VARCHAR(200) = NULL, /* Defaults to gpt-5.6-luna */
     @AIURL VARCHAR(200) = NULL, /* Defaults to https://api.openai.com/v1/chat/completions */
     @AICredential VARCHAR(200) = NULL, /* Defaults to 'https://api.openai.com/' or the root of your AIURL, trailing slash included */
     @AIConfigTable NVARCHAR(500) = NULL, /* Table where AI provider config is stored - can be in the format db.schema.table, schema.table, or just table. */
@@ -12267,7 +12850,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.34', @VersionDate = '20260702';
+SELECT @Version = '8.35', @VersionDate = '20261114';
 SET @OutputType = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -12458,7 +13041,7 @@ IF @Help = 1
 	UNION ALL
 	SELECT N'@AIModel',
 			N'VARCHAR(200)',
-			N'Defaults to gpt-4.1-mini. Can accept other models, or if you have a dbo.AI_Services table, we will look up services there.'
+			N'Defaults to gpt-5.6-luna. Can accept other models, or if you have a dbo.AI_Services table, we will look up services there.'
 
 	UNION ALL
 	SELECT N'@AIURL',
@@ -12815,6 +13398,13 @@ BEGIN
     SET @HideSummary = 1;
 END;
 
+/* Reserve case/accent/kana/width-equivalent internal names before preprocessing. */
+IF @OutputTableName COLLATE Latin1_General_100_CI_AI IN ('##BlitzCacheProcs', '##BlitzCacheResults')
+BEGIN
+    RAISERROR('OutputTableName is a reserved name for this procedure. We only use ##BlitzCacheProcs and ##BlitzCacheResults, please choose another table name.', 16, 1);
+    RETURN;
+END;
+
 /* Lets get @SortOrder set to lower case here for comparisons later */
 SET @SortOrder = LOWER(@SortOrder);
 
@@ -12835,6 +13425,70 @@ IF (
          SET @Top = 10;
    END;
 
+
+/* Normalize and reject incompatible filters before collecting plan-cache data. */
+DECLARE @SortByQueryHash bit = CASE WHEN @SortOrder LIKE 'query hash%' THEN 1 ELSE 0 END;
+IF @SortByQueryHash = 1
+BEGIN
+	/* When they ran it, @SortOrder probably looked like 'query hash, cpu', so strip the first sort order out: */
+    SELECT @SortOrder = LTRIM(REPLACE(REPLACE(@SortOrder,'query hash', ''), ',', ''));
+
+	/* If they just called it with @SortOrder = 'query hash', set it to 'cpu' for backwards compatibility: */
+	IF @SortOrder = '' SET @SortOrder = 'cpu';
+
+END;
+
+SET @SortOrder = REPLACE(REPLACE(@SortOrder, 'average', 'avg'), '.', '');
+
+SET @SortOrder = CASE
+                     WHEN @SortOrder IN ('executions per minute','execution per minute','executions / minute','execution / minute','xpm') THEN 'avg executions'
+                     WHEN @SortOrder IN ('recent compilations','recent compilation','compile') THEN 'compiles'
+                     WHEN @SortOrder IN ('read') THEN 'reads'
+                     WHEN @SortOrder IN ('avg read') THEN 'avg reads'
+                     WHEN @SortOrder IN ('write') THEN 'writes'
+                     WHEN @SortOrder IN ('avg write') THEN 'avg writes'
+                     WHEN @SortOrder IN ('memory grants') THEN 'memory grant'
+                     WHEN @SortOrder IN ('avg memory grants') THEN 'avg memory grant'
+                     WHEN @SortOrder IN ('unused grants','unused memory', 'unused memory grant', 'unused memory grants') THEN 'unused grant'
+                     WHEN @SortOrder IN ('spill') THEN 'spills'
+                     WHEN @SortOrder IN ('avg spill') THEN 'avg spills'
+                     WHEN @SortOrder IN ('execution') THEN 'executions'
+                     WHEN @SortOrder IN ('duplicates') THEN 'duplicate'
+                 ELSE @SortOrder END
+
+RAISERROR(N'Checking sort order', 0, 1) WITH NOWAIT;
+IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg writes',
+                       'duration', 'avg duration', 'executions', 'avg executions',
+                       'compiles', 'memory grant', 'avg memory grant', 'unused grant',
+					   'spills', 'avg spills', 'all', 'all avg', 'sp_BlitzIndex',
+					   'query hash', 'duplicate')
+  BEGIN
+  RAISERROR(N'Invalid sort order chosen, reverting to cpu', 16, 1) WITH NOWAIT;
+  SET @SortOrder = 'cpu';
+  END;
+
+SET @QueryFilter = LOWER(@QueryFilter);
+
+IF LEFT(@QueryFilter, 3) NOT IN ('all', 'sta', 'pro', 'fun')
+  BEGIN
+  RAISERROR(N'Invalid query filter chosen. Reverting to all.', 0, 1) WITH NOWAIT;
+  SET @QueryFilter = 'all';
+  END;
+
+/* Procedure and function DMVs do not expose statement memory-grant or duplicate data. */
+IF LEFT(@QueryFilter, 3) IN ('pro', 'fun')
+   AND @SortOrder IN ('memory grant', 'avg memory grant', 'unused grant', 'duplicate')
+BEGIN
+   RAISERROR('This sort order requires statement statistics. Use @QueryFilter = ''statements'' or choose another sort order.', 16, 1);
+   RETURN;
+END;
+
+/* Function statistics do not expose spill counters. */
+IF LEFT(@QueryFilter, 3) = 'fun' AND @SortOrder IN ('spills', 'avg spills')
+BEGIN
+   RAISERROR('Function statistics do not support sorting by spills. Use @QueryFilter = ''statements'' or choose another sort order.', 16, 1);
+   RETURN;
+END;
 
 DROP TABLE IF EXISTS #configuration;
 
@@ -12911,7 +13565,7 @@ BEGIN
     DECLARE @AIModelRequested NVARCHAR(200) = @AIModel;
     DECLARE @AIFallbackModel NVARCHAR(200);
     SELECT TOP 1 @AIFallbackModel = AI_Model FROM #ai_providers WHERE Default_Model = 1 ORDER BY Id;
-    IF @AIFallbackModel IS NULL SET @AIFallbackModel = N'gpt-5-nano';
+    IF @AIFallbackModel IS NULL SET @AIFallbackModel = N'gpt-5.6-luna';
     RAISERROR('@AIModel "%s" was not found in configuration table %s. Using "%s" instead.',
         10, 1, @AIModelRequested, @AIConfigTable, @AIFallbackModel) WITH NOWAIT;
     SET @AIModel = NULL;
@@ -12986,7 +13640,7 @@ IF @AI > 0
             ORDER BY Id;
         
     IF @AIModel IS NULL
-        SET @AIModel = N'gpt-5-nano';
+        SET @AIModel = N'gpt-5.6-luna';
     
     IF @AIURL IS NULL OR @AIURL NOT LIKE N'http%'
         SET @AIURL = CASE 
@@ -13002,11 +13656,9 @@ IF @AI > 0
         SET @AITimeoutSeconds = 230;
 
     IF @AISystemPrompt IS NULL OR @AISystemPrompt = N''
-        SET @AISystemPrompt = N'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment.
+        SET @AISystemPrompt = N'Review a poorly performing query for Microsoft SQL Server or Azure SQL Database. Focus on the query and index changes most likely to improve end-user performance; keep server configuration and routine statistics maintenance outside the plan.
 
-    You have a query that isn''t performing to end user expectations. You have been tasked with making serious improvements to it, quickly. You are not allowed to change server-level settings or make frivolous suggestions like updating statistics. Instead, you need to focus on query changes or index changes. 
-    
-    Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.';
+Return one self-contained Markdown response with prioritized findings, recommended changes, complete scripts, and validation or rollback steps. Keep the response focused.';
 
     IF @AIModel LIKE 'gemini%' AND @AIPayloadTemplate IS NULL
         SET @AIPayloadTemplate = N'{
@@ -13056,7 +13708,7 @@ IF @AI > 0
 
 
 /* If they want to sort by query hash, populate the @OnlyQueryHashes list for them */
-IF @SortOrder LIKE 'query hash%'
+IF @SortByQueryHash = 1
 	BEGIN
 	RAISERROR('Beginning query hash sort', 0, 1) WITH NOWAIT;
 
@@ -13080,11 +13732,6 @@ IF @SortOrder LIKE 'query hash%'
     FOR XML PATH(N''), TYPE).value(N'.[1]', N'NVARCHAR(MAX)'), 1, 1, N'')
 	OPTION(RECOMPILE);
 
-	/* When they ran it, @SortOrder probably looked like 'query hash, cpu', so strip the first sort order out: */
-    SELECT @SortOrder = LTRIM(REPLACE(REPLACE(@SortOrder,'query hash', ''), ',', ''));
-	
-	/* If they just called it with @SortOrder = 'query hash', set it to 'cpu' for backwards compatibility: */
-	IF @SortOrder = '' SET @SortOrder = 'cpu';
 
 	END
 
@@ -13197,43 +13844,6 @@ BEGIN
 END;
 
 SELECT @MinMemoryPerQuery = CONVERT(INT, c.value) FROM sys.configurations AS c WHERE c.name = 'min memory per query (KB)';
-
-SET @SortOrder = REPLACE(REPLACE(@SortOrder, 'average', 'avg'), '.', '');
-
-SET @SortOrder = CASE 
-                     WHEN @SortOrder IN ('executions per minute','execution per minute','executions / minute','execution / minute','xpm') THEN 'avg executions'
-                     WHEN @SortOrder IN ('recent compilations','recent compilation','compile') THEN 'compiles'
-                     WHEN @SortOrder IN ('read') THEN 'reads'
-                     WHEN @SortOrder IN ('avg read') THEN 'avg reads'
-                     WHEN @SortOrder IN ('write') THEN 'writes'
-                     WHEN @SortOrder IN ('avg write') THEN 'avg writes'
-                     WHEN @SortOrder IN ('memory grants') THEN 'memory grant'
-                     WHEN @SortOrder IN ('avg memory grants') THEN 'avg memory grant'
-                     WHEN @SortOrder IN ('unused grants','unused memory', 'unused memory grant', 'unused memory grants') THEN 'unused grant'
-                     WHEN @SortOrder IN ('spill') THEN 'spills'
-                     WHEN @SortOrder IN ('avg spill') THEN 'avg spills'
-                     WHEN @SortOrder IN ('execution') THEN 'executions'
-                     WHEN @SortOrder IN ('duplicates') THEN 'duplicate'
-                 ELSE @SortOrder END							  
-							  
-RAISERROR(N'Checking sort order', 0, 1) WITH NOWAIT;
-IF @SortOrder NOT IN ('cpu', 'avg cpu', 'reads', 'avg reads', 'writes', 'avg writes',
-                       'duration', 'avg duration', 'executions', 'avg executions',
-                       'compiles', 'memory grant', 'avg memory grant', 'unused grant',
-					   'spills', 'avg spills', 'all', 'all avg', 'sp_BlitzIndex',
-					   'query hash', 'duplicate')
-  BEGIN
-  RAISERROR(N'Invalid sort order chosen, reverting to cpu', 16, 1) WITH NOWAIT;
-  SET @SortOrder = 'cpu';
-  END; 
-
-SET @QueryFilter = LOWER(@QueryFilter);
-
-IF LEFT(@QueryFilter, 3) NOT IN ('all', 'sta', 'pro', 'fun')
-  BEGIN
-  RAISERROR(N'Invalid query filter chosen. Reverting to all.', 0, 1) WITH NOWAIT;
-  SET @QueryFilter = 'all';
-  END;
 
 IF @SkipAnalysis = 1
   BEGIN
@@ -13671,11 +14281,11 @@ OPTION (RECOMPILE);
 
 RAISERROR(N'Checking plan cache age', 0, 1) WITH NOWAIT;
 INSERT INTO #plan_creation ( percent_24, percent_4, percent_1, total_plans, SPID )
-SELECT CONVERT(DECIMAL(5,2), NULLIF(SUM(CASE WHEN DATEDIFF(HOUR, pc.creation_time, SYSDATETIME()) <= 24 THEN 1 ELSE 0 END), 0)
+SELECT CONVERT(DECIMAL(5,2), NULLIF(SUM(CASE WHEN DATEDIFF(HOUR, pc.creation_time, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END)) <= 24 THEN 1 ELSE 0 END), 0)
            / (1. * NULLIF(COUNT_BIG(*), 0))) * 100,
-       CONVERT(DECIMAL(5,2), NULLIF(SUM(CASE WHEN DATEDIFF(HOUR, pc.creation_time, SYSDATETIME()) <= 4 THEN 1 ELSE 0 END), 0)
+       CONVERT(DECIMAL(5,2), NULLIF(SUM(CASE WHEN DATEDIFF(HOUR, pc.creation_time, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END)) <= 4 THEN 1 ELSE 0 END), 0)
            / (1. * NULLIF(COUNT_BIG(*), 0))) * 100,
-       CONVERT(DECIMAL(5,2), NULLIF(SUM(CASE WHEN DATEDIFF(HOUR, pc.creation_time, SYSDATETIME()) <= 1 THEN 1 ELSE 0 END), 0)
+       CONVERT(DECIMAL(5,2), NULLIF(SUM(CASE WHEN DATEDIFF(HOUR, pc.creation_time, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END)) <= 1 THEN 1 ELSE 0 END), 0)
            / (1. * NULLIF(COUNT_BIG(*), 0))) * 100,
        COUNT_BIG(*),
        @@SPID
@@ -14008,8 +14618,8 @@ INSERT INTO ##BlitzCacheProcs (SPID, QueryType, DatabaseName, AverageCPU, TotalC
 
 SET @body += N'
 FROM   (SELECT TOP (@Top) x.*, xpa.*,
-               CAST((CASE WHEN DATEDIFF(mi, cached_time, GETDATE()) > 0 AND execution_count > 1
-                          THEN DATEDIFF(mi, cached_time, GETDATE()) 
+               CAST((CASE WHEN DATEDIFF(mi, cached_time, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) > 0 AND execution_count > 1
+                          THEN DATEDIFF(mi, cached_time, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                           ELSE NULL END) as MONEY) as age_minutes,
                CAST((CASE WHEN DATEDIFF(mi, cached_time, last_execution_time) > 0 AND execution_count > 1
                           THEN DATEDIFF(mi, cached_time, last_execution_time) 
@@ -14091,7 +14701,7 @@ IF @DurationFilter IS NOT NULL
 IF @MinutesBack IS NOT NULL
 	BEGIN
 	RAISERROR(N'Setting minutes back filter', 0, 1) WITH NOWAIT;
-	SET @body += N'       AND DATEADD(SECOND, (x.last_elapsed_time / 1000000.), x.last_execution_time) >= DATEADD(MINUTE, @min_back, GETDATE()) ' + @nl ;
+	SET @body += N'       AND DATEADD(SECOND, (x.last_elapsed_time / 1000000.), x.last_execution_time) >= DATEADD(MINUTE, @min_back, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) ' + @nl ;
 	END;
 
 IF @SlowlySearchPlansFor IS NOT NULL
@@ -14129,13 +14739,13 @@ SELECT @body += N'        ORDER BY ' +
 								 WHEN N'avg memory grant' THEN N'CASE WHEN max_grant_kb = 0 THEN 0 ELSE max_grant_kb / execution_count END'
                                  WHEN N'avg spills' THEN N'CASE WHEN total_spills = 0 THEN 0 ELSE total_spills / execution_count END'
 								 WHEN N'avg executions' THEN 'CASE WHEN execution_count = 0 THEN 0
-            WHEN COALESCE(CAST((CASE WHEN DATEDIFF(mi, cached_time, GETDATE()) > 0 AND execution_count > 1
-                          THEN DATEDIFF(mi, cached_time, GETDATE())
+            WHEN COALESCE(CAST((CASE WHEN DATEDIFF(mi, cached_time, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) > 0 AND execution_count > 1
+                          THEN DATEDIFF(mi, cached_time, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                           ELSE NULL END) as MONEY), CAST((CASE WHEN DATEDIFF(mi, cached_time, last_execution_time) > 0 AND execution_count > 1
                           THEN DATEDIFF(mi, cached_time, last_execution_time)
                           ELSE Null END) as MONEY), 0) = 0 THEN 0
-            ELSE CAST((1.00 * execution_count / COALESCE(CAST((CASE WHEN DATEDIFF(mi, cached_time, GETDATE()) > 0 AND execution_count > 1
-                          THEN DATEDIFF(mi, cached_time, GETDATE())
+            ELSE CAST((1.00 * execution_count / COALESCE(CAST((CASE WHEN DATEDIFF(mi, cached_time, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) > 0 AND execution_count > 1
+                          THEN DATEDIFF(mi, cached_time, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                           ELSE NULL END) as MONEY), CAST((CASE WHEN DATEDIFF(mi, cached_time, last_execution_time) > 0 AND execution_count > 1
                           THEN DATEDIFF(mi, cached_time, last_execution_time)
                           ELSE Null END) as MONEY))) AS money)
@@ -14303,10 +14913,10 @@ BEGIN
                 ELSE CAST((total_worker_time / 1000.0) / COALESCE(age_minutes, DATEDIFF(mi, qs.creation_time, qs.last_execution_time)) AS MONEY)
                 END AS AverageCPUPerMinute ,
            CASE WHEN t.t_TotalWorker = 0 THEN 0
-                ELSE CAST(ROUND(100.00 * total_worker_time / t.t_TotalWorker, 2) AS MONEY)
+                ELSE CAST(ROUND(100.00 * (total_worker_time / 1000.0) / t.t_TotalWorker, 2) AS MONEY)
                 END AS PercentCPUByType,
            CASE WHEN t.t_TotalElapsed = 0 THEN 0
-                ELSE CAST(ROUND(100.00 * total_elapsed_time / t.t_TotalElapsed, 2) AS MONEY)
+                ELSE CAST(ROUND(100.00 * (total_elapsed_time / 1000.0) / t.t_TotalElapsed, 2) AS MONEY)
                 END AS PercentDurationByType,
            CASE WHEN t.t_TotalReads = 0 THEN 0
                 ELSE CAST(ROUND(100.00 * total_logical_reads / t.t_TotalReads, 2) AS MONEY)
@@ -14696,7 +15306,7 @@ BEGIN
         PercentWritesByType MONEY,
         WritesPerMinute MONEY,
         PlanCreationTime DATETIME,
-		PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, SYSDATETIME()),
+		PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END)),
         LastExecutionTime DATETIME,
 		LastCompletionTime DATETIME,
         PlanHandle VARBINARY(64),
@@ -15314,6 +15924,7 @@ JOIN    (   SELECT  r.SqlHandle
 WHERE   s.statement.exist('//p:StmtSimple[@StatementOptmLevel[.="TRIVIAL"]]/p:QueryPlan/p:ParameterList') = 1
 ) AS s
 ON b.SqlHandle = s.SqlHandle
+WHERE b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 
@@ -15345,6 +15956,7 @@ WITH pc AS (
 		ON b.SqlHandle = pc.SqlHandle
 		AND b.QueryHash = pc.QueryHash
 		WHERE b.QueryType NOT LIKE '%Procedure%'
+        AND b.SPID = @@SPID
 	OPTION (RECOMPILE);
 
 IF EXISTS (
@@ -15809,6 +16421,7 @@ UPDATE b
 FROM ##BlitzCacheProcs b
 JOIN spools sp
 ON sp.QueryHash = b.QueryHash
+WHERE b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 RAISERROR('Checking for wonky Table Spools', 0, 1) WITH NOWAIT;
@@ -15836,6 +16449,7 @@ UPDATE b
 FROM ##BlitzCacheProcs b
 JOIN spools sp
 ON sp.QueryHash = b.QueryHash
+WHERE b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 
@@ -15850,7 +16464,8 @@ AS ( SELECT CONVERT(BINARY(8),
      FROM   #statements AS s
 	 JOIN ##BlitzCacheProcs b
 	 ON s.QueryHash = b.QueryHash
-	 WHERE b.index_spool_rows IS NULL
+	 WHERE b.SPID = @@SPID
+     AND   b.index_spool_rows IS NULL
 	 AND   b.index_spool_cost IS NULL
 	 AND   b.table_spool_cost IS NULL
 	 AND   b.table_spool_rows IS NULL
@@ -15863,7 +16478,8 @@ UPDATE b
 FROM ##BlitzCacheProcs b
 JOIN selects AS s
 ON s.QueryHash = b.QueryHash
-AND b.AverageWrites > 1024.;
+AND b.AverageWrites > 1024.
+WHERE b.SPID = @@SPID;
 
 	RAISERROR(N'Checking for forced serialization', 0, 1) WITH NOWAIT;
 	WITH XMLNAMESPACES('http://schemas.microsoft.com/sqlserver/2004/07/showplan' AS p)
@@ -15945,7 +16561,7 @@ WITH  stale_stats AS (
 	SELECT sa.SqlHandle
 	FROM #stats_agg AS sa
 	GROUP BY sa.SqlHandle
-	HAVING MAX(sa.LastUpdate) <= DATEADD(DAY, -7, SYSDATETIME())
+	HAVING MAX(sa.LastUpdate) <= DATEADD(DAY, -7, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END))
 	AND AVG(sa.ModificationCount) >= 100000
 )
 UPDATE b
@@ -16112,6 +16728,7 @@ FROM #relop AS r
 JOIN ##BlitzCacheProcs AS b
 ON b.SqlHandle = r.SqlHandle
 WHERE  r.relop.exist('/p:RelOp[(@EstimateRows="100" or @EstimateRows="1") and @LogicalOp="Table-valued function"]') = 1
+AND b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 
@@ -16125,6 +16742,7 @@ FROM #relop AS r
 JOIN ##BlitzCacheProcs AS b
 ON b.SqlHandle = r.SqlHandle
 WHERE  r.relop.exist('/p:RelOp/p:Merge/@ManyToMany[.="1"]') = 1
+AND b.SPID = @@SPID
 OPTION (RECOMPILE);
 END ;
 
@@ -16432,6 +17050,7 @@ FROM ##BlitzCacheProcs AS b
 JOIN precheck pk
 ON pk.SqlHandle = b.SqlHandle
 AND pk.SPID = b.SPID
+WHERE b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 
@@ -16475,6 +17094,7 @@ JOIN precheck pk
 ON pk.SqlHandle = b.SqlHandle
 AND pk.SPID = b.SPID
 WHERE b.QueryType <> N'Statement'
+AND b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 
@@ -16519,6 +17139,7 @@ JOIN precheck pk
 ON pk.SqlHandle = b.SqlHandle
 AND pk.SPID = b.SPID
 WHERE b.QueryType = N'Statement'
+AND b.SPID = @@SPID
 OPTION (RECOMPILE);
 
 RAISERROR(N'Filling in implicit conversion and cached plan parameter info', 0, 1) WITH NOWAIT;
@@ -17922,6 +18543,7 @@ BEGIN
     /* excel output */
     UPDATE ##BlitzCacheProcs
     SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),' ','<>'),'><',''),'<>',' '), 1, 32000)
+	WHERE SPID = @@SPID
 	OPTION(RECOMPILE);
 
     SET @sql = N'
@@ -17991,7 +18613,7 @@ BEGIN
 	
    IF @MinutesBack IS NOT NULL
       BEGIN
-		SET @sql += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ';
+		SET @sql += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END) ) ';
 	  END;
 
 	SELECT @sql += N' ORDER BY ' + CASE @SortOrder WHEN N'cpu' THEN N' TotalCPU '
@@ -18266,7 +18888,7 @@ IF @MinimumExecutionCount IS NOT NULL
 
 IF @MinutesBack IS NOT NULL
     BEGIN
-		SET @sql += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ' + @nl;
+		SET @sql += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END) ) ' + @nl;
     END;
 
 SELECT @sql += N' ORDER BY ' + CASE @SortOrder WHEN  N'cpu' THEN N' TotalCPU '
@@ -19135,7 +19757,7 @@ BEGIN
 				'Consider updating statistics more frequently,' AS [Details]
 				FROM #stats_agg AS sa
 				GROUP BY sa.[Database]
-				HAVING MAX(sa.LastUpdate) <= DATEADD(DAY, -7, SYSDATETIME())
+				HAVING MAX(sa.LastUpdate) <= DATEADD(DAY, -7, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END))
 				AND AVG(sa.ModificationCount) >= 100000;
 
         IF EXISTS (SELECT 1/0
@@ -19764,7 +20386,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END; 
@@ -19794,7 +20416,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END; 
@@ -19813,7 +20435,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END; 
@@ -19843,7 +20465,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END; 
@@ -19941,7 +20563,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END;  
@@ -19971,7 +20593,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END; 
@@ -19990,7 +20612,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END;  
@@ -20020,7 +20642,7 @@ SET @AllSortSql += N'
 													missing_indexes = NULL
 												   OPTION (RECOMPILE);
 
-												   UPDATE ##BlitzCacheProcs
+												   UPDATE #bou_allsort
 												   SET QueryText = SUBSTRING(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(QueryText)),'' '',''<>''),''><'',''''),''<>'','' ''), 1, 32000)
 												   OPTION(RECOMPILE);';
 						END; 
@@ -20087,7 +20709,7 @@ IF @OutputServerName IS NOT NULL
 					
 		IF EXISTS (SELECT server_id FROM sys.servers WHERE QUOTENAME([name]) = @OutputServerName)
 		    BEGIN
-		        SET @LinkedServerDBCheck = 'SELECT 1 WHERE EXISTS (SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = '''+@OutputDatabaseName+''')';
+		        SET @LinkedServerDBCheck = 'SELECT 1 WHERE EXISTS (SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = N'''+REPLACE(@OutputDatabaseName, N'''', N'''''')+''')';
 		        INSERT INTO @tmpdbchk EXEC sys.sp_executesql @LinkedServerDBCheck;
 		        SET @ValidLinkedServerDB = (SELECT COUNT(*) FROM @tmpdbchk);
 		        IF (@ValidLinkedServerDB > 0)
@@ -20138,13 +20760,13 @@ ELSE
 				+ @OutputDatabaseName
 				+ N'; IF EXISTS(SELECT * FROM '
 				+ @OutputDatabaseName
-				+ N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-				+ @OutputSchemaName
+				+ N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+				+ REPLACE(@OutputSchemaName, N'''', N'''''')
 				+ N''') AND NOT EXISTS (SELECT * FROM '
 				+ @OutputDatabaseName
-				+ N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-				+ @OutputSchemaName + N''' AND QUOTENAME(TABLE_NAME) = '''
-				+ @OutputTableName + N''') CREATE TABLE '
+				+ N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N'''
+				+ REPLACE(@OutputSchemaName, N'''', N'''''') + N''' AND QUOTENAME(TABLE_NAME) = N'''
+				+ REPLACE(@OutputTableName, N'''', N'''''') + N''') CREATE TABLE '
 				+ @OutputSchemaName + N'.'
 				+ @OutputTableName
 				+ CONVERT
@@ -20236,18 +20858,18 @@ ELSE
 
 			SET @StringToExecute += N'IF EXISTS(SELECT * FROM '
 					+@OutputDatabaseName
-					+N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-					+@OutputSchemaName
+					+N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+					+REPLACE(@OutputSchemaName, N'''', N'''''')
 					+N''') AND EXISTS (SELECT * FROM '
 					+@OutputDatabaseName+
-					N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-					+@OutputSchemaName
-					+N''' AND QUOTENAME(TABLE_NAME) = '''
-					+@OutputTableName
+					N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N'''
+					+REPLACE(@OutputSchemaName, N'''', N'''''')
+					+N''' AND QUOTENAME(TABLE_NAME) = N'''
+					+REPLACE(@OutputTableName, N'''', N'''''')
 					+N''') AND EXISTS (SELECT * FROM '
 					+@OutputDatabaseName+
 					N'.sys.computed_columns WHERE [name] = N''PlanCreationTimeHours'' AND QUOTENAME(OBJECT_NAME(object_id)) = N'''
-					+@OutputTableName
+					+REPLACE(@OutputTableName, N'''', N'''''')
 					+N''' AND [definition] = N''(datediff(hour,[PlanCreationTime],sysdatetime()))'')
 BEGIN 
 	RAISERROR(''We noticed that you are running an old computed column definition for PlanCreationTimeHours, fixing that now'',0,0) WITH NOWAIT;
@@ -20257,14 +20879,8 @@ END ';
 
             IF @ValidOutputServer = 1
 				BEGIN
-					SET @StringToExecute = REPLACE(@StringToExecute,''''+@OutputSchemaName+'''',''''''+@OutputSchemaName+'''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,''''+@OutputTableName+'''',''''''+@OutputTableName+'''''');
+					SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
 					SET @StringToExecute = REPLACE(@StringToExecute,'xml','nvarchar(max)');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [PlanHandle], 1) + '');''','''''DBCC FREEPROCCACHE ('''' + CONVERT(VARCHAR(128), [PlanHandle], 1) + '''');''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''DBCC FREEPROCCACHE ('' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '');''','''''DBCC FREEPROCCACHE ('''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + '''');''''');
-                    SET @StringToExecute = REPLACE(@StringToExecute,'''EXEC sp_BlitzCache @OnlySqlHandles = '''''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ''''''; ''','''''EXEC sp_BlitzCache @OnlySqlHandles = '''''''' + CONVERT(VARCHAR(128), [SqlHandle], 1) + ''''''''; ''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''EXEC sp_BlitzCache @OnlyQueryHashes = '''''' + CONVERT(VARCHAR(32), [QueryHash], 1) + ''''''; ''','''''EXEC sp_BlitzCache @OnlyQueryHashes = '''''''' + CONVERT(VARCHAR(32), [QueryHash], 1) + ''''''''; ''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''N/A''','''''N/A''''');
 					
                     IF @Debug = 1
                     BEGIN
@@ -20279,7 +20895,7 @@ END ';
                         PRINT SUBSTRING(@StringToExecute, 32000, 36000);
                         PRINT SUBSTRING(@StringToExecute, 36000, 40000);
                     END;
-                    EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+                    EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
                 END;
             ELSE
                 BEGIN
@@ -20302,13 +20918,12 @@ END ';
             /* If the table doesn't have the new LastCompletionTime column, add it. See Github #2377. */
             SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
             SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''LastCompletionTime'')
+                WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + ''')) AND name = ''LastCompletionTime'')
                 ALTER TABLE ' + @ObjectFullName + N' ADD LastCompletionTime DATETIME NULL;';
             IF @ValidOutputServer = 1
 				BEGIN
-					SET @StringToExecute = REPLACE(@StringToExecute,'''LastCompletionTime''','''''LastCompletionTime''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
-					EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
+					EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
                 END;
             ELSE
                 BEGIN
@@ -20318,13 +20933,12 @@ END ';
             /* If the table doesn't have the new PlanGenerationNum column, add it. See Github #2514. */
             SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
             SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''PlanGenerationNum'')
+                WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''PlanGenerationNum'')
                 ALTER TABLE ' + @ObjectFullName + N' ADD PlanGenerationNum BIGINT NULL;';
 			IF @ValidOutputServer = 1
 				BEGIN
-					SET @StringToExecute = REPLACE(@StringToExecute,'''PlanGenerationNum''','''''PlanGenerationNum''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
-                    EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
+                    EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
                 END;
             ELSE
                 BEGIN
@@ -20334,13 +20948,12 @@ END ';
 			/* If the table doesn't have the new Pattern column, add it */
             SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
             SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''Pattern'')
+                WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''Pattern'')
                 ALTER TABLE ' + @ObjectFullName + N' ADD Pattern NVARCHAR(20) NULL;';
 			IF @ValidOutputServer = 1
 				BEGIN
-					SET @StringToExecute = REPLACE(@StringToExecute,'''Pattern''','''''Pattern''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
-                    EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
+                    EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
                 END;
             ELSE
                 BEGIN
@@ -20350,13 +20963,12 @@ END ';
             /* If the table doesn't have the new ai_prompt column, add it. See Github #3669. */
             SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
             SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''ai_prompt'')
+                WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + ''')) AND name = ''ai_prompt'')
                 ALTER TABLE ' + @ObjectFullName + N' ADD ai_prompt NVARCHAR(MAX) NULL;';
             IF @ValidOutputServer = 1
 				BEGIN
-					SET @StringToExecute = REPLACE(@StringToExecute,'''ai_prompt''','''''ai_prompt''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
-					EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
+					EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
                 END;
             ELSE
                 BEGIN
@@ -20366,13 +20978,12 @@ END ';
             /* If the table doesn't have the new ai_advice column, add it. See Github #3669. */
             SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
             SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''ai_advice'')
+                WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + ''')) AND name = ''ai_advice'')
                 ALTER TABLE ' + @ObjectFullName + N' ADD ai_advice NVARCHAR(MAX) NULL;';
             IF @ValidOutputServer = 1
 				BEGIN
-					SET @StringToExecute = REPLACE(@StringToExecute,'''ai_advice''','''''ai_advice''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
-					EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
+					EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
                 END;
             ELSE
                 BEGIN
@@ -20382,13 +20993,12 @@ END ';
             /* If the table doesn't have the new ai_payload column, add it. See Github #3669. */
             SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
             SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''ai_payload'')
+                WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + ''')) AND name = ''ai_payload'')
                 ALTER TABLE ' + @ObjectFullName + N' ADD ai_payload NVARCHAR(MAX) NULL;';
             IF @ValidOutputServer = 1
 				BEGIN
-					SET @StringToExecute = REPLACE(@StringToExecute,'''ai_payload''','''''ai_payload''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
-					EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
+					EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
                 END;
             ELSE
                 BEGIN
@@ -20398,13 +21008,12 @@ END ';
             /* If the table doesn't have the new ai_raw_response column, add it. See Github #3669. */
             SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
             SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + ''')) AND name = ''ai_raw_response'')
+                WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + ''')) AND name = ''ai_raw_response'')
                 ALTER TABLE ' + @ObjectFullName + N' ADD ai_raw_response NVARCHAR(MAX) NULL;';
             IF @ValidOutputServer = 1
 				BEGIN
-					SET @StringToExecute = REPLACE(@StringToExecute,'''ai_raw_response''','''''ai_raw_response''''');
-					SET @StringToExecute = REPLACE(@StringToExecute,'''' + @ObjectFullName + '''','''''' + @ObjectFullName + '''''');
-					EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, N'''', N'''''');
+					EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
                 END;
             ELSE
                 BEGIN
@@ -20421,8 +21030,8 @@ END ';
 					SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
 					+ @OutputServerName + '.'
 					+ @OutputDatabaseName
-					+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-					+ @OutputSchemaName + ''') INSERT '
+					+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+					+ REPLACE(@OutputSchemaName, N'''', N'''''') + ''') INSERT '
 					+ @OutputServerName + '.'
 					+ @OutputDatabaseName + '.'
 					+ @OutputSchemaName + '.'
@@ -20447,7 +21056,7 @@ END ';
                     END;
                 IF @MinutesBack IS NOT NULL
                     BEGIN
-                        SET @StringToExecute += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ';
+                        SET @StringToExecute += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END) ) ';
                     END;
                     SET @StringToExecute += N' AND SPID = @@SPID ';
                     SELECT @StringToExecute += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
@@ -20490,8 +21099,8 @@ END ';
 				BEGIN
 					SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
 					+ @OutputDatabaseName
-					+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-					+ @OutputSchemaName + ''') INSERT '
+					+ '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+					+ REPLACE(@OutputSchemaName, N'''', N'''''') + ''') INSERT '
 					+ @OutputDatabaseName + '.'
 					+ @OutputSchemaName + '.'
 					+ @OutputTableName
@@ -20515,7 +21124,7 @@ END ';
                     END;
                 IF @MinutesBack IS NOT NULL
                     BEGIN
-                        SET @StringToExecute += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ';
+                        SET @StringToExecute += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END) ) ';
                     END;
                     SET @StringToExecute += N' AND SPID = @@SPID ';
                     SELECT @StringToExecute += N' ORDER BY ' + CASE @SortOrder WHEN 'cpu' THEN N' TotalCPU '
@@ -20561,14 +21170,10 @@ END ';
 				BEGIN
 					RAISERROR('Due to the nature of temporary tables, outputting to a linked server requires a permanent table.', 16, 0);
 				END;
-			ELSE IF @OutputTableName IN ('##BlitzCacheProcs','##BlitzCacheResults')
-				BEGIN
-					RAISERROR('OutputTableName is a reserved name for this procedure. We only use ##BlitzCacheProcs and ##BlitzCacheResults, please choose another table name.', 16, 0);
-				END;
 			ELSE
 				BEGIN				
-					SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
-						+ @OutputTableName
+					SET @StringToExecute = N' IF (OBJECT_ID(N''tempdb..'
+						+ REPLACE(@OutputTableName, N'''', N'''''')
 						+ ''') IS NOT NULL) DROP TABLE ' + @OutputTableName + ';'
 						+ 'CREATE TABLE '
 						+ @OutputTableName
@@ -20602,7 +21207,7 @@ END ';
 						PercentExecutionsByType money,
 						ExecutionsPerMinute money,
 						PlanCreationTime datetime,' + N'
-						PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, SYSDATETIME()),
+						PlanCreationTimeHours AS DATEDIFF(HOUR, PlanCreationTime, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END)),
 						LastExecutionTime datetime,
 						LastCompletionTime datetime, 
 						PlanHandle varbinary(64),
@@ -20677,7 +21282,7 @@ END ';
 
                     IF @MinutesBack IS NOT NULL
                         BEGIN
-                            SET @StringToExecute += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, GETDATE() ) ';
+                            SET @StringToExecute += N' AND LastCompletionTime >= DATEADD(MINUTE, @min_back, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END) ) ';
                         END;
 
                         SET @StringToExecute += N' AND SPID = @@SPID ';
@@ -20722,7 +21327,7 @@ END ';
 		END;
 	ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
 		BEGIN
-			RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
+			RAISERROR('Due to the nature of Dynamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
 END; /* End of writing results to table */
 
 END; /*Final End*/
@@ -20792,7 +21397,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @Help TINYINT = 0,
 	@Debug BIT = 0,
     @AI TINYINT = 0, /* 1 = ask for advice, 2 = build prompt but don't actually call AI. Only works with a single query plan: automatically sets @ExpertMode = 1, @KeepCRLF = 1. */
-    @AIModel VARCHAR(200) = NULL, /* Defaults to gpt-4.1-mini */
+    @AIModel VARCHAR(200) = NULL, /* Defaults to gpt-5.6-luna */
     @AIURL VARCHAR(200) = NULL, /* Defaults to https://api.openai.com/v1/chat/completions */
     @AICredential VARCHAR(200) = NULL, /* Defaults to 'https://api.openai.com/' or the root of your AIURL, trailing slash included */
     @AIConfigTable NVARCHAR(500) = NULL, /* Table where AI provider config is stored - can be in the format db.schema.table, schema.table, or just table. */
@@ -20808,7 +21413,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.34', @VersionDate = '20260702';
+SELECT @Version = '8.35', @VersionDate = '20261114';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -20888,6 +21493,9 @@ DECLARE @collation NVARCHAR(256);
 DECLARE @NumDatabases INT;
 DECLARE @LineFeed NVARCHAR(5);
 DECLARE @DaysUptimeInsertValue NVARCHAR(256);
+DECLARE @AGName NVARCHAR(128);
+DECLARE @AGRole NVARCHAR(9);
+DECLARE @AGUptimeContext NVARCHAR(80) = N'';
 DECLARE @DatabaseToIgnore NVARCHAR(MAX);
 DECLARE @ColumnList NVARCHAR(MAX);
 DECLARE @ColumnListWithApostrophes NVARCHAR(MAX);
@@ -21049,6 +21657,13 @@ END;
 IF(@UsualStatisticsSamplingPercent <= 0 OR @UsualStatisticsSamplingPercent > 100)
 BEGIN
     RAISERROR('Invalid value for parameter @UsualStatisticsSamplingPercent. Expected: 1 to 100',12,1);
+    RETURN;
+END;
+
+/* Azure SQL DB cannot use linked-server output, including its own server name. */
+IF @AzureSQLDB = 1 AND @OutputServerName IS NOT NULL
+BEGIN
+    RAISERROR('Azure SQL Database does not support @OutputServerName. Output to a table in the current database instead.', 12, 1);
     RETURN;
 END;
 
@@ -21797,7 +22412,7 @@ BEGIN
     DECLARE @AIModelRequested NVARCHAR(200) = @AIModel;
     DECLARE @AIFallbackModel NVARCHAR(200);
     SELECT TOP 1 @AIFallbackModel = AI_Model FROM #ai_providers WHERE Default_Model = 1 ORDER BY Id;
-    IF @AIFallbackModel IS NULL SET @AIFallbackModel = N'gpt-5-nano';
+    IF @AIFallbackModel IS NULL SET @AIFallbackModel = N'gpt-5.6-luna';
     RAISERROR('@AIModel "%s" was not found in configuration table %s. Using "%s" instead.',
         10, 1, @AIModelRequested, @AIConfigTable, @AIFallbackModel) WITH NOWAIT;
     SET @AIModel = NULL;
@@ -21867,7 +22482,7 @@ IF @AI > 0
             ORDER BY Id;
 
     IF @AIModel IS NULL
-        SET @AIModel = N'gpt-5-nano';
+        SET @AIModel = N'gpt-5.6-luna';
 
     IF @AIURL IS NULL OR @AIURL NOT LIKE N'http%'
         SET @AIURL = CASE
@@ -21884,19 +22499,11 @@ IF @AI > 0
 
     IF @AISystemPrompt IS NULL OR @AISystemPrompt = N''
     BEGIN
-            SET @AISystemPrompt = N'You are a very senior database developer working with Microsoft SQL Server and Azure SQL DB. You focus on real-world, actionable advice that will make a big difference, quickly. You value everyone''s time, and while you are friendly and courteous, you do not waste time with pleasantries or emoji because you work in a fast-paced corporate environment. Do not describe the table: you are working with other very senior database developers who understand SQL Server deeply, so get straight to the point with your recommendations and scripts.
+            SET @AISystemPrompt = N'Review the supplied Microsoft SQL Server or Azure SQL Database table metadata. Use existing index usage counters and SQL Server missing-index suggestions to produce a prioritized nonclustered rowstore index plan. Cover indexes to add, remove as redundant or harmful, or modify.
 
-    You have been given the existing indexes, missing index suggestions from SQL Server, column data types, and foreign keys for a table. Your job is to recommend index changes: which indexes to add, which to remove as redundant or harmful, and which to modify. Focus on practical changes that will improve the most common query patterns shown by the usage statistics.
+Treat unused indexes as removal candidates. Merge duplicate or near-duplicate indexes when appropriate, or keep the wider useful index. Different leading columns make indexes distinct. Treat missing-index column order as a starting point and optimize it for the workload.
 
-	If indexes are not being used, drop them. If duplicate or near-duplicate indexes exist, merge them together or keep the widest ones. Existing indexes that start with different leading columns should not be considered duplicates.
-
-	Include CREATE INDEX and DROP INDEX scripts. Include undo scripts in comments to back out your work if something goes wrong. Use the /* */ style for comments, not --, to make it easier for the customer to copy and paste your scripts without accidentally missing a line.
-
-	When working with missing index suggestions from SQL Server, keep in mind that they are ordered equality vs inequality search in the query, then by the column order of the table. The column order is nowhere near scientific, and can be rearranged if necessary for performance.
-
-	Focus only on nonclustered rowstore indexes. Do not suggest changes for clustered indexes, columnstore indexes, memory-optimized indexes, XML indexes, JSON indexes, or other specialized index types.
-
-    Do not offer followup options: the customer can only contact you once, so include all necessary information, tasks, and scripts in your initial reply. Render your output in Markdown, as it will be shown in plain text to the customer.';
+Return one self-contained Markdown response with the prioritized plan, complete CREATE INDEX and DROP INDEX scripts, and a /* */ rollback comment after each change. Keep clustered, columnstore, memory-optimized, XML, JSON, and other specialized index types outside the plan.';
     END;
 
     IF @AIModel LIKE 'gemini%' AND @AIPayloadTemplate IS NULL
@@ -22183,7 +22790,7 @@ IF @BringThePain = 0 AND @SkipPartitions = 0 AND @TableName IS NULL
         BEGIN
             /* Count the total number of partitions */
             SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-                    SELECT @RowcountOUT = SUM(1) FROM ' + QUOTENAME(@DatabaseName) + '.sys.partitions WHERE partition_number > 1 OPTION    ( RECOMPILE );';
+                    SELECT @RowcountOUT = SUM(1) FROM ' + CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE QUOTENAME(@DatabaseName) + N'.' END + N'sys.partitions WHERE partition_number > 1 OPTION    ( RECOMPILE );';
             EXEC sp_executesql @dsql, N'@RowcountOUT BIGINT OUTPUT', @RowcountOUT = @Rowcount OUTPUT;
             IF @Rowcount > 100
                 BEGIN
@@ -22211,12 +22818,12 @@ FROM #Ignore_Databases i;
 /* Last startup */
 IF COLUMNPROPERTY(OBJECT_ID('sys.dm_os_sys_info'),'sqlserver_start_time','ColumnID') IS NOT NULL
 BEGIN
-	SELECT @DaysUptime = CAST(DATEDIFF(HOUR, sqlserver_start_time, GETDATE()) / 24. AS NUMERIC (23,2))
+	SELECT @DaysUptime = CAST(DATEDIFF(HOUR, sqlserver_start_time, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) / 24. AS NUMERIC (23,2))
 	FROM sys.dm_os_sys_info;
 END
 ELSE
 BEGIN
-	SELECT  @DaysUptime = CAST(DATEDIFF(HOUR, create_date, GETDATE()) / 24. AS NUMERIC (23,2))
+	SELECT  @DaysUptime = CAST(DATEDIFF(HOUR, create_date, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) / 24. AS NUMERIC (23,2))
 	FROM    sys.databases
 	WHERE   database_id = 2;
 END
@@ -22255,6 +22862,45 @@ FROM     sys.databases
          WHERE [name] = @DatabaseName
          AND user_access_desc='MULTI_USER'
          AND state_desc = 'ONLINE';
+
+/* Current AG roles provide context, not a counter reset or failover timestamp.
+   Keep HADR references dynamic so Azure SQL Database does not bind them. */
+IF @AzureSQLDB = 0 AND SERVERPROPERTY('IsHadrEnabled') = 1
+BEGIN
+    SELECT @AGName = NULL, @AGRole = NULL;
+    BEGIN TRY
+        SET @dsql = N'SELECT @AGNameOUT = ag.name,
+                            @AGRoleOUT = CASE WHEN rs.role_desc IN (N''PRIMARY'', N''SECONDARY'', N''RESOLVING'')
+                                             THEN rs.role_desc ELSE N''UNKNOWN'' END
+                     FROM sys.databases AS d
+                     LEFT JOIN sys.dm_hadr_availability_replica_states AS rs
+                         ON rs.replica_id = d.replica_id AND rs.is_local = 1
+                     LEFT JOIN sys.availability_groups AS ag ON ag.group_id = rs.group_id
+                     WHERE d.database_id = @DatabaseID_IN
+                       AND d.name = @DatabaseName_IN
+                       AND (d.replica_id IS NOT NULL OR d.group_database_id IS NOT NULL);';
+        EXEC sp_executesql @dsql,
+             N'@DatabaseID_IN INT, @DatabaseName_IN NVARCHAR(128), @AGNameOUT NVARCHAR(128) OUTPUT, @AGRoleOUT NVARCHAR(9) OUTPUT',
+             @DatabaseID_IN = @DatabaseID, @DatabaseName_IN = @DatabaseName,
+             @AGNameOUT = @AGName OUTPUT, @AGRoleOUT = @AGRole OUTPUT;
+
+        IF @AGRole IS NOT NULL
+        BEGIN
+            SET @AGName = COALESCE(@AGName, N'UNKNOWN');
+            SET @AGUptimeContext = CASE WHEN @GetAllDatabases = 1 THEN N' | AG: per database'
+                                       ELSE N' | AG role: ' + @AGRole END;
+            RAISERROR(N'Database %s: AG %s, current local role %s. Local index usage history may differ from SQL Server uptime; counters do not combine activity across replicas. Role changes and counter resets can limit the observation period. Failover history was not collected.',
+                      0, 1, @DatabaseName, @AGName, @AGRole) WITH NOWAIT;
+        END;
+    END TRY
+    BEGIN CATCH
+        /* AG context is optional: do not fail index analysis if it is unavailable. */
+        SET @AGUptimeContext = CASE WHEN @GetAllDatabases = 1 THEN N' | AG: per database'
+                                   ELSE N' | AG context: UNKNOWN' END;
+        RAISERROR(N'Database %s: unable to collect AG context. Local index usage history may differ from SQL Server uptime; AG membership, role and failover history are not established by this check.',
+                  0, 1, @DatabaseName) WITH NOWAIT;
+    END CATCH;
+END;
 
 ----------------------------------------
 --STEP 1: OBSERVE THE PATIENT
@@ -22596,7 +23242,7 @@ BEGIN TRY
             BEGIN
                 /* Count the total number of partitions */
                 SET @dsql = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
-                        SELECT @RowcountOUT = SUM(1) FROM ' + QUOTENAME(@DatabaseName) + '.sys.partitions WHERE partition_number > 1 OPTION    ( RECOMPILE );';
+                        SELECT @RowcountOUT = SUM(1) FROM ' + CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE QUOTENAME(@DatabaseName) + N'.' END + N'sys.partitions WHERE partition_number > 1 OPTION    ( RECOMPILE );';
                 EXEC sp_executesql @dsql, N'@RowcountOUT BIGINT OUTPUT', @RowcountOUT = @Rowcount OUTPUT;
                 IF @Rowcount > 100
                     BEGIN
@@ -22642,6 +23288,7 @@ BEGIN TRY
 				, reserved_row_overflow_MB NUMERIC(29,2)
 				, lock_escalation_desc nvarchar(60)
 				, data_compression_desc nvarchar(60)
+                , reserved_dictionary_MB NUMERIC(29,2)
 			)
 
 			-- get relevant info from sys.dm_db_index_operational_stats
@@ -22683,7 +23330,7 @@ BEGIN TRY
                         SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
                         INSERT INTO #dm_db_partition_stats_etc
                         (
-                            database_id, object_id, sname, index_id, partition_number, partition_id, row_count, reserved_MB, reserved_LOB_MB, reserved_row_overflow_MB, lock_escalation_desc, data_compression_desc
+                            database_id, object_id, sname, index_id, partition_number, partition_id, row_count, reserved_MB, reserved_LOB_MB, reserved_row_overflow_MB, lock_escalation_desc, data_compression_desc, reserved_dictionary_MB
                         )
                         SELECT  ' + CAST(@DatabaseID AS NVARCHAR(10)) + N' AS database_id,
                                 ps.object_id, 
@@ -22696,7 +23343,10 @@ BEGIN TRY
                                 ps.lob_reserved_page_count * 8. / 1024. AS reserved_LOB_MB,
                                 ps.row_overflow_reserved_page_count * 8. / 1024. AS reserved_row_overflow_MB,
 								le.lock_escalation_desc,
-                            par.data_compression_desc
+                            par.data_compression_desc,
+                            COALESCE((SELECT SUM(dict.on_disk_size / 1024.0 / 1024)
+                                      FROM ' + QUOTENAME(@DatabaseName) + N'.sys.column_store_dictionaries AS dict
+                                      WHERE dict.partition_id = ps.partition_id), 0) AS reserved_dictionary_MB
 ';
 
             SET @dsql = @dsql + N'
@@ -22949,11 +23599,11 @@ BEGIN TRY
 								SUM(os.page_latch_wait_in_ms),
 								SUM(os.page_io_latch_wait_count),								
 								SUM(os.page_io_latch_wait_in_ms)
-                                ,COALESCE((SELECT SUM (dict.on_disk_size / 1024.0 / 1024) FROM sys.column_store_dictionaries dict WHERE dict.partition_id = h.partition_id),0) AS reserved_dictionary_MB 
+                                ,h.reserved_dictionary_MB
                     from #dm_db_partition_stats_etc h
                     left JOIN #dm_db_index_operational_stats as os ON
                         h.object_id=os.object_id and h.index_id=os.index_id and h.partition_number=os.partition_number 
-                    group by h.database_id, h.object_id, h.sname, h.index_id, h.partition_number, h.partition_id, h.row_count, h.reserved_MB, h.reserved_LOB_MB, h.reserved_row_overflow_MB, h.lock_escalation_desc, h.data_compression_desc                          
+                    group by h.database_id, h.object_id, h.sname, h.index_id, h.partition_number, h.partition_id, h.row_count, h.reserved_MB, h.reserved_LOB_MB, h.reserved_row_overflow_MB, h.lock_escalation_desc, h.data_compression_desc, h.reserved_dictionary_MB
                 
 		END; --End Check For @SkipPartitions = 0
 
@@ -23368,22 +24018,31 @@ OPTION (RECOMPILE);';
                 JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.schemas AS s
                     ON s.schema_id = fk.schema_id
                 WHERE fk.is_disabled = 0
-                AND   EXISTS
-                      (
-                          SELECT  
-                              1/0
-                          FROM ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_key_columns fkc
-                          WHERE fkc.constraint_object_id = fk.object_id
-                          AND NOT EXISTS
-                              (
-                                  SELECT  
-                                      1/0
-                                  FROM  ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns ic
-                                  WHERE ic.object_id = fkc.parent_object_id
-                                  AND   ic.column_id = fkc.parent_column_id
-                                  AND   ic.index_column_id = fkc.constraint_column_id
-                              )
-                      )
+                AND NOT EXISTS
+                    (
+                        SELECT 1
+                        FROM ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS i
+                        WHERE i.object_id = fk.parent_object_id
+                        AND i.type IN (1, 2)
+                        AND i.is_disabled = 0
+                        AND i.is_hypothetical = 0
+                        AND i.has_filter = 0
+                        AND NOT EXISTS
+                            (
+                                SELECT 1
+                                FROM ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_key_columns AS fkc
+                                WHERE fkc.constraint_object_id = fk.object_id
+                                AND NOT EXISTS
+                                    (
+                                        SELECT 1
+                                        FROM ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns AS ic
+                                        WHERE ic.object_id = i.object_id
+                                        AND ic.index_id = i.index_id
+                                        AND ic.column_id = fkc.parent_column_id
+                                        AND ic.key_ordinal = fkc.constraint_column_id
+                                    )
+                            )
+                    )
 				OPTION (RECOMPILE);'
         IF @dsql IS NULL 
             RAISERROR('@dsql is null',16,1);
@@ -23441,7 +24100,7 @@ OPTION (RECOMPILE);';
 			        ca.column_names AS column_names,
 			        s.name AS statistics_name,
 			        CONVERT(DATETIME, ddsp.last_updated) AS last_statistics_update,
-			        DATEDIFF(DAY, ddsp.last_updated, GETDATE()) AS days_since_last_stats_update,
+			        DATEDIFF(DAY, ddsp.last_updated, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END)) AS days_since_last_stats_update,
 			        ddsp.rows,
 			        ddsp.rows_sampled,
 			        CAST(ddsp.rows_sampled / ( 1. * NULLIF(ddsp.rows, 0) ) * 100 AS DECIMAL(18, 1)) AS percent_sampled,
@@ -23818,6 +24477,13 @@ END CATCH;
  FETCH NEXT FROM c1 INTO @DatabaseName;
 END;
 DEALLOCATE c1;
+
+/* This banner covers the requested databases, not the last database in the loop.
+   Leave @DaysUptime and all benefit calculations unchanged. The longest suffix
+   fits NVARCHAR(256), including a 128-character server name and NUMERIC(23,2). */
+IF @AGUptimeContext <> N''
+    SET @DaysUptimeInsertValue = @DaysUptimeInsertValue + @AGUptimeContext
+                              + N' | Local usage history may differ from uptime';
 
 
 
@@ -24400,7 +25066,7 @@ BEGIN
 						SELECT i.database_id,
 							   i.schema_name,
 							   i.[object_id], 
-							   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, SYSDATETIME())), 0), 1) AS create_days
+							   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END))), 0), 1) AS create_days
 						FROM #IndexSanity AS i
 						GROUP BY i.database_id, i.schema_name, i.object_id
 						)
@@ -24577,7 +25243,7 @@ BEGIN
 
         /* Closing instruction */
         SET @CurrentAIPrompt = @CurrentAIPrompt + CHAR(13) + CHAR(10)
-            + N'Based on the above data, please provide index recommendations for this table. Consider which indexes are redundant, which missing indexes should be created, and whether the current indexing strategy is appropriate for the workload pattern shown by the usage statistics.';
+            + N'Based on the metadata above, provide index recommendations for this table. Consider which indexes are redundant, which missing indexes should be created, and whether the current indexing strategy fits the observed index usage counters and SQL Server missing-index suggestions.';
 
         /* @AI = 1: Call the AI provider */
         IF @AI = 1
@@ -25066,7 +25732,7 @@ BEGIN
 					END;
 				ELSE IF EXISTS (SELECT server_id FROM sys.servers WHERE QUOTENAME([name]) = @OutputServerName)
 					BEGIN
-						SET @LinkedServerDBCheck = 'SELECT 1 WHERE EXISTS (SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = '''+@OutputDatabaseName+''')';
+						SET @LinkedServerDBCheck = 'SELECT 1 WHERE EXISTS (SELECT * FROM '+@OutputServerName+'.master.sys.databases WHERE QUOTENAME([name]) = N'''+REPLACE(@OutputDatabaseName, N'''', N'''''')+''')';
 						INSERT INTO @tmpdbchk EXEC sys.sp_executesql @LinkedServerDBCheck;
 						SET @ValidLinkedServerDB = (SELECT COUNT(*) FROM @tmpdbchk);
 						IF (@ValidLinkedServerDB > 0)
@@ -25086,7 +25752,8 @@ BEGIN
 			BEGIN
 				IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
 					BEGIN
-						SET @StringToExecute = N' IF (OBJECT_ID(''[tempdb].[dbo].@@@OutputTableName@@@'') IS NOT NULL) DROP TABLE @@@OutputTableName@@@';
+						SET @StringToExecute = N' IF (OBJECT_ID(N''[tempdb].[dbo].@@@OutputTableNameLiteral@@@'') IS NOT NULL) DROP TABLE @@@OutputTableName@@@';
+						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableNameLiteral@@@', REPLACE(@OutputTableName, N'''', N''''''));
 						SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
 						EXEC(@StringToExecute);
 						
@@ -25097,7 +25764,7 @@ BEGIN
 					END;
 				ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
 					BEGIN
-						RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
+						RAISERROR('Due to the nature of Dynamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
 					END;
 				ELSE IF @OutputDatabaseName IS NOT NULL
 					AND @OutputSchemaName IS NOT NULL
@@ -25144,35 +25811,35 @@ BEGIN
 				SET @StringToExecute = 
 					N'SET @SchemaExists = 0;
 					SET @TableExists = 0;
-					IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = ''@@@OutputSchemaName@@@'') 
+					IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N''@@@OutputSchemaName@@@'')
 						SET @SchemaExists = 1
-					IF EXISTS (SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = ''@@@OutputSchemaName@@@'' AND QUOTENAME(TABLE_NAME) = ''@@@OutputTableName@@@'')
+					IF EXISTS (SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N''@@@OutputSchemaName@@@'' AND QUOTENAME(TABLE_NAME) = N''@@@OutputTableName@@@'')
 					BEGIN
 						SET @TableExists = 1
-						IF NOT EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.COLUMNS WHERE QUOTENAME(TABLE_SCHEMA) = ''@@@OutputSchemaName@@@''
-										AND QUOTENAME(TABLE_NAME) = ''@@@OutputTableName@@@'' AND QUOTENAME(COLUMN_NAME) = ''[total_forwarded_fetch_count]'')
+						IF NOT EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.COLUMNS WHERE QUOTENAME(TABLE_SCHEMA) = N''@@@OutputSchemaName@@@''
+										AND QUOTENAME(TABLE_NAME) = N''@@@OutputTableName@@@'' AND QUOTENAME(COLUMN_NAME) = ''[total_forwarded_fetch_count]'')
 							EXEC @@@OutputServerName@@@.@@@OutputDatabaseName@@@.dbo.sp_executesql N''ALTER TABLE @@@OutputSchemaName@@@.@@@OutputTableName@@@ ADD [total_forwarded_fetch_count] BIGINT''
 					END';
 	
-				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
-				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
-				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName);
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', REPLACE(@OutputSchemaName, N'''', N''''''));
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', REPLACE(@OutputTableName, N'''', N''''''));
 	
 				EXEC sp_executesql @StringToExecute, N'@TableExists BIT OUTPUT, @SchemaExists BIT OUTPUT', @TableExists OUTPUT, @SchemaExists OUTPUT;
 
 
 				SET @TableExistsSql = 
-					N'IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = ''@@@OutputSchemaName@@@'') 
-						AND NOT EXISTS (SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = ''@@@OutputSchemaName@@@'' AND QUOTENAME(TABLE_NAME) = ''@@@OutputTableName@@@'')
+					N'IF EXISTS(SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N''@@@OutputSchemaName@@@'')
+						AND NOT EXISTS (SELECT * FROM @@@OutputServerName@@@.@@@OutputDatabaseName@@@.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N''@@@OutputSchemaName@@@'' AND QUOTENAME(TABLE_NAME) = N''@@@OutputTableName@@@'')
 						SET @TableExists = 0
 					ELSE
 						SET @TableExists = 1';
 				
-				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputServerName@@@', @OutputServerName);
+				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
-				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputSchemaName@@@', @OutputSchemaName); 
-				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputTableName@@@', @OutputTableName); 
+				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputSchemaName@@@', REPLACE(@OutputSchemaName, N'''', N''''''));
+				SET @TableExistsSql = REPLACE(@TableExistsSql, '@@@OutputTableName@@@', REPLACE(@OutputTableName, N'''', N''''''));
 
 			END
 
@@ -25876,7 +26543,7 @@ BEGIN
 									i.schema_name,
 									i.[object_id], 
                                     MAX(i.index_sanity_id) AS index_sanity_id,
-									ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, SYSDATETIME())), 0), 1) AS create_days,
+									ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END))), 0), 1) AS create_days,
                                 ISNULL (
                                     CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN 1 ELSE 0 END)
                                          AS NVARCHAR(30))+ N' NC indexes exist (' + 
@@ -26093,7 +26760,7 @@ BEGIN
 				'N/A' AS index_usage_summary,
 				'N/A' AS index_size_summary
 		FROM #Statistics AS s
-		WHERE s.last_statistics_update <= CONVERT(DATETIME, GETDATE() - 30) 
+		WHERE s.last_statistics_update <= CONVERT(DATETIME, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END) - 30)
 		AND s.percent_modifications >= 10. 
 		AND s.rows >= 10000
 		OPTION    ( RECOMPILE );
@@ -26259,16 +26926,16 @@ BEGIN
                                 WHERE   i.index_id NOT IN ( 0, 1 )
                                         AND i.is_unique = 0
                                         /*Skipping tables created in the last week, or modified in past 2 days*/
-                                        AND i.create_date < DATEADD(dd,-7,GETDATE())
-                                        AND i.modify_date < DATEADD(dd,-2,GETDATE())
+                                        AND i.create_date < DATEADD(dd,-7,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
+                                        AND i.modify_date < DATEADD(dd,-2,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                                 GROUP BY i.database_name
                              ) AS perc ON i.database_name = perc.database_name
                         WHERE    i.index_id NOT IN ( 0, 1 )
                                 AND i.is_unique = 0
                                 AND i.total_reads = 0
                                 /*Skipping tables created in the last week, or modified in past 2 days*/
-                                AND	i.create_date < DATEADD(dd,-7,GETDATE())
-                                AND i.modify_date < DATEADD(dd,-2,GETDATE())
+                                AND	i.create_date < DATEADD(dd,-7,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
+                                AND i.modify_date < DATEADD(dd,-2,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                                 AND perc.percent_NC_indexes_unused >= 5
                                 AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                         GROUP BY i.database_name
@@ -26529,8 +27196,8 @@ BEGIN
                         AND i.is_unique = 0
                         AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                         /*Skipping tables created in the last week, or modified in past 2 days*/
-                        AND	i.create_date < DATEADD(dd,-7,GETDATE()) 
-                        AND i.modify_date < DATEADD(dd,-2,GETDATE())
+                        AND	i.create_date < DATEADD(dd,-7,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
+                        AND i.modify_date < DATEADD(dd,-2,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                 ORDER BY i.db_schema_object_indexid
                 OPTION    ( RECOMPILE );
 
@@ -26559,8 +27226,9 @@ BEGIN
                                 NULL AS index_sanity_id, 
                                 250 AS Priority,
                                 N'Omitted Index Features' AS findings_group,
-								database_name AS [Database Name],
-                                N'No Indexes Use Includes' AS finding, 'https://www.brentozar.com/go/IndexFeatures' AS URL,
+                                N'No Indexes Use Includes' AS finding,
+                                database_name AS [Database Name],
+                                'https://www.brentozar.com/go/IndexFeatures' AS URL,
                                 N'No Indexes Use Includes' AS details,
                                 database_name + N' (Entire database)' AS index_definition, 
                                 N'' AS secret_columns, 
@@ -26902,7 +27570,7 @@ BEGIN
                             ISNULL(sz.index_size_summary,'') AS index_size_summary
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
-                    WHERE i.create_date >= DATEADD(dd,-7,GETDATE())
+                    WHERE i.create_date >= DATEADD(dd,-7,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                     AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                     OPTION    ( RECOMPILE );
 
@@ -26926,9 +27594,9 @@ BEGIN
                             ISNULL(sz.index_size_summary,'') AS index_size_summary
                     FROM    #IndexSanity AS i
                     JOIN #IndexSanitySize sz ON i.index_sanity_id = sz.index_sanity_id
-                    WHERE i.modify_date > DATEADD(dd,-2,GETDATE())
+                    WHERE i.modify_date > DATEADD(dd,-2,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                     AND /*Exclude recently created tables.*/
-                    i.create_date < DATEADD(dd,-7,GETDATE())
+                    i.create_date < DATEADD(dd,-7,(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
                     AND sz.total_reserved_MB >= CASE WHEN (@GetAllDatabases = 1 OR @Mode = 0) THEN @ThresholdMB ELSE sz.total_reserved_MB END
                     OPTION    ( RECOMPILE );
 
@@ -27487,7 +28155,7 @@ BEGIN
 						IF @ValidOutputServer = 1
 							BEGIN
 								SET @StringToExecute = REPLACE(@StringToExecute,'''','''''');
-								EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+								EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
 							END;   
 						ELSE
 							BEGIN
@@ -27551,7 +28219,7 @@ BEGIN
 					ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
 					OPTION (RECOMPILE);';
 	
-				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
+				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
 				SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
@@ -27660,7 +28328,7 @@ BEGIN
 						IF @ValidOutputServer = 1
 							BEGIN
 								SET @StringToExecute = REPLACE(@StringToExecute,'''','''''');
-								EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+								EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
 							END;   
 						ELSE
 							BEGIN
@@ -27721,7 +28389,7 @@ BEGIN
 							-- Below should be a copy/paste of the real query
 							-- Make sure all quotes are escaped
 							-- NOTE! information line is skipped from output and the query below
-							-- NOTE! initial columns are not casted to nvarchar due to not outputing informational line
+							-- NOTE! initial columns are not casted to nvarchar due to not outputting informational line
 							DB_NAME(i.database_id) AS [Database Name],
 								COUNT(*) AS [Number Objects],
 								CAST(SUM(sz.total_reserved_MB)/
@@ -27771,7 +28439,7 @@ BEGIN
 							ORDER BY [Display Order] ASC
 							OPTION (RECOMPILE);';
 	
-					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
 					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
 					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
@@ -27958,7 +28626,7 @@ BEGIN
 								IF @ValidOutputServer = 1
 									BEGIN
 										SET @StringToExecute = REPLACE(@StringToExecute,'''','''''');
-										EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+										EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
 									END;   
 								ELSE
 									BEGIN
@@ -28148,7 +28816,7 @@ BEGIN
 									ORDER BY [Database Name], [Schema Name], [Object Name], [Index ID]
 									OPTION (RECOMPILE);';
 	
-								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
+								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
 								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
 								SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
@@ -28383,7 +29051,7 @@ BEGIN
 						IF @ValidOutputServer = 1
 							BEGIN
 								SET @StringToExecute = REPLACE(@StringToExecute,'''','''''');
-								EXEC('EXEC('''+@StringToExecute+''') AT ' + @OutputServerName);
+								EXEC(N'EXEC(N'''+@StringToExecute+''') AT ' + @OutputServerName);
 							END;   
 						ELSE
 							BEGIN
@@ -28405,7 +29073,7 @@ BEGIN
 									SELECT i.database_id,
 										   i.schema_name,
 										   i.[object_id], 
-										   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, SYSDATETIME())), 0), 1) AS create_days
+										   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END))), 0), 1) AS create_days
 									FROM #IndexSanity AS i
 									GROUP BY i.database_id, i.schema_name, i.object_id
 									)
@@ -28472,7 +29140,7 @@ BEGIN
 						ORDER BY [Display Order] ASC, [Magic Benefit Number] DESC
 						OPTION (RECOMPILE);';
 	
-					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@', @OutputServerName);
+					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputServerName@@@.', CASE WHEN @AzureSQLDB = 1 THEN N'' ELSE @OutputServerName + N'.' END);
 					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputDatabaseName@@@', @OutputDatabaseName);
 					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputSchemaName@@@', @OutputSchemaName); 
 					SET @StringToExecute = REPLACE(@StringToExecute, '@@@OutputTableName@@@', @OutputTableName); 
@@ -28490,7 +29158,7 @@ BEGIN
 						SELECT i.database_id,
 							   i.schema_name,
 							   i.[object_id], 
-							   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, SYSDATETIME())), 0), 1) AS create_days
+							   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END))), 0), 1) AS create_days
 						FROM #IndexSanity AS i
 						GROUP BY i.database_id, i.schema_name, i.object_id
 						)
@@ -28620,7 +29288,7 @@ BEGIN
     SET XACT_ABORT OFF;
     SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-    SELECT @Version = '8.34', @VersionDate = '20260702';
+    SELECT @Version = '8.35', @VersionDate = '20261114';
 
     IF @VersionCheckMode = 1
     BEGIN
@@ -28726,7 +29394,7 @@ BEGIN
         RETURN;
     END; /* @Help = 1 */
 
-    /*Declare local variables used in the procudure*/
+    /*Declare local variables used in the procedure*/
     DECLARE
         @DatabaseId int =
             DB_ID(@DatabaseName),
@@ -29212,13 +29880,13 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
                     QUOTENAME(@OutputDatabaseName) +
                     N'.sys.objects AS o inner join ' +
                     QUOTENAME(@OutputDatabaseName) +
-                    N'.sys.schemas as s on o.schema_id = s.schema_id WHERE o.type_desc = N''USER_TABLE'' AND o.name = ' +
+                    N'.sys.schemas as s on o.schema_id = s.schema_id WHERE o.type_desc = N''USER_TABLE'' AND o.name = N' +
                     QUOTENAME
                     (
                         @OutputTableName,
                         N''''
                     ) +
-                    N' AND s.name = ' +
+                    N' AND s.name = N' +
                     QUOTENAME
                     (
                         @OutputSchemaName,
@@ -29239,7 +29907,7 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
                 RAISERROR('@r is set to: %s for schema name %s  and table name %s', 0, 1, @r, @OutputSchemaName, @OutputTableName) WITH NOWAIT;
             END;
 
-            /*protection spells*/
+            /* Quote identifiers once before BOTH the existing-table and first-create branches. */
             SELECT
                 @ObjectFullName =
                     QUOTENAME(@OutputDatabaseName) +
@@ -29260,8 +29928,8 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
                 SET @StringToExecute =
                         N'IF NOT EXISTS (SELECT 1/0 FROM ' +
                         @OutputDatabaseName +
-                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(''' +
-                        @ObjectFullName +
+                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(N''' +
+                        REPLACE(@ObjectFullName, N'''', N'''''') +
                         N''')) AND o.name = N''spid'')
                         /*Add spid column*/
                         ALTER TABLE ' +
@@ -29276,8 +29944,8 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
                 SET @StringToExecute =
                         N'IF NOT EXISTS (SELECT 1/0 FROM ' +
                         @OutputDatabaseName +
-                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(''' +
-                        @ObjectFullName +
+                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(N''' +
+                        REPLACE(@ObjectFullName, N'''', N'''''') +
                         N''')) AND o.name = N''wait_resource'')
                         /*Add wait_resource column*/
                         ALTER TABLE ' +
@@ -29292,8 +29960,8 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
                 SET @StringToExecute =
                         N'IF NOT EXISTS (SELECT 1/0 FROM ' +
                         @OutputDatabaseName +
-                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(''' +
-                        @ObjectFullName +
+                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(N''' +
+                        REPLACE(@ObjectFullName, N'''', N'''''') +
                         N''')) AND o.name = N''client_option_1'')
                         /*Add client_option_1 column*/
                         ALTER TABLE ' +
@@ -29308,8 +29976,8 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
                 SET @StringToExecute =
                         N'IF NOT EXISTS (SELECT 1/0 FROM ' +
                         @OutputDatabaseName +
-                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(''' +
-                        @ObjectFullName +
+                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(N''' +
+                        REPLACE(@ObjectFullName, N'''', N'''''') +
                         N''')) AND o.name = N''client_option_2'')
                         /*Add client_option_2 column*/
                         ALTER TABLE ' +
@@ -29324,8 +29992,8 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
                 SET @StringToExecute =
                         N'IF NOT EXISTS (SELECT 1/0 FROM ' +
                         @OutputDatabaseName +
-                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(''' +
-                        @ObjectFullName +
+                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(N''' +
+                        REPLACE(@ObjectFullName, N'''', N'''''') +
                         N''')) AND o.name = N''lock_mode'')
                         /*Add lock_mode column*/
                         ALTER TABLE ' +
@@ -29340,8 +30008,8 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
                 SET @StringToExecute =
                         N'IF NOT EXISTS (SELECT 1/0 FROM ' +
                         @OutputDatabaseName +
-                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(''' +
-                        @ObjectFullName +
+                        N'.sys.all_columns AS o WHERE o.object_id = (OBJECT_ID(N''' +
+                        REPLACE(@ObjectFullName, N'''', N'''''') +
                         N''')) AND o.name = N''status'')
                         /*Add status column*/
                         ALTER TABLE ' +
@@ -29432,7 +30100,7 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
                     WHERE o.type_desc = N''USER_TABLE''
                     AND o.name = N''BlitzLockFindings''
                     AND s.name = N''' +
-                    PARSENAME(@OutputSchemaName, 1) +
+                    REPLACE(PARSENAME(@OutputSchemaName, 1), N'''', N'''''') +
                     N'''',
                 @StringToExecuteParams =
                     N'@r sysname OUTPUT';
@@ -29618,14 +30286,13 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
     END;
 
 
-    /*The system health stuff gets handled different from user extended events.*/
-    /*These next sections deal with user events, dependent on target.*/
+    /*Event files use separate paths for system_health and user sessions.*/
+    /*Ring buffers share collection and parsing for system and user sessions.*/
 
     /*If ring buffers*/
     IF
     (
            LOWER(@TargetSessionType) LIKE N'ring%'
-       AND @EventSessionName NOT LIKE N'system_health%'
     )
     BEGIN
         IF @Azure = 0
@@ -29781,7 +30448,6 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
     IF
     (
            LOWER(@TargetSessionType) LIKE N'ring%'
-       AND @EventSessionName NOT LIKE N'system_health%'
     )
     BEGIN
         SET @d = CONVERT(varchar(40), GETDATE(), 109);
@@ -30284,11 +30950,11 @@ To use sp_BlitzLock in Azure SQL DB, you have two options:
         FROM
         (
             SELECT
-                event_date = dd.deadlock_xml.value('(event/@timestamp)[1]', 'datetime2'),
-                victim_id = dd.deadlock_xml.value('(//deadlock/victim-list/victimProcess/@id)[1]', 'nvarchar(256)'),
+                event_date = dd.event_date,
+                victim_id = dd.victim_id,
                 resource_xml = ISNULL(ca.dp.query(N'.'), N'')
-            FROM #deadlock_data AS dd
-            CROSS APPLY dd.deadlock_xml.nodes('//deadlock/resource-list') AS ca(dp)
+            FROM #dd AS dd
+            CROSS APPLY dd.deadlock_graph.nodes('/deadlock/resource-list') AS ca(dp)
         ) AS dr
         OPTION(RECOMPILE);
 
@@ -33459,7 +34125,7 @@ BEGIN
 	SET STATISTICS XML OFF;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '8.34', @VersionDate = '20260702';
+	SELECT @Version = '8.35', @VersionDate = '20261114';
     
 	IF(@VersionCheckMode = 1)
 	BEGIN
@@ -33513,7 +34179,6 @@ END;    /* @Help = 1 */
 DECLARE  @ProductVersion NVARCHAR(128) = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128))
 		,@EngineEdition INT = CAST(SERVERPROPERTY('EngineEdition') AS INT)
 		,@ProductVersionMajor DECIMAL(10,2)
-		,@Platform NVARCHAR(8) /* Azure or NonAzure are acceptable */ = (SELECT CASE WHEN @@VERSION LIKE '%Azure%' THEN N'Azure' ELSE N'NonAzure' END AS [Platform])
 		,@AzureSQLDB BIT = (SELECT CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN 1 ELSE 0 END)
 		,@CanReadMSDB BIT = (SELECT COUNT(1) FROM fn_my_permissions(N'msdb.dbo.sysjobs', N'OBJECT') AS fmp WHERE fmp.permission_name = N'SELECT')
 		,@BlockingCheck NVARCHAR(MAX)
@@ -33589,13 +34254,13 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	  + @OutputDatabaseName
 	  + N'; IF EXISTS(SELECT * FROM '
 	  + @OutputDatabaseName
-	  + N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-	  + @OutputSchemaName
+	  + N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+	  + REPLACE(@OutputSchemaName, N'''', N'''''')
 	  + N''') AND NOT EXISTS (SELECT * FROM '
 	  + @OutputDatabaseName
-	  + N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-	  + @OutputSchemaName + N''' AND QUOTENAME(TABLE_NAME) = '''
-	  + @OutputTableName + N''') CREATE TABLE '
+	  + N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N'''
+	  + REPLACE(@OutputSchemaName, N'''', N'''''') + N''' AND QUOTENAME(TABLE_NAME) = N'''
+	  + REPLACE(@OutputTableName, N'''', N'''''') + N''') CREATE TABLE '
 	  + @OutputSchemaName + N'.'
 	  + @OutputTableName
 	  + N'(';
@@ -33707,31 +34372,31 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	/* If the table doesn't have the new JoinKey computed column, add it. See Github #2162. */
 	SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
+		WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''JoinKey'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD JoinKey AS ServerName + CAST(CheckDate AS NVARCHAR(50));';
 	EXEC(@StringToExecute);
 
 	/* If the table doesn't have the new cached_parameter_info computed column, add it. See Github #2842. */
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''cached_parameter_info'')
+		WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''cached_parameter_info'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD cached_parameter_info NVARCHAR(MAX) NULL;';
 	EXEC(@StringToExecute);
 
 	/* If the table doesn't have the new live_parameter_info computed column, add it. See Github #2842. */
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''live_parameter_info'')
+		WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''live_parameter_info'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD live_parameter_info NVARCHAR(MAX) NULL;';
 	EXEC(@StringToExecute);
 
 	/* If the table doesn't have the new outer_command column, add it. See Github #2887. */
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''outer_command'')
+		WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''outer_command'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD outer_command NVARCHAR(4000) NULL;';
 	EXEC(@StringToExecute);
 
 	/* If the table doesn't have the new wait_resource column, add it. See Github #2970. */
 	SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-		WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''wait_resource'')
+		WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''wait_resource'')
 		ALTER TABLE ' + @ObjectFullName + N' ADD wait_resource NVARCHAR(MAX) NULL;';
 	EXEC(@StringToExecute);
 
@@ -33739,8 +34404,8 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	SET @OutputTableCleanupDate = CAST( (DATEADD(DAY, -1 * @OutputTableRetentionDays, GETDATE() ) ) AS DATE);
 	SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
 		+ @OutputDatabaseName
-		+ N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-		+ @OutputSchemaName + N''') DELETE '
+		+ N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+		+ REPLACE(@OutputSchemaName, N'''', N'''''') + N''') DELETE '
 		+ @OutputDatabaseName + '.'
 		+ @OutputSchemaName + '.'
 		+ @OutputTableName
@@ -33761,15 +34426,15 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
             BEGIN
             SET @StringToExecute = N'USE '
                 + @OutputDatabaseName
-                + N'; EXEC (''CREATE VIEW '
-                + @OutputSchemaName + '.'
-                + @OutputTableNameQueryStats_View + N' AS ' + @LineFeed
+                + N'; EXEC (N''CREATE VIEW '
+                + REPLACE(@OutputSchemaName, N'''', N'''''') + '.'
+                + REPLACE(@OutputTableNameQueryStats_View, N'''', N'''''') + N' AS ' + @LineFeed
 				+ N'WITH MaxQueryDuration AS ' + @LineFeed
 				+ N'( ' + @LineFeed
 				+ N'    SELECT ' + @LineFeed
 				+ N'        MIN([ID]) AS [MinID], ' + @LineFeed
 				+ N'		MAX([ID]) AS [MaxID] ' + @LineFeed
-				+ N'    FROM ' + @OutputSchemaName + '.' + @OutputTableName + '' + @LineFeed
+				+ N'    FROM ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableName, N'''', N'''''') + '' + @LineFeed
 				+ N'    GROUP BY [ServerName], ' + @LineFeed
 				+ N'    [session_id], ' + @LineFeed
 				+ N'    [database_name], ' + @LineFeed
@@ -33978,7 +34643,7 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 				+ N'			       [plan_handle], ' + @LineFeed 
 				+ N'			       [statement_start_offset], ' + @LineFeed 
 				+ N'			       [statement_end_offset] ' + @LineFeed
-				+ N'            FROM ' + @OutputSchemaName + '.' + @OutputTableName + '' + @LineFeed 
+				+ N'            FROM ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableName, N'''', N'''''') + '' + @LineFeed
 				+ N'        ) AS [BlitzWho] ' + @LineFeed
 				+ N'INNER JOIN [MaxQueryDuration] ON [BlitzWho].[ID] = [MaxQueryDuration].[MaxID]; ' + @LineFeed
 				+ N''');'
@@ -34001,7 +34666,9 @@ CREATE TABLE #WhoReadableDBs
 database_id INT
 );
 
-IF EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
+/* HADR views exist on standalone instances too; avoid invoking them unless HADR is enabled. */
+IF @AzureSQLDB = 0 AND SERVERPROPERTY('IsHadrEnabled') = 1
+    AND EXISTS (SELECT * FROM sys.all_objects o WHERE o.name = 'dm_hadr_database_replica_states')
 BEGIN
 	RAISERROR('Checking for Read intent databases to exclude',0,0) WITH NOWAIT;
 
@@ -34038,25 +34705,33 @@ SELECT @BlockingCheck = N'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 						DECLARE @LiveQueryPlans TABLE
 						(
 							Session_Id INT NOT NULL,
-							Query_Plan XML NOT NULL
+							Query_Plan XML NULL
 						);
 
 						'
 IF EXISTS (SELECT * FROM sys.all_columns WHERE object_id = OBJECT_ID('sys.dm_exec_query_statistics_xml') AND name = 'query_plan' AND @GetLiveQueryPlan=1)
 BEGIN
 	SET @BlockingCheck = @BlockingCheck + N'
-							INSERT INTO @LiveQueryPlans
-							SELECT	s.session_id, query_plan 
-							FROM	sys.dm_exec_sessions AS s
-							CROSS APPLY sys.dm_exec_query_statistics_xml(s.session_id)
-							WHERE	s.session_id <> @@SPID;';
+							BEGIN TRY
+								INSERT INTO @LiveQueryPlans
+								SELECT s.session_id, query_plan
+								FROM sys.dm_exec_sessions AS s
+								CROSS APPLY sys.dm_exec_query_statistics_xml(s.session_id)
+								WHERE s.session_id <> @@SPID;
+							END TRY
+							BEGIN CATCH
+								/* The DMF can raise the XML depth error before a caller can TRY_CONVERT it. */
+								IF ERROR_NUMBER() <> 6335 THROW;
+								DELETE FROM @LiveQueryPlans;
+								RAISERROR(''Live query plans could not be retrieved because a plan exceeded the XML nesting limit. Continuing without live plans.'', 10, 1) WITH NOWAIT;
+							END CATCH;';
 END
 
 
 /* Think of the StringToExecute as starting with this, but we'll set this up later depending on whether we're doing an insert or a select:
 SELECT @StringToExecute = N'SELECT  GETDATE() AS run_date ,
 */
-SELECT @StringToExecute = N' CASE WHEN YEAR(s.last_request_start_time) = 1900 THEN NULL ELSE COALESCE( RIGHT(''00'' + CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), RIGHT(''00'' + CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, GETDATE()), 0), 114) ) END AS [elapsed_time] ,
+SELECT @StringToExecute = N' CASE WHEN YEAR(s.last_request_start_time) = 1900 THEN NULL ELSE COALESCE( RIGHT(''00'' + CONVERT(VARCHAR(20), (ABS(r.total_elapsed_time) / 1000) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), (DATEADD(SECOND, (r.total_elapsed_time / 1000), 0) + DATEADD(MILLISECOND, (r.total_elapsed_time % 1000), 0)), 114), RIGHT(''00'' + CONVERT(VARCHAR(20), DATEDIFF(SECOND, s.last_request_start_time, @DmvNow) / 86400), 2) + '':'' + CONVERT(VARCHAR(20), DATEADD(SECOND, DATEDIFF(SECOND, s.last_request_start_time, @DmvNow), 0), 114) ) END AS [elapsed_time] ,
 			       s.session_id ,
 					CASE WHEN r.blocking_session_id <> 0 AND blocked.session_id IS NULL 
 					THEN r.blocking_session_id
@@ -34124,7 +34799,7 @@ SELECT @StringToExecute = N' CASE WHEN YEAR(s.last_request_start_time) = 1900 TH
 			       s.host_name ,
 			       s.login_name ,
 			       s.nt_user_name ,'
-		IF @Platform = 'NonAzure' AND @CanReadMSDB = 1
+		IF @CanReadMSDB = 1
 		BEGIN
 		SET @StringToExecute +=
 				   N'program_name = COALESCE((
@@ -34281,7 +34956,9 @@ SELECT @StringToExecute = N' CASE WHEN YEAR(s.last_request_start_time) = 1900 TH
 					    OR s.session_id = b.blocking_session_id)
 		    ) AS blocked
 	    OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle, blocked.sql_handle)) AS dest
-	    OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS derp
+	    /* Retrieve the whole batch as text so oversized XML becomes NULL before output or parameter shredding. */
+	    OUTER APPLY sys.dm_exec_text_query_plan(r.plan_handle, 0, -1) AS text_plan
+	    OUTER APPLY (SELECT TRY_CONVERT(XML, text_plan.query_plan) AS query_plan) AS derp
 	    OUTER APPLY (
 			    SELECT CONVERT(DECIMAL(38,2), SUM( ((((tsu.user_objects_alloc_page_count - user_objects_dealloc_page_count) + (tsu.internal_objects_alloc_page_count - internal_objects_dealloc_page_count)) * 8) / 1024.)) ) AS tempdb_allocations_mb
 			    FROM sys.dm_db_task_space_usage tsu
@@ -34390,7 +35067,7 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	BEGIN
 	SET @StringToExecute = N'USE '
 	  + @OutputDatabaseName + N'; '
-	  + @BlockingCheck + 
+	  + @BlockingCheck + N' DECLARE @DmvNow DATETIME = CASE WHEN @AzureSQLDB = 1 THEN GETUTCDATE() ELSE GETDATE() END; '
 	  + ' INSERT INTO '
 	  + @OutputSchemaName + N'.'
 	  + @OutputTableName
@@ -34496,7 +35173,8 @@ IF @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @Output
 	+ @StringToExecute;
 	END
 ELSE
-	SET @StringToExecute = @BlockingCheck + N' SELECT  GETDATE() AS run_date , ' + @StringToExecute;
+	/* Capture after the live-plan preamble so newly sleeping requests cannot precede the clock. */
+	SET @StringToExecute = @BlockingCheck + N' DECLARE @DmvNow DATETIME = CASE WHEN @AzureSQLDB = 1 THEN GETUTCDATE() ELSE GETDATE() END; SELECT GETDATE() AS run_date , ' + @StringToExecute;
 
 /* If the server has > 50GB of memory, add a max grant hint to avoid getting a giant grant */
 IF 50000000 < (SELECT cntr_value
@@ -34522,11 +35200,954 @@ IF @Debug = 1
 	END
 
 EXEC sp_executesql @StringToExecute,
-	N'@CheckDateOverride DATETIMEOFFSET',
-	@CheckDateOverride;
+	N'@CheckDateOverride DATETIMEOFFSET, @AzureSQLDB BIT',
+	@CheckDateOverride = @CheckDateOverride, @AzureSQLDB = @AzureSQLDB;
 
 END
 GO 
+
+IF OBJECT_ID('dbo.sp_kill') IS NULL
+	EXEC ('CREATE PROCEDURE dbo.sp_kill AS RETURN 0;');
+GO
+
+ALTER PROCEDURE dbo.sp_kill
+	@ExecuteKills VARCHAR(1) = 'N',
+	@SPID INT = NULL,
+	@LoginName NVARCHAR(256) = NULL,
+	@AppName NVARCHAR(256) = NULL,
+	@DatabaseName NVARCHAR(256) = NULL,
+	@HostName NVARCHAR(256) = NULL,
+	@LeadBlockers VARCHAR(1) = NULL,
+	@ReadOnly VARCHAR(1) = NULL,
+	@OrderBy VARCHAR(20) = 'duration',
+	@SPIDState VARCHAR(1) = NULL,
+	@OmitLogin NVARCHAR(256) = NULL,
+	@HasOpenTran VARCHAR(1) = NULL,
+	@RequestsOlderThanSeconds INT = NULL,
+	@OutputDatabaseName NVARCHAR(256) = NULL,
+	@OutputSchemaName NVARCHAR(256) = NULL,
+	@OutputTableName NVARCHAR(256) = NULL,
+	@Help BIT = 0,
+	@Debug BIT = 0,
+	@Version VARCHAR(30) = NULL OUTPUT,
+	@VersionDate DATETIME = NULL OUTPUT,
+	@VersionCheckMode BIT = 0,
+	@EmergencyMode TINYINT = NULL
+WITH RECOMPILE
+AS
+BEGIN
+	SET NOCOUNT ON;
+	SET STATISTICS XML OFF;
+	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+
+	/*
+	sp_kill from http://FirstResponderKit.org
+
+	This script helps you kill queries during a performance emergency.
+
+	It collects all running session data, recommends which queries to kill
+	(with reasons), optionally executes the kills, frees plan cache entries
+	for killed queries, and logs everything to an output table.
+
+	This is NOT targeted at DBAs who want to pull on the latex gloves to do
+	careful analysis first. This IS targeted at people who would otherwise
+	just restart the whole server.
+
+	To learn more, visit http://FirstResponderKit.org where you can download new
+	versions for free, watch training videos on how it works, get more info on
+	the findings, contribute your own code, and more.
+
+	MIT License
+
+	Copyright (c) Brent Ozar Unlimited
+
+	Permission is hereby granted, free of charge, to any person obtaining a copy
+	of this software and associated documentation files (the "Software"), to deal
+	in the Software without restriction, including without limitation the rights
+	to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+	copies of the Software, and to permit persons to whom the Software is
+	furnished to do so, subject to the following conditions:
+
+	The above copyright notice and this permission notice shall be included in all
+	copies or substantial portions of the Software.
+
+	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+	IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+	FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+	AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+	SOFTWARE.
+	*/
+
+	SELECT @Version = '8.35', @VersionDate = '20261114';
+
+	IF(@VersionCheckMode = 1)
+	BEGIN
+		RETURN;
+	END;
+
+	IF @Help = 1
+	BEGIN
+		PRINT '
+sp_kill from http://FirstResponderKit.org
+
+This script helps you kill queries during a performance emergency.
+
+It collects all running session data, recommends which queries to kill
+(with reasons), optionally executes the kills, frees plan cache entries
+for killed queries, and logs everything.
+
+Parameters:
+  @ExecuteKills VARCHAR(1) = ''N''
+    Y = actually kill the recommended sessions
+    N = just show recommendations and log (default)
+
+  @SPID INT = NULL
+    Target a specific session ID to kill.
+
+  @LoginName NVARCHAR(256) = NULL
+    Kill sessions belonging to this login.
+
+  @AppName NVARCHAR(256) = NULL
+    Kill sessions from this application (supports LIKE wildcards).
+
+  @DatabaseName NVARCHAR(256) = NULL
+    Kill sessions using this database. Azure SQL DB is always limited to the current database.
+
+  @HostName NVARCHAR(256) = NULL
+    Kill sessions from this host.
+
+  @LeadBlockers VARCHAR(1) = NULL
+    Y = kill only lead blockers (sessions blocking others but not blocked themselves).
+
+  @ReadOnly VARCHAR(1) = NULL
+    Y = only kill read-only queries (SELECT with no writes).
+
+  @OrderBy VARCHAR(20) = ''duration''
+    Sort order for kill recommendations: duration, cpu, reads, writes, tempdb, transactions.
+
+  @SPIDState VARCHAR(1) = NULL
+    S = only sleeping sessions, R = only running sessions.
+
+  @OmitLogin NVARCHAR(256) = NULL
+    Exclude sessions belonging to this login from kill recommendations.
+
+  @HasOpenTran VARCHAR(1) = NULL
+    Y = only target sessions with open transactions.
+
+  @RequestsOlderThanSeconds INT = NULL
+    Only target sessions whose last request started at least this many seconds ago.
+
+  @OutputDatabaseName, @OutputSchemaName, @OutputTableName
+    Optional 3-part name for persistent logging table. Will be ignored when @EmergencyMode > 0
+
+  @Help BIT = 0
+    Show this help text.
+
+  @Debug BIT = 0
+    Show diagnostic messages during execution.
+
+  @EmergencyMode TINYINT = NULL
+    NULL = normal operation (default). Pass 1 or 2 to enable emergency mode; 0 is not accepted.
+    1 = Skip nearly all optional parts of the processing to minimize work performed by the procedure, but show the sql_text column.
+    2 = Skip all optional parts of processing including the sql_text column.
+    Note: in emergency mode, @OrderBy = ''tempdb'' is not meaningful because tempdb_allocations_mb is not collected.
+
+Example usage:
+  -- Just show recommendations, no killing:
+  EXEC sp_kill;
+
+  -- Show recommendations as quickly as possible by limiting data returned, designed to run on extremely busy servers
+  EXEC sp_kill @EmergencyMode = 1;
+
+  -- Kill everything (except system sessions, rollbacks, and your own session):
+  EXEC sp_kill @ExecuteKills = ''Y'';
+
+  -- Kill all lead blockers:
+  EXEC sp_kill @LeadBlockers = ''Y'', @ExecuteKills = ''Y'';
+
+  -- Kill a specific session:
+  EXEC sp_kill @SPID = 55, @ExecuteKills = ''Y'';
+
+  -- Kill sleeping sessions with open transactions older than 10 seconds:
+  EXEC sp_kill @HasOpenTran = ''Y'', @SPIDState = ''S'',
+    @RequestsOlderThanSeconds = 10, @ExecuteKills = ''Y'';
+
+  -- Just show what we would kill for a specific login, sorted by CPU:
+  EXEC sp_kill @LoginName = ''DOMAIN\TroublesomeUser'', @OrderBy = ''cpu'';
+
+MIT License
+
+Copyright (c) Brent Ozar Unlimited
+
+For more info, visit http://FirstResponderKit.org
+';
+		RETURN;
+	END; /* @Help = 1 */
+
+	/*-------------------------------------------------------
+	  Section 2: Variable Declarations & Platform Detection
+	-------------------------------------------------------*/
+	DECLARE @AzureSQLDB BIT = (SELECT CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN 1 ELSE 0 END)
+		,@HasLiveQueryPlan BIT = 0
+		,@StringToExecute NVARCHAR(MAX)
+		,@ObjectFullName NVARCHAR(2000)
+		,@OurSessionID INT = @@SPID
+		,@CheckDate DATETIMEOFFSET = SYSDATETIMEOFFSET()
+		,@CallerLoginName NVARCHAR(128) = ORIGINAL_LOGIN()
+		,@CallerHostName NVARCHAR(128) = HOST_NAME()
+		,@ParametersUsed NVARCHAR(4000)
+		,@KillFailures INT = 0
+		,@KillCount INT = 0
+		,@TotalKills INT = 0
+		,@CurrentSPID INT
+		,@CurrentPlanHandle VARBINARY(64)
+		,@CurrentSqlHandle VARBINARY(64)
+		,@CurrentStartTime DATETIME
+		,@CurrentLastRequestStartTime DATETIME
+		,@KillSQL NVARCHAR(100)
+		,@FreeCacheSQL NVARCHAR(200)
+		,@KillStartTime DATETIME
+		,@KillEndTime DATETIME
+		,@KillError NVARCHAR(4000)
+		,@msg NVARCHAR(400)
+		,@LineFeed NVARCHAR(10) = CHAR(13) + CHAR(10)
+		,@BlockedSessionCount INT;
+
+	/* Check for live query plan support - if the DMV exists, it's supported */
+	IF EXISTS (SELECT 1 FROM sys.all_objects WHERE [name] = N'dm_exec_query_statistics_xml')
+		SET @HasLiveQueryPlan = 1;
+
+	/* Build @ParametersUsed string (escape single quotes in all string params) */
+	SET @ParametersUsed = N'EXEC sp_kill';
+	IF @ExecuteKills <> 'N' SET @ParametersUsed = @ParametersUsed + N' @ExecuteKills = ''' + REPLACE(@ExecuteKills, N'''', N'''''') + N'''';
+	IF @SPID IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @SPID = ' + CAST(@SPID AS NVARCHAR(10));
+	IF @LoginName IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @LoginName = N''' + REPLACE(@LoginName, N'''', N'''''') + N'''';
+	IF @AppName IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @AppName = N''' + REPLACE(@AppName, N'''', N'''''') + N'''';
+	IF @DatabaseName IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @DatabaseName = N''' + REPLACE(@DatabaseName, N'''', N'''''') + N'''';
+	IF @HostName IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @HostName = N''' + REPLACE(@HostName, N'''', N'''''') + N'''';
+	IF @LeadBlockers IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @LeadBlockers = ''' + REPLACE(@LeadBlockers, N'''', N'''''') + N'''';
+	IF @ReadOnly IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @ReadOnly = ''' + REPLACE(@ReadOnly, N'''', N'''''') + N'''';
+	IF @OrderBy <> 'duration' SET @ParametersUsed = @ParametersUsed + N', @OrderBy = N''' + REPLACE(@OrderBy, N'''', N'''''') + N'''';
+	IF @SPIDState IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @SPIDState = ''' + REPLACE(@SPIDState, N'''', N'''''') + N'''';
+	IF @OmitLogin IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @OmitLogin = N''' + REPLACE(@OmitLogin, N'''', N'''''') + N'''';
+	IF @HasOpenTran IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @HasOpenTran = ''' + REPLACE(@HasOpenTran, N'''', N'''''') + N'''';
+	IF @RequestsOlderThanSeconds IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @RequestsOlderThanSeconds = ' + CAST(@RequestsOlderThanSeconds AS NVARCHAR(10));
+	IF @EmergencyMode IS NOT NULL SET @ParametersUsed = @ParametersUsed + N', @EmergencyMode = ' + CAST(@EmergencyMode AS NVARCHAR(10));
+
+	/*-------------------------------------------------------
+	  Section 3: Parameter Validation
+	-------------------------------------------------------*/
+	IF @ExecuteKills NOT IN ('Y', 'N')
+	BEGIN
+		RAISERROR('@ExecuteKills must be Y or N.', 11, 1) WITH NOWAIT;
+		RETURN;
+	END;
+
+	IF @LeadBlockers IS NOT NULL AND @LeadBlockers <> 'Y'
+	BEGIN
+		RAISERROR('@LeadBlockers must be Y or NULL.', 11, 1) WITH NOWAIT;
+		RETURN;
+	END;
+
+	IF @ReadOnly IS NOT NULL AND @ReadOnly <> 'Y'
+	BEGIN
+		RAISERROR('@ReadOnly must be Y or NULL.', 11, 1) WITH NOWAIT;
+		RETURN;
+	END;
+
+	IF @SPIDState IS NOT NULL AND @SPIDState NOT IN ('S', 'R')
+	BEGIN
+		RAISERROR('@SPIDState must be S (sleeping), R (running), or NULL (both).', 11, 1) WITH NOWAIT;
+		RETURN;
+	END;
+
+	IF @HasOpenTran IS NOT NULL AND @HasOpenTran <> 'Y'
+	BEGIN
+		RAISERROR('@HasOpenTran must be Y or NULL.', 11, 1) WITH NOWAIT;
+		RETURN;
+	END;
+
+	IF @RequestsOlderThanSeconds IS NOT NULL AND @RequestsOlderThanSeconds < 0
+	BEGIN
+		RAISERROR('@RequestsOlderThanSeconds must be >= 0.', 11, 1) WITH NOWAIT;
+		RETURN;
+	END;
+
+	SET @OrderBy = LOWER(@OrderBy);
+	IF @OrderBy NOT IN ('duration', 'cpu', 'reads', 'writes', 'tempdb', 'transactions')
+	BEGIN
+		RAISERROR('@OrderBy must be one of: duration, cpu, reads, writes, tempdb, transactions.', 11, 1) WITH NOWAIT;
+		RETURN;
+	END;
+
+	IF @EmergencyMode IS NOT NULL AND @EmergencyMode NOT IN (1, 2)
+	BEGIN
+		RAISERROR('@EmergencyMode must be NULL, 1, or 2.', 11, 1) WITH NOWAIT;
+		RETURN;
+	END;
+
+	IF @EmergencyMode IS NOT NULL AND @OutputTableName IS NOT NULL
+		RAISERROR('Output table parameters are ignored when @EmergencyMode is set.', 0, 1) WITH NOWAIT;
+
+	/*-------------------------------------------------------
+	  Section 4: Output Table Name Sanitization
+	-------------------------------------------------------*/
+	SELECT
+		@OutputDatabaseName = QUOTENAME(PARSENAME(@OutputDatabaseName, 1)),
+		@OutputSchemaName = ISNULL(QUOTENAME(PARSENAME(@OutputSchemaName, 1)), QUOTENAME(PARSENAME(@OutputTableName, 2))),
+		@OutputTableName = QUOTENAME(PARSENAME(@OutputTableName, 1));
+
+	IF @OutputTableName IS NOT NULL AND (@OutputDatabaseName IS NULL OR @OutputSchemaName IS NULL)
+	BEGIN
+		IF @OutputDatabaseName IS NULL AND @AzureSQLDB = 1
+		BEGIN
+			SET @OutputDatabaseName = QUOTENAME(DB_NAME());
+		END;
+		IF @OutputSchemaName IS NULL AND @OutputDatabaseName = QUOTENAME(DB_NAME())
+		BEGIN
+			SET @OutputSchemaName = QUOTENAME(SCHEMA_NAME());
+		END;
+	END;
+
+	/*-------------------------------------------------------
+	  Section 5: Temp Table Creation
+	-------------------------------------------------------*/
+	CREATE TABLE #hitlist (
+		Id INT IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED,
+		ServerName NVARCHAR(128) NULL,
+		CheckDate DATETIMEOFFSET NULL,
+		CallerLoginName NVARCHAR(128) NULL,
+		CallerHostName NVARCHAR(128) NULL,
+		ParametersUsed NVARCHAR(4000) NULL,
+		OrderByNum INT NULL,
+		KillCommand NVARCHAR(100) NULL,
+		KillRecommended BIT DEFAULT 0,
+		KillStartedTime DATETIME NULL,
+		KillEndedTime DATETIME NULL,
+		KillError NVARCHAR(4000) NULL,
+		Reason NVARCHAR(4000) NULL,
+		session_id INT NOT NULL,
+		[status] NVARCHAR(30) NULL,
+		blocking_session_id INT NULL,
+		wait_type NVARCHAR(60) NULL,
+		wait_time_ms BIGINT NULL,
+		wait_resource NVARCHAR(256) NULL,
+		open_transaction_count INT NULL,
+		is_implicit_transaction BIT NULL,
+		cpu_time_ms BIGINT NULL,
+		reads BIGINT NULL,
+		writes BIGINT NULL,
+		logical_reads BIGINT NULL,
+		memory_grant_mb DECIMAL(38,2) NULL,
+		tempdb_allocations_mb DECIMAL(38,2) NULL,
+		login_name NVARCHAR(128) NULL,
+		host_name NVARCHAR(128) NULL,
+		program_name NVARCHAR(256) NULL,
+		database_name NVARCHAR(128) NULL,
+		start_time DATETIME NULL,
+		last_request_start_time DATETIME NULL,
+		last_request_end_time DATETIME NULL,
+		command NVARCHAR(32) NULL,
+		sql_text NVARCHAR(MAX) NULL,
+		sql_handle VARBINARY(64) NULL,
+		plan_handle VARBINARY(64) NULL,
+		query_plan XML NULL,
+		live_query_plan XML NULL,
+		transaction_isolation_level NVARCHAR(50) NULL,
+		is_read_only BIT NULL,
+		FreeProcCacheCommand NVARCHAR(200) NULL
+	);
+
+	/*-------------------------------------------------------
+	  Section 6: Main DMV Collection Query
+	-------------------------------------------------------*/
+	IF @Debug = 1
+		RAISERROR('Collecting session data from DMVs...', 0, 1) WITH NOWAIT;
+
+	-- NOTE: when adding a new column to #hitlist please consider if the @EmergencyMode input parameter should prevent its population
+	SET @StringToExecute = CAST(N'' AS NVARCHAR(MAX)) + N'
+	INSERT INTO #hitlist (
+		ServerName, CheckDate, CallerLoginName, CallerHostName, ParametersUsed,
+		KillCommand, session_id, [status], blocking_session_id,
+		wait_type, wait_time_ms, wait_resource,
+		open_transaction_count, is_implicit_transaction,
+		cpu_time_ms, reads, writes, logical_reads,
+		login_name, host_name, program_name, database_name,
+		start_time, last_request_start_time, last_request_end_time,
+		command, sql_handle, plan_handle,
+		transaction_isolation_level, is_read_only, FreeProcCacheCommand'
+		-- when @EmergencyMode = 2 skip all expensive columns, both in terms of this query and time needed to render the result in SSMS
+		-- when @EmergencyMode = 1 skip some expensive columns but populate the sql_text column
+		-- when @EmergencyMode IS NULL populate all columns
+		+ CASE WHEN @EmergencyMode = 1 THEN N',
+		sql_text'
+		WHEN @EmergencyMode IS NULL THEN N',
+		sql_text, memory_grant_mb, tempdb_allocations_mb, query_plan, live_query_plan'
+		ELSE N'' END + N'
+	)
+	SELECT
+		@@SERVERNAME AS ServerName,
+		@CheckDate AS CheckDate,
+		@CallerLoginName AS CallerLoginName,
+		@CallerHostName AS CallerHostName,
+		@ParametersUsed AS ParametersUsed,
+		N''KILL '' + CAST(s.session_id AS NVARCHAR(10)) + N'';'' AS KillCommand,
+		s.session_id,
+		COALESCE(r.[status], s.[status]) AS [status],
+		r.blocking_session_id,
+		r.wait_type,
+		r.wait_time AS wait_time_ms,
+		r.wait_resource,
+		COALESCE(r.open_transaction_count, s.open_transaction_count, 0) AS open_transaction_count,
+		CASE WHEN EXISTS (
+			SELECT 1
+			FROM sys.dm_tran_active_transactions AS tat
+			JOIN sys.dm_tran_session_transactions AS tst ON tst.transaction_id = tat.transaction_id
+			WHERE tat.name = ''implicit_transaction''
+			AND s.session_id = tst.session_id
+		) THEN 1 ELSE 0 END AS is_implicit_transaction,
+		COALESCE(r.cpu_time, s.cpu_time) AS cpu_time_ms,
+		COALESCE(r.reads, s.reads) AS reads,
+		COALESCE(r.writes, s.writes) AS writes,
+		COALESCE(r.logical_reads, s.logical_reads) AS logical_reads,
+		s.login_name,
+		s.host_name,
+		s.program_name,
+		COALESCE(DB_NAME(r.database_id), DB_NAME(s.database_id)) AS database_name,
+		r.start_time,
+		s.last_request_start_time,
+		s.last_request_end_time,
+		r.command,
+		COALESCE(r.sql_handle, c.most_recent_sql_handle) AS sql_handle,
+		r.plan_handle,';
+
+	SET @StringToExecute = @StringToExecute
+		+ N'
+		CASE
+			WHEN s.transaction_isolation_level = 0 THEN ''Unspecified''
+			WHEN s.transaction_isolation_level = 1 THEN ''Read Uncommitted''
+			WHEN s.transaction_isolation_level = 2 THEN ''Read Committed''
+			WHEN s.transaction_isolation_level = 3 THEN ''Repeatable Read''
+			WHEN s.transaction_isolation_level = 4 THEN ''Serializable''
+			WHEN s.transaction_isolation_level = 5 THEN ''Snapshot''
+			ELSE ''Unknown''
+		END AS transaction_isolation_level,
+		CASE
+			WHEN COALESCE(r.writes, s.writes, 0) = 0
+				AND (r.command IS NULL OR r.command IN (''SELECT'', ''FETCH'', ''RECEIVE''))
+				AND COALESCE(r.open_transaction_count, s.open_transaction_count, 0) <= 1
+			THEN 1 ELSE 0
+		END AS is_read_only,
+		CASE WHEN r.plan_handle IS NOT NULL
+			THEN N''DBCC FREEPROCCACHE ('' + CONVERT(NVARCHAR(128), r.plan_handle, 1) + N'');''
+			ELSE NULL
+		END AS FreeProcCacheCommand'
+		+ CASE WHEN @EmergencyMode IS NULL OR @EmergencyMode = 1 THEN N',
+		ISNULL(SUBSTRING(dest.text,
+			(r.statement_start_offset / 2) + 1,
+			((CASE r.statement_end_offset
+				WHEN -1 THEN DATALENGTH(dest.text)
+				ELSE r.statement_end_offset
+			END - r.statement_start_offset) / 2) + 1), dest.text) AS sql_text'
+		ELSE N'' END + 
+		CASE WHEN @EmergencyMode IS NULL THEN N',
+		CAST(qmg.granted_memory_kb / 1024.0 AS DECIMAL(38,2)) AS memory_grant_mb,
+		tempdb_allocations.tempdb_allocations_mb,
+		derp.query_plan,'
+		+ CASE WHEN @HasLiveQueryPlan = 1 THEN N'
+		lqp.query_plan AS live_query_plan' ELSE N'
+		NULL AS live_query_plan' END
+		ELSE N'' END + N'
+	FROM sys.dm_exec_sessions AS s
+	LEFT JOIN sys.dm_exec_requests AS r ON r.session_id = s.session_id
+	LEFT JOIN sys.dm_exec_connections AS c ON s.session_id = c.session_id'
+	+ CASE WHEN @EmergencyMode IS NULL THEN N'
+	LEFT JOIN sys.dm_exec_query_memory_grants AS qmg ON r.session_id = qmg.session_id AND r.request_id = qmg.request_id
+	OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) AS derp
+	OUTER APPLY (
+		SELECT CONVERT(DECIMAL(38,2), SUM(((((tsu.user_objects_alloc_page_count - tsu.user_objects_dealloc_page_count)
+			+ (tsu.internal_objects_alloc_page_count - tsu.internal_objects_dealloc_page_count)) * 8) / 1024.))) AS tempdb_allocations_mb
+		FROM sys.dm_db_task_space_usage tsu
+		WHERE tsu.request_id = r.request_id
+		AND tsu.session_id = r.session_id
+		AND tsu.session_id = s.session_id
+	) AS tempdb_allocations' ELSE N'' END
+	+ CASE WHEN @EmergencyMode IS NULL OR @EmergencyMode = 1 THEN N'
+	OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle, c.most_recent_sql_handle)) AS dest' ELSE N'' END
+	+ CASE WHEN @HasLiveQueryPlan = 1 AND @EmergencyMode IS NULL THEN N'
+	OUTER APPLY sys.dm_exec_query_statistics_xml(s.session_id) AS lqp' ELSE N'' END
+	+ N'
+	WHERE s.session_id <> @OurSessionID
+		AND s.session_id > 50
+		AND s.is_user_process = 1'
+	+ CASE WHEN @AzureSQLDB = 1 THEN N'
+		AND s.database_id = DB_ID()
+		AND (r.session_id IS NULL OR r.database_id = DB_ID())' ELSE N'' END + N'
+	OPTION (MAXDOP 1);';
+
+	IF @Debug = 1
+		RAISERROR('Executing DMV collection query...', 0, 1) WITH NOWAIT;
+
+	EXEC sp_executesql @StringToExecute,
+		N'@CheckDate DATETIMEOFFSET, @CallerLoginName NVARCHAR(128), @CallerHostName NVARCHAR(128), @ParametersUsed NVARCHAR(4000), @OurSessionID INT',
+		@CheckDate = @CheckDate,
+		@CallerLoginName = @CallerLoginName,
+		@CallerHostName = @CallerHostName,
+		@ParametersUsed = @ParametersUsed,
+		@OurSessionID = @OurSessionID;
+
+	IF @Debug = 1
+	BEGIN
+		SET @msg = N'Collected ' + CAST(@@ROWCOUNT AS NVARCHAR(10)) + N' sessions.';
+		RAISERROR(@msg, 0, 1) WITH NOWAIT;
+	END;
+
+	/* Azure DMV timestamps stay UTC even when the session uses a local time zone. */
+	DECLARE @DmvNow DATETIME = CASE WHEN @AzureSQLDB = 1 THEN GETUTCDATE() ELSE GETDATE() END;
+
+	/*-------------------------------------------------------
+	  Section 7: Kill Recommendation Logic
+	-------------------------------------------------------*/
+	IF @Debug = 1
+		RAISERROR('Applying kill recommendation logic...', 0, 1) WITH NOWAIT;
+
+	/* 7a: Mark rollbacks as not killable */
+	UPDATE #hitlist
+	SET KillRecommended = 0,
+		Reason = N'Session is rolling back - not safe to kill.'
+	WHERE [status] = 'rollback';
+
+	/* 7b: If @SPID is specified, only recommend that one */
+	IF @SPID IS NOT NULL
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM #hitlist WHERE session_id = @SPID)
+		BEGIN
+			RAISERROR('The specified @SPID %d was not found among active user sessions.', 11, 1, @SPID) WITH NOWAIT;
+			/* Still return results so user can see what IS running */
+		END
+		ELSE IF EXISTS (SELECT 1 FROM #hitlist WHERE session_id = @SPID AND [status] = 'rollback')
+		BEGIN
+			RAISERROR('The specified @SPID %d is currently rolling back and cannot be killed.', 11, 1, @SPID) WITH NOWAIT;
+		END
+		ELSE
+		BEGIN
+			UPDATE #hitlist
+			SET KillRecommended = 1,
+				Reason = N'Targeted by @SPID parameter.'
+			WHERE session_id = @SPID
+			AND [status] <> 'rollback';
+		END;
+	END
+	/* 7c: Otherwise, apply all filters as AND conditions in a single pass.
+	   A session must match ALL specified filters to be recommended for kill.
+	   With no filters, @ExecuteKills = 'Y' kills everything;
+	   @ExecuteKills = 'N' just shows sessions without recommending. */
+	ELSE
+	BEGIN
+		/* When in display mode with no filters, just show sessions without recommending kills */
+		IF @ExecuteKills = 'N'
+			AND @LoginName IS NULL
+			AND @AppName IS NULL
+			AND @DatabaseName IS NULL
+			AND @HostName IS NULL
+			AND @LeadBlockers IS NULL
+			AND @ReadOnly IS NULL
+			AND @SPIDState IS NULL
+			AND @HasOpenTran IS NULL
+			AND @RequestsOlderThanSeconds IS NULL
+			AND @OmitLogin IS NULL
+		BEGIN
+			/* No filters in display mode - nothing to recommend */
+			IF @Debug = 1
+				RAISERROR('No filters specified in display mode - showing all sessions without recommendations.', 0, 1) WITH NOWAIT;
+		END
+		ELSE
+		BEGIN
+			/* Recommend sessions that match ALL specified filters */
+			UPDATE h
+			SET KillRecommended = 1
+			FROM #hitlist h
+			WHERE [status] <> 'rollback'
+			AND (@LoginName IS NULL OR login_name = @LoginName)
+			AND (@AppName IS NULL OR program_name LIKE @AppName)
+			AND (@DatabaseName IS NULL OR database_name = @DatabaseName)
+			AND (@HostName IS NULL OR host_name = @HostName)
+			AND (@ReadOnly IS NULL OR is_read_only = 1)
+			AND (@SPIDState IS NULL OR (@SPIDState = 'S' AND [status] = 'sleeping') OR (@SPIDState = 'R' AND [status] = 'running'))
+			AND (@HasOpenTran IS NULL OR ISNULL(open_transaction_count, 0) > 0)
+			AND (@RequestsOlderThanSeconds IS NULL OR last_request_start_time <= DATEADD(SECOND, -@RequestsOlderThanSeconds, @DmvNow))
+			AND (@OmitLogin IS NULL OR login_name <> @OmitLogin)
+			AND (@LeadBlockers IS NULL OR (
+				EXISTS (SELECT 1 FROM #hitlist blocked WHERE blocked.blocking_session_id = h.session_id)
+				AND (h.blocking_session_id IS NULL OR h.blocking_session_id = 0)
+			));
+		END;
+	END; /* End of filter logic */
+
+	/* 7d: Build Reason strings for recommended kills */
+	/* Lead blockers */
+	UPDATE t
+	SET Reason = N'Lead blocker: blocking '
+		+ CAST(blocked_stats.cnt AS NVARCHAR(10))
+		+ N' session(s) for '
+		+ CAST(ISNULL(blocked_stats.max_wait_time_ms / 1000, 0) AS NVARCHAR(20))
+		+ N' seconds.'
+	FROM #hitlist t
+	CROSS APPLY (
+		SELECT
+			COUNT(*) AS cnt,
+			MAX(ISNULL(blocked.wait_time_ms, 0)) AS max_wait_time_ms
+		FROM #hitlist blocked
+		WHERE blocked.blocking_session_id = t.session_id
+	) blocked_stats
+	WHERE t.KillRecommended = 1
+	AND blocked_stats.cnt > 0
+	AND (t.blocking_session_id IS NULL OR t.blocking_session_id = 0)
+	AND (t.Reason IS NULL OR t.Reason = N'Targeted by @SPID parameter.');
+
+	/* Sleeping with open transactions */
+	UPDATE #hitlist
+	SET Reason = N'Sleeping session with '
+		+ CAST(open_transaction_count AS NVARCHAR(10))
+		+ N' open transaction(s), idle for '
+		+ CAST(ISNULL(DATEDIFF(SECOND, last_request_end_time, @DmvNow), 0) AS NVARCHAR(10))
+		+ N' seconds.'
+	WHERE KillRecommended = 1
+	AND [status] = 'sleeping'
+	AND open_transaction_count > 0
+	AND Reason IS NULL;
+
+	/* Long-running read-only */
+	UPDATE #hitlist
+	SET Reason = N'Long-running read-only query: running for '
+		+ CAST(ISNULL(DATEDIFF(SECOND, COALESCE(start_time, last_request_start_time), @DmvNow), 0) AS NVARCHAR(10))
+		+ N' seconds'
+		+ CASE WHEN memory_grant_mb IS NOT NULL AND memory_grant_mb > 0
+			THEN N', using ' + CAST(memory_grant_mb AS NVARCHAR(20)) + N' MB memory grant'
+			ELSE N'' END
+		+ N'.'
+	WHERE KillRecommended = 1
+	AND is_read_only = 1
+	AND [status] <> 'sleeping'
+	AND Reason IS NULL;
+
+	/* Long-running write queries */
+	UPDATE #hitlist
+	SET Reason = N'Long-running query: running for '
+		+ CAST(ISNULL(DATEDIFF(SECOND, COALESCE(start_time, last_request_start_time), @DmvNow), 0) AS NVARCHAR(10))
+		+ N' seconds, writes: ' + CAST(ISNULL(writes, 0) AS NVARCHAR(20))
+		+ CASE WHEN memory_grant_mb IS NOT NULL AND memory_grant_mb > 0
+			THEN N', memory: ' + CAST(memory_grant_mb AS NVARCHAR(20)) + N' MB'
+			ELSE N'' END
+		+ N'.'
+	WHERE KillRecommended = 1
+	AND is_read_only = 0
+	AND [status] <> 'sleeping'
+	AND Reason IS NULL;
+
+	/* Catch-all for anything that matched filters but wasn't categorized above */
+	UPDATE #hitlist
+	SET Reason = N'Matched filter criteria.'
+	WHERE KillRecommended = 1
+	AND Reason IS NULL;
+
+	/* Clear KillCommand for sessions we're NOT recommending to kill */
+	UPDATE #hitlist
+	SET KillCommand = NULL,
+		FreeProcCacheCommand = NULL
+	WHERE KillRecommended = 0;
+
+	/*-------------------------------------------------------
+	  Section 8: OrderByNum Assignment
+	-------------------------------------------------------*/
+	;WITH cte AS (
+		SELECT Id, OrderByNum,
+			ROW_NUMBER() OVER (ORDER BY
+				CASE WHEN @OrderBy = 'duration' THEN CAST(ISNULL(DATEDIFF(SECOND, COALESCE(start_time, last_request_start_time), @DmvNow), 0) AS BIGINT) END DESC,
+				CASE WHEN @OrderBy = 'cpu' THEN ISNULL(cpu_time_ms, 0) END DESC,
+				CASE WHEN @OrderBy = 'reads' THEN ISNULL(reads, 0) + ISNULL(logical_reads, 0) END DESC,
+				CASE WHEN @OrderBy = 'writes' THEN ISNULL(writes, 0) END DESC,
+				CASE WHEN @OrderBy = 'tempdb' THEN CAST(ISNULL(tempdb_allocations_mb, 0) AS BIGINT) END DESC,
+				CASE WHEN @OrderBy = 'transactions' THEN ISNULL(open_transaction_count, 0) END DESC
+			) AS rn
+		FROM #hitlist
+		WHERE KillRecommended = 1
+	)
+	UPDATE cte SET OrderByNum = rn;
+
+	/*-------------------------------------------------------
+	  Section 9: Rollback Warning
+	-------------------------------------------------------*/
+	IF EXISTS (SELECT 1 FROM #hitlist WHERE [status] = 'rollback')
+	BEGIN
+		DECLARE @RollbackCount INT;
+		SELECT @RollbackCount = COUNT(*) FROM #hitlist WHERE [status] = 'rollback';
+		SET @msg = N'WARNING: ' + CAST(@RollbackCount AS NVARCHAR(10))
+			+ N' session(s) are currently rolling back. These will not be killed.';
+		RAISERROR(@msg, 0, 1) WITH NOWAIT;
+	END;
+
+	/*-------------------------------------------------------
+	  Section 10: Persistent Output Table
+	-------------------------------------------------------*/
+	IF @EmergencyMode IS NULL AND @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL
+		AND EXISTS (SELECT * FROM sys.databases WHERE QUOTENAME([name]) = @OutputDatabaseName)
+	BEGIN
+		IF @Debug = 1
+			RAISERROR('Creating/updating persistent output table...', 0, 1) WITH NOWAIT;
+
+		IF @AzureSQLDB = 1
+			SET @ObjectFullName = @OutputSchemaName + N'.' + @OutputTableName;
+		ELSE
+			SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' + @OutputTableName;
+
+		/* Create table if it doesn't exist */
+		IF @AzureSQLDB = 1
+			SET @StringToExecute = N'
+				IF EXISTS(SELECT * FROM INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N''' + REPLACE(@OutputSchemaName, N'''', N'''''') + N''')
+				AND NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N''' + REPLACE(@OutputSchemaName, N'''', N'''''') + N''' AND QUOTENAME(TABLE_NAME) = N''' + REPLACE(@OutputTableName, N'''', N'''''') + N''')
+				CREATE TABLE ' + @ObjectFullName + N' (';
+		ELSE
+			SET @StringToExecute = N'
+				IF EXISTS(SELECT * FROM ' + @OutputDatabaseName + N'.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N''' + REPLACE(@OutputSchemaName, N'''', N'''''') + N''')
+				AND NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N''' + REPLACE(@OutputSchemaName, N'''', N'''''') + N''' AND QUOTENAME(TABLE_NAME) = N''' + REPLACE(@OutputTableName, N'''', N'''''') + N''')
+				CREATE TABLE ' + @ObjectFullName + N' (';
+
+		SET @StringToExecute = @StringToExecute + N'
+				Id INT IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED,
+				ServerName NVARCHAR(128) NULL,
+				CheckDate DATETIMEOFFSET NULL,
+				CallerLoginName NVARCHAR(128) NULL,
+				CallerHostName NVARCHAR(128) NULL,
+				ParametersUsed NVARCHAR(4000) NULL,
+				OrderByNum INT NULL,
+				KillCommand NVARCHAR(100) NULL,
+				KillRecommended BIT NULL,
+				KillStartedTime DATETIME NULL,
+				KillEndedTime DATETIME NULL,
+				KillError NVARCHAR(4000) NULL,
+				Reason NVARCHAR(4000) NULL,
+				session_id INT NOT NULL,
+				[status] NVARCHAR(30) NULL,
+				blocking_session_id INT NULL,
+				wait_type NVARCHAR(60) NULL,
+				wait_time_ms BIGINT NULL,
+				wait_resource NVARCHAR(256) NULL,
+				open_transaction_count INT NULL,
+				is_implicit_transaction BIT NULL,
+				cpu_time_ms BIGINT NULL,
+				reads BIGINT NULL,
+				writes BIGINT NULL,
+				logical_reads BIGINT NULL,
+				memory_grant_mb DECIMAL(38,2) NULL,
+				tempdb_allocations_mb DECIMAL(38,2) NULL,
+				login_name NVARCHAR(128) NULL,
+				host_name NVARCHAR(128) NULL,
+				program_name NVARCHAR(256) NULL,
+				database_name NVARCHAR(128) NULL,
+				start_time DATETIME NULL,
+				last_request_start_time DATETIME NULL,
+				last_request_end_time DATETIME NULL,
+				command NVARCHAR(32) NULL,
+				sql_text NVARCHAR(MAX) NULL,
+				sql_handle VARBINARY(64) NULL,
+				plan_handle VARBINARY(64) NULL,
+				query_plan XML NULL,
+				live_query_plan XML NULL,
+				transaction_isolation_level NVARCHAR(50) NULL,
+				is_read_only BIT NULL,
+				FreeProcCacheCommand NVARCHAR(200) NULL
+			);';
+
+		EXEC(@StringToExecute);
+
+		/* Insert data into persistent table */
+		SET @StringToExecute = N'INSERT INTO ' + @ObjectFullName + N' (
+				ServerName, CheckDate, CallerLoginName, CallerHostName, ParametersUsed,
+				OrderByNum, KillCommand, KillRecommended, KillStartedTime, KillEndedTime, KillError,
+				Reason, session_id, [status], blocking_session_id, wait_type, wait_time_ms, wait_resource,
+				open_transaction_count, is_implicit_transaction, cpu_time_ms, reads, writes, logical_reads,
+				memory_grant_mb, tempdb_allocations_mb, login_name, host_name, program_name, database_name,
+				start_time, last_request_start_time, last_request_end_time, command, sql_text,
+				sql_handle, plan_handle, query_plan, live_query_plan,
+				transaction_isolation_level, is_read_only, FreeProcCacheCommand
+			)
+			SELECT
+				ServerName, CheckDate, CallerLoginName, CallerHostName, ParametersUsed,
+				OrderByNum, KillCommand, KillRecommended, KillStartedTime, KillEndedTime, KillError,
+				Reason, session_id, [status], blocking_session_id, wait_type, wait_time_ms, wait_resource,
+				open_transaction_count, is_implicit_transaction, cpu_time_ms, reads, writes, logical_reads,
+				memory_grant_mb, tempdb_allocations_mb, login_name, host_name, program_name, database_name,
+				start_time, last_request_start_time, last_request_end_time, command, sql_text,
+				sql_handle, plan_handle, query_plan, live_query_plan,
+				transaction_isolation_level, is_read_only, FreeProcCacheCommand
+			FROM #hitlist
+			ORDER BY KillRecommended DESC, ISNULL(OrderByNum, 2147483647), session_id;';
+
+		EXEC(@StringToExecute);
+	END;
+
+	/*-------------------------------------------------------
+	  Section 11: Kill Execution Loop
+	-------------------------------------------------------*/
+	IF @ExecuteKills = 'Y'
+	BEGIN
+		SELECT @TotalKills = COUNT(*) FROM #hitlist WHERE KillRecommended = 1;
+
+		IF @TotalKills = 0
+		BEGIN
+			RAISERROR('No sessions matched the targeting filters. Nothing to kill.', 0, 1) WITH NOWAIT;
+		END
+		ELSE
+		BEGIN
+			SET @msg = N'Preparing to kill ' + CAST(@TotalKills AS NVARCHAR(10)) + N' session(s)...';
+			RAISERROR(@msg, 0, 1) WITH NOWAIT;
+
+			DECLARE kill_cursor CURSOR LOCAL FAST_FORWARD FOR
+				SELECT session_id, plan_handle, sql_handle, start_time, last_request_start_time
+				FROM #hitlist
+				WHERE KillRecommended = 1
+				ORDER BY OrderByNum;
+
+			OPEN kill_cursor;
+
+			FETCH NEXT FROM kill_cursor INTO @CurrentSPID, @CurrentPlanHandle, @CurrentSqlHandle, @CurrentStartTime, @CurrentLastRequestStartTime;
+
+			WHILE @@FETCH_STATUS = 0
+			BEGIN
+				SET @KillCount = @KillCount + 1;
+				SET @KillError = NULL;
+				SET @KillStartTime = GETDATE();
+
+				SET @msg = N'Killing query ' + CAST(@KillCount AS NVARCHAR(10))
+					+ N' of ' + CAST(@TotalKills AS NVARCHAR(10))
+					+ N' (SPID ' + CAST(@CurrentSPID AS NVARCHAR(10)) + N')...';
+				RAISERROR(@msg, 0, 1) WITH NOWAIT;
+
+				/* Verify the session still has the same query we captured */
+				IF NOT EXISTS (
+					SELECT 1 FROM sys.dm_exec_sessions s
+					LEFT JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
+					WHERE s.session_id = @CurrentSPID
+					AND s.is_user_process = 1
+					AND (@AzureSQLDB = 0 OR (s.database_id = DB_ID()
+					    AND (r.session_id IS NULL OR r.database_id = DB_ID())))
+					AND (
+						/* Running session: match sql_handle and start_time */
+						(r.sql_handle = @CurrentSqlHandle AND r.start_time = @CurrentStartTime)
+						OR
+						/* Sleeping session: match last_request_start_time */
+						(r.session_id IS NULL AND s.last_request_start_time = @CurrentLastRequestStartTime)
+						OR
+						/* Session with no captured sql_handle (e.g. sleeping with no prior request info) */
+						(@CurrentSqlHandle IS NULL AND @CurrentStartTime IS NULL AND s.last_request_start_time = @CurrentLastRequestStartTime)
+					)
+				)
+				BEGIN
+					SET @KillError = N'SKIPPED: Session query changed since capture - original query may have completed.';
+					SET @msg = N'Skipping SPID ' + CAST(@CurrentSPID AS NVARCHAR(10)) + N': query changed since capture.';
+					RAISERROR(@msg, 0, 1) WITH NOWAIT;
+				END
+				ELSE
+				BEGIN
+					/* Execute the kill */
+					BEGIN TRY
+						SET @KillSQL = N'KILL ' + CAST(@CurrentSPID AS NVARCHAR(10)) + N';';
+						EXEC(@KillSQL);
+					END TRY
+					BEGIN CATCH
+						SET @KillFailures = @KillFailures + 1;
+						SET @KillError = ERROR_MESSAGE();
+						SET @msg = N'Error killing SPID ' + CAST(@CurrentSPID AS NVARCHAR(10)) + N': ' + @KillError;
+						RAISERROR(@msg, 0, 1) WITH NOWAIT;
+					END CATCH;
+
+					/* Free plan from cache */
+					IF @KillError IS NULL AND @CurrentPlanHandle IS NOT NULL
+					BEGIN
+						BEGIN TRY
+							SET @FreeCacheSQL = N'DBCC FREEPROCCACHE (' + CONVERT(NVARCHAR(128), @CurrentPlanHandle, 1) + N');';
+							EXEC(@FreeCacheSQL);
+						END TRY
+						BEGIN CATCH
+							/* Plan may already be gone, ignore */
+							IF @Debug = 1
+							BEGIN
+								SET @msg = N'Could not free plan cache for SPID ' + CAST(@CurrentSPID AS NVARCHAR(10)) + N': ' + ERROR_MESSAGE();
+								RAISERROR(@msg, 0, 1) WITH NOWAIT;
+							END;
+						END CATCH;
+					END;
+				END;
+
+				SET @KillEndTime = GETDATE();
+
+				/* Update temp table with kill results */
+				UPDATE #hitlist
+				SET KillStartedTime = @KillStartTime,
+					KillEndedTime = @KillEndTime,
+					KillError = @KillError
+				WHERE session_id = @CurrentSPID;
+
+				FETCH NEXT FROM kill_cursor INTO @CurrentSPID, @CurrentPlanHandle, @CurrentSqlHandle, @CurrentStartTime, @CurrentLastRequestStartTime;
+			END;
+
+			CLOSE kill_cursor;
+			DEALLOCATE kill_cursor;
+
+			SET @msg = N'Kill loop complete. Processed ' + CAST(@KillCount AS NVARCHAR(10)) + N' session(s).';
+			RAISERROR(@msg, 0, 1) WITH NOWAIT;
+
+			/* Update persistent output table with kill results if it exists */
+			IF @EmergencyMode IS NULL AND @OutputDatabaseName IS NOT NULL AND @OutputSchemaName IS NOT NULL AND @OutputTableName IS NOT NULL
+				AND EXISTS (SELECT * FROM sys.databases WHERE QUOTENAME([name]) = @OutputDatabaseName)
+			BEGIN
+				IF @AzureSQLDB = 1
+						SET @ObjectFullName = @OutputSchemaName + N'.' + @OutputTableName;
+					ELSE
+						SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' + @OutputTableName;
+				SET @StringToExecute = N'UPDATE ot
+					SET ot.KillStartedTime = t.KillStartedTime,
+						ot.KillEndedTime = t.KillEndedTime,
+						ot.KillError = t.KillError
+					FROM ' + @ObjectFullName + N' ot
+					INNER JOIN #hitlist t ON ot.session_id = t.session_id
+						AND ot.CheckDate = t.CheckDate
+						AND ot.ServerName = t.ServerName
+					WHERE t.KillRecommended = 1;';
+				EXEC(@StringToExecute);
+			END;
+		END;
+	END;
+
+	/*-------------------------------------------------------
+	  Section 12: Return Results
+	-------------------------------------------------------*/
+	SELECT
+		Id, ServerName, CheckDate, CallerLoginName, CallerHostName, ParametersUsed,
+		OrderByNum, KillCommand, KillRecommended,
+		KillStartedTime, KillEndedTime, KillError,
+		Reason, session_id, [status], blocking_session_id,
+		wait_type, wait_time_ms, wait_resource,
+		open_transaction_count, is_implicit_transaction,
+		cpu_time_ms, reads, writes, logical_reads,
+		memory_grant_mb, tempdb_allocations_mb,
+		login_name, host_name, program_name, database_name,
+		start_time, last_request_start_time, last_request_end_time,
+		command, sql_text, sql_handle, plan_handle,
+		query_plan, live_query_plan,
+		transaction_isolation_level, is_read_only, FreeProcCacheCommand
+	FROM #hitlist
+	ORDER BY KillRecommended DESC, ISNULL(OrderByNum, 2147483647), session_id;
+
+	/* Finish logging and returning results before surfacing actual KILL failures.
+	   Sessions skipped because their query changed are not KILL failures. */
+	IF @KillFailures > 0
+		RAISERROR('%d session kill(s) failed. See KillError in the results.', 16, 1, @KillFailures);
+END;
+GO
 
 IF OBJECT_ID('dbo.sp_BlitzFirst') IS NULL
   EXEC ('CREATE PROCEDURE dbo.sp_BlitzFirst AS RETURN 0;');
@@ -34578,7 +36199,7 @@ SET NOCOUNT ON;
 SET STATISTICS XML OFF;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.34', @VersionDate = '20260702';
+SELECT @Version = '8.35', @VersionDate = '20261114';
 
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -34639,6 +36260,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ';
+    PRINT 'History view upgrade: run the first collection as the output database owner, and give the collector VIEW DEFINITION on each configured _Deltas view. See Documentation/sp_BlitzFirst_History_View_Upgrade.md.';
+
 RETURN;
 END;    /* @Help = 1 */
 
@@ -34754,8 +36377,8 @@ IF @LogMessage IS NOT NULL
         SET @LogMessageCheckDate = SYSDATETIMEOFFSET();
     SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
         + @OutputDatabaseName
-        + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-        + @OutputSchemaName + ''') INSERT '
+        + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+        + REPLACE(@OutputSchemaName, N'''', N'''''') + ''') INSERT '
         + @OutputDatabaseName + '.'
         + @OutputSchemaName + '.'
         + @OutputTableName
@@ -34792,8 +36415,8 @@ BEGIN
 
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName + ''') SELECT CheckDate, [Priority], [FindingsGroup], [Finding], [URL], CAST([Details] AS [XML]) AS Details,'
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''') SELECT CheckDate, [Priority], [FindingsGroup], [Finding], [URL], CASE WHEN [Details] IS NULL THEN NULL ELSE (SELECT [Details] AS [text()] FOR XML PATH(''''), TYPE) END AS Details,'
             + '[HowToStopIt], [CheckID], [StartTime], [LoginName], [NTUserName], [OriginalLoginName], [ProgramName], [HostName], [DatabaseID],'
             + '[DatabaseName], [OpenTransactionCount], [QueryPlan], [QueryText] FROM '
             + @OutputDatabaseName + '.'
@@ -34828,7 +36451,7 @@ BEGIN
 		BEGIN
 		/* Use the most accurate (but undocumented) DMV if it's available: */
 		IF EXISTS(SELECT * FROM sys.all_columns ac WHERE ac.object_id = OBJECT_ID('sys.dm_cloud_database_epoch') AND ac.name = 'last_role_transition_time')
-			SELECT @StartSampleTime = DATEADD(MINUTE,DATEDIFF(MINUTE, GETDATE(), GETUTCDATE()),last_role_transition_time) , @FinishSampleTime = SYSDATETIMEOFFSET()
+			SELECT @StartSampleTime = TODATETIMEOFFSET(last_role_transition_time, '+00:00') , @FinishSampleTime = SYSDATETIMEOFFSET()
 				FROM sys.dm_cloud_database_epoch;
 		ELSE
 			WITH WaitTimes AS (
@@ -34849,7 +36472,7 @@ BEGIN
     ELSE
         SELECT @StartSampleTime = SYSDATETIMEOFFSET(),
                 @FinishSampleTime = DATEADD(ss, @Seconds, SYSDATETIMEOFFSET()),
-                @FinishSampleTimeWaitFor = DATEADD(ss, @Seconds, GETDATE());
+                @FinishSampleTimeWaitFor = DATEADD(ss, @Seconds, CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END);
 
 
 	SELECT @logical_processors = COUNT(*)
@@ -36291,7 +37914,7 @@ BEGIN
     END;
 	
     /* Query Problems - Plan Cache Erased Recently - CheckID 7 */
-    IF DATEADD(mi, -15, SYSDATETIME()) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
+    IF DATEADD(mi, -15, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END)) < (SELECT TOP 1 creation_time FROM sys.dm_exec_query_stats ORDER BY creation_time)
     BEGIN
 		IF (@Debug = 1)
 		BEGIN
@@ -36359,7 +37982,7 @@ BEGIN
             INNER JOIN #BlitzFirstTmpSession AS db ON s.spid = db.request_session_id
             WHERE s.status = 'sleeping'
             AND s.open_tran > 0
-            AND s.last_batch < DATEADD(ss, -10, SYSDATETIME())
+            AND s.last_batch < DATEADD(ss, -10, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SYSUTCDATETIME() ELSE SYSDATETIME() END))
             AND EXISTS(SELECT * FROM sys.dm_tran_locks WHERE request_session_id = s.spid
             AND NOT (resource_type = N'DATABASE' AND request_mode = N'S' AND request_status = N'GRANT' AND request_owner_type = N'SHARED_TRANSACTION_WORKSPACE'));
 	END
@@ -36626,7 +38249,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		+ 'Total WorkSpace(MB): ' + CAST(ISNULL(@MaxWorkspace, 0) AS NVARCHAR(50)) + @LineFeed  
 		+ 'Granted workspace: ' + CAST(ISNULL((CAST(SUM(Grants.granted_memory_kb) / 1024 AS MONEY)
 		                              / CAST(@MaxWorkspace AS MONEY)) * 100, 0) AS NVARCHAR(50)) + '%' + @LineFeed
-		+ 'Oldest Grant in seconds: ' + CAST(ISNULL(DATEDIFF(SECOND, MIN(Grants.request_time), GETDATE()), 0) AS NVARCHAR(50)) AS Details,
+		+ 'Oldest Grant in seconds: ' + CAST(ISNULL(DATEDIFF(SECOND, MIN(Grants.request_time), (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)), 0) AS NVARCHAR(50)) AS Details,
 		(SELECT COUNT(*) FROM sys.dm_exec_query_memory_grants WHERE queue_id IS NULL) AS DetailsInt,
 		'https://www.brentozar.com/askbrent/' AS URL
 	FROM sys.dm_exec_query_memory_grants AS Grants;
@@ -37093,7 +38716,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                                     '    FROM sys.objects AS obj WITH (NOLOCK)' + @LineFeed +
                                     '    INNER JOIN sys.stats AS stat WITH (NOLOCK) ON stat.object_id = obj.object_id  ' + @LineFeed +
                                     '    CROSS APPLY sys.dm_db_stats_properties(stat.object_id, stat.stats_id) AS sp  ' + @LineFeed +
-                                    '    WHERE sp.last_updated > DATEADD(MI, -15, GETDATE())' + @LineFeed +
+                                    '    WHERE sp.last_updated > DATEADD(MI, -15, (CASE WHEN SERVERPROPERTY(''EngineEdition'') = 5 THEN GETUTCDATE() ELSE GETDATE() END))' + @LineFeed +
                                     '    AND obj.is_ms_shipped = 0' + @LineFeed +
                                     '    AND ''[?]'' <> ''[tempdb]'';' + @LineFeed +
                                     'END TRY' + @LineFeed +
@@ -37124,7 +38747,9 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			IF SERVERPROPERTY('EngineEdition') <> 5 /*SERVERPROPERTY('Edition') <> 'SQL Azure'*/
 			BEGIN
 				BEGIN TRY
-					EXEC sp_MSforeachdb @StringToExecute;
+					/* Avoid binding this SQL Server-only dependency on Azure SQL DB. */
+					DECLARE @ForEachDatabase sysname = N'sp_MSforeachdb';
+					EXEC @ForEachDatabase @StringToExecute;
 				END TRY
 				BEGIN CATCH
 					IF (ERROR_NUMBER() = 1222)
@@ -37264,8 +38889,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 							SELECT TOP (5)
 								ConnectionGroup = HostName,
 								ConnectionCount = COUNT(*),
-								MostRecentSec   = DATEDIFF(SECOND, MAX(LastFinish), GETDATE()),
-								OldestSec       = DATEDIFF(SECOND, MIN(LastFinish), GETDATE())
+								MostRecentSec   = DATEDIFF(SECOND, MAX(LastFinish), (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)),
+								OldestSec       = DATEDIFF(SECOND, MIN(LastFinish), (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
 							FROM @ConnSessions
 							GROUP BY HostName
 							ORDER BY COUNT(*) DESC, HostName
@@ -37301,8 +38926,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 							SELECT TOP (5)
 								ConnectionGroup = LoginName,
 								ConnectionCount = COUNT(*),
-								MostRecentSec   = DATEDIFF(SECOND, MAX(LastFinish), GETDATE()),
-								OldestSec       = DATEDIFF(SECOND, MIN(LastFinish), GETDATE())
+								MostRecentSec   = DATEDIFF(SECOND, MAX(LastFinish), (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)),
+								OldestSec       = DATEDIFF(SECOND, MIN(LastFinish), (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
 							FROM @ConnSessions
 							GROUP BY LoginName
 							ORDER BY COUNT(*) DESC, LoginName
@@ -37338,8 +38963,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 							SELECT TOP (5)
 								ConnectionGroup = AppName,
 								ConnectionCount = COUNT(*),
-								MostRecentSec   = DATEDIFF(SECOND, MAX(LastFinish), GETDATE()),
-								OldestSec       = DATEDIFF(SECOND, MIN(LastFinish), GETDATE())
+								MostRecentSec   = DATEDIFF(SECOND, MAX(LastFinish), (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END)),
+								OldestSec       = DATEDIFF(SECOND, MIN(LastFinish), (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
 							FROM @ConnSessions
 							GROUP BY AppName
 							ORDER BY COUNT(*) DESC, AppName
@@ -37613,7 +39238,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                                         WHERE qs.last_execution_time >= @StartSampleTimeText;';
 		*/
         SET @ParmDefinitions = N'@StartSampleTimeText NVARCHAR(100)';
-        SET @Parm1 = CONVERT(NVARCHAR(100), CAST(@StartSampleTime AS DATETIME), 127);
+        SET @Parm1 = CONVERT(NVARCHAR(100), CAST(CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN SWITCHOFFSET(@StartSampleTime, '+00:00') ELSE @StartSampleTime END AS DATETIME), 127);
 
         EXECUTE sp_executesql @StringToExecute, @ParmDefinitions, @StartSampleTimeText = @Parm1;
 
@@ -38138,7 +39763,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + N'Max session percent: ' + CAST(max_session_percent AS NVARCHAR(50)) AS Details,
             'Tune your queries or indexes with sp_BlitzCache or sp_BlitzIndex, or consider upgrading to a higher DTU level.' AS HowToStopIt
         FROM sys.dm_db_resource_stats s
-        WHERE s.end_time >= DATEADD(MI, -5, GETDATE())
+        WHERE s.end_time >= DATEADD(MI, -5, (CASE WHEN SERVERPROPERTY('EngineEdition') = 5 THEN GETUTCDATE() ELSE GETDATE() END))
           AND (avg_cpu_percent > 90
                OR avg_data_io_percent >= 90
                OR avg_log_write_percent >=90
@@ -38269,8 +39894,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         'Server Info' AS FindingGroup,
         'Batch Requests per Sec' AS Finding,
         'https://www.brentozar.com/go/measure' AS URL,
-        CAST(CAST(ps.value_delta AS MONEY) / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS NVARCHAR(20)) AS Details,
-        ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS DetailsInt
+        CAST(CAST(ps.value_delta AS MONEY) / NULLIF(DATEDIFF(ss, ps1.SampleTime, ps.SampleTime), 0) AS NVARCHAR(20)) AS Details,
+        ps.value_delta / NULLIF(DATEDIFF(ss, ps1.SampleTime, ps.SampleTime), 0) AS DetailsInt
     FROM #PerfmonStats ps
         INNER JOIN #PerfmonStats ps1 ON ps.object_name = ps1.object_name AND ps.counter_name = ps1.counter_name AND ps1.Pass = 1
     WHERE ps.Pass = 2
@@ -38295,8 +39920,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		    'Server Info' AS FindingGroup,
 		    'SQL Compilations per Sec' AS Finding,
 		    'https://www.brentozar.com/go/measure' AS URL,
-		    CAST(ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS NVARCHAR(20)) AS Details,
-		    ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS DetailsInt
+		    CAST(ps.value_delta / NULLIF(DATEDIFF(ss, ps1.SampleTime, ps.SampleTime), 0) AS NVARCHAR(20)) AS Details,
+		    ps.value_delta / NULLIF(DATEDIFF(ss, ps1.SampleTime, ps.SampleTime), 0) AS DetailsInt
 		FROM #PerfmonStats ps
 		    INNER JOIN #PerfmonStats ps1 ON ps.object_name = ps1.object_name AND ps.counter_name = ps1.counter_name AND ps1.Pass = 1
 		WHERE ps.Pass = 2
@@ -38318,8 +39943,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		    'Server Info' AS FindingGroup,
 		    'SQL Re-Compilations per Sec' AS Finding,
 		    'https://www.brentozar.com/go/measure' AS URL,
-		    CAST(ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS NVARCHAR(20)) AS Details,
-		    ps.value_delta / (DATEDIFF(ss, ps1.SampleTime, ps.SampleTime)) AS DetailsInt
+		    CAST(ps.value_delta / NULLIF(DATEDIFF(ss, ps1.SampleTime, ps.SampleTime), 0) AS NVARCHAR(20)) AS Details,
+		    ps.value_delta / NULLIF(DATEDIFF(ss, ps1.SampleTime, ps.SampleTime), 0) AS DetailsInt
 		FROM #PerfmonStats ps
 		    INNER JOIN #PerfmonStats ps1 ON ps.object_name = ps1.object_name AND ps.counter_name = ps1.counter_name AND ps1.Pass = 1
 		WHERE ps.Pass = 2
@@ -38454,6 +40079,33 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         ) AS OsCpu;
 
 	END; /* IF @Seconds >= 30 */
+
+    /* Server Performance - TempDB Over Half Full - CheckID 55 */
+	IF (@Debug = 1)
+	BEGIN
+		RAISERROR('Running CheckID 55',10,1) WITH NOWAIT;
+	END
+
+    INSERT INTO #BlitzFirstResults (CheckID, Priority, FindingsGroup, Finding, URL, Details, HowToStopIt)
+    SELECT 55 AS CheckID,
+        10 AS Priority,
+        'Server Performance' AS FindingGroup,
+        'TempDB Over Half Full' AS Finding,
+        'https://www.brentozar.com/archive/2025/10/tempdb-filling-up-try-resource-governor/' AS URL,
+        CAST(CAST(u.used_pct AS DECIMAL(5,1)) AS NVARCHAR(10)) + N'% of TempDB''s ' + CAST(u.total_mb AS NVARCHAR(30)) + N' MB of data file space is in use: ' + @LineFeed
+            + CAST(u.user_mb AS NVARCHAR(30)) + N' MB user objects (temp tables, table variables), ' + @LineFeed
+            + CAST(u.internal_mb AS NVARCHAR(30)) + N' MB internal objects (sorts, hashes, spools), ' + @LineFeed
+            + CAST(u.version_mb AS NVARCHAR(30)) + N' MB version store.' + @LineFeed AS Details,
+        N'Run sp_BlitzWho and look at tempdb_allocations_mb to find the sessions using TempDB, then tune or kill the offending query. On SQL Server 2025 and newer, Resource Governor can cap TempDB usage per workload group - see the URL.' AS HowToStopIt
+    FROM (
+        SELECT SUM(fsu.total_page_count) * 8 / 1024 AS total_mb,
+            SUM(fsu.user_object_reserved_page_count) * 8 / 1024 AS user_mb,
+            SUM(fsu.internal_object_reserved_page_count) * 8 / 1024 AS internal_mb,
+            SUM(fsu.version_store_reserved_page_count) * 8 / 1024 AS version_mb,
+            100.0 * (SUM(fsu.total_page_count) - SUM(fsu.unallocated_extent_page_count)) / NULLIF(SUM(fsu.total_page_count), 0) AS used_pct
+        FROM tempdb.sys.dm_db_file_space_usage fsu
+        ) u
+    WHERE u.used_pct > 50;
 
 	IF /* Let people on <2016 know about the thread time column */
 	(
@@ -38597,9 +40249,9 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 /* Get the most recent sp_BlitzCache execution before this one - don't use sp_BlitzFirst because user logs are added in there at any time */
                 SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
                     + @OutputDatabaseName
-                    + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-                    + @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
-                    + QUOTENAME(@OutputTableNameBlitzCache) + ''') SELECT TOP 1 @BlitzCacheMinutesBack = DATEDIFF(MI,CheckDate,SYSDATETIMEOFFSET()) FROM '
+                    + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N'''
+                    + REPLACE(@OutputSchemaName, N'''', N'''''') + ''' AND QUOTENAME(TABLE_NAME) = N'''
+                    + REPLACE(QUOTENAME(@OutputTableNameBlitzCache), N'''', N'''''') + ''') SELECT TOP 1 @BlitzCacheMinutesBack = DATEDIFF(MI,CheckDate,SYSDATETIMEOFFSET()) FROM '
                     + @OutputDatabaseName + '.'
                     + @OutputSchemaName + '.'
                     + QUOTENAME(@OutputTableNameBlitzCache)
@@ -38642,8 +40294,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 /* Delete history older than @OutputTableRetentionDays */
                 SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
                     + @OutputDatabaseName
-                    + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-                    + @OutputSchemaName + ''') DELETE '
+                    + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+                    + REPLACE(@OutputSchemaName, N'''', N'''''') + ''') DELETE '
                     + @OutputDatabaseName + '.'
                     + @OutputSchemaName + '.'
                     + QUOTENAME(@OutputTableNameBlitzCache)
@@ -38696,13 +40348,13 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             + @OutputDatabaseName
             + '; IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''')
             + ''') AND NOT EXISTS (SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-            + @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
-            + @OutputTableName + ''') CREATE TABLE '
+            + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''' AND QUOTENAME(TABLE_NAME) = N'''
+            + REPLACE(@OutputTableName, N'''', N'''''') + ''') CREATE TABLE '
             + @OutputSchemaName + '.'
             + @OutputTableName
             + ' (ID INT IDENTITY(1,1) NOT NULL,
@@ -38736,21 +40388,21 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         /* If the table doesn't have the new QueryHash column, add it. See Github #2162. */
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
         SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-            WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''QueryHash'')
+            WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''QueryHash'')
             ALTER TABLE ' + @ObjectFullName + N' ADD QueryHash BINARY(8) NULL;';
         EXEC(@StringToExecute);
 
         /* If the table doesn't have the new JoinKey computed column, add it. See Github #2164. */
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableName;
         SET @StringToExecute = N'IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-            WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
+            WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''JoinKey'')
             ALTER TABLE ' + @ObjectFullName + N' ADD JoinKey AS ServerName + CAST(CheckDate AS NVARCHAR(50));';
         EXEC(@StringToExecute);
 
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName + ''') INSERT '
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''') INSERT '
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableName
@@ -38764,8 +40416,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         /* Delete history older than @OutputTableRetentionDays */
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName + ''') DELETE '
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''') DELETE '
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableName
@@ -38778,8 +40430,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     END;
     ELSE IF (SUBSTRING(@OutputTableName, 2, 2) = '##')
     BEGIN
-        SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
-            + @OutputTableName
+        SET @StringToExecute = N' IF (OBJECT_ID(N''tempdb..'
+            + REPLACE(@OutputTableName, N'''', N'''''')
             + ''') IS NULL) CREATE TABLE '
             + @OutputTableName
             + ' (ID INT IDENTITY(1,1) NOT NULL,
@@ -38818,7 +40470,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     END;
     ELSE IF (SUBSTRING(@OutputTableName, 2, 1) = '#')
     BEGIN
-        RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
+        RAISERROR('Due to the nature of Dynamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
     END;
 
     /* @OutputTableNameFileStats lets us export the results to a permanent table */
@@ -38835,13 +40487,13 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             + @OutputDatabaseName
             + '; IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''')
             + ''') AND NOT EXISTS (SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-            + @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
-            + @OutputTableNameFileStats + ''') CREATE TABLE '
+            + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''' AND QUOTENAME(TABLE_NAME) = N'''
+            + REPLACE(@OutputTableNameFileStats, N'''', N'''''') + ''') CREATE TABLE '
             + @OutputSchemaName + '.'
             + @OutputTableNameFileStats
             + ' (ID INT IDENTITY(1,1) NOT NULL,
@@ -38866,39 +40518,31 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableNameFileStats_View;
 
-        /* If the view exists without the most recently added columns, drop it. See Github #2162. */
-        IF OBJECT_ID(@ObjectFullName) IS NOT NULL
-            BEGIN
-            SET @StringToExecute = N'USE ' + @OutputDatabaseName + N'; IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
-                DROP VIEW ' + @OutputSchemaName + N'.' + @OutputTableNameFileStats_View + N';';
-
-            EXEC(@StringToExecute);
-            END
-
-        /* Create the view */
-        IF OBJECT_ID(@ObjectFullName) IS NULL
-            BEGIN
-            SET @StringToExecute = 'USE '
+        /* Upgrade existing views in place to preserve permissions. */
+        BEGIN
+            SET @StringToExecute = CONVERT(nvarchar(max), N'USE ')
                 + @OutputDatabaseName
-                + '; EXEC (''CREATE VIEW '
-                + @OutputSchemaName + '.'
-                + @OutputTableNameFileStats_View + ' AS ' + @LineFeed
+                + '; IF NOT EXISTS (SELECT 1 FROM sys.sql_modules'
+                + ' WHERE object_id = OBJECT_ID(@ViewName)'
+                + ' AND CHARINDEX(''/* FRK_ServerScopedDeltas_v1 */'', definition) > 0)'
+                + ' EXEC (N''CREATE OR ALTER VIEW '
+                + REPLACE(@OutputSchemaName, N'''', N'''''') + '.'
+                + REPLACE(@OutputTableNameFileStats_View, N'''', N'''''') + ' AS /* FRK_ServerScopedDeltas_v1 */ ' + @LineFeed
                 + 'WITH RowDates as' + @LineFeed
                 + '(' + @LineFeed
                 + '        SELECT ' + @LineFeed
-                + '                ROW_NUMBER() OVER (ORDER BY [ServerName], [CheckDate]) ID,' + @LineFeed
-                + '                [CheckDate]' + @LineFeed
-                + '        FROM ' + @OutputSchemaName + '.' + @OutputTableNameFileStats + '' + @LineFeed
+                + '                ROW_NUMBER() OVER (PARTITION BY [ServerName] ORDER BY [CheckDate]) ID,' + @LineFeed
+                + '                [ServerName], [CheckDate]' + @LineFeed
+                + '        FROM ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNameFileStats, N'''', N'''''') + '' + @LineFeed
                 + '        GROUP BY [ServerName], [CheckDate]' + @LineFeed
                 + '),' + @LineFeed
                 + 'CheckDates as' + @LineFeed
                 + '(' + @LineFeed
-                + '        SELECT ThisDate.CheckDate,' + @LineFeed
+                + '        SELECT ThisDate.ServerName, ThisDate.CheckDate,' + @LineFeed
                 + '               LastDate.CheckDate as PreviousCheckDate' + @LineFeed
                 + '        FROM RowDates ThisDate' + @LineFeed
                 + '        JOIN RowDates LastDate' + @LineFeed
-                + '        ON ThisDate.ID = LastDate.ID + 1' + @LineFeed
+                + '        ON ThisDate.ID = LastDate.ID + 1 AND ThisDate.ServerName = LastDate.ServerName' + @LineFeed
                 + ')' + @LineFeed
                 + '     SELECT f.ServerName,' + @LineFeed
                 + '            f.CheckDate,' + @LineFeed
@@ -38928,9 +40572,9 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '            (f.num_of_writes - fPrior.num_of_writes) AS num_of_writes,' + @LineFeed
                 + '            (f.bytes_written - fPrior.bytes_written) / 1024.0 / 1024.0 AS megabytes_written, ' + @LineFeed
                 + '            f.ServerName + CAST(f.CheckDate AS NVARCHAR(50)) AS JoinKey' + @LineFeed
-                + '     FROM   ' + @OutputSchemaName + '.' + @OutputTableNameFileStats + ' f' + @LineFeed
-                + '            INNER HASH JOIN CheckDates DATES ON f.CheckDate = DATES.CheckDate' + @LineFeed
-                + '            INNER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameFileStats + ' fPrior ON f.ServerName =                 fPrior.ServerName' + @LineFeed
+                + '     FROM   ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNameFileStats, N'''', N'''''') + ' f' + @LineFeed
+                + '            INNER HASH JOIN CheckDates DATES ON f.CheckDate = DATES.CheckDate AND f.ServerName = DATES.ServerName' + @LineFeed
+                + '            INNER JOIN ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNameFileStats, N'''', N'''''') + ' fPrior ON f.ServerName =                 fPrior.ServerName' + @LineFeed
                 + '                                                              AND f.DatabaseID = fPrior.DatabaseID' +     @LineFeed
                 + '                                                              AND f.FileID = fPrior.FileID' + @LineFeed
                 + '                                                              AND fPrior.CheckDate =   DATES.PreviousCheckDate'   +           @LineFeed
@@ -38939,14 +40583,14 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '            AND f.num_of_writes >= fPrior.num_of_writes' + @LineFeed
                 + '            AND DATEDIFF(MI, fPrior.CheckDate, f.CheckDate) BETWEEN 1 AND 60;'')'
 
-			EXEC(@StringToExecute);
+			EXEC sys.sp_executesql @StringToExecute, N'@ViewName nvarchar(776)', @ViewName = @ObjectFullName;
             END;
 
 
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName + ''') INSERT '
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''') INSERT '
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableNameFileStats
@@ -38960,8 +40604,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         /* Delete history older than @OutputTableRetentionDays */
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName + ''') DELETE '
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''') DELETE '
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableNameFileStats
@@ -38974,8 +40618,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     END;
     ELSE IF (SUBSTRING(@OutputTableNameFileStats, 2, 2) = '##')
     BEGIN
-        SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
-            + @OutputTableNameFileStats
+        SET @StringToExecute = N' IF (OBJECT_ID(N''tempdb..'
+            + REPLACE(@OutputTableNameFileStats, N'''', N'''''')
             + ''') IS NULL) CREATE TABLE '
             + @OutputTableNameFileStats
             + ' (ID INT IDENTITY(1,1) NOT NULL,
@@ -39007,7 +40651,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     END;
     ELSE IF (SUBSTRING(@OutputTableNameFileStats, 2, 1) = '#')
     BEGIN
-        RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
+        RAISERROR('Due to the nature of Dynamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
     END;
 
 
@@ -39025,13 +40669,13 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             + @OutputDatabaseName
             + '; IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''')
             + ''') AND NOT EXISTS (SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-            + @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
-            + @OutputTableNamePerfmonStats + ''') CREATE TABLE '
+            + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''' AND QUOTENAME(TABLE_NAME) = N'''
+            + REPLACE(@OutputTableNamePerfmonStats, N'''', N'''''') + ''') CREATE TABLE '
             + @OutputSchemaName + '.'
             + @OutputTableNamePerfmonStats
             + ' (ID INT IDENTITY(1,1) NOT NULL,
@@ -39050,39 +40694,31 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableNamePerfmonStats_View;
 
-        /* If the view exists without the most recently added columns, drop it. See Github #2162. */
-        IF OBJECT_ID(@ObjectFullName) IS NOT NULL
-            BEGIN
-            SET @StringToExecute = N'USE ' + @OutputDatabaseName + N'; IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
-                DROP VIEW ' + @OutputSchemaName + N'.' + @OutputTableNamePerfmonStats_View + N';';
-
-            EXEC(@StringToExecute);
-            END
-
-        /* Create the view */
-        IF OBJECT_ID(@ObjectFullName) IS NULL
-            BEGIN
-            SET @StringToExecute = 'USE '
+        /* Upgrade existing views in place to preserve permissions. */
+        BEGIN
+            SET @StringToExecute = CONVERT(nvarchar(max), N'USE ')
                 + @OutputDatabaseName
-                + '; EXEC (''CREATE VIEW '
-                + @OutputSchemaName + '.'
-                + @OutputTableNamePerfmonStats_View + ' AS ' + @LineFeed
+                + '; IF NOT EXISTS (SELECT 1 FROM sys.sql_modules'
+                + ' WHERE object_id = OBJECT_ID(@ViewName)'
+                + ' AND CHARINDEX(''/* FRK_ServerScopedDeltas_v1 */'', definition) > 0)'
+                + ' EXEC (N''CREATE OR ALTER VIEW '
+                + REPLACE(@OutputSchemaName, N'''', N'''''') + '.'
+                + REPLACE(@OutputTableNamePerfmonStats_View, N'''', N'''''') + ' AS /* FRK_ServerScopedDeltas_v1 */ ' + @LineFeed
                 + 'WITH RowDates as' + @LineFeed
                 + '(' + @LineFeed
                 + '        SELECT ' + @LineFeed
-                + '                ROW_NUMBER() OVER (ORDER BY [ServerName], [CheckDate]) ID,' + @LineFeed
-                + '                [CheckDate]' + @LineFeed
-                + '        FROM ' + @OutputSchemaName + '.' +@OutputTableNamePerfmonStats + '' + @LineFeed
+                + '                ROW_NUMBER() OVER (PARTITION BY [ServerName] ORDER BY [CheckDate]) ID,' + @LineFeed
+                + '                [ServerName], [CheckDate]' + @LineFeed
+                + '        FROM ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' +REPLACE(@OutputTableNamePerfmonStats, N'''', N'''''') + '' + @LineFeed
                 + '        GROUP BY [ServerName], [CheckDate]' + @LineFeed
                 + '),' + @LineFeed
                 + 'CheckDates as' + @LineFeed
                 + '(' + @LineFeed
-                + '        SELECT ThisDate.CheckDate,' + @LineFeed
+                + '        SELECT ThisDate.ServerName, ThisDate.CheckDate,' + @LineFeed
                 + '               LastDate.CheckDate as PreviousCheckDate' + @LineFeed
                 + '        FROM RowDates ThisDate' + @LineFeed
                 + '        JOIN RowDates LastDate' + @LineFeed
-                + '        ON ThisDate.ID = LastDate.ID + 1' + @LineFeed
+                + '        ON ThisDate.ID = LastDate.ID + 1 AND ThisDate.ServerName = LastDate.ServerName' + @LineFeed
                 + ')' + @LineFeed
                 + 'SELECT' + @LineFeed
                 + '       pMon.[ServerName]' + @LineFeed
@@ -39096,10 +40732,10 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '      ,(pMon.[cntr_value] - pMonPrior.[cntr_value]) AS cntr_delta' + @LineFeed
                 + '      ,(pMon.cntr_value - pMonPrior.cntr_value) * 1.0 / DATEDIFF(ss, pMonPrior.CheckDate, pMon.CheckDate) AS cntr_delta_per_second' + @LineFeed
                 + '      ,pMon.ServerName + CAST(pMon.CheckDate AS NVARCHAR(50)) AS JoinKey' + @LineFeed
-                + '  FROM ' + @OutputSchemaName + '.' +@OutputTableNamePerfmonStats + ' pMon' + @LineFeed
+                + '  FROM ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' +REPLACE(@OutputTableNamePerfmonStats, N'''', N'''''') + ' pMon' + @LineFeed
                 + '  INNER HASH JOIN CheckDates Dates' + @LineFeed
-                + '  ON Dates.CheckDate = pMon.CheckDate' + @LineFeed
-                + '  JOIN ' + @OutputSchemaName + '.' +@OutputTableNamePerfmonStats + ' pMonPrior' + @LineFeed
+                + '  ON Dates.CheckDate = pMon.CheckDate AND Dates.ServerName = pMon.ServerName' + @LineFeed
+                + '  JOIN ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' +REPLACE(@OutputTableNamePerfmonStats, N'''', N'''''') + ' pMonPrior' + @LineFeed
                 + '  ON  Dates.PreviousCheckDate = pMonPrior.CheckDate' + @LineFeed
                 + '      AND pMon.[ServerName]    = pMonPrior.[ServerName]   ' + @LineFeed
                 + '      AND pMon.[object_name]   = pMonPrior.[object_name]  ' + @LineFeed
@@ -39107,7 +40743,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '      AND pMon.[instance_name] = pMonPrior.[instance_name]' + @LineFeed
                 + '    WHERE DATEDIFF(MI, pMonPrior.CheckDate, pMon.CheckDate) BETWEEN 1 AND 60;'')'
 
-			EXEC(@StringToExecute);
+			EXEC sys.sp_executesql @StringToExecute, N'@ViewName nvarchar(776)', @ViewName = @ObjectFullName;
             END
 
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableNamePerfmonStatsActuals_View;
@@ -39116,7 +40752,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         IF OBJECT_ID(@ObjectFullName) IS NOT NULL
             BEGIN
             SET @StringToExecute = N'USE ' + @OutputDatabaseName + N'; IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
+                WHERE object_id = (OBJECT_ID(N''' + REPLACE(@ObjectFullName, N'''', N'''''') + N''')) AND name = ''JoinKey'')
                 DROP VIEW ' + @OutputSchemaName + N'.' + @OutputTableNamePerfmonStatsActuals_View + N';';
 
             EXEC(@StringToExecute);
@@ -39127,9 +40763,9 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             BEGIN
             SET @StringToExecute = 'USE '
                 + @OutputDatabaseName
-                + '; EXEC (''CREATE VIEW '
-                + @OutputSchemaName + '.'
-                + @OutputTableNamePerfmonStatsActuals_View + ' AS ' + @LineFeed
+                + '; EXEC (N''CREATE VIEW '
+                + REPLACE(@OutputSchemaName, N'''', N'''''') + '.'
+                + REPLACE(@OutputTableNamePerfmonStatsActuals_View, N'''', N'''''') + ' AS ' + @LineFeed
                 + 'WITH PERF_AVERAGE_BULK AS' + @LineFeed
                 + '(' + @LineFeed
                 + '    SELECT ServerName,' + @LineFeed
@@ -39139,7 +40775,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '           CASE WHEN CHARINDEX(''''('''', counter_name) = 0 THEN counter_name ELSE LEFT (counter_name, CHARINDEX(''''('''',counter_name)-1) END    AS   counter_join,' + @LineFeed
                 + '           CheckDate,' + @LineFeed
                 + '           cntr_delta' + @LineFeed
-                + '    FROM   ' + @OutputSchemaName + '.' + @OutputTableNamePerfmonStats_View + @LineFeed
+                + '    FROM   ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNamePerfmonStats_View, N'''', N'''''') + @LineFeed
                 + '    WHERE  cntr_type IN(1073874176)' + @LineFeed
                 + '    AND cntr_delta <> 0' + @LineFeed
                 + '),' + @LineFeed
@@ -39151,7 +40787,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '           LEFT(counter_name, CHARINDEX(''''BASE'''', UPPER(counter_name))-1) AS counter_join,' + @LineFeed
                 + '           CheckDate,' + @LineFeed
                 + '           cntr_delta' + @LineFeed
-                + '    FROM   ' + @OutputSchemaName + '.' + @OutputTableNamePerfmonStats_View + '' + @LineFeed
+                + '    FROM   ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNamePerfmonStats_View, N'''', N'''''') + '' + @LineFeed
                 + '    WHERE  cntr_type IN(1073939712)' + @LineFeed
                 + '    AND cntr_delta <> 0' + @LineFeed
                 + '),' + @LineFeed
@@ -39164,7 +40800,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '           counter_name AS counter_join,' + @LineFeed
                 + '           CheckDate,' + @LineFeed
                 + '           cntr_delta' + @LineFeed
-                + '    FROM   ' + @OutputSchemaName + '.' + @OutputTableNamePerfmonStats_View + '' + @LineFeed
+                + '    FROM   ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNamePerfmonStats_View, N'''', N'''''') + '' + @LineFeed
                 + '    WHERE  cntr_type IN(537003264)' + @LineFeed
                 + '    AND cntr_delta <> 0' + @LineFeed
                 + '),' + @LineFeed
@@ -39176,7 +40812,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '           counter_name,' + @LineFeed
                 + '           CheckDate,' + @LineFeed
                 + '           cntr_delta / ElapsedSeconds AS cntr_value' + @LineFeed
-                + '    FROM   ' + @OutputSchemaName + '.' + @OutputTableNamePerfmonStats_View + '' + @LineFeed
+                + '    FROM   ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNamePerfmonStats_View, N'''', N'''''') + '' + @LineFeed
                 + '    WHERE  cntr_type IN(272696576, 272696320)' + @LineFeed
                 + '    AND cntr_delta <> 0' + @LineFeed
                 + '),' + @LineFeed
@@ -39188,7 +40824,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + '           counter_name,' + @LineFeed
                 + '           CheckDate,' + @LineFeed
                 + '           cntr_value' + @LineFeed
-                + '    FROM   ' + @OutputSchemaName + '.' + @OutputTableNamePerfmonStats_View + '' + @LineFeed
+                + '    FROM   ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNamePerfmonStats_View, N'''', N'''''') + '' + @LineFeed
                 + '    WHERE  cntr_type IN(65792, 65536)' + @LineFeed
                 + ')' + @LineFeed
                 + '' + @LineFeed
@@ -39252,8 +40888,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName + ''') INSERT '
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''') INSERT '
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableNamePerfmonStats
@@ -39267,8 +40903,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         /* Delete history older than @OutputTableRetentionDays */
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName + ''') DELETE '
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''') DELETE '
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableNamePerfmonStats
@@ -39283,8 +40919,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     END;
     ELSE IF (SUBSTRING(@OutputTableNamePerfmonStats, 2, 2) = '##')
     BEGIN
-        SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
-            + @OutputTableNamePerfmonStats
+        SET @StringToExecute = N' IF (OBJECT_ID(N''tempdb..'
+            + REPLACE(@OutputTableNamePerfmonStats, N'''', N'''''')
             + ''') IS NULL) CREATE TABLE '
             + @OutputTableNamePerfmonStats
             + ' (ID INT IDENTITY(1,1) NOT NULL,
@@ -39301,7 +40937,6 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             + ' INSERT '
             + @OutputTableNamePerfmonStats
             + ' (ServerName, CheckDate, object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second) SELECT '
-            + CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128))
             + ' @SrvName, @CheckDate, object_name, counter_name, instance_name, cntr_value, cntr_type, value_delta, value_per_second FROM #PerfmonStats WHERE Pass = 2';
 
 		EXEC sp_executesql @StringToExecute,
@@ -39310,7 +40945,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     END;
     ELSE IF (SUBSTRING(@OutputTableNamePerfmonStats, 2, 1) = '#')
     BEGIN
-        RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
+        RAISERROR('Due to the nature of Dynamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
     END;
 
 
@@ -39328,13 +40963,13 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             + @OutputDatabaseName
             + '; IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''')
             + ''') AND NOT EXISTS (SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = '''
-            + @OutputSchemaName + ''' AND QUOTENAME(TABLE_NAME) = '''
-            + @OutputTableNameWaitStats + ''') ' + @LineFeed
+            + '.INFORMATION_SCHEMA.TABLES WHERE QUOTENAME(TABLE_SCHEMA) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''' AND QUOTENAME(TABLE_NAME) = N'''
+            + REPLACE(@OutputTableNameWaitStats, N'''', N'''''') + ''') ' + @LineFeed
 			+ 'BEGIN' + @LineFeed
 			+ 'CREATE TABLE '
             + @OutputSchemaName + '.'
@@ -39359,9 +40994,9 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
             BEGIN
             SET @StringToExecute = 'USE '
                 + @OutputDatabaseName
-                + '; EXEC (''CREATE TABLE '
-                + @OutputSchemaName + '.'
-                + @OutputTableNameWaitStats_Categories + ' (WaitType NVARCHAR(60) PRIMARY KEY CLUSTERED, WaitCategory NVARCHAR(128) NOT NULL, Ignorable BIT DEFAULT 0);'')';
+                + '; EXEC (N''CREATE TABLE '
+                + REPLACE(@OutputSchemaName, N'''', N'''''') + '.'
+                + REPLACE(@OutputTableNameWaitStats_Categories, N'''', N'''''') + ' (WaitType NVARCHAR(60) PRIMARY KEY CLUSTERED, WaitCategory NVARCHAR(128) NOT NULL, Ignorable BIT DEFAULT 0);'')';
 
 			EXEC(@StringToExecute);
             END;
@@ -39369,10 +41004,10 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 		/* Make sure the wait stats category table has the current number of rows */
 		SET @StringToExecute = 'USE '
             + @OutputDatabaseName
-            + '; EXEC (''IF (SELECT COALESCE(SUM(1),0) FROM ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats_Categories + ') <> (SELECT COALESCE(SUM(1),0) FROM ##WaitCategories)' + @LineFeed
+            + '; EXEC (N''IF (SELECT COALESCE(SUM(1),0) FROM ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNameWaitStats_Categories, N'''', N'''''') + ') <> (SELECT COALESCE(SUM(1),0) FROM ##WaitCategories)' + @LineFeed
 			+ 'BEGIN ' + @LineFeed
-			+ 'TRUNCATE TABLE '  + @OutputSchemaName + '.' + @OutputTableNameWaitStats_Categories + @LineFeed
-			+ 'INSERT INTO ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats_Categories + ' (WaitType, WaitCategory, Ignorable) SELECT WaitType, WaitCategory, Ignorable FROM ##WaitCategories;' + @LineFeed
+			+ 'TRUNCATE TABLE '  + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNameWaitStats_Categories, N'''', N'''''') + @LineFeed
+			+ 'INSERT INTO ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNameWaitStats_Categories, N'''', N'''''') + ' (WaitType, WaitCategory, Ignorable) SELECT WaitType, WaitCategory, Ignorable FROM ##WaitCategories;' + @LineFeed
 			+ 'END'')';
 
 		EXEC(@StringToExecute);
@@ -39380,40 +41015,31 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 
         SET @ObjectFullName = @OutputDatabaseName + N'.' + @OutputSchemaName + N'.' +  @OutputTableNameWaitStats_View;
 
-        /* If the view exists without the most recently added columns, drop it. See Github #2162. */
-        IF OBJECT_ID(@ObjectFullName) IS NOT NULL
-            BEGIN
-            SET @StringToExecute = N'USE ' + @OutputDatabaseName + N'; IF NOT EXISTS (SELECT * FROM ' + @OutputDatabaseName + N'.sys.all_columns 
-                WHERE object_id = (OBJECT_ID(''' + @ObjectFullName + N''')) AND name = ''JoinKey'')
-                DROP VIEW ' + @OutputSchemaName + N'.' + @OutputTableNameWaitStats_View + N';';
-
-            EXEC(@StringToExecute);
-            END
-
-
-        /* Create the wait stats view */
-        IF OBJECT_ID(@ObjectFullName) IS NULL
-            BEGIN
-            SET @StringToExecute = 'USE '
+        /* Upgrade existing views in place to preserve permissions. */
+        BEGIN
+            SET @StringToExecute = CONVERT(nvarchar(max), N'USE ')
                 + @OutputDatabaseName
-                + '; EXEC (''CREATE VIEW '
-                + @OutputSchemaName + '.'
-                + @OutputTableNameWaitStats_View + ' AS ' + @LineFeed
+                + '; IF NOT EXISTS (SELECT 1 FROM sys.sql_modules'
+                + ' WHERE object_id = OBJECT_ID(@ViewName)'
+                + ' AND CHARINDEX(''/* FRK_ServerScopedDeltas_v1 */'', definition) > 0)'
+                + ' EXEC (N''CREATE OR ALTER VIEW '
+                + REPLACE(@OutputSchemaName, N'''', N'''''') + '.'
+                + REPLACE(@OutputTableNameWaitStats_View, N'''', N'''''') + ' AS /* FRK_ServerScopedDeltas_v1 */ ' + @LineFeed
                 + 'WITH RowDates as' + @LineFeed
                 + '(' + @LineFeed
                 + '        SELECT ' + @LineFeed
-                + '                ROW_NUMBER() OVER (ORDER BY [ServerName], [CheckDate]) ID,' + @LineFeed
-                + '                [CheckDate]' + @LineFeed
-                + '        FROM ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + @LineFeed
+                + '                ROW_NUMBER() OVER (PARTITION BY [ServerName] ORDER BY [CheckDate]) ID,' + @LineFeed
+                + '                [ServerName], [CheckDate]' + @LineFeed
+                + '        FROM ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNameWaitStats, N'''', N'''''') + @LineFeed
                 + '        GROUP BY [ServerName], [CheckDate]' + @LineFeed
                 + '),' + @LineFeed
                 + 'CheckDates as' + @LineFeed
                 + '(' + @LineFeed
-                + '        SELECT ThisDate.CheckDate,' + @LineFeed
+                + '        SELECT ThisDate.ServerName, ThisDate.CheckDate,' + @LineFeed
                 + '               LastDate.CheckDate as PreviousCheckDate' + @LineFeed
                 + '        FROM RowDates ThisDate' + @LineFeed
                 + '        JOIN RowDates LastDate' + @LineFeed
-                + '        ON ThisDate.ID = LastDate.ID + 1' + @LineFeed
+                + '        ON ThisDate.ID = LastDate.ID + 1 AND ThisDate.ServerName = LastDate.ServerName' + @LineFeed
                 + ')' + @LineFeed
                 + 'SELECT w.ServerName, w.CheckDate, w.wait_type, COALESCE(wc.WaitCategory, ''''Other'''') AS WaitCategory, COALESCE(wc.Ignorable,0) AS Ignorable' + @LineFeed
                 + ', DATEDIFF(ss, wPrior.CheckDate, w.CheckDate) AS ElapsedSeconds' + @LineFeed
@@ -39423,22 +41049,22 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 + ', (w.signal_wait_time_ms - wPrior.signal_wait_time_ms) AS signal_wait_time_ms_delta' + @LineFeed
                 + ', (w.waiting_tasks_count - wPrior.waiting_tasks_count) AS waiting_tasks_count_delta' + @LineFeed
                 + ', w.ServerName + CAST(w.CheckDate AS NVARCHAR(50)) AS JoinKey' + @LineFeed
-                + 'FROM ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + ' w' + @LineFeed
+                + 'FROM ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNameWaitStats, N'''', N'''''') + ' w' + @LineFeed
                 + 'INNER HASH JOIN CheckDates Dates' + @LineFeed
-                + 'ON Dates.CheckDate = w.CheckDate' + @LineFeed
-                + 'INNER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats + ' wPrior ON w.ServerName = wPrior.ServerName AND w.wait_type = wPrior.wait_type AND Dates.PreviousCheckDate = wPrior.CheckDate' + @LineFeed
-			 + 'LEFT OUTER JOIN ' + @OutputSchemaName + '.' + @OutputTableNameWaitStats_Categories + ' wc ON w.wait_type = wc.WaitType' + @LineFeed
+                + 'ON Dates.CheckDate = w.CheckDate AND Dates.ServerName = w.ServerName' + @LineFeed
+                + 'INNER JOIN ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNameWaitStats, N'''', N'''''') + ' wPrior ON w.ServerName = wPrior.ServerName AND w.wait_type = wPrior.wait_type AND Dates.PreviousCheckDate = wPrior.CheckDate' + @LineFeed
+			 + 'LEFT OUTER JOIN ' + REPLACE(@OutputSchemaName, N'''', N'''''') + '.' + REPLACE(@OutputTableNameWaitStats_Categories, N'''', N'''''') + ' wc ON w.wait_type = wc.WaitType' + @LineFeed
                 + 'WHERE DATEDIFF(MI, wPrior.CheckDate, w.CheckDate) BETWEEN 1 AND 60' + @LineFeed
                 + 'AND [w].[wait_time_ms] >= [wPrior].[wait_time_ms];'')'
 
-			EXEC(@StringToExecute);
+			EXEC sys.sp_executesql @StringToExecute, N'@ViewName nvarchar(776)', @ViewName = @ObjectFullName;
             END;
 
 
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName + ''') INSERT '
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''') INSERT '
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableNameWaitStats
@@ -39452,8 +41078,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
         /* Delete history older than @OutputTableRetentionDays */
         SET @StringToExecute = N' IF EXISTS(SELECT * FROM '
             + @OutputDatabaseName
-            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = '''
-            + @OutputSchemaName + ''') DELETE '
+            + '.INFORMATION_SCHEMA.SCHEMATA WHERE QUOTENAME(SCHEMA_NAME) = N'''
+            + REPLACE(@OutputSchemaName, N'''', N'''''') + ''') DELETE '
             + @OutputDatabaseName + '.'
             + @OutputSchemaName + '.'
             + @OutputTableNameWaitStats
@@ -39466,8 +41092,8 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     END;
     ELSE IF (SUBSTRING(@OutputTableNameWaitStats, 2, 2) = '##')
     BEGIN
-        SET @StringToExecute = N' IF (OBJECT_ID(''tempdb..'
-            + @OutputTableNameWaitStats
+        SET @StringToExecute = N' IF (OBJECT_ID(N''tempdb..'
+            + REPLACE(@OutputTableNameWaitStats, N'''', N'''''')
             + ''') IS NULL) CREATE TABLE '
             + @OutputTableNameWaitStats
             + ' (ID INT IDENTITY(1,1) NOT NULL,
@@ -39489,7 +41115,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
     END;
     ELSE IF (SUBSTRING(@OutputTableNameWaitStats, 2, 1) = '#')
     BEGIN
-        RAISERROR('Due to the nature of Dymamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
+        RAISERROR('Due to the nature of Dynamic SQL, only global (i.e. double pound (##)) temp tables are supported for @OutputTableName', 16, 0);
     END;
 
 
@@ -39603,7 +41229,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                         CAST((wd2.wait_time_ms-wd1.wait_time_ms)/
                             (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) AS NUMERIC(12,1))
                     ELSE 0 END AS [Avg ms Per Wait],
-					CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Hour],
+					CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / NULLIF(DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime), 0) AS DECIMAL(18,1)) AS [Per Core Per Hour],
                     (wd2.waiting_tasks_count - wd1.waiting_tasks_count) AS [Number of Waits]
                 FROM  max_batch b
                 JOIN #WaitStats wd2 ON
@@ -39748,7 +41374,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                         CAST((wd2.wait_time_ms-wd1.wait_time_ms)/
                             (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) AS NUMERIC(12,1))
                     ELSE 0 END AS [Avg ms Per Wait],
-                    CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Hour],
+                    CAST((wd2.wait_time_ms - wd1.wait_time_ms) / 1000.0 / cores.cpu_count / NULLIF(DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime), 0) AS DECIMAL(18,1)) AS [Per Core Per Hour],
                     CAST(c.[Signal Wait Time (Seconds)] / 60.0 / 60 AS DECIMAL(18,1)) AS [Signal Wait Time (Hours)],
                     CASE WHEN c.[Wait Time (Seconds)] > 0
                      THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) AS NUMERIC(4,1))
@@ -39792,7 +41418,7 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                         CAST((wd2.wait_time_ms-wd1.wait_time_ms)/
                             (1.0*(wd2.waiting_tasks_count - wd1.waiting_tasks_count)) AS NUMERIC(12,1))
                     ELSE 0 END AS [Avg ms Per Wait],
-                    CAST((CAST(wd2.wait_time_ms - wd1.wait_time_ms AS MONEY)) / 1000.0 / cores.cpu_count / DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime) AS DECIMAL(18,1)) AS [Per Core Per Second],
+                    CAST((CAST(wd2.wait_time_ms - wd1.wait_time_ms AS MONEY)) / 1000.0 / cores.cpu_count / NULLIF(DATEDIFF(ss, wd1.SampleTime, wd2.SampleTime), 0) AS DECIMAL(18,1)) AS [Per Core Per Second],
                     c.[Signal Wait Time (Seconds)],
                     CASE WHEN c.[Wait Time (Seconds)] > 0
                      THEN CAST(100.*(c.[Signal Wait Time (Seconds)]/c.[Wait Time (Seconds)]) AS NUMERIC(4,1))
@@ -39884,10 +41510,10 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
                 pFirst.SampleTime AS FirstSampleTime, pFirst.cntr_value AS FirstSampleValue,
                 pLast.SampleTime AS LastSampleTime, pLast.cntr_value AS LastSampleValue,
                 pLast.cntr_value - pFirst.cntr_value AS ValueDelta,
-                ((1.0 * pLast.cntr_value - pFirst.cntr_value) / DATEDIFF(ss, pFirst.SampleTime, pLast.SampleTime)) AS ValuePerSecond
+                ((1.0 * pLast.cntr_value - pFirst.cntr_value) / NULLIF(DATEDIFF(ss, pFirst.SampleTime, pLast.SampleTime), 0)) AS ValuePerSecond
                 FROM #PerfmonStats pLast
                     INNER JOIN #PerfmonStats pFirst ON pFirst.[object_name] = pLast.[object_name] AND pFirst.counter_name = pLast.counter_name AND (pFirst.instance_name = pLast.instance_name OR (pFirst.instance_name IS NULL AND pLast.instance_name IS NULL))
-                    AND pLast.ID > pFirst.ID
+                    AND pLast.Pass = 2 AND pFirst.Pass = 1
 				WHERE pLast.cntr_value <> pFirst.cntr_value
                 ORDER BY Pattern, pLast.[object_name], pLast.counter_name, pLast.instance_name;
 
