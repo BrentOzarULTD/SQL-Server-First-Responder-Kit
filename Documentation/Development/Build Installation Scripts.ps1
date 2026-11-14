@@ -140,23 +140,6 @@ $Details
     Write-Host "  FAIL: $Label" -ForegroundColor Red
 }
 
-# Fail before changing source files or dropping tables if output cannot be saved.
-$outputPrerequisite = Invoke-SqlCmd-String -Label "DBAtools prerequisite" -Sql @"
-IF DB_ID(N'DBAtools') IS NULL
-    THROW 51000, 'Create the DBAtools test output database before running the release script.', 1;
-IF ISNULL(CONVERT(nvarchar(60), DATABASEPROPERTYEX(N'DBAtools', 'Status')), N'') <> N'ONLINE'
-    OR ISNULL(CONVERT(nvarchar(60), DATABASEPROPERTYEX(N'DBAtools', 'Updateability')), N'') <> N'READ_WRITE'
-    THROW 51000, 'DBAtools must be online and writable for release output tests.', 1;
-EXEC(N'USE DBAtools;
-IF ISNULL(HAS_PERMS_BY_NAME(DB_NAME(), ''DATABASE'', ''CREATE TABLE''), 0) <> 1
-    OR ISNULL(HAS_PERMS_BY_NAME(N''dbo'', ''SCHEMA'', ''ALTER''), 0) <> 1
-    THROW 51000, ''Release tests require CREATE TABLE and ALTER on schema dbo in DBAtools.'', 1;');
-"@
-if ($outputPrerequisite.ExitCode -ne 0) {
-    Report-SqlCmdFailure -Result $outputPrerequisite
-    throw "DBAtools prerequisite failed; no release files were changed."
-}
-
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 1 — Determine current version and compute new version
 # ══════════════════════════════════════════════════════════════════════════════
@@ -179,6 +162,23 @@ if ($newVersion -notmatch "\.\d{2}$") { $newVersion = "{0:F2}" -f [double]$newVe
 
 Write-Host "  Current: v$currentVersion ($currentDate)"
 Write-Host "  New:     v$newVersion ($Today)"
+
+# Fail before changing source files or dropping tables if output cannot be saved.
+$outputPrerequisite = Invoke-SqlCmd-String -Label "DBAtools prerequisite" -Sql @"
+IF DB_ID(N'DBAtools') IS NULL
+    THROW 51000, 'Create the DBAtools test output database before running the release script.', 1;
+IF ISNULL(CONVERT(nvarchar(60), DATABASEPROPERTYEX(N'DBAtools', 'Status')), N'') <> N'ONLINE'
+    OR ISNULL(CONVERT(nvarchar(60), DATABASEPROPERTYEX(N'DBAtools', 'Updateability')), N'') <> N'READ_WRITE'
+    THROW 51000, 'DBAtools must be online and writable for release output tests.', 1;
+EXEC(N'USE DBAtools;
+IF ISNULL(HAS_PERMS_BY_NAME(DB_NAME(), ''DATABASE'', ''CREATE TABLE''), 0) <> 1
+    OR ISNULL(HAS_PERMS_BY_NAME(N''dbo'', ''SCHEMA'', ''ALTER''), 0) <> 1
+    THROW 51000, ''Release tests require CREATE TABLE and ALTER on schema dbo in DBAtools.'', 1;');
+"@
+if ($outputPrerequisite.ExitCode -ne 0) {
+    Report-SqlCmdFailure -Result $outputPrerequisite
+    throw "DBAtools prerequisite failed; no release files were changed."
+}
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 2 — Update version numbers and dates in all sp_*.sql files

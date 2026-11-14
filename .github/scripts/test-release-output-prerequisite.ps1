@@ -5,9 +5,10 @@ $tokens = $null; $errors = $null
 [void][System.Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$errors)
 if ($errors) { throw ($errors | Out-String) }
 # Execute the real prerequisite path, stopping before version changes and publishing.
-$prefix = $source.Substring(0,$source.LastIndexOf('# ═',$source.IndexOf('# STEP 1')))
+$prefix = $source.Substring(0,$source.LastIndexOf('# ═',$source.IndexOf('# STEP 2')))
 $temp = Join-Path ([IO.Path]::GetTempPath()) ('frk-prerequisite-' + [guid]::NewGuid())
 $dir = New-Item (Join-Path $temp 'Documentation/Development') -ItemType Directory -Force
+Copy-Item (Join-Path $repo 'sp_Blitz.sql') (Join-Path $temp 'sp_Blitz.sql')
 $scriptPath = Join-Path $dir 'Build.ps1'
 Set-Content $scriptPath $prefix
 $global:CapturedSql = ''
