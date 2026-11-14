@@ -88,20 +88,28 @@ run_scalar_int() {
 # ---------------------------------------------------------------------------
 wake_database() {
   local worst_case_minutes=$(( WAKE_ATTEMPTS * (WAKE_LOGIN_TIMEOUT + WAKE_SLEEP_SECONDS) / 60 ))
+  local connection_status
 
   echo "Connecting to Azure SQL Database (it auto-pauses; early failures are expected)..."
   echo "Up to $WAKE_ATTEMPTS attempts, at most ~${worst_case_minutes} minutes."
   for attempt in $(seq 1 "$WAKE_ATTEMPTS"); do
-    if "$SQLCMD" "${WAKE_ARGS[@]}" -Q "SET NOCOUNT ON; SELECT 1;" >/dev/null 2>&1; then
+    if "$SQLCMD" "${WAKE_ARGS[@]}" -Q "SET NOCOUNT ON; SELECT 1;" >"$WORK_DIR/connection.log" 2>&1; then
       echo "Connected on attempt $attempt."
       return 0
+    else
+      connection_status=$?
     fi
-    echo "  attempt $attempt: not up yet, waiting..."
-    sleep "$WAKE_SLEEP_SECONDS"
+    echo "  attempt $attempt: sqlcmd exited $connection_status"
+    if [[ "$attempt" == 1 || "$attempt" == "$WAKE_ATTEMPTS" ]]; then
+      python3 "$REPO_ROOT/.github/scripts/redact-azure-connection-error.py" "$WORK_DIR/connection.log"
+    fi
+    if (( attempt < WAKE_ATTEMPTS )); then
+      sleep "$WAKE_SLEEP_SECONDS"
+    fi
   done
 
   echo "::error::Could not connect to Azure SQL Database after $WAKE_ATTEMPTS attempts (~${worst_case_minutes} minutes)." >&2
-  echo "::error::Check that the server is reachable and that its firewall admits GitHub runner IPs." >&2
+  echo "::error::See the sanitized sqlcmd connection error above; installation and procedure tests have not run." >&2
   return 1
 }
 
