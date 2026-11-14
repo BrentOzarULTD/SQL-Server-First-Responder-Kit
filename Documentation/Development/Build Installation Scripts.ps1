@@ -78,17 +78,35 @@ function Get-SqlCmdErrorSummary {
     }
 
     $lines = $Output -split "`r?`n"
-    $errorLines = $lines | Where-Object {
-        $_ -match "^(Msg\s+\d+|Sqlcmd:\s+Error:|Sqlcmd:\s+Warning:)" -or
-        $_ -match "\b(Level|State|Line)\b" -or
-        $_ -match "(Incorrect syntax|Invalid object|Cannot|Could not|failed|error)"
-    } | Select-Object -First 20
-
-    if ($errorLines.Count -eq 0) {
-        $errorLines = $lines | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Last 20
+    $summary = New-Object 'System.Collections.Generic.List[string]'
+    $headerPattern = '^\s*(Msg\s+\d+,\s*Level\s+\d+,|Sqlcmd:\s+(Error|Warning):)'
+    for ($i = 0; $i -lt $lines.Count -and $summary.Count -lt 20; $i++) {
+        if ($lines[$i] -notmatch $headerPattern) { continue }
+        # Do not admit a final header if its first message line would be lost.
+        $hasContext = $i + 1 -lt $lines.Count -and
+            -not [string]::IsNullOrWhiteSpace($lines[$i + 1]) -and
+            $lines[$i + 1] -notmatch $headerPattern
+        if ($hasContext -and $summary.Count -gt 18) { break }
+        $summary.Add($lines[$i].Trim())
+        # sqlcmd puts the SQL error message AFTER the Msg header. Preserve that
+        # context even when it contains none of the usual error keywords.
+        for ($j = $i + 1; $j -lt $lines.Count -and $j -le $i + 4 -and $summary.Count -lt 20; $j++) {
+            if ([string]::IsNullOrWhiteSpace($lines[$j]) -or $lines[$j] -match $headerPattern) { break }
+            $summary.Add($lines[$j].Trim())
+        }
     }
 
-    return ($errorLines -join "`n")
+    if ($summary.Count -eq 0) {
+        # Native-client failures need not contain a SQL Msg header.
+        foreach ($line in ($lines | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Last 5)) {
+            $summary.Add($line.Trim())
+        }
+    }
+
+    # Full, unmodified output remains in the error log.
+    return (($summary | ForEach-Object {
+        if ($_.Length -gt 500) { $_.Substring(0, 500) + " ... [see full log]" } else { $_ }
+    }) -join "`n")
 }
 
 # ── Helper: write actionable failure details to console and log ──────────────
