@@ -185,6 +185,7 @@ $InstallAzurePath = Join-Path $RepoRoot "Install-Azure.sql"
 # sp_ineachdb.sql must come first because sp_Blitz calls it at runtime.
 # All sp_Blitz*.sql except sp_BlitzBackups.sql, sp_DatabaseRestore.sql, sp_BlitzFirst.sql.
 # sp_BlitzBackups and sp_DatabaseRestore depend on xp_cmdshell / msdb backup history.
+# sp_kill is included because the Azure release tests exercise it.
 # sp_BlitzFirst is appended last (same as Install-All-Scripts.sql).
 $IneachdbPath = Join-Path $RepoRoot "sp_ineachdb.sql"
 $azureContent = @()
@@ -194,6 +195,8 @@ if (Test-Path $IneachdbPath) {
 $azureContent += Get-ChildItem -Path $RepoRoot -Filter "sp_Blitz*.sql" |
     Where-Object { $_.Name -notlike "*BlitzBackups*" -and $_.Name -notlike "*DatabaseRestore*" -and $_.Name -notlike "*BlitzFirst*" } |
     ForEach-Object { Get-Content $_.FullName -Raw -Encoding UTF8 }
+
+$azureContent += Get-Content -Path (Join-Path $RepoRoot "sp_kill.sql") -Raw -Encoding UTF8
 
 if (Test-Path $BlitzFirstPath) {
     $azureContent += Get-Content -Path $BlitzFirstPath -Raw -Encoding UTF8
