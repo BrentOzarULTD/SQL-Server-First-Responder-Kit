@@ -19,7 +19,7 @@ try {
     $result = Invoke-SqlCmd-String -Sql "CREATE DATABASE [$fixture];" -Label 'Create Unicode fixture'
     if ($result.ExitCode) { throw $result.Output }
     $created = $true
-    $result = Invoke-SqlCmd-String -Sql "USE [$fixture]; CREATE TABLE dbo.Users(id int);" -Label 'Create fixture table'
+    $result = Invoke-SqlCmd-String -Sql "USE [$fixture]; IF UNICODE(RIGHT(DB_NAME(), 1)) <> 38634 THROW 51000, 'Fixture name lost its Unicode character.', 1; CREATE TABLE dbo.Users(id int);" -Label 'Create fixture table'
     if ($result.ExitCode) { throw $result.Output }
     Set-Content $scriptPath $prefix -Encoding UTF8
     . $scriptPath -ServerInstance $ServerInstance -TestDatabase $fixture
