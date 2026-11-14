@@ -82,6 +82,11 @@ function Get-SqlCmdErrorSummary {
     $headerPattern = '^\s*(Msg\s+\d+,\s*Level\s+\d+,|Sqlcmd:\s+(Error|Warning):)'
     for ($i = 0; $i -lt $lines.Count -and $summary.Count -lt 20; $i++) {
         if ($lines[$i] -notmatch $headerPattern) { continue }
+        # Do not admit a final header if its first message line would be lost.
+        $hasContext = $i + 1 -lt $lines.Count -and
+            -not [string]::IsNullOrWhiteSpace($lines[$i + 1]) -and
+            $lines[$i + 1] -notmatch $headerPattern
+        if ($hasContext -and $summary.Count -gt 18) { break }
         $summary.Add($lines[$i].Trim())
         # sqlcmd puts the SQL error message AFTER the Msg header. Preserve that
         # context even when it contains none of the usual error keywords.

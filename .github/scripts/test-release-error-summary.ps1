@@ -22,4 +22,11 @@ if ($result -notlike '*Login failed*') { throw 'Native client error was lost.' }
 $result = Get-SqlCmdErrorSummary ('x' * 5000)
 if ($result.Length -gt 550 -or $result -notlike '*see full log*') { throw 'Wide fallback output was not bounded.' }
 if ((Get-SqlCmdErrorSummary '') -ne '(sqlcmd did not return any output.)') { throw 'Empty output regression.' }
+$boundaryInput = "$header`nFirst message`nAdditional context`n" + ((1..9 | ForEach-Object {
+    "Msg $($_), Level 16, State 1, Line 1`nMessage $($_)"
+}) -join "`n")
+$result = Get-SqlCmdErrorSummary $boundaryInput
+if (($result -split "`n").Count -gt 20 -or $result -notlike '*Message 8*' -or $result -like '*Msg 9,*') {
+    throw 'The summary limit admitted an error header without its message.'
+}
 Write-Host 'PASS: SQL headers retain messages, result noise is excluded, fallback is bounded.'
