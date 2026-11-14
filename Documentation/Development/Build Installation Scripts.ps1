@@ -10,6 +10,11 @@
 .PARAMETER Database
     Database where the procs are installed. Default: master
 
+.NOTES
+    Run only on a test instance. DBAtools must already exist, be online and
+    writable, and allow creation of dbo tables. The workflow drops its named
+    test tables. Create DBAtools explicitly before running this release script.
+
 .EXAMPLE
     & "Documentation\Development\Build Installation Scripts.ps1"
 #>
@@ -133,6 +138,23 @@ $Details
 "@
     Add-Content -Path $ErrorLog -Value $entry -Encoding UTF8
     Write-Host "  FAIL: $Label" -ForegroundColor Red
+}
+
+# Fail before changing source files or dropping tables if output cannot be saved.
+$outputPrerequisite = Invoke-SqlCmd-String -Label "DBAtools prerequisite" -Sql @"
+IF DB_ID(N'DBAtools') IS NULL
+    THROW 51000, 'Create the DBAtools test output database before running the release script.', 1;
+IF ISNULL(CONVERT(nvarchar(60), DATABASEPROPERTYEX(N'DBAtools', 'Status')), N'') <> N'ONLINE'
+    OR ISNULL(CONVERT(nvarchar(60), DATABASEPROPERTYEX(N'DBAtools', 'Updateability')), N'') <> N'READ_WRITE'
+    THROW 51000, 'DBAtools must be online and writable for release output tests.', 1;
+EXEC(N'USE DBAtools;
+IF ISNULL(HAS_PERMS_BY_NAME(DB_NAME(), ''DATABASE'', ''CREATE TABLE''), 0) <> 1
+    OR ISNULL(HAS_PERMS_BY_NAME(N''dbo'', ''SCHEMA'', ''ALTER''), 0) <> 1
+    THROW 51000, ''Release tests require CREATE TABLE and ALTER on schema dbo in DBAtools.'', 1;');
+"@
+if ($outputPrerequisite.ExitCode -ne 0) {
+    Report-SqlCmdFailure -Result $outputPrerequisite
+    throw "DBAtools prerequisite failed; no release files were changed."
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -274,6 +296,7 @@ DROP TABLE IF EXISTS DBAtools.dbo.BlitzLock;
         },
         @{
             Label = "sp_Blitz (output to table)"
+            ExpectedTables = @("Blitz")
             Sql   = "EXEC dbo.sp_Blitz @CheckUserDatabaseObjects = 1, @CheckServerInfo = 1, @OutputDatabaseName = 'DBAtools', @OutputSchemaName = 'dbo', @OutputTableName = 'Blitz';"
         },
         @{
@@ -294,6 +317,7 @@ DROP TABLE IF EXISTS DBAtools.dbo.BlitzLock;
         },
         @{
             Label = "sp_BlitzCache (output to table)"
+            ExpectedTables = @("BlitzCache")
             Sql   = "EXEC dbo.sp_BlitzCache @OutputDatabaseName = 'DBAtools', @OutputSchemaName = 'dbo', @OutputTableName = 'BlitzCache';"
         },
         @{
@@ -310,6 +334,7 @@ DROP TABLE IF EXISTS DBAtools.dbo.BlitzLock;
         },
         @{
             Label = "sp_BlitzFirst (output to tables)"
+            ExpectedTables = @("BlitzFirst", "BlitzFirst_FileStats", "BlitzFirst_PerfmonStats", "BlitzFirst_WaitStats", "BlitzCache", "BlitzWho")
             Sql   = @"
 EXEC dbo.sp_BlitzFirst @OutputDatabaseName = 'DBAtools',
                        @OutputSchemaName = 'dbo',
@@ -355,6 +380,7 @@ EXEC dbo.sp_BlitzFirst @OutputDatabaseName = 'DBAtools',
         },
         @{
             Label = "sp_BlitzLock (output to table)"
+            ExpectedTables = @("BlitzLock")
             Sql   = "EXEC dbo.sp_BlitzLock @OutputDatabaseName = 'DBAtools', @OutputSchemaName = 'dbo', @OutputTableName = 'BlitzLock';"
         },
         @{
@@ -367,6 +393,7 @@ EXEC dbo.sp_BlitzFirst @OutputDatabaseName = 'DBAtools',
         },
         @{
             Label = "sp_BlitzWho (output to table)"
+            ExpectedTables = @("BlitzWho_Results")
             Sql   = "EXEC dbo.sp_BlitzWho @OutputDatabaseName = 'DBAtools', @OutputSchemaName = 'dbo', @OutputTableName = 'BlitzWho_Results';"
         }
     )
@@ -375,7 +402,14 @@ EXEC dbo.sp_BlitzFirst @OutputDatabaseName = 'DBAtools',
     foreach ($test in $testCalls) {
         $testNumber++
         Write-Host "  [$testNumber/$($testCalls.Count)] $($test.Label)..." -NoNewline
-        $result = Invoke-SqlCmd-String -Sql $test.Sql -Label $test.Label
+        $testSql = $test.Sql
+        foreach ($table in $test.ExpectedTables) {
+            $testSql += "`nIF OBJECT_ID(N'DBAtools.dbo.[$table]', N'U') IS NULL THROW 51000, 'Expected output table DBAtools.dbo.$table was not created.', 1;"
+        }
+        if ($test.ExpectedTables -contains "BlitzFirst_FileStats") {
+            $testSql += "`nEXEC(N'IF NOT EXISTS (SELECT 1 FROM DBAtools.dbo.BlitzFirst_FileStats) THROW 51000, ''No file statistics were persisted.'', 1;');"
+        }
+        $result = Invoke-SqlCmd-String -Sql $testSql -Label $test.Label
         if ($result.ExitCode -ne 0) {
             Report-SqlCmdFailure -Result $result
         } else {
