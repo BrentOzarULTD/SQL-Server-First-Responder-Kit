@@ -7,6 +7,11 @@
 .PARAMETER ServerInstance
     SQL Server instance to test against. Default: localhost
 
+.PARAMETER TestDatabase
+    Database containing dbo.Users for the table-specific sp_BlitzIndex tests.
+    Must already exist, be online, and allow MULTI_USER access.
+    For the FRK VM, use StackOverflow2010.
+
 .PARAMETER Database
     Database where the procs are installed. Default: master
 
@@ -15,7 +20,10 @@
 #>
 param(
     [string]$ServerInstance = "localhost",
-    [string]$Database       = "master"
+    [string]$Database       = "master",
+    [ValidateNotNullOrEmpty()]
+    [ValidateLength(1, 128)]
+    [string]$TestDatabase   = "StackOverflow"
 )
 
 $ErrorActionPreference = "Stop"
@@ -37,7 +45,7 @@ function Invoke-SqlCmd-String {
 
     $prevPref = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
-    $output = & sqlcmd -S $ServerInstance -E -d $Database -C -i $tmpFile -b -r 1 2>&1
+    $output = & sqlcmd -S $ServerInstance -E -d $Database -C -x -f i:65001 -i $tmpFile -b -r 1 2>&1
     $exitCode = $LASTEXITCODE
     $ErrorActionPreference = $prevPref
     Remove-Item $tmpFile -ErrorAction SilentlyContinue
@@ -46,7 +54,7 @@ function Invoke-SqlCmd-String {
         Output = ($output -join "`n")
         ExitCode = $exitCode
         Label = $Label
-        Command = "sqlcmd -S `"$ServerInstance`" -E -d `"$Database`" -C -i `"$tmpFile`" -b -r 1"
+        Command = "sqlcmd -S `"$ServerInstance`" -E -d `"$Database`" -C -x -f i:65001 -i `"$tmpFile`" -b -r 1"
     }
 }
 
@@ -56,7 +64,7 @@ function Invoke-SqlCmd-File {
 
     $prevPref = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
-    $output = & sqlcmd -S $ServerInstance -E -d $Database -C -i $FilePath -b -r 1 2>&1
+    $output = & sqlcmd -S $ServerInstance -E -d $Database -C -x -f i:65001 -i $FilePath -b -r 1 2>&1
     $exitCode = $LASTEXITCODE
     $ErrorActionPreference = $prevPref
 
@@ -65,7 +73,7 @@ function Invoke-SqlCmd-File {
         ExitCode = $exitCode
         Label = $Label
         FilePath = $FilePath
-        Command = "sqlcmd -S `"$ServerInstance`" -E -d `"$Database`" -C -i `"$FilePath`" -b -r 1"
+        Command = "sqlcmd -S `"$ServerInstance`" -E -d `"$Database`" -C -x -f i:65001 -i `"$FilePath`" -b -r 1"
     }
 }
 
@@ -151,6 +159,23 @@ $Details
 "@
     Add-Content -Path $ErrorLog -Value $entry -Encoding UTF8
     Write-Host "  FAIL: $Label" -ForegroundColor Red
+}
+
+# Validate the fixture before changing versions, rebuilding, or dropping test tables.
+$TestDatabaseSql = $TestDatabase.Replace("'", "''")
+$fixtureSql = @"
+DECLARE @Fixture sysname = N'$TestDatabaseSql';
+IF DB_ID(@Fixture) IS NULL OR ISNULL(CONVERT(nvarchar(60), DATABASEPROPERTYEX(@Fixture, 'Status')), N'') <> N'ONLINE'
+    THROW 51000, 'The test database must exist and be online. Specify -TestDatabase.', 1;
+IF ISNULL(CONVERT(nvarchar(60), DATABASEPROPERTYEX(@Fixture, 'UserAccess')), N'') <> N'MULTI_USER'
+    THROW 51000, 'The test database must allow MULTI_USER access.', 1;
+IF OBJECT_ID(QUOTENAME(@Fixture) + N'.dbo.Users', N'U') IS NULL
+    THROW 51000, 'The test database must contain dbo.Users.', 1;
+"@
+$fixtureResult = Invoke-SqlCmd-String -Sql $fixtureSql -Label "Test database prerequisite"
+if ($fixtureResult.ExitCode -ne 0) {
+    Report-SqlCmdFailure -Result $fixtureResult
+    throw "Test database prerequisite failed; no release files were changed."
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -363,12 +388,12 @@ EXEC dbo.sp_BlitzFirst @OutputDatabaseName = 'DBAtools',
             Sql   = "EXEC dbo.sp_BlitzIndex @GetAllDatabases = 1, @Mode = 4;"
         },
         @{
-            Label = "sp_BlitzIndex @DatabaseName = 'StackOverflow', @TableName = 'Users'"
-            Sql   = "EXEC dbo.sp_BlitzIndex @DatabaseName = 'StackOverflow', @TableName = 'Users';"
+            Label = "sp_BlitzIndex @DatabaseName = '$TestDatabase', @ObjectName = N'dbo.Users'"
+            Sql   = "EXEC dbo.sp_BlitzIndex @DatabaseName = N'$TestDatabaseSql', @ObjectName = N'dbo.Users';"
         },
         @{
-            Label = "sp_BlitzIndex @DatabaseName = 'StackOverflow', @TableName = 'Users', @AI = 2"
-            Sql   = "EXEC dbo.sp_BlitzIndex @DatabaseName = 'StackOverflow', @TableName = 'Users', @AI = 2;"
+            Label = "sp_BlitzIndex @DatabaseName = '$TestDatabase', @ObjectName = N'dbo.Users', @AI = 2"
+            Sql   = "EXEC dbo.sp_BlitzIndex @DatabaseName = N'$TestDatabaseSql', @ObjectName = N'dbo.Users', @AI = 2;"
         },
         @{
             Label = "sp_BlitzLock"
