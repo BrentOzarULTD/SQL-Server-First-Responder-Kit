@@ -2596,7 +2596,9 @@ If one of them is a lead blocker, consider killing that query.'' AS HowToStopit,
 			IF SERVERPROPERTY('EngineEdition') <> 5 /*SERVERPROPERTY('Edition') <> 'SQL Azure'*/
 			BEGIN
 				BEGIN TRY
-					EXEC sp_MSforeachdb @StringToExecute;
+					/* Avoid binding this SQL Server-only dependency on Azure SQL DB. */
+					DECLARE @ForEachDatabase sysname = N'sp_MSforeachdb';
+					EXEC @ForEachDatabase @StringToExecute;
 				END TRY
 				BEGIN CATCH
 					IF (ERROR_NUMBER() = 1222)

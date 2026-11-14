@@ -10062,6 +10062,9 @@ IF NOT EXISTS ( SELECT  1
 							END;
 								
 
+						/* Resolve the Windows registry reader only when a registry check runs. */
+						DECLARE @RegistryReader sysname = N'xp_regread';
+
 						IF NOT EXISTS ( SELECT  1
 										FROM    #SkipChecks
 										WHERE   DatabaseName IS NULL AND CheckID = 211 )
@@ -10078,20 +10081,20 @@ IF NOT EXISTS ( SELECT  1
 								IF @sa = 0 RAISERROR('The errors: ''xp_regread() returned error 5, ''Access is denied.'''' can be safely ignored', 0, 1) WITH NOWAIT;
 
 									/* Get power plan if set by group policy [Git Hub Issue #1620] */						
-									EXEC xp_regread @rootkey	= N'HKEY_LOCAL_MACHINE',
+									EXEC @RegistryReader @rootkey	= N'HKEY_LOCAL_MACHINE',
 													@key		= N'SOFTWARE\Policies\Microsoft\Power\PowerSettings',
 													@value_name	= N'ActivePowerScheme',
 													@value		= @powerScheme OUTPUT,
 													@no_output	= N'no_output';
 
 									IF @powerScheme IS NULL /* If power plan was not set by group policy, get local value [Git Hub Issue #1620]*/
-									EXEC xp_regread @rootkey	= N'HKEY_LOCAL_MACHINE',
+									EXEC @RegistryReader @rootkey	= N'HKEY_LOCAL_MACHINE',
 													@key		= N'SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes',
 													@value_name	= N'ActivePowerScheme',
 													@value		= @powerScheme OUTPUT;
 								
 									/* Get the cpu speed*/
-									EXEC @ExecResult = xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+									EXEC @ExecResult = @RegistryReader @rootkey		= N'HKEY_LOCAL_MACHINE',
 					                							  @key			= N'HARDWARE\DESCRIPTION\System\CentralProcessor\0',
 					                							  @value_name	= N'~MHz',
 					                							  @value		= @cpu_speed_mhz OUTPUT;
@@ -10155,34 +10158,34 @@ IF NOT EXISTS ( SELECT  1
 								   which we can't reach from T-SQL, so we read the policy values plus the secure kernel status flag. */
 
 								/* VBS turned on by policy (Group Policy / Intune / manual) */
-								EXEC xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+								EXEC @RegistryReader @rootkey		= N'HKEY_LOCAL_MACHINE',
 															@key		= N'SYSTEM\CurrentControlSet\Control\DeviceGuard',
 															@value_name	= N'EnableVirtualizationBasedSecurity',
 															@value		= @vbs_policy_enabled OUTPUT,
 															@no_output	= N'no_output';
 
 								/* Memory Integrity (HVCI) - on by default on new installs of Windows Server 2022+ and Windows 11 */
-								EXEC xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+								EXEC @RegistryReader @rootkey		= N'HKEY_LOCAL_MACHINE',
 															@key		= N'SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity',
 															@value_name	= N'Enabled',
 															@value		= @vbs_hvci_enabled OUTPUT,
 															@no_output	= N'no_output';
 
 								/* The secure kernel only runs when VBS is actually running (Windows Server 2025+) */
-								EXEC xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+								EXEC @RegistryReader @rootkey		= N'HKEY_LOCAL_MACHINE',
 															@key		= N'SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\KeyGuard\Status',
 															@value_name	= N'IsSecureKernelRunning',
 															@value		= @vbs_secure_kernel_running OUTPUT,
 															@no_output	= N'no_output';
 
 								/* Credential Guard, both the DeviceGuard scenario flag and the LSA flag (1 = on with UEFI lock, 2 = on without lock) */
-								EXEC xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+								EXEC @RegistryReader @rootkey		= N'HKEY_LOCAL_MACHINE',
 															@key		= N'SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\CredentialGuard',
 															@value_name	= N'Enabled',
 															@value		= @vbs_credguard_enabled OUTPUT,
 															@no_output	= N'no_output';
 
-								EXEC xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+								EXEC @RegistryReader @rootkey		= N'HKEY_LOCAL_MACHINE',
 															@key		= N'SYSTEM\CurrentControlSet\Control\Lsa',
 															@value_name	= N'LsaCfgFlags',
 															@value		= @vbs_lsa_cfg_flags OUTPUT,
@@ -10190,19 +10193,19 @@ IF NOT EXISTS ( SELECT  1
 
 								/* The same settings as pushed by Group Policy / Intune live under the Policies hive, which the power plan check also reads first.
 								   HypervisorEnforcedCodeIntegrity and LsaCfgFlags there are 0 = off, 1 = on with UEFI lock, 2 = on without lock. */
-								EXEC xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+								EXEC @RegistryReader @rootkey		= N'HKEY_LOCAL_MACHINE',
 															@key		= N'SOFTWARE\Policies\Microsoft\Windows\DeviceGuard',
 															@value_name	= N'EnableVirtualizationBasedSecurity',
 															@value		= @vbs_gpo_enabled OUTPUT,
 															@no_output	= N'no_output';
 
-								EXEC xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+								EXEC @RegistryReader @rootkey		= N'HKEY_LOCAL_MACHINE',
 															@key		= N'SOFTWARE\Policies\Microsoft\Windows\DeviceGuard',
 															@value_name	= N'HypervisorEnforcedCodeIntegrity',
 															@value		= @vbs_gpo_hvci OUTPUT,
 															@no_output	= N'no_output';
 
-								EXEC xp_regread @rootkey		= N'HKEY_LOCAL_MACHINE',
+								EXEC @RegistryReader @rootkey		= N'HKEY_LOCAL_MACHINE',
 															@key		= N'SOFTWARE\Policies\Microsoft\Windows\DeviceGuard',
 															@value_name	= N'LsaCfgFlags',
 															@value		= @vbs_gpo_lsa_cfg_flags OUTPUT,

@@ -129,11 +129,14 @@ echo
 echo "=== Clearing procedures left by earlier runs ==="
 run_query "DROP PROCEDURE IF EXISTS dbo.sp_Blitz;
            DROP PROCEDURE IF EXISTS dbo.sp_ineachdb;
-           DROP PROCEDURE IF EXISTS dbo.sp_BlitzIndex;" > /dev/null
+           DROP PROCEDURE IF EXISTS dbo.sp_BlitzIndex;
+           DROP PROCEDURE IF EXISTS dbo.sp_BlitzFirst;
+           DROP PROCEDURE IF EXISTS dbo.sp_BlitzWho;
+           DROP PROCEDURE IF EXISTS dbo.sp_BlitzCache;" > /dev/null
 
 remaining="$(run_scalar_int "SET NOCOUNT ON;
 SELECT COUNT(*) FROM sys.procedures WHERE schema_id = SCHEMA_ID(N'dbo')
-AND name IN ('sp_Blitz', 'sp_ineachdb', 'sp_BlitzIndex');")"
+AND name IN ('sp_Blitz', 'sp_ineachdb', 'sp_BlitzIndex', 'sp_BlitzFirst', 'sp_BlitzWho', 'sp_BlitzCache');")"
 
 # Anything but a definite zero -- including an empty result -- means we cannot
 # prove the database is clean, and a stale procedure could carry the run.
@@ -147,14 +150,22 @@ echo "  database is clean"
 echo
 echo "=== Installing ==="
 # sp_ineachdb first: sp_Blitz calls it to iterate databases.
-for script in sp_ineachdb sp_Blitz sp_BlitzIndex; do
+# sp_BlitzCache precedes sp_BlitzIndex; Cache and Who both precede First.
+for script in sp_ineachdb sp_Blitz sp_BlitzCache sp_BlitzIndex sp_BlitzWho sp_BlitzFirst; do
   echo "  installing $script"
   if ! "$SQLCMD" "${SQLCMD_ARGS[@]}" -i "$REPO_ROOT/$script.sql" > "$WORK_DIR/$script.log" 2>&1; then
     echo "::error::$script failed to install on Azure SQL Database"
     grep -E -A2 '^(Msg [0-9]+,|Sqlcmd: Error)' "$WORK_DIR/$script.log" | head -30 || tail -30 "$WORK_DIR/$script.log"
     exit 1
   fi
+  if grep -q 'depends on the missing object' "$WORK_DIR/$script.log"; then
+    echo "::error::$script installed with an unresolved dependency"
+    cat "$WORK_DIR/$script.log"
+    exit 1
+  fi
 done
+
+run_query "EXEC dbo.sp_BlitzFirst @Seconds=1, @ExpertMode=1;" > "$WORK_DIR/blitzfirst.log"
 
 echo "=== Verifying Azure index output ==="
 "$SQLCMD" "${SQLCMD_ARGS[@]}" -i "$REPO_ROOT/.github/scripts/azure-index-output-regression.sql"
