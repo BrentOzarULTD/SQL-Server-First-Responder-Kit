@@ -23,7 +23,15 @@ set -Eeuo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK_DIR="$(mktemp -d)"
-trap 'rm -rf "$WORK_DIR"' EXIT
+KILL_WORKLOAD_PID=""
+cleanup() {
+  if [[ -n "$KILL_WORKLOAD_PID" ]]; then
+    kill "$KILL_WORKLOAD_PID" 2>/dev/null || true
+    wait "$KILL_WORKLOAD_PID" 2>/dev/null || true
+  fi
+  rm -rf "$WORK_DIR"
+}
+trap cleanup EXIT
 
 # -I for QUOTED_IDENTIFIER ON, matching every real client. No -C: Azure presents
 # a valid certificate, so the connection is verified rather than trusted blindly.
@@ -254,6 +262,24 @@ fi
 echo
 echo "=== Verifying Azure kill candidate scope ==="
 "$SQLCMD" "${SQLCMD_ARGS[@]}" -i "$REPO_ROOT/sp_kill.sql" > "$WORK_DIR/sp_kill.log" 2>&1
-"$SQLCMD" "${SQLCMD_ARGS[@]}" -i "$REPO_ROOT/.github/scripts/azure-kill-scope-regression.sql"
+# Keep one identifiable same-database session alive so an empty capture cannot pass.
+KILL_TEST_HOST="FRK_KillScope_${RANDOM}_$$"
+"$SQLCMD" "${SQLCMD_ARGS[@]}" -H "$KILL_TEST_HOST" -Q "WAITFOR DELAY '00:05:00';" > "$WORK_DIR/kill-workload.log" 2>&1 &
+KILL_WORKLOAD_PID=$!
+kill_test_spid=""
+for attempt in $(seq 1 10); do
+  kill_test_spid="$(run_scalar_int "SET NOCOUNT ON; SELECT MAX(session_id) FROM sys.dm_exec_sessions WHERE host_name = N'$KILL_TEST_HOST' AND database_id = DB_ID() AND is_user_process = 1;")"
+  if [[ "$kill_test_spid" =~ ^[0-9]+$ ]]; then break; fi
+  sleep 1
+done
+if ! [[ "$kill_test_spid" =~ ^[0-9]+$ ]]; then
+  echo "::error::Could not establish the controlled sp_kill test session." >&2
+  cat "$WORK_DIR/kill-workload.log" >&2
+  exit 1
+fi
+"$SQLCMD" "${SQLCMD_ARGS[@]}" -v "TestSPID=$kill_test_spid" -i "$REPO_ROOT/.github/scripts/azure-kill-scope-regression.sql"
+kill "$KILL_WORKLOAD_PID" 2>/dev/null || true
+wait "$KILL_WORKLOAD_PID" 2>/dev/null || true
+KILL_WORKLOAD_PID=""
 
 echo "Azure SQL Database smoke test passed."
