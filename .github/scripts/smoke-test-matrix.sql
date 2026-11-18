@@ -296,6 +296,35 @@ EXEC dbo.sp_BlitzIndex @DatabaseName = 'FRKSmokeTest', @Mode = 4;
 --#STEP: sp_BlitzIndex single table
 EXEC dbo.sp_BlitzIndex @DatabaseName = 'FRKSmokeTest', @TableName = 'Users';
 
+--#STEP: sp_BlitzIndex single-table foreign key coverage
+USE FRKSmokeTest;
+BEGIN TRANSACTION;
+CREATE TABLE dbo.FKCoverageParentSingle (Id int NOT NULL PRIMARY KEY);
+CREATE TABLE dbo.FKCoverageParentComposite (
+    ColB int NOT NULL,
+    ColC int NOT NULL,
+    PRIMARY KEY (ColB, ColC)
+);
+CREATE TABLE dbo.FKCoverageChild (
+    [Col%_雪] int NOT NULL REFERENCES dbo.FKCoverageParentSingle (Id),
+    ColB int NOT NULL,
+    ColC int NOT NULL,
+    OtherCol int NOT NULL,
+    FOREIGN KEY (ColB, ColC) REFERENCES dbo.FKCoverageParentComposite (ColB, ColC)
+);
+CREATE INDEX IX_FKSingle ON dbo.FKCoverageChild ([Col%_雪]);
+CREATE INDEX IX_FKComposite ON dbo.FKCoverageChild (ColB, ColC, OtherCol);
+CREATE INDEX IX_FKReversed ON dbo.FKCoverageChild (ColC, ColB);
+CREATE INDEX IX_FKIncluded ON dbo.FKCoverageChild (ColB) INCLUDE (ColC);
+CREATE INDEX IX_FKNonLeading ON dbo.FKCoverageChild (OtherCol, ColB, ColC);
+CREATE INDEX IX_FKFiltered ON dbo.FKCoverageChild (ColB, ColC) WHERE ColB > 0;
+CREATE INDEX IX_FKDisabled ON dbo.FKCoverageChild (ColB, ColC);
+ALTER INDEX IX_FKDisabled ON dbo.FKCoverageChild DISABLE;
+
+EXEC master.dbo.sp_BlitzIndex @DatabaseName = N'FRKSmokeTest', @TableName = N'FKCoverageChild',
+    @SkipStatistics = 1;
+ROLLBACK TRANSACTION;
+
 --#STEP: sp_BlitzIndex all databases
 EXEC dbo.sp_BlitzIndex @GetAllDatabases = 1, @Mode = 0;
 

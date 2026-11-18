@@ -278,6 +278,28 @@ run_step() {
       python3 "$SCRIPT_DIR/test-lock-ring-buffer.py"
   elif [[ "$2" == 'output identifiers preserve quotes Unicode and brackets' ]]; then
     run_quoted_output_step "$1"
+  elif [[ "$2" == 'sp_BlitzIndex single-table foreign key coverage' ]]; then
+    local results="$WORK_DIR/fk-coverage.log"
+    "$SQLCMD" "${SQLCMD_ARGS[@]}" -d master -f 65001 -s '|' -w 65535 -W -i "$1" > "$results" || return 1
+    if ! awk -F '|' '
+      BEGIN {
+        expected["IX_FKSingle"] = expected["IX_FKComposite"] = 1
+        expected["IX_FKReversed"] = expected["IX_FKIncluded"] = expected["IX_FKNonLeading"] = 0
+        expected["IX_FKFiltered"] = expected["IX_FKDisabled"] = 0
+      }
+      $11 == "FK Covered by Index?" { found_header = 1 }
+      $1 ~ /^dbo[.]FKCoverageChild[.]IX_FK/ {
+        index_name = $1
+        sub(/^dbo[.]FKCoverageChild[.]/, "", index_name)
+        sub(/ .*/, "", index_name)
+        if (index_name in expected && $11 == expected[index_name]) delete expected[index_name]
+      }
+      END { if (!found_header || length(expected) != 0) exit 1 }
+    ' "$results"; then
+      echo "Unexpected foreign key coverage in the sp_BlitzIndex table detail."
+      cat "$results"
+      return 1
+    fi
   elif [[ "$2" == 'sp_BlitzFirst multi-server deltas and in-place upgrades' ]]; then
     run_delta_step "$1"
   elif [[ "$2" == 'sp_BlitzAnalysis defaults and isolates output schemas' ]]; then

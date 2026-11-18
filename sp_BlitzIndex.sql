@@ -476,6 +476,7 @@ DROP TABLE IF EXISTS #dm_db_index_operational_stats;
               last_user_lookup DATETIME NULL ,
               last_user_update DATETIME NULL ,
               is_referenced_by_foreign_key BIT DEFAULT(0),
+              foreign_keys_covered_by_index INT NOT NULL DEFAULT(0),
               secret_columns NVARCHAR(MAX) NULL,
               count_secret_columns INT NULL,
               create_date DATETIME NOT NULL,
@@ -2662,6 +2663,49 @@ OPTION (RECOMPILE);';
                                 [update_referential_action_desc], [delete_referential_action_desc] )
                 EXEC sp_executesql @dsql, @params = N'@i_DatabaseName NVARCHAR(128)', @i_DatabaseName = @DatabaseName;
 
+        IF @ObjectID IS NOT NULL AND @ShowColumnstoreOnly = 0
+        BEGIN
+            /* Match FK columns to the leading index keys using the same rules as check 72. */
+            SET @dsql = N'
+                UPDATE s
+                SET foreign_keys_covered_by_index =
+                    (
+                        SELECT COUNT(*)
+                        FROM ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_keys AS fk
+                        WHERE fk.parent_object_id = i.object_id
+                        AND fk.is_disabled = 0
+                        AND NOT EXISTS
+                            (
+                                SELECT 1
+                                FROM ' + QUOTENAME(@DatabaseName) + N'.sys.foreign_key_columns AS fkc
+                                WHERE fkc.constraint_object_id = fk.object_id
+                                AND NOT EXISTS
+                                    (
+                                        SELECT 1
+                                        FROM ' + QUOTENAME(@DatabaseName) + N'.sys.index_columns AS ic
+                                        WHERE ic.object_id = i.object_id
+                                        AND ic.index_id = i.index_id
+                                        AND ic.column_id = fkc.parent_column_id
+                                        AND ic.key_ordinal = fkc.constraint_column_id
+                                    )
+                            )
+                    )
+                FROM #IndexSanity AS s
+                JOIN ' + QUOTENAME(@DatabaseName) + N'.sys.indexes AS i
+                    ON i.object_id = s.object_id AND i.index_id = s.index_id
+                WHERE s.database_id = @DatabaseID
+                AND s.object_id = @ObjectID
+                AND i.type IN (1, 2)
+                AND i.is_disabled = 0
+                AND i.is_hypothetical = 0
+                AND i.has_filter = 0;';
+
+            IF @Debug = 1
+                PRINT @dsql;
+
+            EXEC sys.sp_executesql @dsql, N'@DatabaseID INT, @ObjectID INT', @DatabaseID, @ObjectID;
+        END;
+
 		IF @Mode NOT IN(1, 2)
 		BEGIN
         SET @dsql = N'
@@ -3649,9 +3693,7 @@ BEGIN
 			partition_compression_detail ,
             ISNULL(sz.index_lock_wait_summary,'') AS index_lock_wait_summary,
             s.is_referenced_by_foreign_key,
-            (SELECT COUNT(*)
-                FROM #ForeignKeys fk WHERE fk.parent_object_id=s.object_id
-                AND PATINDEX (fk.parent_fk_columns, s.key_column_names)=1) AS FKs_covered_by_index,
+            s.foreign_keys_covered_by_index,
             s.last_user_seek,
             s.last_user_scan,
             s.last_user_lookup,
@@ -3705,7 +3747,7 @@ BEGIN
 			partition_compression_detail AS [Compression Type],
             index_lock_wait_summary AS [Lock Waits],
             is_referenced_by_foreign_key AS [Referenced by FK?],
-            FKs_covered_by_index AS [FK Covered by Index?],
+            foreign_keys_covered_by_index AS [FK Covered by Index?],
             last_user_seek AS [Last User Seek],
             last_user_scan AS [Last User Scan],
             last_user_lookup AS [Last User Lookup],
